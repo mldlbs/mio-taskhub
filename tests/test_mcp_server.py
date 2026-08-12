@@ -107,6 +107,23 @@ def test_cancel_tool(mcp_ctx):
     assert res["state"] == "cancelled"
 
 
+def test_create_task_rich_fields(mcp_ctx):
+    created = _call("taskhub_create_task", {
+        "title": "Rich create", "project": "p", "workspace": "/w",
+        "files": ["a.py"], "labels": ["new"], "deliverables": ["r.md"],
+        "acceptance_criteria": "AC", "due_at": "2026-12-31T23:59:59+00:00",
+    })
+    tid = created["id"]
+    detail = _call("taskhub_get_task", {"task_id": tid})
+    assert detail["project"] == "p"
+    assert detail["workspace"] == "/w"
+    assert detail["files"] == ["a.py"]
+    assert detail["labels"] == ["new"]
+    assert detail["deliverables"] == ["r.md"]
+    assert detail["acceptance_criteria"] == "AC"
+    assert detail["due_at"] is not None
+
+
 def test_claim_with_context(mcp_ctx):
     _call("taskhub_create_task", {"title": "MCP Ctx"})
     claim = _call("taskhub_claim", {"agent": "mcp-agent", "project": "p",

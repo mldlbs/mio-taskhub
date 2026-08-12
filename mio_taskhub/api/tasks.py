@@ -29,6 +29,12 @@ def _parse_enum(enum_cls, value, default=None):
 
 @router.post("", response_model=dict)
 def create_task(body: dict, db: Session = Depends(get_session)):
+    due_at = body.get("due_at")
+    if isinstance(due_at, str):
+        try:
+            due_at = datetime.fromisoformat(due_at)
+        except ValueError:
+            raise HTTPException(400, f"invalid due_at: {due_at}")
     t = Task(
         id=str(uuid.uuid4())[:8],
         title=body.get("title", ""),
@@ -41,9 +47,13 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         est_duration_min=body.get("est_duration_min", 30),
         depends_on=body.get("depends_on"),
         max_retries=body.get("max_retries", 3),
+        acceptance_criteria=body.get("acceptance_criteria", ""),
+        due_at=due_at,
+        labels=body.get("labels", []),
         project=body.get("project", ""),
         workspace=body.get("workspace", ""),
         files=body.get("files", []),
+        deliverables=body.get("deliverables", []),
     )
     db.add(t)
     db.commit()

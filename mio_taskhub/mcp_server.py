@@ -272,6 +272,13 @@ async def taskhub_create_task(
     est_duration_min: int = Field(default=30, description="预估耗时（分钟）", ge=1, le=1440),
     depends_on: Optional[str] = Field(default=None, description="前置任务 id"),
     max_retries: int = Field(default=3, description="最大重试次数", ge=0, le=10),
+    acceptance_criteria: str = Field(default="", description="验收标准 / 完成定义"),
+    due_at: Optional[str] = Field(default=None, description="截止时间 ISO 格式"),
+    labels: Optional[list] = Field(default=None, description="自定义状态标签列表"),
+    project: str = Field(default="", description="关联项目名"),
+    workspace: str = Field(default="", description="工作区根路径"),
+    files: Optional[list] = Field(default=None, description="文件路径列表（相对工作区）"),
+    deliverables: Optional[list] = Field(default=None, description="预期产出物路径列表"),
 ) -> str:
     """向任务中心提交一个新任务，供各 agent 领取执行。
 
@@ -283,6 +290,13 @@ async def taskhub_create_task(
         est_duration_min: 预估耗时分钟数
         depends_on: 前置任务 id
         max_retries: 最大重试次数
+        acceptance_criteria: 验收标准 / 完成定义
+        due_at: 截止时间 ISO 格式
+        labels: 自定义状态标签列表
+        project: 关联项目名
+        workspace: 工作区根路径
+        files: 文件路径列表（相对工作区）
+        deliverables: 预期产出物路径列表
 
     Returns:
         JSON: {"id":..., "title":..., "state": "queued", ...}
@@ -295,6 +309,13 @@ async def taskhub_create_task(
         "est_duration_min": est_duration_min,
         "depends_on": depends_on,
         "max_retries": max_retries,
+        "acceptance_criteria": acceptance_criteria,
+        "due_at": due_at,
+        "labels": labels,
+        "project": project,
+        "workspace": workspace,
+        "files": files,
+        "deliverables": deliverables,
     }
     data = await _request("POST", "/tasks", body=body)
     return _fmt(data)

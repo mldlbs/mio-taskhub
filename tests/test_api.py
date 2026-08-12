@@ -12,6 +12,24 @@ def test_create_task():
     assert data["title"] == "Hello"
     assert data["state"] == "queued"
 
+def test_create_task_rich_fields():
+    r = client.post("/api/v1/tasks", json={
+        "title": "Rich", "acceptance_criteria": "AC",
+        "due_at": "2026-12-31T23:59:59+00:00",
+        "labels": ["new"], "project": "p", "workspace": "/w",
+        "files": ["a.py"], "deliverables": ["r.md"],
+    })
+    assert r.status_code == 200
+    d = client.get(f"/api/v1/tasks/{r.json()['id']}").json()
+    assert d["acceptance_criteria"] == "AC"
+    assert d["labels"] == ["new"] and d["project"] == "p"
+    assert d["files"] == ["a.py"] and d["deliverables"] == ["r.md"]
+    assert d["due_at"] is not None
+
+def test_create_task_invalid_due_at_returns_400():
+    r = client.post("/api/v1/tasks", json={"title": "Bad", "due_at": "not-a-date"})
+    assert r.status_code == 400
+
 def test_list_tasks():
     r = client.get("/api/v1/tasks")
     assert r.status_code == 200
