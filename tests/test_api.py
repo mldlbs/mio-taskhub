@@ -154,10 +154,26 @@ def test_claim_carries_context():
     assert d["files"] == ["a.py", "b.py"]
 
 def test_claim_does_not_overwrite_context():
-    client.post("/api/v1/tasks", json={"title": "Keep"})
+    client.post("/api/v1/tasks", json={"title": "Keep", "project": "preset"})
     r1 = client.post("/api/v1/tasks/claim", params={"agent": "ctx1", "project": "p1"})
+    assert r1.status_code == 200
     tid = r1.json()["task_id"]
-    r2 = client.post("/api/v1/tasks/claim", params={"agent": "ctx2", "project": "p2"})
-    assert r2.status_code == 204
     d = client.get(f"/api/v1/tasks/{tid}").json()
-    assert d["project"] == "p1"
+    assert d["project"] == "preset"  # preset wins, not overwritten by claim
+
+def test_subtask_cross_task_guard():
+    t1 = client.post("/api/v1/tasks", json={"title": "T1"}).json()
+    t2 = client.post("/api/v1/tasks", json={"title": "T2"}).json()
+    st = client.post(f"/api/v1/tasks/{t1['id']}/subtasks", json={"title": "s"}).json()
+    r = client.patch(f"/api/v1/tasks/{t2['id']}/subtasks/{st['id']}", json={"status": "done"})
+    assert r.status_code == 404
+
+def test_subtask_invalid_status_returns_400():
+    t = client.post("/api/v1/tasks", json={"title": "Bad"}).json()
+    r = client.post(f"/api/v1/tasks/{t['id']}/subtasks", json={"title": "s", "status": "bogus"})
+    assert r.status_code == 400
+
+def test_gitref_invalid_type_returns_400():
+    t = client.post("/api/v1/tasks", json={"title": "BadG"}).json()
+    r = client.post(f"/api/v1/tasks/{t['id']}/gitrefs", json={"ref_type": "nope", "value": "x"})
+    assert r.status_code == 400

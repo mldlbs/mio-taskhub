@@ -11,6 +11,14 @@ from mio_taskhub.utils import _now
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
+def _parse_enum(enum_cls, value, default=None):
+    if value is None and default is not None:
+        return default
+    try:
+        return enum_cls(value)
+    except ValueError:
+        raise HTTPException(400, f"invalid value: {value}, expected one of {[e.value for e in enum_cls]}")
+
 @router.post("", response_model=dict)
 def create_task(body: dict, db: Session = Depends(get_session)):
     t = Task(
@@ -25,6 +33,9 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         est_duration_min=body.get("est_duration_min", 30),
         depends_on=body.get("depends_on"),
         max_retries=body.get("max_retries", 3),
+        project=body.get("project", ""),
+        workspace=body.get("workspace", ""),
+        files=body.get("files", []),
     )
     db.add(t)
     db.commit()
@@ -104,7 +115,7 @@ def add_subtask(task_id: str, body: dict, db: Session = Depends(get_session)):
     if not t:
         raise HTTPException(404, "task not found")
     st = Subtask(task_id=task_id, order=body.get("order", 0),
-                 title=body.get("title", ""), status=SubtaskStatus(body.get("status", "pending")))
+                 title=body.get("title", ""), status=_parse_enum(SubtaskStatus, body.get("status"), "pending"))
     db.add(st); db.commit(); db.refresh(st)
     return {"id": st.id, "task_id": st.task_id, "order": st.order,
             "title": st.title, "status": st.status.value}
@@ -116,7 +127,7 @@ def update_subtask(task_id: str, sid: str, body: dict, db: Session = Depends(get
         raise HTTPException(404, "subtask not found")
     if "title" in body: st.title = body["title"]
     if "order" in body: st.order = body["order"]
-    if "status" in body: st.status = SubtaskStatus(body["status"])
+    if "status" in body: st.status = _parse_enum(SubtaskStatus, body["status"])
     db.add(st); db.commit(); db.refresh(st)
     return {"id": st.id, "task_id": st.task_id, "order": st.order,
             "title": st.title, "status": st.status.value}
@@ -126,7 +137,7 @@ def add_gitref(task_id: str, body: dict, db: Session = Depends(get_session)):
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404, "task not found")
-    g = GitRef(task_id=task_id, ref_type=RefType(body.get("ref_type", "branch")),
+    g = GitRef(task_id=task_id, ref_type=_parse_enum(RefType, body.get("ref_type"), "branch"),
                value=body.get("value", ""), note=body.get("note", ""))
     db.add(g); db.commit(); db.refresh(g)
     return {"id": g.id, "task_id": g.task_id, "ref_type": g.ref_type.value,
