@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
 from mio_taskhub.models import (
-    Task, TaskState, Run, RunState, Subtask, SubtaskStatus, GitRef, HistoryEvent, Discussion,
+    Task, TaskState, Run, RunState, Subtask, SubtaskStatus, GitRef, RefType, HistoryEvent, Discussion,
 )
 from mio_taskhub.utils import _now
 
@@ -119,6 +119,17 @@ def update_subtask(task_id: str, sid: str, body: dict, db: Session = Depends(get
     db.add(st); db.commit(); db.refresh(st)
     return {"id": st.id, "task_id": st.task_id, "order": st.order,
             "title": st.title, "status": st.status.value}
+
+@router.post("/{task_id}/gitrefs")
+def add_gitref(task_id: str, body: dict, db: Session = Depends(get_session)):
+    t = db.get(Task, task_id)
+    if not t:
+        raise HTTPException(404, "task not found")
+    g = GitRef(task_id=task_id, ref_type=RefType(body.get("ref_type", "branch")),
+               value=body.get("value", ""), note=body.get("note", ""))
+    db.add(g); db.commit(); db.refresh(g)
+    return {"id": g.id, "task_id": g.task_id, "ref_type": g.ref_type.value,
+            "value": g.value, "note": g.note}
 
 @router.delete("/{task_id}")
 def cancel_task(task_id: str, db: Session = Depends(get_session)):

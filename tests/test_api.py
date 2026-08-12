@@ -92,3 +92,16 @@ def test_subtask_crud():
 def test_subtask_404():
     r = client.post("/api/v1/tasks/nonexistent/subtasks", json={"title": "x"})
     assert r.status_code == 404
+
+def test_gitref_add():
+    created = client.post("/api/v1/tasks", json={"title": "GR"}).json()
+    r = client.post(f"/api/v1/tasks/{created['id']}/gitrefs",
+                    json={"ref_type": "branch", "value": "feat/x", "note": "n"})
+    assert r.status_code == 200
+    assert r.json()["ref_type"] == "branch"
+    d = client.get(f"/api/v1/tasks/{created['id']}").json()
+    assert len(d["gitrefs"]) == 1 and d["gitrefs"][0]["value"] == "feat/x"
+
+def test_gitref_404():
+    r = client.post("/api/v1/tasks/nope/gitrefs", json={"ref_type": "commit", "value": "abc"})
+    assert r.status_code == 404
