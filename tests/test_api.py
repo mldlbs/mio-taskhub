@@ -118,3 +118,24 @@ def test_history_add():
 def test_history_404():
     r = client.post("/api/v1/tasks/nope/history", json={"type": "x"})
     assert r.status_code == 404
+
+def test_discussion_add_and_close():
+    created = client.post("/api/v1/tasks", json={"title": "Disc"}).json()
+    tid = created["id"]
+    r = client.post(f"/api/v1/tasks/{tid}/discussions", json={
+        "topic": "如何实现", "agent": "opencode",
+        "summary": "讨论了方案", "conclusions": "用方案B",
+        "messages": [{"author": "opencode", "role": "assistant", "content": "建议方案B"}],
+    })
+    assert r.status_code == 200
+    did = r.json()["id"]
+    assert r.json()["status"] == "closed"
+    assert r.json()["conclusions"] == "用方案B"
+
+    d = client.get(f"/api/v1/tasks/{tid}/discussions").json()
+    assert len(d["discussions"]) == 1
+    assert d["discussions"][0]["messages"][0]["content"] == "建议方案B"
+
+def test_discussion_404():
+    r = client.post("/api/v1/tasks/nope/discussions", json={"topic": "t"})
+    assert r.status_code == 404

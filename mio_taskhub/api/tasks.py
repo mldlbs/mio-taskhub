@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
 from mio_taskhub.models import (
-    Task, TaskState, Run, RunState, Subtask, SubtaskStatus, GitRef, RefType, HistoryEvent, Discussion,
+    Task, TaskState, Run, RunState, Subtask, SubtaskStatus, GitRef, RefType, HistoryEvent,
+    Discussion, DiscussionMessage,
 )
 from mio_taskhub.utils import _now
 
@@ -142,6 +143,45 @@ def add_history(task_id: str, body: dict, db: Session = Depends(get_session)):
     db.add(h); db.commit(); db.refresh(h)
     return {"id": h.id, "task_id": h.task_id, "type": h.type,
             "payload": h.payload, "at": h.at.isoformat()}
+
+@router.post("/{task_id}/discussions")
+def add_discussion(task_id: str, body: dict, db: Session = Depends(get_session)):
+    t = db.get(Task, task_id)
+    if not t:
+        raise HTTPException(404, "task not found")
+    conclusions = body.get("conclusions", "")
+    status = "closed" if conclusions else "open"
+    d = Discussion(task_id=task_id, topic=body.get("topic", ""), agent=body.get("agent", ""),
+                   status=status, summary=body.get("summary", ""), conclusions=conclusions,
+                   ended_at=_now() if status == "closed" else None)
+    db.add(d); db.commit(); db.refresh(d)
+    for m in body.get("messages", []):
+        db.add(DiscussionMessage(discussion_id=d.id, author=m.get("author", ""),
+                                 role=m.get("role", "user"), content=m.get("content", "")))
+    db.commit()
+    return {"id": d.id, "task_id": d.task_id, "topic": d.topic, "agent": d.agent,
+            "status": d.status, "summary": d.summary, "conclusions": d.conclusions,
+            "started_at": d.started_at.isoformat(),
+            "ended_at": d.ended_at.isoformat() if d.ended_at else None}
+
+@router.get("/{task_id}/discussions")
+def list_discussions(task_id: str, db: Session = Depends(get_session)):
+    t = db.get(Task, task_id)
+    if not t:
+        raise HTTPException(404, "task not found")
+    rows = db.exec(select(Discussion).where(Discussion.task_id == task_id).order_by(Discussion.started_at)).all()
+    out = []
+    for d in rows:
+        msgs = db.exec(select(DiscussionMessage).where(DiscussionMessage.discussion_id == d.id).order_by(DiscussionMessage.at)).all()
+        out.append({
+            "id": d.id, "topic": d.topic, "agent": d.agent, "status": d.status,
+            "summary": d.summary, "conclusions": d.conclusions,
+            "started_at": d.started_at.isoformat(),
+            "ended_at": d.ended_at.isoformat() if d.ended_at else None,
+            "messages": [{"author": m.author, "role": m.role, "content": m.content,
+                          "at": m.at.isoformat()} for m in msgs],
+        })
+    return {"task_id": task_id, "discussions": out}
 
 @router.delete("/{task_id}")
 def cancel_task(task_id: str, db: Session = Depends(get_session)):
