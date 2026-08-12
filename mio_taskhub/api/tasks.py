@@ -39,8 +39,20 @@ def list_tasks(state: str = None, agent_type: str = None, db: Session = Depends(
         q = q.where((Task.target_agent_type == agent_type) | (Task.target_agent_type == None))
     rows = db.exec(q).all()
     return [
-        {"id": r.id, "title": r.title, "state": r.state.value,
-         "priority": r.priority, "target_agent_type": r.target_agent_type}
+        {"id": r.id, "title": r.title,
+         "description": r.description,
+         "state": r.state.value,
+         "priority": r.priority,
+         "target_agent_type": r.target_agent_type,
+         "schedule_type": r.schedule_type,
+         "run_at": r.run_at.isoformat() if r.run_at else None,
+         "cron_expr": r.cron_expr,
+         "est_duration_min": r.est_duration_min,
+         "depends_on": r.depends_on,
+         "max_retries": r.max_retries,
+         "attempt": r.attempt,
+         "created_at": r.created_at.isoformat(),
+         }
         for r in rows
     ]
 
@@ -49,7 +61,22 @@ def get_task(task_id: str, db: Session = Depends(get_session)):
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404, "task not found")
-    return {"id": t.id, "title": t.title, "state": t.state.value}
+    return {
+        "id": t.id,
+        "title": t.title,
+        "description": t.description,
+        "state": t.state.value,
+        "priority": t.priority,
+        "target_agent_type": t.target_agent_type,
+        "schedule_type": t.schedule_type,
+        "run_at": t.run_at.isoformat() if t.run_at else None,
+        "cron_expr": t.cron_expr,
+        "est_duration_min": t.est_duration_min,
+        "depends_on": t.depends_on,
+        "max_retries": t.max_retries,
+        "attempt": t.attempt,
+        "created_at": t.created_at.isoformat(),
+    }
 
 @router.delete("/{task_id}")
 def cancel_task(task_id: str, db: Session = Depends(get_session)):

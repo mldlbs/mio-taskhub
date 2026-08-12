@@ -15,6 +15,7 @@ dependencies = [
     "apscheduler>=3.10",
     "pydantic>=2.6",
     "websockets>=12.0",
+    "mcp>=1.2",
 ]
 
 [project.optional-dependencies]
@@ -25,6 +26,7 @@ dev = [
 
 [project.scripts]
 mio-taskhub = "mio_taskhub.main:run"
+mio-taskhub-mcp = "mio_taskhub.mcp_server:main"
 
 [tool.setuptools.packages.find]
 include = ["mio_taskhub*"]

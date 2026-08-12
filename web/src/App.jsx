@@ -1,29 +1,168 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api } from './api'
+import Rail from './components/Rail'
+import MissionBar from './components/MissionBar'
+import BoardView from './components/BoardView'
+import ListView from './components/ListView'
+import PlanView from './components/PlanView'
+import CreateModal from './components/CreateModal'
+import TaskDetail from './components/TaskDetail'
+
+const VIEW_KEY = 'mio.view'
+const CONTRAST_KEY = 'mio.contrast'
 
 export default function App() {
   const [tasks, setTasks] = useState([])
-  const [ws, setWs] = useState(null)
+  const [view, setViewState] = useState(() => {
+    try { return localStorage.getItem(VIEW_KEY) || 'board' } catch { return 'board' }
+  })
+  const [contrast, setContrast] = useState(() => {
+    try { return localStorage.getItem(CONTRAST_KEY) === 'high' } catch { return false }
+  })
+  const [ws, setWs] = useState(false)
+  const [error, setError] = useState(null)
+  const [modal, setModal] = useState(false)
+  const [detailId, setDetailId] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [lastSync, setLastSync] = useState(null)
+  const [focus, setFocus] = useState(null) // { id, t }
 
-  useEffect(() => {
-    api.listTasks().then(setTasks)
-    const socket = new WebSocket(`ws://${location.host}/ws`)
-    socket.onopen = () => setWs(socket)
-    return () => socket.close()
+  const setView = useCallback((v) => {
+    setViewState(v)
+    try { localStorage.setItem(VIEW_KEY, v) } catch { /* ignore */ }
   }, [])
 
+  useEffect(() => {
+    document.documentElement.dataset.contrast = contrast ? 'high' : 'standard'
+    try { localStorage.setItem(CONTRAST_KEY, contrast ? 'high' : 'standard') } catch { /* ignore */ }
+  }, [contrast])
+
+  const toggleContrast = useCallback(() => setContrast(c => !c), [])
+
+  const loadTasks = useCallback(() => {
+    api.listTasks()
+      .then(data => { setTasks(data); setError(null); setLastSync(new Date()) })
+      .catch(e => setError('加载失败: ' + e.message))
+      .finally(() => { setLoading(false); setRefreshing(false) })
+  }, [])
+
+  const refresh = useCallback(() => { setRefreshing(true); loadTasks() }, [loadTasks])
+
+  useEffect(() => {
+    loadTasks()
+
+    let socket = null
+    let timer = null
+    let retry = 0
+    let closed = false
+
+    const schedule = () => {
+      if (timer) clearTimeout(timer)
+      const delay = Math.min(1000 * 2 ** retry, 15000)
+      retry += 1
+      timer = setTimeout(connect, delay)
+    }
+
+    const connect = () => {
+      if (closed) return
+      let s
+      try { s = new WebSocket(`ws://${location.host}/ws`) } catch { schedule(); return }
+      socket = s
+      s.onopen = () => { setWs(true); retry = 0 }
+      s.onclose = () => { setWs(false); schedule() }
+      s.onerror = () => { try { s.close() } catch { /* ignore */ } }
+    }
+
+    connect()
+    const interval = setInterval(loadTasks, 5000)
+    return () => {
+      closed = true
+      if (timer) clearTimeout(timer)
+      clearInterval(interval)
+      if (socket) socket.close()
+    }
+  }, [loadTasks])
+
+  const createTask = async (payload) => {
+    try {
+      await api.createTask(payload)
+      setModal(false)
+      loadTasks()
+    } catch (e) {
+      setError('创建失败: ' + e.message)
+    }
+  }
+
+  const cancelTask = async (id) => {
+    try {
+      await api.cancelTask(id)
+      loadTasks()
+    } catch (e) {
+      setError('取消失败: ' + e.message)
+    }
+  }
+
+  const moveTask = useCallback((taskId, newState) => {
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, state: newState } : t))
+  }, [])
+
+  const openTask = useCallback((t) => setDetailId(t.id), [])
+  const detail = detailId ? tasks.find(t => t.id === detailId) : null
+
+  const focusLane = useCallback((id) => {
+    setView('board')
+    setFocus({ id, t: Date.now() })
+  }, [setView])
+
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: 'system-ui' }}>
-      <aside style={{ width: 160, background: '#111827', color: '#fff', padding: 12 }}>
-        <h3>mio-taskhub</h3>
-        <nav><div>任务看板</div><div>夜间计划</div><div>Agent 状态</div></nav>
-      </aside>
-      <main style={{ flex: 1, padding: 16 }}>
-        <h2>任务看板 <span style={{ fontSize: 12, color: '#16a34a' }}>● {ws ? '已连接' : '未连接'}</span></h2>
-        <ul>
-          {tasks.map(t => <li key={t.id}>{t.title} — <b>{t.state}</b></li>)}
-        </ul>
-      </main>
+    <div className="shell">
+      <Rail view={view} onChange={setView} wsLive={ws} contrast={contrast} onToggleContrast={toggleContrast} />
+
+      <div className="main">
+        <MissionBar
+          tasks={tasks}
+          ws={ws}
+          lastSync={lastSync}
+          refreshing={refreshing}
+          onRefresh={refresh}
+          onOpenModal={() => setModal(true)}
+          onFocusLane={focusLane}
+        />
+
+        {error && (
+          <div className="errorbar" role="alert">
+            <span>▲</span>
+            <span>{error}</span>
+            <button onClick={() => setError(null)} aria-label="关闭错误提示">×</button>
+          </div>
+        )}
+
+        <main className="viewport">
+          <div className="view-fade" key={view}>
+            {view === 'board' && (
+              <BoardView tasks={tasks} onMove={moveTask} onCancel={cancelTask} onOpen={openTask} loading={loading} focus={focus} />
+            )}
+            {view === 'list' && (
+              <ListView tasks={tasks} onCancel={cancelTask} onOpen={openTask} />
+            )}
+            {view === 'plan' && (
+              <PlanView tasks={tasks} />
+            )}
+          </div>
+        </main>
+      </div>
+
+      {modal && <CreateModal onClose={() => setModal(false)} onCreate={createTask} />}
+      {detail && (
+        <TaskDetail
+          task={detail}
+          tasks={tasks}
+          onClose={() => setDetailId(null)}
+          onCancel={cancelTask}
+          onMove={moveTask}
+        />
+      )}
     </div>
   )
 }

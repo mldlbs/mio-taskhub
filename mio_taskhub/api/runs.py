@@ -17,7 +17,12 @@ def heartbeat(run_id: str, body: dict = None, db: Session = Depends(get_session)
         run.progress = body["progress"]
     if "checkpoint" in body:
         run.checkpoint = body["checkpoint"]
+    task = db.get(Task, run.task_id)
+    if task and task.state == TaskState.CLAIMED:
+        task.state = TaskState.RUNNING
     db.add(run)
+    if task:
+        db.add(task)
     db.commit()
     db.refresh(run)
     return {"id": run.id, "state": run.state.value, "progress": run.progress}
