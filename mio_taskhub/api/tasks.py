@@ -194,7 +194,9 @@ def cancel_task(task_id: str, db: Session = Depends(get_session)):
     return {"ok": True, "state": "cancelled"}
 
 @router.post("/claim")
-def claim_task(agent: str = Query(...), agent_type: str = Query(None), db: Session = Depends(get_session)):
+def claim_task(agent: str = Query(...), agent_type: str = Query(None),
+               project: str = Query(None), workspace: str = Query(None),
+               files: str = Query(None), db: Session = Depends(get_session)):
     existing = db.exec(
         select(Run).where(Run.agent_name == agent, Run.state.in_([RunState.CLAIMED, RunState.RUNNING]))
     ).first()
@@ -208,6 +210,12 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None), db: Sessi
     task = db.exec(q).first()
     if not task:
         return Response(status_code=204)
+    if project and not task.project:
+        task.project = project
+    if workspace and not task.workspace:
+        task.workspace = workspace
+    if files and not task.files:
+        task.files = [f.strip() for f in files.split(",") if f.strip()]
     run = Run(
         id=str(uuid.uuid4())[:8],
         task_id=task.id,

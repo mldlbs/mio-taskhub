@@ -139,3 +139,25 @@ def test_discussion_add_and_close():
 def test_discussion_404():
     r = client.post("/api/v1/tasks/nope/discussions", json={"topic": "t"})
     assert r.status_code == 404
+
+def test_claim_carries_context():
+    client.post("/api/v1/tasks", json={"title": "Ctx"})
+    r = client.post("/api/v1/tasks/claim", params={
+        "agent": "ctx-agent",
+        "project": "p", "workspace": "/w", "files": "a.py,b.py",
+    })
+    assert r.status_code == 200
+    tid = r.json()["task_id"]
+    d = client.get(f"/api/v1/tasks/{tid}").json()
+    assert d["project"] == "p"
+    assert d["workspace"] == "/w"
+    assert d["files"] == ["a.py", "b.py"]
+
+def test_claim_does_not_overwrite_context():
+    client.post("/api/v1/tasks", json={"title": "Keep"})
+    r1 = client.post("/api/v1/tasks/claim", params={"agent": "ctx1", "project": "p1"})
+    tid = r1.json()["task_id"]
+    r2 = client.post("/api/v1/tasks/claim", params={"agent": "ctx2", "project": "p2"})
+    assert r2.status_code == 204
+    d = client.get(f"/api/v1/tasks/{tid}").json()
+    assert d["project"] == "p1"
