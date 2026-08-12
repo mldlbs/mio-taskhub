@@ -3,6 +3,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
+from sqlalchemy import Column, JSON
 from sqlmodel import SQLModel, Field
 
 def _now() -> datetime:
@@ -35,6 +36,18 @@ class TaskState(str, enum.Enum):
         }
         return dst in valid.get(src, set())
 
+class SubtaskStatus(str, enum.Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    DONE = "done"
+    BLOCKED = "blocked"
+
+class RefType(str, enum.Enum):
+    BRANCH = "branch"
+    COMMIT = "commit"
+    PR = "pr"
+    TAG = "tag"
+
 class RunState(str, enum.Enum):
     CLAIMED = "claimed"
     RUNNING = "running"
@@ -62,6 +75,13 @@ class Task(SQLModel, table=True):
     timeout_min: Optional[int] = None
     max_retries: int = 3
     attempt: int = 0
+    acceptance_criteria: str = ""
+    due_at: Optional[datetime] = None
+    labels: list = Field(default_factory=list, sa_column=Column(JSON))
+    project: str = ""
+    workspace: str = ""
+    files: list = Field(default_factory=list, sa_column=Column(JSON))
+    deliverables: list = Field(default_factory=list, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=_now)
 
 class Agent(SQLModel, table=True):
@@ -84,6 +104,46 @@ class Run(SQLModel, table=True):
     finished_at: Optional[datetime] = None
     result: Optional[str] = None
     exit_code: Optional[int] = None
+
+class Subtask(SQLModel, table=True):
+    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    task_id: str = Field(index=True)
+    order: int = 0
+    title: str
+    status: SubtaskStatus = SubtaskStatus.PENDING
+
+class GitRef(SQLModel, table=True):
+    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    task_id: str = Field(index=True)
+    ref_type: RefType = RefType.BRANCH
+    value: str
+    note: str = ""
+
+class HistoryEvent(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    task_id: str = Field(index=True)
+    type: str
+    payload: Optional[str] = None
+    at: datetime = Field(default_factory=_now)
+
+class Discussion(SQLModel, table=True):
+    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    task_id: str = Field(index=True)
+    topic: str
+    agent: str = ""
+    status: str = "open"
+    summary: str = ""
+    conclusions: str = ""
+    started_at: datetime = Field(default_factory=_now)
+    ended_at: Optional[datetime] = None
+
+class DiscussionMessage(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    discussion_id: str = Field(index=True)
+    author: str
+    role: str = "user"
+    content: str
+    at: datetime = Field(default_factory=_now)
 
 class Event(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
