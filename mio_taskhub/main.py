@@ -3,6 +3,7 @@ import sys
 import uvicorn
 from fastapi import FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
+from mio_taskhub.auth import generate_token, get_token, make_auth_middleware
 from mio_taskhub.db import init_db
 from mio_taskhub.api import tasks, agents, runs, plans
 from mio_taskhub.notifications import ws_manager
@@ -15,8 +16,22 @@ app.include_router(agents.router, prefix="/api/v1", tags=["agents"])
 app.include_router(runs.router, prefix="/api/v1", tags=["runs"])
 app.include_router(plans.router, prefix="/api/v1", tags=["plans"])
 
+app.state.auth_token = os.environ.get("MIO_TASKHUB_TOKEN", "")
+app.middleware("http")(make_auth_middleware())
+
+
+def configure_auth(token: str):
+    app.state.auth_token = token
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
+    token = getattr(app.state, "auth_token", "")
+    if token:
+        auth = ws.headers.get("authorization", "")
+        if ws.query_params.get("token") != token and auth != f"Bearer {token}":
+            await ws.close(code=4401)
+            return
     await ws_manager.connect(ws)
     try:
         while True:
@@ -51,7 +66,24 @@ def stop_background_jobs():
 
 
 def run():
-    uvicorn.run("mio_taskhub.main:app", host="0.0.0.0", port=8080, reload=False)
+    import argparse
+    parser = argparse.ArgumentParser(prog="mio-taskhub")
+    parser.add_argument("command", nargs="?", default="serve", help="serve")
+    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--auth", action="store_true", help="enable Bearer auth")
+    parser.add_argument("--token", default=None, help="auth token (default: MIO_TASKHUB_TOKEN env)")
+    args = parser.parse_args()
+
+    if args.auth:
+        token = get_token(args.token)
+        if not token:
+            token = generate_token()
+            print(f"Token: {token}")
+        configure_auth(token)
+        os.environ["MIO_TASKHUB_TOKEN"] = token
+
+    uvicorn.run("mio_taskhub.main:app", host=args.host, port=args.port, reload=False)
 
 
 if __name__ == "__main__":

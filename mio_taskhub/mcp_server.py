@@ -19,7 +19,11 @@ from mcp.server.fastmcp import FastMCP
 HUB_URL = os.environ.get("MIO_TASKHUB_URL", "http://127.0.0.1:8080/api/v1")
 TIMEOUT = 15.0
 
-_client = httpx.AsyncClient(timeout=TIMEOUT)
+_headers = {}
+_token = os.environ.get("MIO_TASKHUB_TOKEN", "")
+if _token:
+    _headers["Authorization"] = f"Bearer {_token}"
+_client = httpx.AsyncClient(timeout=TIMEOUT, headers=_headers)
 
 mcp = FastMCP(
     "mio_taskhub_mcp",

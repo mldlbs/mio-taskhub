@@ -2,7 +2,7 @@
 # Usage: python agent_wrapper.py <agent_name> <action> [args...]
 # Actions: register | claim | heartbeat | result
 
-import sys, json, time, urllib.request, urllib.error
+import sys, json, time, os, urllib.request, urllib.error
 
 HUB = "http://127.0.0.1:8080/api/v1"
 
@@ -11,6 +11,9 @@ def req(method, path, body=None):
     data = json.dumps(body).encode() if body else None
     r = urllib.request.Request(url, data=data, method=method)
     r.add_header("Content-Type", "application/json")
+    tok = os.environ.get("MIO_TASKHUB_TOKEN")
+    if tok:
+        r.add_header("Authorization", f"Bearer {tok}")
     try:
         with urllib.request.urlopen(r, timeout=10) as resp:
             if resp.status == 204: return None
