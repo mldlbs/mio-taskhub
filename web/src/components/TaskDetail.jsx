@@ -15,7 +15,7 @@ function payloadText(p) {
   return typeof p === 'string' ? p : JSON.stringify(p)
 }
 
-export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onRefresh, onToggleSubtask }) {
+export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onToggleSubtask }) {
   const closeRef = useRef(null)
 
   useEffect(() => {

@@ -105,13 +105,17 @@ export default function App() {
 
   const moveTask = useCallback((taskId, newState) => {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, state: newState } : t))
+    setDetail(prev => prev && prev.id === taskId ? { ...prev, state: newState } : prev)
   }, [])
+
+  const closeDetail = useCallback(() => setDetail(null), [])
 
   const openTask = useCallback(async (t) => {
     try {
       setDetail(await api.getTask(t.id))
       setError(null)
     } catch (e) {
+      setDetail(null)
       setError('加载详情失败: ' + e.message)
     }
   }, [])
@@ -180,7 +184,7 @@ export default function App() {
         <TaskDetail
           task={detail}
           tasks={tasks}
-          onClose={() => setDetail(null)}
+          onClose={closeDetail}
           onCancel={cancelTask}
           onMove={moveTask}
           onRefresh={refreshDetail}
