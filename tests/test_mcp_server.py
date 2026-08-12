@@ -133,3 +133,34 @@ def test_subtask_tools(mcp_ctx):
     assert up["status"] == "done"
     detail = _call("taskhub_get_task", {"task_id": tid})
     assert len(detail["subtasks"]) == 1
+
+
+def test_gitref_tool(mcp_ctx):
+    created = _call("taskhub_create_task", {"title": "GitT"})
+    tid = created["id"]
+    g = _call("taskhub_add_gitref", {"task_id": tid, "ref_type": "branch", "value": "feat/x"})
+    assert g["ref_type"] == "branch"
+    detail = _call("taskhub_get_task", {"task_id": tid})
+    assert detail["gitrefs"][0]["value"] == "feat/x"
+
+
+def test_history_tool(mcp_ctx):
+    created = _call("taskhub_create_task", {"title": "HistT"})
+    tid = created["id"]
+    h = _call("taskhub_add_history", {"task_id": tid, "type": "discussion"})
+    assert h["type"] == "discussion"
+    detail = _call("taskhub_get_task", {"task_id": tid})
+    assert len(detail["history"]) == 1
+
+
+def test_discussion_tool(mcp_ctx):
+    created = _call("taskhub_create_task", {"title": "DiscT"})
+    tid = created["id"]
+    d = _call("taskhub_add_discussion", {
+        "task_id": tid, "topic": "方案", "agent": "mcp-agent",
+        "summary": "讨论", "conclusions": "用B",
+        "messages": [{"author": "mcp-agent", "role": "assistant", "content": "建议B"}],
+    })
+    assert d["status"] == "closed"
+    disc = _call("taskhub_get_task", {"task_id": tid})
+    assert len(disc["discussions"]) == 1

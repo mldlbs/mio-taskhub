@@ -362,6 +362,60 @@ async def taskhub_update_subtask(
     return _fmt(data)
 
 
+@mcp.tool(name="taskhub_add_gitref", title="关联 Git 引用", annotations={
+    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
+})
+async def taskhub_add_gitref(
+    task_id: str = Field(description="任务唯一标识", min_length=1),
+    ref_type: str = Field(default="branch", description="类型：branch/commit/pr/tag"),
+    value: str = Field(description="引用值，如分支名或 commit hash", min_length=1),
+    note: str = Field(default="", description="备注"),
+) -> str:
+    """为任务关联一个 Git 引用（分支/commit/PR/tag）。"""
+    data = await _request("POST", f"/tasks/{task_id}/gitrefs",
+                          body={"ref_type": ref_type, "value": value, "note": note})
+    return _fmt(data)
+
+
+@mcp.tool(name="taskhub_add_history", title="追加执行历史", annotations={
+    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
+})
+async def taskhub_add_history(
+    task_id: str = Field(description="任务唯一标识", min_length=1),
+    type: str = Field(description="事件类型：created/claimed/heartbeat/result/discussion/...", max_length=50),
+    payload: Optional[str] = Field(default=None, description="JSON 字符串格式的附加数据"),
+) -> str:
+    """为任务追加一条执行历史事件。"""
+    import json as _json
+    try:
+        p = _json.loads(payload) if payload else None
+    except Exception:
+        p = {"raw": payload}
+    data = await _request("POST", f"/tasks/{task_id}/history", body={"type": type, "payload": p})
+    return _fmt(data)
+
+
+@mcp.tool(name="taskhub_add_discussion", title="回写讨论结果", annotations={
+    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
+})
+async def taskhub_add_discussion(
+    task_id: str = Field(description="任务唯一标识", min_length=1),
+    topic: str = Field(description="讨论主题", min_length=1, max_length=200),
+    agent: str = Field(default="", description="发起讨论的 agent 名称", max_length=64),
+    summary: str = Field(default="", description="讨论摘要"),
+    conclusions: str = Field(default="", description="结论（非空则标记 closed）"),
+    messages: Optional[list] = Field(default=None, description="消息列表：[{author, role, content}]"),
+) -> str:
+    """agent 将任务拉回独立会话讨论后，回写摘要与结论到任务。
+
+    有 conclusions 时讨论标记为 closed。消息列表可选。
+    """
+    body = {"topic": topic, "agent": agent, "summary": summary,
+            "conclusions": conclusions, "messages": messages or []}
+    data = await _request("POST", f"/tasks/{task_id}/discussions", body=body)
+    return _fmt(data)
+
+
 @mcp.tool(
     name="taskhub_cancel_task",
     title="取消任务",
