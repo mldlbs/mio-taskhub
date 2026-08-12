@@ -3,6 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
+from mio_taskhub.notifications import ws_manager
 from mio_taskhub.models import (
     Task, TaskState, Run, RunState, Subtask, SubtaskStatus, GitRef, RefType, HistoryEvent,
     Discussion, DiscussionMessage,
@@ -10,6 +11,13 @@ from mio_taskhub.models import (
 from mio_taskhub.utils import _now
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+def _broadcast_task_update(task_id: str):
+    import asyncio
+    try:
+        asyncio.run(ws_manager.broadcast({"type": "task_update", "task_id": task_id}))
+    except Exception:
+        pass
 
 def _parse_enum(enum_cls, value, default=None):
     if value is None and default is not None:
@@ -40,6 +48,7 @@ def create_task(body: dict, db: Session = Depends(get_session)):
     db.add(t)
     db.commit()
     db.refresh(t)
+    _broadcast_task_update(t.id)
     return {
         "id": t.id, "title": t.title, "state": t.state.value,
         "priority": t.priority, "created_at": t.created_at.isoformat(),
@@ -107,6 +116,7 @@ def update_task(task_id: str, body: dict, db: Session = Depends(get_session)):
     db.add(t)
     db.commit()
     db.refresh(t)
+    _broadcast_task_update(t.id)
     return _task_detail(t, db)
 
 @router.post("/{task_id}/subtasks")
@@ -117,6 +127,7 @@ def add_subtask(task_id: str, body: dict, db: Session = Depends(get_session)):
     st = Subtask(task_id=task_id, order=body.get("order", 0),
                  title=body.get("title", ""), status=_parse_enum(SubtaskStatus, body.get("status"), "pending"))
     db.add(st); db.commit(); db.refresh(st)
+    _broadcast_task_update(task_id)
     return {"id": st.id, "task_id": st.task_id, "order": st.order,
             "title": st.title, "status": st.status.value}
 
@@ -129,6 +140,7 @@ def update_subtask(task_id: str, sid: str, body: dict, db: Session = Depends(get
     if "order" in body: st.order = body["order"]
     if "status" in body: st.status = _parse_enum(SubtaskStatus, body["status"])
     db.add(st); db.commit(); db.refresh(st)
+    _broadcast_task_update(task_id)
     return {"id": st.id, "task_id": st.task_id, "order": st.order,
             "title": st.title, "status": st.status.value}
 
@@ -140,6 +152,7 @@ def add_gitref(task_id: str, body: dict, db: Session = Depends(get_session)):
     g = GitRef(task_id=task_id, ref_type=_parse_enum(RefType, body.get("ref_type"), "branch"),
                value=body.get("value", ""), note=body.get("note", ""))
     db.add(g); db.commit(); db.refresh(g)
+    _broadcast_task_update(task_id)
     return {"id": g.id, "task_id": g.task_id, "ref_type": g.ref_type.value,
             "value": g.value, "note": g.note}
 
@@ -152,6 +165,7 @@ def add_history(task_id: str, body: dict, db: Session = Depends(get_session)):
     h = HistoryEvent(task_id=task_id, type=body.get("type", ""),
                      payload=_json.dumps(body.get("payload")) if body.get("payload") is not None else None)
     db.add(h); db.commit(); db.refresh(h)
+    _broadcast_task_update(task_id)
     return {"id": h.id, "task_id": h.task_id, "type": h.type,
             "payload": h.payload, "at": h.at.isoformat()}
 
@@ -170,6 +184,7 @@ def add_discussion(task_id: str, body: dict, db: Session = Depends(get_session))
         db.add(DiscussionMessage(discussion_id=d.id, author=m.get("author", ""),
                                  role=m.get("role", "user"), content=m.get("content", "")))
     db.commit()
+    _broadcast_task_update(task_id)
     return {"id": d.id, "task_id": d.task_id, "topic": d.topic, "agent": d.agent,
             "status": d.status, "summary": d.summary, "conclusions": d.conclusions,
             "started_at": d.started_at.isoformat(),
@@ -202,6 +217,7 @@ def cancel_task(task_id: str, db: Session = Depends(get_session)):
     t.state = TaskState.CANCELLED
     db.add(t)
     db.commit()
+    _broadcast_task_update(task_id)
     return {"ok": True, "state": "cancelled"}
 
 @router.post("/claim")
@@ -241,5 +257,6 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
     db.add(task)
     db.commit()
     db.refresh(run)
+    _broadcast_task_update(task.id)
     return {"id": run.id, "task_id": run.task_id, "state": run.state.value,
             "agent_name": run.agent_name, "attempt": run.attempt}
