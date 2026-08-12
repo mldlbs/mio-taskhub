@@ -15,10 +15,6 @@ app.include_router(agents.router, prefix="/api/v1", tags=["agents"])
 app.include_router(runs.router, prefix="/api/v1", tags=["runs"])
 app.include_router(plans.router, prefix="/api/v1", tags=["plans"])
 
-WEB_DIR = os.path.join(os.path.dirname(__file__), "..", "web", "dist")
-if os.path.isdir(WEB_DIR):
-    app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
-
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws_manager.connect(ws)
@@ -30,6 +26,10 @@ async def websocket_endpoint(ws: WebSocket):
         pass
     finally:
         ws_manager.disconnect(ws)
+
+WEB_DIR = os.path.join(os.path.dirname(__file__), "..", "web", "dist")
+if os.path.isdir(WEB_DIR):
+    app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
 
 @app.on_event("startup")
 def start_scheduler():
