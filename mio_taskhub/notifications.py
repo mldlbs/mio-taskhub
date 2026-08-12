@@ -17,12 +17,13 @@ class WSManager:
     async def broadcast(self, message: dict):
         data = json.dumps(message)
         dead = set()
-        for ws in self.active:
+        for ws in list(self.active):
             try:
                 await ws.send_text(data)
             except Exception:
                 dead.add(ws)
-        self.active -= dead
+        if dead:
+            self.active -= dead
 
 
 ws_manager = WSManager()
