@@ -26,10 +26,11 @@ def configure_auth(token: str):
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
+    import secrets
     token = getattr(app.state, "auth_token", "")
     if token:
         auth = ws.headers.get("authorization", "")
-        if ws.query_params.get("token") != token and auth != f"Bearer {token}":
+        if ws.query_params.get("token") != token and not secrets.compare_digest(auth, f"Bearer {token}"):
             await ws.close(code=4401)
             return
     await ws_manager.connect(ws)

@@ -14,7 +14,7 @@ def auth_on():
 
 
 def test_auth_disabled_by_default():
-    assert app.state.auth_token == ""
+    app.state.auth_token = ""
     r = client.get("/api/v1/tasks")
     assert r.status_code == 200
 

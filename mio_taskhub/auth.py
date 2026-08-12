@@ -19,7 +19,7 @@ def make_auth_middleware():
         if not request.url.path.startswith("/api/"):
             return await call_next(request)
         auth = request.headers.get("authorization", "")
-        if auth == f"Bearer {token}":
+        if secrets.compare_digest(auth, f"Bearer {token}"):
             return await call_next(request)
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
     return auth_middleware
