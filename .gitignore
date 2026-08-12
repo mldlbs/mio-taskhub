@@ -8,3 +8,5 @@ data/*.db
 
 node_modules/
 web/dist/
+
+.worktrees/
