@@ -1,33 +1,50 @@
 import { useState } from 'react'
 import { fmtDur, prio } from '../constants'
+import { api } from '../api'
 
 const WINDOW_MIN = 540 // 22:00 → 07:00
+const WINDOW_START_MIN = 22 * 60 // 1320
+const DEFAULT_START = '22:00'
+const DEFAULT_END = '07:00'
 
-function buildSchedule(tasks) {
-  const pool = tasks
-    .filter(t => t.state === 'queued' || t.state === 'retrying')
-    .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || (a.est_duration_min ?? 0) - (b.est_duration_min ?? 0))
-
-  const items = []
-  let offset = 0
-  for (const t of pool) {
-    const dur = Math.max(5, t.est_duration_min ?? 30)
-    if (offset + dur > WINDOW_MIN) break
-    items.push({ ...t, start: offset, dur })
-    offset += dur
-  }
-  return { items, fitted: items.length, overflow: pool.length - items.length, filled: offset, total: pool.length }
+const hm2min = (s) => {
+  const [h, m] = s.split(':').map(Number)
+  return h * 60 + m
 }
 
 const pct = (min) => `${(min / WINDOW_MIN) * 100}%`
 
-export default function PlanView({ tasks, onSchedule }) {
+export default function PlanView({ onSchedule }) {
   const [plan, setPlan] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
 
-  const generate = () => {
-    const p = buildSchedule(tasks)
-    setPlan(p)
-    onSchedule && onSchedule(p)
+  const generate = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await api.nightPlan(DEFAULT_START, DEFAULT_END)
+      const items = (data.items ?? []).map((t) => ({
+        ...t,
+        id: t.task_id ?? t.id,
+        start: Math.max(0, hm2min(t.scheduled_start) - WINDOW_START_MIN),
+        dur: Math.max(5, t.est_duration_min ?? 30),
+      }))
+      const lastEnd = items.length ? Math.min(WINDOW_MIN, Math.max(...items.map((i) => i.start + i.dur))) : 0
+      const p = {
+        items,
+        fitted: items.length,
+        total: items.length,
+        filled: lastEnd,
+        overflow: data.has_overflow ? '有' : 0,
+      }
+      setPlan(p)
+      onSchedule && onSchedule(p)
+    } catch (e) {
+      setError('排期接口调用失败，请稍后重试')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -37,8 +54,17 @@ export default function PlanView({ tasks, onSchedule }) {
           <h2>夜间计划 <span style={{ color: 'var(--accent)' }}>NIGHT SHIFT</span></h2>
           <p>将待处理任务按优先级与预估时长排入 22:00 – 07:00 窗口</p>
         </div>
-        <button className="btn btn--accent" onClick={generate}>⟳ 生成排期</button>
+        <button className="btn btn--accent" onClick={generate} disabled={loading}>
+          {loading ? '生成中…' : '⟳ 生成排期'}
+        </button>
       </div>
+
+      {error && (
+        <div className="errorbar" role="alert" style={{ marginBottom: 12 }}>
+          <span>▲</span>
+          <span>{error}</span>
+        </div>
+      )}
 
       {plan ? (
         <>
