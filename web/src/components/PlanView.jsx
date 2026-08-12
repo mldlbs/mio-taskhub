@@ -24,12 +24,15 @@ export default function PlanView({ onSchedule }) {
     setError(null)
     try {
       const data = await api.nightPlan(DEFAULT_START, DEFAULT_END)
-      const items = (data.items ?? []).map((t) => ({
-        ...t,
-        id: t.task_id ?? t.id,
-        start: Math.max(0, hm2min(t.scheduled_start) - WINDOW_START_MIN),
-        dur: Math.max(5, t.est_duration_min ?? 30),
-      }))
+      const items = (data.items ?? []).map((t) => {
+        const off = hm2min(t.scheduled_start) - WINDOW_START_MIN
+        return {
+          ...t,
+          id: t.task_id ?? t.id,
+          start: off < 0 ? off + 1440 : off,
+          dur: Math.min(WINDOW_MIN, Math.max(5, t.est_duration_min ?? 30)),
+        }
+      })
       const lastEnd = items.length ? Math.min(WINDOW_MIN, Math.max(...items.map((i) => i.start + i.dur))) : 0
       const p = {
         items,
