@@ -10,7 +10,12 @@ async function req(method, path, body) {
 
 export const api = {
   listTasks: () => req('GET', '/tasks'),
+  getTask: (id) => req('GET', `/tasks/${id}`),
   createTask: (t) => req('POST', '/tasks', t),
+  updateTask: (id, body) => req('PATCH', `/tasks/${id}`, body),
+  addSubtask: (id, body) => req('POST', `/tasks/${id}/subtasks`, body),
+  updateSubtask: (id, sid, body) => req('PATCH', `/tasks/${id}/subtasks/${sid}`, body),
+  addDiscussion: (id, body) => req('POST', `/tasks/${id}/discussions`, body),
   claim: (agent) => req('POST', `/tasks/claim?agent=${encodeURIComponent(agent)}`),
   cancelTask: (id) => req('DELETE', `/tasks/${id}`),
   heartbeat: (rid, body) => req('POST', `/runs/${rid}/heartbeat`, body),
