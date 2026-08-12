@@ -6,7 +6,6 @@ from fastapi.staticfiles import StaticFiles
 from mio_taskhub.db import init_db
 from mio_taskhub.api import tasks, agents, runs, plans
 from mio_taskhub.notifications import ws_manager
-from mio_taskhub.scheduler import Scheduler as TaskScheduler
 
 app = FastAPI(title="mio-taskhub", version="0.1.0")
 init_db()

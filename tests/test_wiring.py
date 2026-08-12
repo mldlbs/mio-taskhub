@@ -67,3 +67,34 @@ def test_scheduler_skips_future_task():
         s.add(t); s.commit(); s.refresh(t)
     due = wiring._get_due_tasks()
     assert not any(d["id"] == t.id for d in due)
+
+def test_per_task_timeout_honored():
+    # task with timeout_min=1 (60s) — RunInfo must carry timeout_seconds=60
+    with Session(engine) as s:
+        t = Task(title="short-timeout", timeout_min=1)
+        s.add(t); s.commit(); s.refresh(t)
+        task_id = t.id
+    r = client.post("/api/v1/tasks/claim", params={"agent": "w-agent"})
+    assert r.status_code == 200
+    rid = r.json()["id"]
+    with Session(engine) as s:
+        run = s.get(Run, rid)
+        run.last_heartbeat = datetime.now(timezone.utc) - timedelta(seconds=90)
+        s.add(run); s.commit()
+    infos = wiring._get_runs()
+    info = next(i for i in infos if i.run_id == rid)
+    assert info.timeout_seconds == 60
+
+def test_timeout_does_not_clobber_finished_run():
+    t = _mk_task()
+    rid = _claim(t.id)
+    with Session(engine) as s:
+        run = s.get(Run, rid)
+        run.state = RunState.FINISHED
+        run.result = "agent completed"
+        s.add(run); s.commit()
+    wiring._on_timeout(rid, t.id)  # should be a no-op now
+    with Session(engine) as s:
+        run = s.get(Run, rid)
+        assert run.state == RunState.FINISHED
+        assert run.result == "agent completed"

@@ -31,4 +31,7 @@ class Scheduler:
 
     def _run(self):
         while not self._stop.wait(self.interval):
-            self.tick()
+            try:
+                self.tick()
+            except Exception:
+                pass  # transient errors must not kill the thread

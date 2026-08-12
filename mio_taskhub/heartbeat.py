@@ -15,6 +15,7 @@ class RunInfo:
     last_heartbeat: float
     attempt: int
     max_retries: int
+    timeout_seconds: int = 120
 
 class HeartbeatSweep:
     def __init__(
@@ -44,7 +45,10 @@ class HeartbeatSweep:
 
     def _run(self):
         while not self._stop.wait(self.interval):
-            self._sweep()
+            try:
+                self._sweep()
+            except Exception:
+                pass  # transient errors must not kill the thread
 
     def _sweep(self):
         now = _time.time()
@@ -52,7 +56,7 @@ class HeartbeatSweep:
             if run.state not in (RunState.CLAIMED, RunState.RUNNING):
                 continue
             try:
-                if now - run.last_heartbeat > self.timeout:
+                if now - run.last_heartbeat > getattr(run, "timeout_seconds", self.timeout):
                     self._on_timeout(run.run_id, run.task_id)
                 else:
                     self._on_alive(run.run_id)
