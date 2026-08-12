@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
 from mio_taskhub.models import (
-    Task, TaskState, Run, RunState, Subtask, GitRef, HistoryEvent, Discussion,
+    Task, TaskState, Run, RunState, Subtask, SubtaskStatus, GitRef, HistoryEvent, Discussion,
 )
 from mio_taskhub.utils import _now
 
@@ -96,6 +96,29 @@ def update_task(task_id: str, body: dict, db: Session = Depends(get_session)):
     db.commit()
     db.refresh(t)
     return _task_detail(t, db)
+
+@router.post("/{task_id}/subtasks")
+def add_subtask(task_id: str, body: dict, db: Session = Depends(get_session)):
+    t = db.get(Task, task_id)
+    if not t:
+        raise HTTPException(404, "task not found")
+    st = Subtask(task_id=task_id, order=body.get("order", 0),
+                 title=body.get("title", ""), status=SubtaskStatus(body.get("status", "pending")))
+    db.add(st); db.commit(); db.refresh(st)
+    return {"id": st.id, "task_id": st.task_id, "order": st.order,
+            "title": st.title, "status": st.status.value}
+
+@router.patch("/{task_id}/subtasks/{sid}")
+def update_subtask(task_id: str, sid: str, body: dict, db: Session = Depends(get_session)):
+    st = db.get(Subtask, sid)
+    if not st or st.task_id != task_id:
+        raise HTTPException(404, "subtask not found")
+    if "title" in body: st.title = body["title"]
+    if "order" in body: st.order = body["order"]
+    if "status" in body: st.status = SubtaskStatus(body["status"])
+    db.add(st); db.commit(); db.refresh(st)
+    return {"id": st.id, "task_id": st.task_id, "order": st.order,
+            "title": st.title, "status": st.status.value}
 
 @router.delete("/{task_id}")
 def cancel_task(task_id: str, db: Session = Depends(get_session)):

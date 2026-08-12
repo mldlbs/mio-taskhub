@@ -73,3 +73,22 @@ def test_get_task_returns_rich_fields():
     d = client.get(f"/api/v1/tasks/{created['id']}").json()
     assert d["labels"] == ["x"] and d["project"] == "p"
     assert d["acceptance_criteria"] == ""
+
+def test_subtask_crud():
+    created = client.post("/api/v1/tasks", json={"title": "ST"}).json()
+    tid = created["id"]
+    r = client.post(f"/api/v1/tasks/{tid}/subtasks", json={"title": "s1", "order": 1})
+    assert r.status_code == 200
+    sid = r.json()["id"]
+    assert r.json()["status"] == "pending"
+
+    r2 = client.patch(f"/api/v1/tasks/{tid}/subtasks/{sid}", json={"status": "done"})
+    assert r2.status_code == 200
+    assert r2.json()["status"] == "done"
+
+    d = client.get(f"/api/v1/tasks/{tid}").json()
+    assert len(d["subtasks"]) == 1 and d["subtasks"][0]["title"] == "s1"
+
+def test_subtask_404():
+    r = client.post("/api/v1/tasks/nonexistent/subtasks", json={"title": "x"})
+    assert r.status_code == 404
