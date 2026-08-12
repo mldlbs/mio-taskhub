@@ -30,8 +30,9 @@ class Scheduler:
             self._on_enqueue(task["id"])
 
     def _run(self):
+        import logging
         while not self._stop.wait(self.interval):
             try:
                 self.tick()
             except Exception:
-                pass  # transient errors must not kill the thread
+                logging.getLogger("mio_taskhub.scheduler").exception("scheduler tick failed")

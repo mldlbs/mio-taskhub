@@ -44,11 +44,12 @@ class HeartbeatSweep:
             self._thread.join(timeout=5)
 
     def _run(self):
+        import logging
         while not self._stop.wait(self.interval):
             try:
                 self._sweep()
             except Exception:
-                pass  # transient errors must not kill the thread
+                logging.getLogger("mio_taskhub.heartbeat").exception("heartbeat sweep failed")
 
     def _sweep(self):
         now = _time.time()
