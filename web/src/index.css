@@ -239,7 +239,12 @@ input, textarea, select { font-family: inherit; }
   border-bottom: 1px solid var(--line);
 }
 
-.mission__brand { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mission__brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.mission__mark {
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 4px 14px -8px rgba(0, 0, 0, 0.8);
+}
 .mission__name {
   font-family: var(--font-display);
   font-size: 15px;

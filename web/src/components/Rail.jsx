@@ -22,7 +22,9 @@ const VIEWS = [
 export default function Rail({ view, onChange, wsLive, contrast, onToggleContrast }) {
   return (
     <nav className="rail" aria-label="主导航">
-      <div className="rail__logo" aria-hidden="true" />
+      <div className="rail__logo" aria-hidden="true">
+        <img src="/icon.png" alt="" width="38" height="38" />
+      </div>
 
       {VIEWS.map(v => (
         <button

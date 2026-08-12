@@ -20,8 +20,11 @@ export default function MissionBar({ tasks, ws, lastSync, refreshing, onRefresh,
   return (
     <header className="mission">
       <div className="mission__brand">
-        <h1 className="mission__name">MIO<em>·</em>HUB</h1>
-        <span className="mission__sub">cross-agent task bus</span>
+        <img className="mission__mark" src="/icon.png" alt="" width="30" height="30" />
+        <div>
+          <h1 className="mission__name">MIO<em>·</em>HUB</h1>
+          <span className="mission__sub">cross-agent task bus</span>
+        </div>
       </div>
 
       <div className="mission__meters" aria-label="任务统计，点击可跳转到对应列">
