@@ -83,6 +83,16 @@ export default function TaskCard({ task, index, onCancel, onDragStart, onOpen, o
         {task.depends_on && <span className="chip chip--id">↳ {task.depends_on}</span>}
       </div>
 
+      {(task.labels?.length > 0 || task.due_at || task.project) && (
+        <div className="task__badges">
+          {task.project && <span className="chip chip--label">{task.project}</span>}
+          {task.labels.slice(0, 3).map(l => (
+            <span key={l} className="chip chip--label">{l}</span>
+          ))}
+          {task.due_at && <span className="chip chip--due">⏰ {fmtDate(task.due_at)}</span>}
+        </div>
+      )}
+
       <div className="task__foot">
         <span>{fmtDur(task.est_duration_min)}<span className="task__ago" title={fmtDate(task.created_at)}> · {fmtAgo(task.created_at)}</span></span>
         <span className="task__attempt" title={`尝试 ${done}/${attempts}`}>

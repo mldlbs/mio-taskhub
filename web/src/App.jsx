@@ -22,7 +22,7 @@ export default function App() {
   const [ws, setWs] = useState(false)
   const [error, setError] = useState(null)
   const [modal, setModal] = useState(false)
-  const [detailId, setDetailId] = useState(null)
+  const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [lastSync, setLastSync] = useState(null)
@@ -107,8 +107,30 @@ export default function App() {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, state: newState } : t))
   }, [])
 
-  const openTask = useCallback((t) => setDetailId(t.id), [])
-  const detail = detailId ? tasks.find(t => t.id === detailId) : null
+  const openTask = useCallback(async (t) => {
+    try {
+      setDetail(await api.getTask(t.id))
+      setError(null)
+    } catch (e) {
+      setError('加载详情失败: ' + e.message)
+    }
+  }, [])
+
+  const refreshDetail = useCallback(async () => {
+    if (detail) {
+      try { setDetail(await api.getTask(detail.id)) } catch (e) { /* 静默刷新失败 */ }
+    }
+  }, [detail])
+
+  const toggleSubtask = useCallback(async (sid, done) => {
+    if (!detail) return
+    try {
+      await api.updateSubtask(detail.id, sid, { status: done ? 'done' : 'pending' })
+      await refreshDetail()
+    } catch (e) {
+      setError('更新子任务失败: ' + e.message)
+    }
+  }, [detail, refreshDetail])
 
   const focusLane = useCallback((id) => {
     setView('board')
@@ -158,9 +180,11 @@ export default function App() {
         <TaskDetail
           task={detail}
           tasks={tasks}
-          onClose={() => setDetailId(null)}
+          onClose={() => setDetail(null)}
           onCancel={cancelTask}
           onMove={moveTask}
+          onRefresh={refreshDetail}
+          onToggleSubtask={toggleSubtask}
         />
       )}
     </div>

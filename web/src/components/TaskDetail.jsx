@@ -10,7 +10,12 @@ function scheduleOf(t) {
   return '立即执行'
 }
 
-export default function TaskDetail({ task, tasks, onClose, onCancel, onMove }) {
+function payloadText(p) {
+  if (p == null) return ''
+  return typeof p === 'string' ? p : JSON.stringify(p)
+}
+
+export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onRefresh, onToggleSubtask }) {
   const closeRef = useRef(null)
 
   useEffect(() => {
@@ -28,6 +33,9 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove }) {
   const st = tone(task.state)
   const cancellable = task.state === 'queued' || task.state === 'claimed' || task.state === 'retrying'
   const movable = ACTIVE.includes(task.state)
+  const due = task.due_at ? new Date(task.due_at) : null
+  const overdue = !!due && !Number.isNaN(+due) && due < new Date()
+  const hasCtx = task.project || task.workspace || (task.files && task.files.length) || (task.deliverables && task.deliverables.length)
 
   return (
     <div className="overlay drawer-overlay" onClick={onClose}>
@@ -51,12 +59,60 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove }) {
           <div className="kv"><span>创建时间</span><b className="mono">{fmtDate(task.created_at)}</b></div>
           <div className="kv"><span>尝试次数</span><b className="mono">{task.attempt ?? 0} / {task.max_retries ?? 3}</b></div>
           <div className="kv"><span>最大重试</span><b className="mono">{task.max_retries ?? 3}</b></div>
+          {due && (
+            <div className={`kv${overdue ? ' is-due' : ''}`}>
+              <span>截止时间</span>
+              <b className="mono">{fmtDate(task.due_at)}{overdue ? ' ⚠' : ''}</b>
+            </div>
+          )}
         </div>
+
+        {task.labels && task.labels.length > 0 && (
+          <section className="drawer__sec">
+            <h3>标签</h3>
+            <div className="drawer__labels">
+              {task.labels.map(l => (
+                <span key={l} className="chip chip--label">{l}</span>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {hasCtx && (
+          <section className="drawer__sec">
+            <h3>上下文</h3>
+            {task.project && <div className="kv"><span>项目</span><b>{task.project}</b></div>}
+            {task.workspace && <div className="kv"><span>工作区</span><b className="mono">{task.workspace}</b></div>}
+            {task.files && task.files.length > 0 && (
+              <>
+                <div className="ctx-label">关联文件</div>
+                <div className="ctx-list">
+                  {task.files.map((f, idx) => <div key={idx} className="ctx-file mono">▸ {f}</div>)}
+                </div>
+              </>
+            )}
+            {task.deliverables && task.deliverables.length > 0 && (
+              <>
+                <div className="ctx-label">产出物</div>
+                <div className="ctx-list">
+                  {task.deliverables.map((f, idx) => <div key={idx} className="ctx-file mono">◆ {f}</div>)}
+                </div>
+              </>
+            )}
+          </section>
+        )}
 
         {task.description && (
           <section className="drawer__sec">
             <h3>描述</h3>
             <p className="drawer__desc">{task.description}</p>
+          </section>
+        )}
+
+        {task.acceptance_criteria && (
+          <section className="drawer__sec">
+            <h3>验收标准</h3>
+            <p className="drawer__desc">{task.acceptance_criteria}</p>
           </section>
         )}
 
@@ -67,6 +123,70 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove }) {
               ↳ {dep ? dep.title : '（未知任务）'}
               <span style={{ color: 'var(--ink-faint)' }}> · {task.depends_on}</span>
             </p>
+          </section>
+        )}
+
+        {task.subtasks && task.subtasks.length > 0 && (
+          <section className="drawer__sec">
+            <h3>子任务</h3>
+            <div className="drawer__subtasks">
+              {task.subtasks.map(st => {
+                const done = st.status === 'done'
+                return (
+                  <label key={st.id} className={`subtask-row${done ? ' is-done' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={done}
+                      onChange={() => onToggleSubtask(st.id, !done)}
+                      aria-label={`子任务 ${st.title}`}
+                    />
+                    <span className="subtask-title">{st.title}</span>
+                    <span className="subtask-status">{st.status}</span>
+                  </label>
+                )
+              })}
+            </div>
+          </section>
+        )}
+
+        {task.discussions && task.discussions.length > 0 && (
+          <section className="drawer__sec">
+            <h3>讨论</h3>
+            {task.discussions.map(d => (
+              <div key={d.id} className="disc-block">
+                <div className="disc-block__head">
+                  <b className="disc-block__topic">{d.topic}</b>
+                  <span className={`chip disc-status${d.status === 'closed' ? ' is-closed' : ''}`}>
+                    {d.status === 'closed' ? '已结束' : '进行中'}
+                  </span>
+                </div>
+                {d.agent && <div className="disc-block__agent mono">{d.agent}</div>}
+                {d.summary && <p className="disc-block__summary">{d.summary}</p>}
+                {d.conclusions && (
+                  <p className="disc-block__concl"><em>结论:</em> {d.conclusions}</p>
+                )}
+              </div>
+            ))}
+          </section>
+        )}
+
+        {task.history && task.history.length > 0 && (
+          <section className="drawer__sec">
+            <h3>执行历史</h3>
+            <div className="drawer__timeline">
+              {task.history.map(h => (
+                <div key={h.id} className="hist-row">
+                  <span className="hist-row__dot" aria-hidden="true" />
+                  <div className="hist-row__body">
+                    <div className="hist-row__head">
+                      <b>{h.type}</b>
+                      <span className="hist-row__at mono">{fmtDate(h.at)}</span>
+                    </div>
+                    {h.payload != null && <pre className="hist-row__payload mono">{payloadText(h.payload)}</pre>}
+                  </div>
+                </div>
+              ))}
+            </div>
           </section>
         )}
 

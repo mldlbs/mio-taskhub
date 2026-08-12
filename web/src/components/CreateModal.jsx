@@ -1,7 +1,11 @@
 import { useState } from 'react'
 import { PRIORITY } from '../constants'
 
-const EMPTY = { title: '', description: '', priority: 0, est_duration_min: 30, target_agent_type: '' }
+const EMPTY = {
+  title: '', description: '', priority: 0, est_duration_min: 30, target_agent_type: '',
+  acceptance_criteria: '', due_at: '', labels: '', project: '', workspace: '',
+  files: '', deliverables: '',
+}
 
 export default function CreateModal({ onClose, onCreate }) {
   const [form, setForm] = useState(EMPTY)
@@ -18,6 +22,13 @@ export default function CreateModal({ onClose, onCreate }) {
         priority: form.priority,
         est_duration_min: Math.max(5, form.est_duration_min || 30),
         target_agent_type: form.target_agent_type.trim() || undefined,
+        acceptance_criteria: form.acceptance_criteria.trim(),
+        due_at: form.due_at || null,
+        labels: form.labels ? form.labels.split(',').map(s => s.trim()).filter(Boolean) : [],
+        project: form.project.trim(),
+        workspace: form.workspace.trim(),
+        files: form.files ? form.files.split(',').map(s => s.trim()).filter(Boolean) : [],
+        deliverables: form.deliverables ? form.deliverables.split(',').map(s => s.trim()).filter(Boolean) : [],
       })
     } finally {
       setBusy(false)
@@ -86,6 +97,72 @@ export default function CreateModal({ onClose, onCreate }) {
               value={form.target_agent_type}
               onChange={e => setForm({ ...form, target_agent_type: e.target.value })}
               placeholder="留空表示任意 agent 可领取"
+            />
+          </div>
+
+          <div className="field">
+            <label className="field__label">验收标准</label>
+            <textarea
+              value={form.acceptance_criteria}
+              onChange={e => setForm({ ...form, acceptance_criteria: e.target.value })}
+              placeholder="完成定义 / 如何验收…"
+              rows={2}
+            />
+          </div>
+
+          <div className="field field--row">
+            <div>
+              <label className="field__label">截止时间</label>
+              <input
+                type="datetime-local"
+                value={form.due_at}
+                onChange={e => setForm({ ...form, due_at: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="field__label">项目</label>
+              <input
+                value={form.project}
+                onChange={e => setForm({ ...form, project: e.target.value })}
+                placeholder="例如：数据平台"
+              />
+            </div>
+          </div>
+
+          <div className="field field--row">
+            <div>
+              <label className="field__label">工作区路径</label>
+              <input
+                value={form.workspace}
+                onChange={e => setForm({ ...form, workspace: e.target.value })}
+                placeholder="例如：/repo/agent-dev"
+              />
+            </div>
+            <div>
+              <label className="field__label">标签</label>
+              <input
+                value={form.labels}
+                onChange={e => setForm({ ...form, labels: e.target.value })}
+                placeholder="blocked,waiting-review"
+              />
+            </div>
+          </div>
+
+          <div className="field">
+            <label className="field__label">文件路径</label>
+            <input
+              value={form.files}
+              onChange={e => setForm({ ...form, files: e.target.value })}
+              placeholder="src/a.py,src/b.py"
+            />
+          </div>
+
+          <div className="field">
+            <label className="field__label">产出物</label>
+            <input
+              value={form.deliverables}
+              onChange={e => setForm({ ...form, deliverables: e.target.value })}
+              placeholder="report.md"
             />
           </div>
 
