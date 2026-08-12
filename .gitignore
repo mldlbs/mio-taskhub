@@ -5,3 +5,6 @@ venv/
 .mio_taskhub/
 data/taskhub.db
 data/*.db
+
+node_modules/
+web/dist/
