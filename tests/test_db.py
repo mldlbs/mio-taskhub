@@ -31,3 +31,10 @@ def test_crud_agent():
         assert found.agent_type == "test"
     finally:
         s.close()
+
+def test_create_all_creates_new_tables():
+    from sqlalchemy import inspect
+    from mio_taskhub.db import engine
+    tables = set(inspect(engine).get_table_names())
+    for name in ["subtask", "gitref", "historyevent", "discussion", "discussionmessage"]:
+        assert name in tables, f"missing table {name}"
