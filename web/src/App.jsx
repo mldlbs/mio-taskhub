@@ -187,7 +187,6 @@ export default function App() {
           onClose={closeDetail}
           onCancel={cancelTask}
           onMove={moveTask}
-          onRefresh={refreshDetail}
           onToggleSubtask={toggleSubtask}
         />
       )}
