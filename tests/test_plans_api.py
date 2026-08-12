@@ -58,3 +58,16 @@ def test_night_plan_custom_window():
     r = client.get("/api/v1/plans/night", params={"start": "20:00", "end": "21:00"})
     assert r.status_code == 200
     assert r.json()["window_start"] == "20:00"
+
+def test_night_plan_task_ids_filter():
+    a = _mk("OnlyA", 30, priority=2)
+    _mk("Other", 30, priority=1)
+    r = client.get("/api/v1/plans/night", params={"task_ids": a})
+    items = r.json()["items"]
+    assert [i["task_id"] for i in items] == [a]
+
+def test_night_plan_bad_window_falls_back():
+    _mk("D", 30)
+    r = client.get("/api/v1/plans/night", params={"start": "not-a-time"})
+    assert r.status_code == 200
+    assert r.json()["window_start"] == "22:00"
