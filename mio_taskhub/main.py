@@ -1,4 +1,5 @@
 import os
+import sys
 import uvicorn
 from fastapi import FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
@@ -27,13 +28,27 @@ async def websocket_endpoint(ws: WebSocket):
     finally:
         ws_manager.disconnect(ws)
 
-WEB_DIR = os.path.join(os.path.dirname(__file__), "..", "web", "dist")
+def _web_dir() -> str:
+    if getattr(sys, "frozen", False):
+        base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+        return os.path.join(base, "web", "dist")
+    return os.path.join(os.path.dirname(__file__), "..", "web", "dist")
+
+WEB_DIR = _web_dir()
 if os.path.isdir(WEB_DIR):
     app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
 
 @app.on_event("startup")
 def start_scheduler():
-    pass  # 完整版：实例化 TaskScheduler 并 start()
+    from mio_taskhub.wiring import start_background_jobs
+    app.state.background = start_background_jobs()
+
+@app.on_event("shutdown")
+def stop_background_jobs():
+    jobs = getattr(app.state, "background", None)
+    if jobs:
+        for job in jobs:
+            job.stop()
 
 
 def run():
