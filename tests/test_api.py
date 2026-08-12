@@ -105,3 +105,16 @@ def test_gitref_add():
 def test_gitref_404():
     r = client.post("/api/v1/tasks/nope/gitrefs", json={"ref_type": "commit", "value": "abc"})
     assert r.status_code == 404
+
+def test_history_add():
+    created = client.post("/api/v1/tasks", json={"title": "Hist"}).json()
+    r = client.post(f"/api/v1/tasks/{created['id']}/history",
+                    json={"type": "discussion", "payload": {"msg": "hi"}})
+    assert r.status_code == 200
+    assert r.json()["type"] == "discussion"
+    d = client.get(f"/api/v1/tasks/{created['id']}").json()
+    assert len(d["history"]) == 1
+
+def test_history_404():
+    r = client.post("/api/v1/tasks/nope/history", json={"type": "x"})
+    assert r.status_code == 404

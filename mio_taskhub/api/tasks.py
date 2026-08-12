@@ -131,6 +131,18 @@ def add_gitref(task_id: str, body: dict, db: Session = Depends(get_session)):
     return {"id": g.id, "task_id": g.task_id, "ref_type": g.ref_type.value,
             "value": g.value, "note": g.note}
 
+@router.post("/{task_id}/history")
+def add_history(task_id: str, body: dict, db: Session = Depends(get_session)):
+    t = db.get(Task, task_id)
+    if not t:
+        raise HTTPException(404, "task not found")
+    import json as _json
+    h = HistoryEvent(task_id=task_id, type=body.get("type", ""),
+                     payload=_json.dumps(body.get("payload")) if body.get("payload") is not None else None)
+    db.add(h); db.commit(); db.refresh(h)
+    return {"id": h.id, "task_id": h.task_id, "type": h.type,
+            "payload": h.payload, "at": h.at.isoformat()}
+
 @router.delete("/{task_id}")
 def cancel_task(task_id: str, db: Session = Depends(get_session)):
     t = db.get(Task, task_id)
