@@ -101,6 +101,7 @@ class Run(SQLModel, table=True):
     checkpoint: Optional[str] = None
     progress: int = 0
     started_at: datetime = Field(default_factory=_now)
+    last_heartbeat: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     result: Optional[str] = None
     exit_code: Optional[int] = None

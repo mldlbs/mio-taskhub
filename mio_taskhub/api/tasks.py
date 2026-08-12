@@ -260,6 +260,7 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
         state=RunState.CLAIMED,
         attempt=task.attempt + 1,
         started_at=_now(),
+        last_heartbeat=_now(),
     )
     task.state = TaskState.CLAIMED
     task.attempt += 1

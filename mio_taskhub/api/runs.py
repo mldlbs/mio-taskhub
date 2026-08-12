@@ -13,6 +13,7 @@ def heartbeat(run_id: str, body: dict = None, db: Session = Depends(get_session)
     if not run:
         raise HTTPException(404)
     run.state = RunState.RUNNING
+    run.last_heartbeat = _now()
     if "progress" in body:
         run.progress = body["progress"]
     if "checkpoint" in body:
