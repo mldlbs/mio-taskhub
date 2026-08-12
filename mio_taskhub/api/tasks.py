@@ -1,8 +1,11 @@
 import uuid
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
-from mio_taskhub.models import Task, TaskState, Run, RunState
+from mio_taskhub.models import (
+    Task, TaskState, Run, RunState, Subtask, GitRef, HistoryEvent, Discussion,
+)
 from mio_taskhub.utils import _now
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -44,12 +47,55 @@ def list_tasks(state: str = None, agent_type: str = None, db: Session = Depends(
         for r in rows
     ]
 
+def _task_detail(t: Task, db: Session) -> dict:
+    subtasks = db.exec(select(Subtask).where(Subtask.task_id == t.id).order_by(Subtask.order)).all()
+    gitrefs = db.exec(select(GitRef).where(GitRef.task_id == t.id)).all()
+    history = db.exec(select(HistoryEvent).where(HistoryEvent.task_id == t.id).order_by(HistoryEvent.at)).all()
+    discussions = db.exec(select(Discussion).where(Discussion.task_id == t.id)).all()
+    return {
+        "id": t.id, "title": t.title, "description": t.description, "state": t.state.value,
+        "priority": t.priority, "target_agent_type": t.target_agent_type,
+        "schedule_type": t.schedule_type, "run_at": t.run_at.isoformat() if t.run_at else None,
+        "cron_expr": t.cron_expr, "est_duration_min": t.est_duration_min,
+        "depends_on": t.depends_on, "max_retries": t.max_retries, "attempt": t.attempt,
+        "created_at": t.created_at.isoformat(),
+        "acceptance_criteria": t.acceptance_criteria,
+        "due_at": t.due_at.isoformat() if t.due_at else None,
+        "labels": t.labels, "project": t.project, "workspace": t.workspace,
+        "files": t.files, "deliverables": t.deliverables,
+        "subtasks": [{"id": s.id, "order": s.order, "title": s.title, "status": s.status.value} for s in subtasks],
+        "gitrefs": [{"id": g.id, "ref_type": g.ref_type.value, "value": g.value, "note": g.note} for g in gitrefs],
+        "history": [{"id": h.id, "type": h.type, "payload": h.payload, "at": h.at.isoformat()} for h in history],
+        "discussions": [{"id": d.id, "topic": d.topic, "agent": d.agent, "status": d.status,
+                         "summary": d.summary, "conclusions": d.conclusions,
+                         "started_at": d.started_at.isoformat()} for d in discussions],
+    }
+
 @router.get("/{task_id}")
 def get_task(task_id: str, db: Session = Depends(get_session)):
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404, "task not found")
-    return {"id": t.id, "title": t.title, "state": t.state.value}
+    return _task_detail(t, db)
+
+@router.patch("/{task_id}")
+def update_task(task_id: str, body: dict, db: Session = Depends(get_session)):
+    t = db.get(Task, task_id)
+    if not t:
+        raise HTTPException(404, "task not found")
+    editable = ["title", "description", "priority", "est_duration_min", "max_retries",
+                "acceptance_criteria", "due_at", "labels", "project", "workspace",
+                "files", "deliverables", "target_agent_type", "depends_on"]
+    for k in editable:
+        if k in body:
+            v = body[k]
+            if k == "due_at" and isinstance(v, str):
+                v = datetime.fromisoformat(v)
+            setattr(t, k, v)
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    return _task_detail(t, db)
 
 @router.delete("/{task_id}")
 def cancel_task(task_id: str, db: Session = Depends(get_session)):

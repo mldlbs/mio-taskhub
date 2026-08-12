@@ -49,3 +49,27 @@ def test_submit_result_completes_run():
     r = client.post(f"/api/v1/runs/{rid}/result", json={"success": True, "result": "OK"})
     assert r.status_code == 200
     assert r.json()["state"] == "finished"
+
+def test_patch_task_rich_fields():
+    created = client.post("/api/v1/tasks", json={"title": "Patch me"}).json()
+    r = client.patch(f"/api/v1/tasks/{created['id']}", json={
+        "acceptance_criteria": "AC", "due_at": "2026-12-31T23:59:59+00:00",
+        "labels": ["blocked"], "project": "p", "workspace": "/w",
+        "files": ["a.py"], "deliverables": ["report.md"],
+    })
+    assert r.status_code == 200
+    d = r.json()
+    assert d["acceptance_criteria"] == "AC"
+    assert d["labels"] == ["blocked"]
+    assert d["project"] == "p"
+    assert d["workspace"] == "/w"
+    assert d["files"] == ["a.py"]
+    assert d["deliverables"] == ["report.md"]
+    assert d["due_at"] is not None
+
+def test_get_task_returns_rich_fields():
+    created = client.post("/api/v1/tasks", json={"title": "Rich"}).json()
+    client.patch(f"/api/v1/tasks/{created['id']}", json={"labels": ["x"], "project": "p"})
+    d = client.get(f"/api/v1/tasks/{created['id']}").json()
+    assert d["labels"] == ["x"] and d["project"] == "p"
+    assert d["acceptance_criteria"] == ""
