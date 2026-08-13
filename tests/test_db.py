@@ -45,3 +45,36 @@ def test_stage_column_added_to_existing_table():
     with engine.connect() as conn:
         cols = {c["name"] for c in inspect(conn).get_columns("task")}
     assert "stage" in cols
+
+def test_migrate_stage_column_on_old_table():
+    import os
+    import tempfile
+    from sqlalchemy import create_engine, inspect, text
+    from mio_taskhub.db import _migrate_stage_column
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        eng = create_engine(f"sqlite:///{path}")
+        with eng.connect() as conn:
+            conn.execute(text(
+                "CREATE TABLE task (id VARCHAR PRIMARY KEY, title VARCHAR, state VARCHAR)"
+            ))
+            conn.execute(text("INSERT INTO task (id, title, state) VALUES ('old1', 'legacy', 'queued')"))
+            conn.commit()
+        _migrate_stage_column(eng)
+        with eng.connect() as conn:
+            cols = {c["name"] for c in inspect(conn).get_columns("task")}
+            assert {"stage", "spec_path", "plan_path", "review_result"} <= cols
+            row = conn.execute(text("SELECT stage, spec_path, plan_path, review_result FROM task WHERE id='old1'")).fetchone()
+            assert row[0] == "ready"
+            assert row[1] == "" and row[2] == "" and row[3] == ""
+        # idempotent: second run is a no-op
+        _migrate_stage_column(eng)
+        with eng.connect() as conn:
+            cols = {c["name"] for c in inspect(conn).get_columns("task")}
+            assert {"stage", "spec_path", "plan_path", "review_result"} <= cols
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass

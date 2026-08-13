@@ -16,8 +16,9 @@ else:
 
 engine = create_engine(f"sqlite:///{DB_PATH}", echo=False)
 
-def _migrate_stage_column():
-    with engine.connect() as conn:
+def _migrate_stage_column(target_engine=None):
+    eng = target_engine or engine
+    with eng.connect() as conn:
         cols = {c["name"] for c in inspect(conn).get_columns("task")}
         if "stage" not in cols:
             conn.execute(text("ALTER TABLE task ADD COLUMN stage VARCHAR NOT NULL DEFAULT 'ready'"))
