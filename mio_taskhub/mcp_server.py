@@ -443,6 +443,29 @@ async def taskhub_add_discussion(
     return _fmt(data)
 
 
+@mcp.tool(name="taskhub_advance_stage", title="推进研发阶段", annotations={
+    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
+})
+async def taskhub_advance_stage(
+    task_id: str = Field(description="任务唯一标识", min_length=1),
+    target_stage: str = Field(description="目标阶段：design/planning/ready/review/done/cancelled"),
+    spec_path: Optional[str] = Field(default=None, description="设计文档路径（进 design 必填）"),
+    plan_path: Optional[str] = Field(default=None, description="计划文档路径（进 planning 必填）"),
+    review_result: Optional[str] = Field(default=None, description="审查结论（进 done 必填）"),
+) -> str:
+    """推进任务到下一研发阶段，需带对应产出物。
+
+    brainstorming→design 需 spec_path 且任务下有讨论记录；
+    design→planning 需 plan_path；review→done 需 review_result。
+    """
+    body = {"target_stage": target_stage}
+    if spec_path is not None: body["spec_path"] = spec_path
+    if plan_path is not None: body["plan_path"] = plan_path
+    if review_result is not None: body["review_result"] = review_result
+    data = await _request("POST", f"/tasks/{task_id}/stage", body=body)
+    return _fmt(data)
+
+
 @mcp.tool(
     name="taskhub_cancel_task",
     title="取消任务",

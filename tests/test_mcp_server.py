@@ -181,3 +181,29 @@ def test_discussion_tool(mcp_ctx):
     assert d["status"] == "closed"
     disc = _call("taskhub_get_task", {"task_id": tid})
     assert len(disc["discussions"]) == 1
+
+
+def test_advance_stage_tool(mcp_ctx):
+    created = _call("taskhub_create_task", {"title": "Stage", "stage": "brainstorming"})
+    tid = created["id"]
+    d = _call("taskhub_add_discussion", {"task_id": tid, "topic": "理解", "agent": "mcp-agent",
+                                         "summary": "s", "conclusions": "c"})
+    assert d["status"] == "closed"
+    r = _call("taskhub_advance_stage", {"task_id": tid, "target_stage": "design",
+                                        "spec_path": "docs/s.md"})
+    assert r["stage"] == "design"
+    r2 = _call("taskhub_advance_stage", {"task_id": tid, "target_stage": "planning",
+                                         "plan_path": "docs/p.md"})
+    assert r2["stage"] == "planning"
+    r3 = _call("taskhub_advance_stage", {"task_id": tid, "target_stage": "ready"})
+    assert r3["stage"] == "ready"
+    # then claim works（领取即 ready→implementing）
+    claim = _call("taskhub_claim", {"agent": "mcp-agent"})
+    assert claim["task"]["stage"] == "implementing"
+
+def test_advance_stage_missing_artifact(mcp_ctx):
+    created = _call("taskhub_create_task", {"title": "NoArt", "stage": "brainstorming"})
+    tid = created["id"]
+    _call("taskhub_add_discussion", {"task_id": tid, "topic": "t", "agent": "a"})
+    r = _call("taskhub_advance_stage", {"task_id": tid, "target_stage": "design"})
+    assert "error" in r or r == {}  # 422 surfaced as error dict or empty
