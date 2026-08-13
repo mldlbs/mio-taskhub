@@ -5,6 +5,7 @@ import MissionBar from './components/MissionBar'
 import BoardView from './components/BoardView'
 import ListView from './components/ListView'
 import PlanView from './components/PlanView'
+import FlowView from './components/FlowView'
 import CreateModal from './components/CreateModal'
 import TaskDetail from './components/TaskDetail'
 
@@ -103,6 +104,27 @@ export default function App() {
     }
   }
 
+  const advanceStage = async (id, body) => {
+    try { await api.advanceStage(id, body); loadTasks() }
+    catch (e) { setError('推进阶段失败: ' + e.message) }
+  }
+
+  const advanceTaskStage = (task) => {
+    const next = { brainstorming:'design', design:'planning', planning:'ready',
+                   implementing:'review', review:'done' }[task.stage]
+    if (!next) return
+    const msg = next === 'design' ? 'Spec 路径: ' :
+                next === 'planning' ? 'Plan 路径: ' :
+                next === 'done' ? '审查结论: ' : ''
+    const val = window.prompt(msg, '')
+    if (val === null) return
+    const body = { target_stage: next }
+    if (next === 'design') body.spec_path = val
+    else if (next === 'planning') body.plan_path = val
+    else if (next === 'done') body.review_result = val
+    advanceStage(task.id, body)
+  }
+
   const moveTask = useCallback((taskId, newState) => {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, state: newState } : t))
     setDetail(prev => prev && prev.id === taskId ? { ...prev, state: newState } : prev)
@@ -175,6 +197,9 @@ export default function App() {
             {view === 'plan' && (
               <PlanView tasks={tasks} />
             )}
+            {view === 'flow' && (
+              <FlowView tasks={tasks} onOpen={openTask} onCancel={cancelTask} onAdvance={advanceStage} />
+            )}
           </div>
         </main>
       </div>
@@ -188,6 +213,7 @@ export default function App() {
           onCancel={cancelTask}
           onMove={moveTask}
           onToggleSubtask={toggleSubtask}
+          onAdvance={advanceTaskStage}
         />
       )}
     </div>

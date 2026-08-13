@@ -1531,3 +1531,192 @@ body { font-size: 15px; }
   max-height: 140px;
   overflow-y: auto;
 }
+
+/* ============================================================
+   v6 — 研发流程：Flow 泳道 · 阶段进度条
+   ============================================================ */
+
+/* --- generic danger ghost (Flow cancel) --- */
+.btn--danger {
+  color: var(--danger);
+  border-color: rgba(255, 107, 107, 0.35);
+  background: var(--danger-soft);
+}
+.btn--danger:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* --- flow track --- */
+.flow {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.flow__track {
+  flex: 1;
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 10px;
+}
+.flow__lane {
+  flex: 1;
+  min-width: 228px;
+  max-width: 300px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.flow__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.flow__en {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.flow__count {
+  margin-left: auto;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-faint);
+}
+.flow__label {
+  flex: none;
+  padding: 6px 14px;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  border-bottom: 1px dashed var(--line);
+}
+.flow__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 11px;
+  overflow-y: auto;
+  min-height: 120px;
+}
+.flow__empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  min-height: 90px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+/* --- flow card --- */
+.flow-card {
+  flex: none;
+  position: relative;
+  padding: 11px 12px 10px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.18s var(--ease), border-color 0.18s var(--ease), box-shadow 0.25s var(--ease);
+  animation: rise 0.45s var(--ease) both;
+}
+.flow-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--line-strong);
+  box-shadow: 0 10px 26px -14px rgba(0, 0, 0, 0.8);
+}
+.flow-card__top {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.flow-card__top h4 {
+  flex: 1;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.flow-card__chev {
+  flex: none;
+  color: var(--ink-faint);
+  opacity: 0;
+  transform: translateX(-2px);
+  transition: opacity 0.18s var(--ease), transform 0.18s var(--ease);
+}
+.flow-card:hover .flow-card__chev { opacity: 1; transform: translateX(0); }
+.flow-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 9px;
+  flex-wrap: wrap;
+}
+.flow-card__foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 9px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+}
+.flow-card__adv {
+  margin-left: auto;
+  padding: 4px 10px;
+  font-size: 11px;
+}
+.flow-card__cancel {
+  flex: none;
+  padding: 2px 8px;
+  font-size: 13px;
+  line-height: 1.3;
+}
+.chip--doc {
+  color: var(--ink-dim);
+  border-color: var(--line-strong);
+  font-size: 10px;
+  padding: 2px 4px;
+}
+
+/* --- stage progress bar --- */
+.stage-bar {
+  position: relative;
+  height: 6px;
+  margin: -6px 0 14px;
+  border-radius: 999px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.stage-bar__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-soft), var(--accent));
+  box-shadow: 0 0 10px var(--accent-glow);
+  transition: width 0.4s var(--ease);
+}
+.drawer__meta + .stage-bar { margin-top: -6px; }
+

@@ -15,7 +15,7 @@ function payloadText(p) {
   return typeof p === 'string' ? p : JSON.stringify(p)
 }
 
-export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onToggleSubtask }) {
+export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onToggleSubtask, onAdvance }) {
   const closeRef = useRef(null)
 
   useEffect(() => {
@@ -24,6 +24,10 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
+
+  const STAGES = ['brainstorming','design','planning','ready','implementing','review','done']
+  const sidx = STAGES.indexOf(task.stage)
+  const spct = sidx >= 0 ? Math.round((sidx + 1) / STAGES.length * 100) : 0
 
   const p = prio(task.priority)
   const i = LANES.findIndex(l => l.id === task.state)
@@ -65,7 +69,20 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
               <b className="mono">{fmtDate(task.due_at)}{overdue ? ' ⚠' : ''}</b>
             </div>
           )}
+          <div className="kv"><span>阶段</span><b>{task.stage || '—'}</b></div>
         </div>
+
+        {task.stage && (
+          <div className="stage-bar" title={`${sidx + 1}/${STAGES.length} · ${spct}%`}>
+            <div className="stage-bar__fill" style={{ width: spct + '%' }} />
+          </div>
+        )}
+
+        {task.spec_path && <div className="kv"><span>Spec</span><b className="mono">{task.spec_path}</b></div>}
+        {task.plan_path && <div className="kv"><span>Plan</span><b className="mono">{task.plan_path}</b></div>}
+        {task.review_result && (
+          <div className="drawer__sec"><h3>审查结论</h3><p>{task.review_result}</p></div>
+        )}
 
         {task.labels && task.labels.length > 0 && (
           <section className="drawer__sec">
@@ -191,6 +208,9 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
         )}
 
         <footer className="drawer__foot">
+          {task.stage && !['done','cancelled'].includes(task.stage) && onAdvance && (
+            <button className="btn btn--ghost" onClick={() => onAdvance(task)}>推进阶段 →</button>
+          )}
           {movable && prev && (
             <button className="btn btn--ghost" onClick={() => onMove(task.id, prev.id)}>← {prev.label}</button>
           )}
