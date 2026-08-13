@@ -163,6 +163,7 @@ class Discussion(SQLModel, table=True):
     status: str = "open"
     summary: str = ""
     conclusions: str = ""
+    stage: str = "brainstorming"
     started_at: datetime = Field(default_factory=_now)
     ended_at: Optional[datetime] = None
 

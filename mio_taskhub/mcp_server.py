@@ -431,6 +431,7 @@ async def taskhub_add_discussion(
     agent: str = Field(default="", description="发起讨论的 agent 名称", max_length=64),
     summary: str = Field(default="", description="讨论摘要"),
     conclusions: str = Field(default="", description="结论（非空则标记 closed）"),
+    stage: str = Field(default="brainstorming", description="讨论发生的研发阶段：brainstorming/design/planning/review/..."),
     messages: Optional[list] = Field(default=None, description="消息列表：[{author, role, content}]"),
 ) -> str:
     """agent 将任务拉回独立会话讨论后，回写摘要与结论到任务。
@@ -438,7 +439,7 @@ async def taskhub_add_discussion(
     有 conclusions 时讨论标记为 closed。消息列表可选。
     """
     body = {"topic": topic, "agent": agent, "summary": summary,
-            "conclusions": conclusions, "messages": messages or []}
+            "conclusions": conclusions, "stage": stage, "messages": messages or []}
     data = await _request("POST", f"/tasks/{task_id}/discussions", body=body)
     return _fmt(data)
 

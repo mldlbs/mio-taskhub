@@ -136,7 +136,7 @@ def _task_detail(t: Task, db: Session) -> dict:
         "history": [{"id": h.id, "type": h.type, "payload": h.payload, "at": h.at.isoformat()} for h in history],
         "discussions": [{"id": d.id, "topic": d.topic, "agent": d.agent, "status": d.status,
                          "summary": d.summary, "conclusions": d.conclusions,
-                         "started_at": d.started_at.isoformat()} for d in discussions],
+                         "stage": d.stage, "started_at": d.started_at.isoformat()} for d in discussions],
     }
 
 @router.get("/{task_id}")
@@ -223,9 +223,10 @@ def add_discussion(task_id: str, body: dict, db: Session = Depends(get_session))
         raise HTTPException(404, "task not found")
     conclusions = body.get("conclusions", "")
     status = "closed" if conclusions else "open"
+    stage = body.get("stage", "brainstorming")
     d = Discussion(task_id=task_id, topic=body.get("topic", ""), agent=body.get("agent", ""),
                    status=status, summary=body.get("summary", ""), conclusions=conclusions,
-                   ended_at=_now() if status == "closed" else None)
+                   stage=stage, ended_at=_now() if status == "closed" else None)
     db.add(d); db.commit(); db.refresh(d)
     for m in body.get("messages", []):
         db.add(DiscussionMessage(discussion_id=d.id, author=m.get("author", ""),
@@ -234,7 +235,7 @@ def add_discussion(task_id: str, body: dict, db: Session = Depends(get_session))
     _broadcast_task_update(task_id)
     return {"id": d.id, "task_id": d.task_id, "topic": d.topic, "agent": d.agent,
             "status": d.status, "summary": d.summary, "conclusions": d.conclusions,
-            "started_at": d.started_at.isoformat(),
+            "stage": d.stage, "started_at": d.started_at.isoformat(),
             "ended_at": d.ended_at.isoformat() if d.ended_at else None}
 
 @router.get("/{task_id}/discussions")
@@ -249,7 +250,7 @@ def list_discussions(task_id: str, db: Session = Depends(get_session)):
         out.append({
             "id": d.id, "topic": d.topic, "agent": d.agent, "status": d.status,
             "summary": d.summary, "conclusions": d.conclusions,
-            "started_at": d.started_at.isoformat(),
+            "stage": d.stage, "started_at": d.started_at.isoformat(),
             "ended_at": d.ended_at.isoformat() if d.ended_at else None,
             "messages": [{"author": m.author, "role": m.role, "content": m.content,
                           "at": m.at.isoformat()} for m in msgs],

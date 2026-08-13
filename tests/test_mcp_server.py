@@ -207,3 +207,10 @@ def test_advance_stage_missing_artifact(mcp_ctx):
     _call("taskhub_add_discussion", {"task_id": tid, "topic": "t", "agent": "a"})
     r = _call("taskhub_advance_stage", {"task_id": tid, "target_stage": "design"})
     assert "error" in r or r == {}  # 422 surfaced as error dict or empty
+
+def test_discussion_with_stage_tool(mcp_ctx):
+    created = _call("taskhub_create_task", {"title": "DiscStage", "stage": "ready"})
+    tid = created["id"]
+    d = _call("taskhub_add_discussion", {"task_id": tid, "topic": "评审", "agent": "mcp-agent",
+                                         "stage": "review", "conclusions": "通过"})
+    assert d["stage"] == "review"

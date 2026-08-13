@@ -229,3 +229,34 @@ def test_create_task_naive_run_at_treated_as_utc():
     assert r.status_code == 200
     d = client.get(f"/api/v1/tasks/{r.json()['id']}").json()
     assert d["run_at"] == "2026-12-31T10:00:00+00:00"
+
+def test_discussion_defaults_stage_brainstorming():
+    created = client.post("/api/v1/tasks", json={"title": "DS"}).json()
+    r = client.post(f"/api/v1/tasks/{created['id']}/discussions",
+                    json={"topic": "t", "agent": "a"})
+    assert r.status_code == 200
+    d = r.json()
+    assert d["stage"] == "brainstorming"
+
+def test_discussion_with_stage():
+    created = client.post("/api/v1/tasks", json={"title": "DS2"}).json()
+    r = client.post(f"/api/v1/tasks/{created['id']}/discussions",
+                    json={"topic": "t", "agent": "a", "stage": "review"})
+    assert r.status_code == 200
+    assert r.json()["stage"] == "review"
+
+def test_discussion_list_includes_stage():
+    created = client.post("/api/v1/tasks", json={"title": "DS3"}).json()
+    client.post(f"/api/v1/tasks/{created['id']}/discussions",
+                json={"topic": "t", "agent": "a", "stage": "planning"})
+    r = client.get(f"/api/v1/tasks/{created['id']}/discussions")
+    assert r.status_code == 200
+    assert r.json()["discussions"][0]["stage"] == "planning"
+
+def test_discussion_detail_includes_stage():
+    created = client.post("/api/v1/tasks", json={"title": "DS4"}).json()
+    client.post(f"/api/v1/tasks/{created['id']}/discussions",
+                json={"topic": "t", "agent": "a", "stage": "design"})
+    r = client.get(f"/api/v1/tasks/{created['id']}")
+    assert r.status_code == 200
+    assert r.json()["discussions"][0]["stage"] == "design"
