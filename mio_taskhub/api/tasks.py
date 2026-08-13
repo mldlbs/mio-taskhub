@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
@@ -35,6 +35,12 @@ def create_task(body: dict, db: Session = Depends(get_session)):
             due_at = datetime.fromisoformat(due_at)
         except ValueError:
             raise HTTPException(400, f"invalid due_at: {due_at}")
+    run_at = body.get("run_at")
+    if isinstance(run_at, str):
+        try:
+            run_at = datetime.fromisoformat(run_at)
+        except ValueError:
+            raise HTTPException(400, f"invalid run_at: {run_at}")
     t = Task(
         id=str(uuid.uuid4())[:8],
         title=body.get("title", ""),
@@ -42,7 +48,7 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         target_agent_type=body.get("target_agent_type"),
         priority=body.get("priority", 0),
         schedule_type=body.get("schedule_type", "once"),
-        run_at=body.get("run_at"),
+        run_at=run_at,
         cron_expr=body.get("cron_expr"),
         est_duration_min=body.get("est_duration_min", 30),
         depends_on=body.get("depends_on"),
@@ -243,8 +249,20 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
     q = select(Task).where(Task.state == TaskState.QUEUED)
     if agent_type:
         q = q.where((Task.target_agent_type == agent_type) | (Task.target_agent_type == None))
-    q = q.order_by(Task.priority.desc(), Task.created_at.asc())
-    task = db.exec(q).first()
+    rows = db.exec(
+        q.order_by(Task.priority.desc(), Task.created_at.asc())
+    ).all()
+    now = _now()
+    task = None
+    for t in rows:
+        if t.schedule_type == "once" and t.run_at:
+            run_at = t.run_at
+            if run_at.tzinfo is None:
+                run_at = run_at.replace(tzinfo=timezone.utc)
+            if run_at > now:
+                continue
+        task = t
+        break
     if not task:
         return Response(status_code=204)
     if project and not task.project:

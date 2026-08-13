@@ -195,3 +195,24 @@ def test_gitref_invalid_type_returns_400():
     t = client.post("/api/v1/tasks", json={"title": "BadG"}).json()
     r = client.post(f"/api/v1/tasks/{t['id']}/gitrefs", json={"ref_type": "nope", "value": "x"})
     assert r.status_code == 400
+
+def test_create_task_accepts_run_at_string():
+    r = client.post("/api/v1/tasks", json={"title": "Sched", "run_at": "2026-12-31T23:59:59+00:00"})
+    assert r.status_code == 200
+
+def test_create_task_invalid_run_at_returns_400():
+    r = client.post("/api/v1/tasks", json={"title": "Bad", "run_at": "not-a-date"})
+    assert r.status_code == 400
+
+def test_claim_skips_future_run_at():
+    client.post("/api/v1/tasks", json={"title": "Future", "run_at": "2099-01-01T00:00:00+00:00", "priority": 3})
+    r = client.post("/api/v1/tasks/claim", params={"agent": "runat-agent"})
+    assert r.status_code == 204  # no claimable task
+
+def test_claim_picks_due_run_at():
+    from datetime import datetime, timedelta, timezone
+    past = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    client.post("/api/v1/tasks", json={"title": "Past", "run_at": past, "priority": 2})
+    r = client.post("/api/v1/tasks/claim", params={"agent": "runat-agent2"})
+    assert r.status_code == 200
+    assert r.json()["state"] == "claimed"
