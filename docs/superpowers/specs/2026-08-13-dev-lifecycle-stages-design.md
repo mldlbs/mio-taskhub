@@ -73,7 +73,7 @@ Body: `{"target_stage": "design", "spec_path": "docs/superpowers/specs/xxx.md"}`
 
 ### 2. 现有接口联动 stage
 
-- `create_task`：新任务 stage=BRAINSTORMING（不再直接可执行）
+- `create_task`：新任务 stage 默认=BRAINSTORMING（不再直接可执行）；提供可选 body 参数 `stage`，创建者可显式指定（如 `"stage": "ready"` 跳过理解/设计阶段直接可执行，用于测试或明确任务）
 - `claim_task`：只领取 `stage==READY` 的任务（在现有 run_at 过滤基础上加 stage 条件）
 - `submit_result` 成功：任务 stage→REVIEW（state→completed 逻辑保留供执行视图）
 - `get_task`/`_task_detail`：返回 `stage`/`spec_path`/`plan_path`/`review_result`
