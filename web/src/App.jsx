@@ -97,7 +97,7 @@ export default function App() {
 
   const cancelTask = async (id) => {
     try {
-      await api.cancelTask(id)
+      await api.advanceStage(id, { target_stage: 'cancelled' })
       loadTasks()
     } catch (e) {
       setError('取消失败: ' + e.message)
@@ -111,7 +111,7 @@ export default function App() {
 
   const advanceTaskStage = (task) => {
     const next = { brainstorming:'design', design:'planning', planning:'ready',
-                   implementing:'review', review:'done' }[task.stage]
+                   ready:'implementing', implementing:'review', review:'done' }[task.stage]
     if (!next) return
     const msg = next === 'design' ? 'Spec 路径: ' :
                 next === 'planning' ? 'Plan 路径: ' :

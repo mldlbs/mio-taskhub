@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { prio, fmtDur, agMono, agColor } from '../constants'
 
 const STAGES = [
@@ -15,7 +15,15 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance }) {
   const [advancing, setAdvancing] = useState(null)
   const [artifact, setArtifact] = useState('')
 
-  const byStage = Object.fromEntries(STAGES.map(s => [s.id, tasks.filter(t => t.stage === s.id)]))
+  const flowTasks = tasks.filter(t => t.stage !== 'cancelled')
+  const byStage = Object.fromEntries(STAGES.map(s => [s.id, flowTasks.filter(t => t.stage === s.id)]))
+
+  useEffect(() => {
+    if (!advancing) return
+    const onKey = (e) => { if (e.key === 'Escape') { setAdvancing(null); setArtifact('') } }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [advancing])
 
   const artifactField = (target) =>
     target === 'design' ? { key: 'spec_path', ph: 'docs/superpowers/specs/xxx.md' } :
@@ -58,7 +66,15 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance }) {
                 const ac = t.target_agent_type && agColor(t.target_agent_type)
                 const next = nextStage(t.stage)
                 return (
-                  <div key={t.id} className="flow-card" onClick={() => onOpen && onOpen(t)}>
+                  <div key={t.id} className="flow-card" role="button" tabIndex={0}
+                    aria-label={`任务 ${t.title}，阶段 ${stage.label}。回车查看详情`}
+                    onClick={() => onOpen && onOpen(t)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        if (onOpen) onOpen(t)
+                      }
+                    }}>
                     <div className="flow-card__top">
                       <h4>{t.title}</h4>
                       <span className="flow-card__chev">›</span>
@@ -70,8 +86,6 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance }) {
                           <span className="agent-mono" style={{ background: ac.bg, borderColor: ac.fg, color: ac.fg }}>{agMono(t.target_agent_type)}</span>
                         </span>
                       )}
-                      {t.spec_path && <span className="chip chip--doc" title={t.spec_path}>📄</span>}
-                      {t.plan_path && <span className="chip chip--doc" title={t.plan_path}>📝</span>}
                     </div>
                     <div className="flow-card__foot">
                       <span>{fmtDur(t.est_duration_min)}</span>
@@ -95,10 +109,10 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance }) {
 
       {advancing && (
         <div className="overlay" onClick={() => setAdvancing(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="推进阶段" onClick={e => e.stopPropagation()}>
             <div className="modal__head">
               <h3>推进到「{STAGES.find(s => s.id === advancing.target)?.label}」</h3>
-              <button className="modal__close" onClick={() => setAdvancing(null)}>×</button>
+              <button className="modal__close" onClick={() => setAdvancing(null)} aria-label="关闭">×</button>
             </div>
             <div className="modal__body">
               <p style={{ fontSize: 13, color: 'var(--ink-dim)' }}>{advancing.task.title}</p>
