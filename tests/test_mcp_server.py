@@ -40,7 +40,7 @@ def test_register_tool(mcp_ctx):
 
 def test_create_and_claim_tool(mcp_ctx):
     created = _call("taskhub_create_task", {
-        "title": "MCP Task", "description": "from mcp", "priority": 2,
+        "title": "MCP Task", "description": "from mcp", "priority": 2, "stage": "ready",
     })
     assert created["state"] == "queued"
     claimed = _call("taskhub_claim", {"agent": "mcp-agent"})
@@ -50,7 +50,7 @@ def test_create_and_claim_tool(mcp_ctx):
 
 
 def test_claim_idempotent(mcp_ctx):
-    _call("taskhub_create_task", {"title": "Idem"})
+    _call("taskhub_create_task", {"title": "Idem", "stage": "ready"})
     r1 = _call("taskhub_claim", {"agent": "mcp-agent"})
     r2 = _call("taskhub_claim", {"agent": "mcp-agent"})
     assert r1["id"] == r2["id"]
@@ -62,7 +62,7 @@ def test_no_tasks(mcp_ctx):
 
 
 def test_heartbeat_tool(mcp_ctx):
-    _call("taskhub_create_task", {"title": "HB"})
+    _call("taskhub_create_task", {"title": "HB", "stage": "ready"})
     claim = _call("taskhub_claim", {"agent": "mcp-agent"})
     rid = claim["id"]
     hb = _call("taskhub_heartbeat", {"run_id": rid, "progress": 50, "checkpoint": "step1"})
@@ -71,7 +71,7 @@ def test_heartbeat_tool(mcp_ctx):
 
 
 def test_submit_result_success(mcp_ctx):
-    _call("taskhub_create_task", {"title": "Result"})
+    _call("taskhub_create_task", {"title": "Result", "stage": "ready"})
     claim = _call("taskhub_claim", {"agent": "mcp-agent"})
     rid = claim["id"]
     res = _call("taskhub_submit_result", {"run_id": rid, "success": True, "result": "done"})
@@ -82,7 +82,7 @@ def test_submit_result_success(mcp_ctx):
 
 
 def test_submit_result_failure_retries(mcp_ctx):
-    _call("taskhub_create_task", {"title": "Retry", "max_retries": 3})
+    _call("taskhub_create_task", {"title": "Retry", "max_retries": 3, "stage": "ready"})
     claim = _call("taskhub_claim", {"agent": "mcp-agent"})
     rid = claim["id"]
     res = _call("taskhub_submit_result", {"run_id": rid, "success": False, "result": "boom"})
@@ -125,7 +125,7 @@ def test_create_task_rich_fields(mcp_ctx):
 
 
 def test_claim_with_context(mcp_ctx):
-    _call("taskhub_create_task", {"title": "MCP Ctx"})
+    _call("taskhub_create_task", {"title": "MCP Ctx", "stage": "ready"})
     claim = _call("taskhub_claim", {"agent": "mcp-agent", "project": "p",
                                     "workspace": "/w", "files": "a.py,b.py"})
     assert claim["task"]["project"] == "p"
@@ -181,3 +181,29 @@ def test_discussion_tool(mcp_ctx):
     assert d["status"] == "closed"
     disc = _call("taskhub_get_task", {"task_id": tid})
     assert len(disc["discussions"]) == 1
+
+
+def test_advance_stage_tool(mcp_ctx):
+    created = _call("taskhub_create_task", {"title": "Stage", "stage": "brainstorming"})
+    tid = created["id"]
+    d = _call("taskhub_add_discussion", {"task_id": tid, "topic": "理解", "agent": "mcp-agent",
+                                         "summary": "s", "conclusions": "c"})
+    assert d["status"] == "closed"
+    r = _call("taskhub_advance_stage", {"task_id": tid, "target_stage": "design",
+                                        "spec_path": "docs/s.md"})
+    assert r["stage"] == "design"
+    r2 = _call("taskhub_advance_stage", {"task_id": tid, "target_stage": "planning",
+                                         "plan_path": "docs/p.md"})
+    assert r2["stage"] == "planning"
+    r3 = _call("taskhub_advance_stage", {"task_id": tid, "target_stage": "ready"})
+    assert r3["stage"] == "ready"
+    # then claim works（领取即 ready→implementing）
+    claim = _call("taskhub_claim", {"agent": "mcp-agent"})
+    assert claim["task"]["stage"] == "implementing"
+
+def test_advance_stage_missing_artifact(mcp_ctx):
+    created = _call("taskhub_create_task", {"title": "NoArt", "stage": "brainstorming"})
+    tid = created["id"]
+    _call("taskhub_add_discussion", {"task_id": tid, "topic": "t", "agent": "a"})
+    r = _call("taskhub_advance_stage", {"task_id": tid, "target_stage": "design"})
+    assert "error" in r or r == {}  # 422 surfaced as error dict or empty

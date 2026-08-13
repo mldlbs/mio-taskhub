@@ -5,7 +5,7 @@ from sqlmodel import Session, select
 from mio_taskhub.db import get_session
 from mio_taskhub.notifications import ws_manager
 from mio_taskhub.models import (
-    Task, TaskState, Run, RunState, Subtask, SubtaskStatus, GitRef, RefType, HistoryEvent,
+    Task, TaskState, TaskStage, Run, RunState, Subtask, SubtaskStatus, GitRef, RefType, HistoryEvent,
     Discussion, DiscussionMessage,
 )
 from mio_taskhub.utils import _now
@@ -44,6 +44,11 @@ def _parse_enum(enum_cls, value, default=None):
 def create_task(body: dict, db: Session = Depends(get_session)):
     due_at = _parse_dt(body.get("due_at"), "due_at")
     run_at = _parse_dt(body.get("run_at"), "run_at")
+    stage_val = body.get("stage", "brainstorming")
+    try:
+        stage = TaskStage(stage_val)
+    except ValueError:
+        raise HTTPException(400, f"invalid stage: {stage_val}")
     t = Task(
         id=str(uuid.uuid4())[:8],
         title=body.get("title", ""),
@@ -63,6 +68,7 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         workspace=body.get("workspace", ""),
         files=body.get("files", []),
         deliverables=body.get("deliverables", []),
+        stage=stage,
     )
     db.add(t)
     db.commit()
@@ -74,7 +80,8 @@ def create_task(body: dict, db: Session = Depends(get_session)):
     }
 
 @router.get("", response_model=list)
-def list_tasks(state: str = None, agent_type: str = None, db: Session = Depends(get_session)):
+def list_tasks(state: str = None, agent_type: str = None, stage: str = None,
+               db: Session = Depends(get_session)):
     q = select(Task)
     if state:
         ts = None
@@ -87,11 +94,13 @@ def list_tasks(state: str = None, agent_type: str = None, db: Session = Depends(
                 ts = None
         if ts is not None:
             q = q.where(Task.state == ts)
+    if stage:
+        q = q.where(Task.stage == TaskStage(stage))
     if agent_type:
         q = q.where((Task.target_agent_type == agent_type) | (Task.target_agent_type == None))
     rows = db.exec(q).all()
     return [
-        {"id": r.id, "title": r.title, "state": r.state.value,
+        {"id": r.id, "title": r.title, "state": r.state.value, "stage": r.stage.value,
          "priority": r.priority, "target_agent_type": r.target_agent_type}
         for r in rows
     ]
@@ -118,6 +127,10 @@ def _task_detail(t: Task, db: Session) -> dict:
         "due_at": _fmt(t.due_at),
         "labels": t.labels, "project": t.project, "workspace": t.workspace,
         "files": t.files, "deliverables": t.deliverables,
+        "stage": t.stage.value if not isinstance(t.stage, str) else t.stage,
+        "spec_path": t.spec_path,
+        "plan_path": t.plan_path,
+        "review_result": t.review_result,
         "subtasks": [{"id": s.id, "order": s.order, "title": s.title, "status": s.status.value} for s in subtasks],
         "gitrefs": [{"id": g.id, "ref_type": g.ref_type.value, "value": g.value, "note": g.note} for g in gitrefs],
         "history": [{"id": h.id, "type": h.type, "payload": h.payload, "at": h.at.isoformat()} for h in history],
@@ -254,6 +267,48 @@ def cancel_task(task_id: str, db: Session = Depends(get_session)):
     _broadcast_task_update(task_id)
     return {"ok": True, "state": "cancelled"}
 
+@router.post("/{task_id}/stage")
+def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
+    t = db.get(Task, task_id)
+    if not t:
+        raise HTTPException(404, "task not found")
+    target = body.get("target_stage")
+    if not target:
+        raise HTTPException(422, "target_stage is required")
+    try:
+        dst = TaskStage(target)
+    except ValueError:
+        raise HTTPException(400, f"invalid target_stage: {target}")
+    src = t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
+    if not TaskStage.can_advance(src, dst):
+        raise HTTPException(400, f"cannot advance from {src.value} to {dst.value}")
+    if dst == TaskStage.DESIGN:
+        if not body.get("spec_path"):
+            raise HTTPException(422, "design stage requires spec_path")
+        discussions = db.exec(select(Discussion).where(Discussion.task_id == task_id)).all()
+        if not discussions:
+            raise HTTPException(422, "design stage requires at least one discussion record")
+        t.spec_path = body["spec_path"]
+    if dst == TaskStage.PLANNING:
+        if not body.get("plan_path"):
+            raise HTTPException(422, "planning stage requires plan_path")
+        t.plan_path = body["plan_path"]
+    if dst == TaskStage.DONE:
+        if not body.get("review_result"):
+            raise HTTPException(422, "done stage requires review_result")
+        t.review_result = body["review_result"]
+        t.state = TaskState.COMPLETED
+    if dst == TaskStage.CANCELLED:
+        t.state = TaskState.CANCELLED
+    t.stage = dst
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    _broadcast_task_update(task_id)
+    return {"id": t.id, "stage": t.stage.value, "spec_path": t.spec_path,
+            "plan_path": t.plan_path, "review_result": t.review_result,
+            "state": t.state.value}
+
 @router.post("/claim")
 def claim_task(agent: str = Query(...), agent_type: str = Query(None),
                project: str = Query(None), workspace: str = Query(None),
@@ -264,7 +319,7 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
     if existing:
         return {"id": existing.id, "task_id": existing.task_id, "state": existing.state.value,
                 "agent_name": existing.agent_name}
-    q = select(Task).where(Task.state == TaskState.QUEUED)
+    q = select(Task).where(Task.state == TaskState.QUEUED, Task.stage == TaskStage.READY)
     if agent_type:
         q = q.where((Task.target_agent_type == agent_type) | (Task.target_agent_type == None))
     rows = db.exec(
@@ -300,6 +355,7 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
     )
     task.state = TaskState.CLAIMED
     task.attempt += 1
+    task.stage = TaskStage.IMPLEMENTING
     db.add(run)
     db.add(task)
     db.commit()

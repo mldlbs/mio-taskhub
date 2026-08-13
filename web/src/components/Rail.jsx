@@ -17,6 +17,13 @@ const VIEWS = [
       <path d="M12 7.5V12l3 2" />
     </svg>
   )},
+  { id: 'flow', label: '流程', icon: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="5" rx="1.5" />
+      <rect x="3" y="15" width="18" height="5" rx="1.5" />
+      <path d="M9 9v6M15 9v6" />
+    </svg>
+  )},
 ]
 
 export default function Rail({ view, onChange, wsLive, contrast, onToggleContrast }) {

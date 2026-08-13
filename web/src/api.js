@@ -9,7 +9,8 @@ async function req(method, path, body) {
 }
 
 export const api = {
-  listTasks: () => req('GET', '/tasks'),
+  listTasks: (params) => req('GET', '/tasks' + (params ? '?' + new URLSearchParams(params).toString() : '')),
+  advanceStage: (id, body) => req('POST', `/tasks/${id}/stage`, body),
   getTask: (id) => req('GET', `/tasks/${id}`),
   createTask: (t) => req('POST', '/tasks', t),
   updateTask: (id, body) => req('PATCH', `/tasks/${id}`, body),
