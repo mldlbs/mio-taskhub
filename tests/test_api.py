@@ -216,3 +216,16 @@ def test_claim_picks_due_run_at():
     r = client.post("/api/v1/tasks/claim", params={"agent": "runat-agent2"})
     assert r.status_code == 200
     assert r.json()["state"] == "claimed"
+
+def test_create_task_run_at_with_offset_normalized_to_utc():
+    r = client.post("/api/v1/tasks", json={"title": "TZ", "run_at": "2026-12-31T23:59:59+08:00"})
+    assert r.status_code == 200
+    d = client.get(f"/api/v1/tasks/{r.json()['id']}").json()
+    # +08:00 23:59:59 == 15:59:59 UTC
+    assert d["run_at"] == "2026-12-31T15:59:59+00:00"
+
+def test_create_task_naive_run_at_treated_as_utc():
+    r = client.post("/api/v1/tasks", json={"title": "Naive", "run_at": "2026-12-31T10:00:00"})
+    assert r.status_code == 200
+    d = client.get(f"/api/v1/tasks/{r.json()['id']}").json()
+    assert d["run_at"] == "2026-12-31T10:00:00+00:00"

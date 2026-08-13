@@ -19,6 +19,19 @@ def _broadcast_task_update(task_id: str):
     except Exception:
         pass
 
+def _parse_dt(value, name: str):
+    if not isinstance(value, str):
+        return value
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(400, f"invalid {name}: {value}")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)  # naive → treat as UTC
+    else:
+        dt = dt.astimezone(timezone.utc)       # any offset → normalize to UTC
+    return dt
+
 def _parse_enum(enum_cls, value, default=None):
     if value is None and default is not None:
         return default
@@ -29,18 +42,8 @@ def _parse_enum(enum_cls, value, default=None):
 
 @router.post("", response_model=dict)
 def create_task(body: dict, db: Session = Depends(get_session)):
-    due_at = body.get("due_at")
-    if isinstance(due_at, str):
-        try:
-            due_at = datetime.fromisoformat(due_at)
-        except ValueError:
-            raise HTTPException(400, f"invalid due_at: {due_at}")
-    run_at = body.get("run_at")
-    if isinstance(run_at, str):
-        try:
-            run_at = datetime.fromisoformat(run_at)
-        except ValueError:
-            raise HTTPException(400, f"invalid run_at: {run_at}")
+    due_at = _parse_dt(body.get("due_at"), "due_at")
+    run_at = _parse_dt(body.get("run_at"), "run_at")
     t = Task(
         id=str(uuid.uuid4())[:8],
         title=body.get("title", ""),
@@ -89,15 +92,21 @@ def _task_detail(t: Task, db: Session) -> dict:
     gitrefs = db.exec(select(GitRef).where(GitRef.task_id == t.id)).all()
     history = db.exec(select(HistoryEvent).where(HistoryEvent.task_id == t.id).order_by(HistoryEvent.at)).all()
     discussions = db.exec(select(Discussion).where(Discussion.task_id == t.id)).all()
+    def _fmt(dt):
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)  # stored naive → UTC
+        return dt.isoformat()
     return {
         "id": t.id, "title": t.title, "description": t.description, "state": t.state.value,
         "priority": t.priority, "target_agent_type": t.target_agent_type,
-        "schedule_type": t.schedule_type, "run_at": t.run_at.isoformat() if t.run_at else None,
+        "schedule_type": t.schedule_type, "run_at": _fmt(t.run_at),
         "cron_expr": t.cron_expr, "est_duration_min": t.est_duration_min,
         "depends_on": t.depends_on, "max_retries": t.max_retries, "attempt": t.attempt,
         "created_at": t.created_at.isoformat(),
         "acceptance_criteria": t.acceptance_criteria,
-        "due_at": t.due_at.isoformat() if t.due_at else None,
+        "due_at": _fmt(t.due_at),
         "labels": t.labels, "project": t.project, "workspace": t.workspace,
         "files": t.files, "deliverables": t.deliverables,
         "subtasks": [{"id": s.id, "order": s.order, "title": s.title, "status": s.status.value} for s in subtasks],
@@ -126,8 +135,8 @@ def update_task(task_id: str, body: dict, db: Session = Depends(get_session)):
     for k in editable:
         if k in body:
             v = body[k]
-            if k == "due_at" and isinstance(v, str):
-                v = datetime.fromisoformat(v)
+            if k == "due_at":
+                v = _parse_dt(v, "due_at")
             setattr(t, k, v)
     db.add(t)
     db.commit()
