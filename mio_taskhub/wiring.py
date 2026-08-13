@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from sqlmodel import Session, select
 from mio_taskhub.db import engine
-from mio_taskhub.models import Run, RunState, Task, TaskState
+from mio_taskhub.models import Run, RunState, Task, TaskStage, TaskState
 from mio_taskhub.heartbeat import HeartbeatSweep, RunInfo
 from mio_taskhub.scheduler import Scheduler
 
@@ -42,6 +42,7 @@ def _on_timeout(run_id: str, task_id: str):
                     task.state = TaskState.FAILED
                 else:
                     task.state = TaskState.QUEUED
+                    task.stage = TaskStage.READY
                 db.add(task)
         db.commit()
 

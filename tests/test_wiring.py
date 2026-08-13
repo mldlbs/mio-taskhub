@@ -85,6 +85,28 @@ def test_per_task_timeout_honored():
     info = next(i for i in infos if i.run_id == rid)
     assert info.timeout_seconds == 60
 
+def test_timeout_reset_makes_task_claimable_again():
+    from mio_taskhub.models import TaskStage
+    with Session(engine) as s:
+        t = Task(title="retry-cycle", stage=TaskStage.READY)
+        s.add(t); s.commit(); s.refresh(t)
+        tid = t.id
+    client.post("/api/v1/agents/register", json={"name": "w-agent5", "agent_type": "test"})
+    claim = client.post("/api/v1/tasks/claim", params={"agent": "w-agent5"}).json()
+    rid = claim["id"]
+    with Session(engine) as s:
+        run = s.get(Run, rid)
+        run.last_heartbeat = datetime.now(timezone.utc) - timedelta(minutes=10)
+        s.add(run); s.commit()
+    wiring._on_timeout(rid, tid)
+    with Session(engine) as s:
+        t2 = s.get(Task, tid)
+        assert t2.state == TaskState.QUEUED
+        assert t2.stage == TaskStage.READY
+    r = client.post("/api/v1/tasks/claim", params={"agent": "w-agent5"})
+    assert r.status_code == 200
+    assert r.json()["task_id"] == tid
+
 def test_timeout_does_not_clobber_finished_run():
     t = _mk_task()
     rid = _claim(t.id)
