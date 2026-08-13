@@ -4,6 +4,20 @@ import { LANES, STATE_META, prio, fmtDur, fmtDate } from '../constants'
 const tone = (s) => STATE_META[s]?.tone || 'dim'
 const ACTIVE = ['queued', 'claimed', 'running', 'retrying']
 
+const DISC_GROUPS = [
+  { id: 'brainstorming', label: '需求理解' },
+  { id: 'design',        label: '设计评审' },
+  { id: 'planning',      label: '计划评审' },
+  { id: 'review',        label: '审查验收' },
+  { id: 'other',         label: '其他' },
+]
+const DISC_STAGE_LABEL = {
+  brainstorming: '需求理解', design: '设计', planning: '计划',
+  ready: '待执行', implementing: '执行中', review: '审查', done: '完成',
+}
+const discGroupId = (s) => DISC_GROUPS.some(g => g.id === s) ? s : 'other'
+const discStageLabel = (s) => DISC_STAGE_LABEL[s] || s || '—'
+
 function scheduleOf(t) {
   if (t.schedule_type === 'cron') return t.cron_expr || 'cron'
   if (t.run_at) return fmtDate(t.run_at)
@@ -40,6 +54,9 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
   const due = task.due_at ? new Date(task.due_at) : null
   const overdue = !!due && !Number.isNaN(+due) && due < new Date()
   const hasCtx = task.project || task.workspace || (task.files && task.files.length) || (task.deliverables && task.deliverables.length)
+  const discGroups = task.discussions
+    ? DISC_GROUPS.map(g => ({ ...g, items: task.discussions.filter(d => discGroupId(d.stage) === g.id) })).filter(g => g.items.length > 0)
+    : []
 
   return (
     <div className="overlay drawer-overlay" onClick={onClose}>
@@ -169,19 +186,30 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
         {task.discussions && task.discussions.length > 0 && (
           <section className="drawer__sec">
             <h3>讨论</h3>
-            {task.discussions.map(d => (
-              <div key={d.id} className="disc-block">
-                <div className="disc-block__head">
-                  <b className="disc-block__topic">{d.topic}</b>
-                  <span className={`chip disc-status${d.status === 'closed' ? ' is-closed' : ''}`}>
-                    {d.status === 'closed' ? '已结束' : '进行中'}
-                  </span>
-                </div>
-                {d.agent && <div className="disc-block__agent mono">{d.agent}</div>}
-                {d.summary && <p className="disc-block__summary">{d.summary}</p>}
-                {d.conclusions && (
-                  <p className="disc-block__concl"><em>结论:</em> {d.conclusions}</p>
-                )}
+            {discGroups.map(g => (
+              <div key={g.id} className="disc-group">
+                <h4 className="disc-group__title">
+                  {g.label}
+                  <span className="disc-group__count">{g.items.length}</span>
+                </h4>
+                {g.items.map(d => (
+                  <div key={d.id} className="disc-block">
+                    <div className="disc-block__head">
+                      <b className="disc-block__topic">{d.topic}</b>
+                      <span className="disc-block__right">
+                        <span className="chip disc-stage">{discStageLabel(d.stage)}</span>
+                        <span className={`chip disc-status${d.status === 'closed' ? ' is-closed' : ''}`}>
+                          {d.status === 'closed' ? '已结束' : '进行中'}
+                        </span>
+                      </span>
+                    </div>
+                    {d.agent && <div className="disc-block__agent mono">{d.agent}</div>}
+                    {d.summary && <p className="disc-block__summary">{d.summary}</p>}
+                    {d.conclusions && (
+                      <p className="disc-block__concl"><em>结论:</em> {d.conclusions}</p>
+                    )}
+                  </div>
+                ))}
               </div>
             ))}
           </section>
