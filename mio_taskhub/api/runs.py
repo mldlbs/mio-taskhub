@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
-from mio_taskhub.models import Run, RunState, Task, TaskState
+from mio_taskhub.models import Run, RunState, Task, TaskState, TaskStage
 from mio_taskhub.utils import _now
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -43,6 +43,7 @@ def submit_result(run_id: str, body: dict, db: Session = Depends(get_session)):
     if task:
         if success:
             task.state = TaskState.COMPLETED
+            task.stage = TaskStage.REVIEW
         else:
             if task.attempt < task.max_retries:
                 task.state = TaskState.RETRYING

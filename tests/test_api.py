@@ -36,7 +36,7 @@ def test_list_tasks():
     assert isinstance(r.json(), list)
 
 def test_claim_task_creates_run():
-    client.post("/api/v1/tasks", json={"title": "Claim me"})
+    client.post("/api/v1/tasks", json={"title": "Claim me", "stage": "ready"})
     client.post("/api/v1/agents/register", json={"name": "agent1", "agent_type": "test"})
     r = client.post("/api/v1/tasks/claim", params={"agent": "agent1"})
     assert r.status_code == 200
@@ -45,13 +45,13 @@ def test_claim_task_creates_run():
     assert data["agent_name"] == "agent1"
 
 def test_claim_idempotent():
-    client.post("/api/v1/tasks", json={"title": "Idempotent"})
+    client.post("/api/v1/tasks", json={"title": "Idempotent", "stage": "ready"})
     r1 = client.post("/api/v1/tasks/claim", params={"agent": "agent1"})
     r2 = client.post("/api/v1/tasks/claim", params={"agent": "agent1"})
     assert r1.json()["id"] == r2.json()["id"]
 
 def test_heartbeat_updates_progress():
-    client.post("/api/v1/tasks", json={"title": "Progress"})
+    client.post("/api/v1/tasks", json={"title": "Progress", "stage": "ready"})
     claim = client.post("/api/v1/tasks/claim", params={"agent": "agent1"}).json()
     rid = claim["id"]
     r = client.post(f"/api/v1/runs/{rid}/heartbeat", json={"progress": 50})
@@ -60,7 +60,7 @@ def test_heartbeat_updates_progress():
     assert r.json()["state"] == "running"
 
 def test_submit_result_completes_run():
-    client.post("/api/v1/tasks", json={"title": "Done"})
+    client.post("/api/v1/tasks", json={"title": "Done", "stage": "ready"})
     claim = client.post("/api/v1/tasks/claim", params={"agent": "agent1"}).json()
     rid = claim["id"]
     client.post(f"/api/v1/runs/{rid}/heartbeat", json={"progress": 100})
@@ -159,7 +159,7 @@ def test_discussion_404():
     assert r.status_code == 404
 
 def test_claim_carries_context():
-    client.post("/api/v1/tasks", json={"title": "Ctx"})
+    client.post("/api/v1/tasks", json={"title": "Ctx", "stage": "ready"})
     r = client.post("/api/v1/tasks/claim", params={
         "agent": "ctx-agent",
         "project": "p", "workspace": "/w", "files": "a.py,b.py",
@@ -172,7 +172,7 @@ def test_claim_carries_context():
     assert d["files"] == ["a.py", "b.py"]
 
 def test_claim_does_not_overwrite_context():
-    client.post("/api/v1/tasks", json={"title": "Keep", "project": "preset"})
+    client.post("/api/v1/tasks", json={"title": "Keep", "project": "preset", "stage": "ready"})
     r1 = client.post("/api/v1/tasks/claim", params={"agent": "ctx1", "project": "p1"})
     assert r1.status_code == 200
     tid = r1.json()["task_id"]
@@ -205,14 +205,14 @@ def test_create_task_invalid_run_at_returns_400():
     assert r.status_code == 400
 
 def test_claim_skips_future_run_at():
-    client.post("/api/v1/tasks", json={"title": "Future", "run_at": "2099-01-01T00:00:00+00:00", "priority": 3})
+    client.post("/api/v1/tasks", json={"title": "Future", "run_at": "2099-01-01T00:00:00+00:00", "priority": 3, "stage": "ready"})
     r = client.post("/api/v1/tasks/claim", params={"agent": "runat-agent"})
     assert r.status_code == 204  # no claimable task
 
 def test_claim_picks_due_run_at():
     from datetime import datetime, timedelta, timezone
     past = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
-    client.post("/api/v1/tasks", json={"title": "Past", "run_at": past, "priority": 2})
+    client.post("/api/v1/tasks", json={"title": "Past", "run_at": past, "priority": 2, "stage": "ready"})
     r = client.post("/api/v1/tasks/claim", params={"agent": "runat-agent2"})
     assert r.status_code == 200
     assert r.json()["state"] == "claimed"

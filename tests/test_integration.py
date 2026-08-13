@@ -7,7 +7,7 @@ client = TestClient(app)
 def test_full_task_lifecycle():
     """create -> register agent -> claim -> heartbeat -> submit result -> verify completed"""
     # Create
-    r = client.post("/api/v1/tasks", json={"title": "E2E", "priority": 5})
+    r = client.post("/api/v1/tasks", json={"title": "E2E", "priority": 5, "stage": "ready"})
     assert r.status_code == 200
     # Register agent
     client.post("/api/v1/agents/register", json={"name": "e2e-agent", "agent_type": "test"})

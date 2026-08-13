@@ -90,12 +90,13 @@ def test_create_task_can_set_stage_ready():
     assert detail["stage"] == "ready"
 
 def test_claim_only_picks_ready():
+    ready_id = _mk(title="ready", stage="ready")
     _mk(title="brain", stage="brainstorming")
-    _mk(title="ready", stage="ready")
     r = client.post("/api/v1/tasks/claim", params={"agent": "stage-agent"})
     assert r.status_code == 200
-    d = client.get(f"/api/v1/tasks/{r.json()['task_id']}").json()
-    assert d["stage"] == "ready"
+    assert r.json()["task_id"] == ready_id
+    d = client.get(f"/api/v1/tasks/{ready_id}").json()
+    assert d["stage"] == "implementing"
 
 def test_claim_returns_204_when_no_ready():
     _mk(title="only-brain", stage="brainstorming")

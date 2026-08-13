@@ -44,6 +44,11 @@ def _parse_enum(enum_cls, value, default=None):
 def create_task(body: dict, db: Session = Depends(get_session)):
     due_at = _parse_dt(body.get("due_at"), "due_at")
     run_at = _parse_dt(body.get("run_at"), "run_at")
+    stage_val = body.get("stage", "brainstorming")
+    try:
+        stage = TaskStage(stage_val)
+    except ValueError:
+        raise HTTPException(400, f"invalid stage: {stage_val}")
     t = Task(
         id=str(uuid.uuid4())[:8],
         title=body.get("title", ""),
@@ -63,6 +68,7 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         workspace=body.get("workspace", ""),
         files=body.get("files", []),
         deliverables=body.get("deliverables", []),
+        stage=stage,
     )
     db.add(t)
     db.commit()
@@ -304,7 +310,7 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
     if existing:
         return {"id": existing.id, "task_id": existing.task_id, "state": existing.state.value,
                 "agent_name": existing.agent_name}
-    q = select(Task).where(Task.state == TaskState.QUEUED)
+    q = select(Task).where(Task.state == TaskState.QUEUED, Task.stage == TaskStage.READY)
     if agent_type:
         q = q.where((Task.target_agent_type == agent_type) | (Task.target_agent_type == None))
     rows = db.exec(
@@ -340,6 +346,7 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
     )
     task.state = TaskState.CLAIMED
     task.attempt += 1
+    task.stage = TaskStage.IMPLEMENTING
     db.add(run)
     db.add(task)
     db.commit()

@@ -283,6 +283,7 @@ async def taskhub_create_task(
     workspace: str = Field(default="", description="工作区根路径"),
     files: Optional[list] = Field(default=None, description="文件路径列表（相对工作区）"),
     deliverables: Optional[list] = Field(default=None, description="预期产出物路径列表"),
+    stage: str = Field(default="brainstorming", description="研发阶段（brainstorming/design/planning/ready/implementing/review/done），ready 才可被领取"),
 ) -> str:
     """向任务中心提交一个新任务，供各 agent 领取执行。
 
@@ -320,6 +321,7 @@ async def taskhub_create_task(
         "workspace": workspace,
         "files": files,
         "deliverables": deliverables,
+        "stage": stage,
     }
     data = await _request("POST", "/tasks", body=body)
     return _fmt(data)
