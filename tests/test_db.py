@@ -46,6 +46,38 @@ def test_stage_column_added_to_existing_table():
         cols = {c["name"] for c in inspect(conn).get_columns("task")}
     assert "stage" in cols
 
+def test_discussion_stage_column_migrated_on_old_table():
+    import os
+    import tempfile
+    from sqlalchemy import create_engine, inspect, text
+    from mio_taskhub.db import _migrate_stage_column
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        eng = create_engine(f"sqlite:///{path}")
+        with eng.connect() as conn:
+            conn.execute(text(
+                "CREATE TABLE task (id VARCHAR PRIMARY KEY, title VARCHAR, state VARCHAR)"
+            ))
+            conn.execute(text(
+                "CREATE TABLE discussion (id VARCHAR PRIMARY KEY, task_id VARCHAR, "
+                "topic VARCHAR, agent VARCHAR, status VARCHAR, summary VARCHAR, "
+                "conclusions VARCHAR, started_at VARCHAR, ended_at VARCHAR)"
+            ))
+            conn.execute(text("INSERT INTO discussion (id, task_id, topic) VALUES ('d1', 't1', 'topic')"))
+            conn.commit()
+        _migrate_stage_column(eng)
+        with eng.connect() as conn:
+            cols = {c["name"] for c in inspect(conn).get_columns("discussion")}
+            assert "stage" in cols
+            row = conn.execute(text("SELECT stage FROM discussion WHERE id='d1'")).fetchone()
+            assert row[0] == "brainstorming"  # Discussion.stage is a plain str (lowercase)
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
 def test_migrate_stage_column_on_old_table():
     import os
     import tempfile

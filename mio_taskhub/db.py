@@ -40,6 +40,12 @@ def _migrate_stage_column(target_engine=None):
         conn.execute(text("UPDATE task SET stage = 'REVIEW' WHERE stage = 'review'"))
         conn.execute(text("UPDATE task SET stage = 'DONE' WHERE stage = 'done'"))
         conn.execute(text("UPDATE task SET stage = 'CANCELLED' WHERE stage = 'cancelled'"))
+        # Discussion table: add stage column if missing (existing installs).
+        tables = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
+        if "discussion" in tables:
+            dcols = {c["name"] for c in inspect(conn).get_columns("discussion")}
+            if "stage" not in dcols:
+                conn.execute(text("ALTER TABLE discussion ADD COLUMN stage VARCHAR NOT NULL DEFAULT 'brainstorming'"))
         conn.commit()
 
 def init_db():
