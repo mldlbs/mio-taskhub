@@ -12,3 +12,7 @@ web/dist/
 .worktrees/
 server.log
 server.err
+
+# PyInstaller build artifacts
+build/
+dist/

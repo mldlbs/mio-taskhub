@@ -77,7 +77,16 @@ def create_task(body: dict, db: Session = Depends(get_session)):
 def list_tasks(state: str = None, agent_type: str = None, db: Session = Depends(get_session)):
     q = select(Task)
     if state:
-        q = q.where(Task.state == TaskState(state))
+        ts = None
+        try:
+            ts = TaskState[state.upper()]  # 按成员名查找（忽略大小写）
+        except KeyError:
+            try:
+                ts = TaskState(state)      # 回退：按值查找
+            except ValueError:
+                ts = None
+        if ts is not None:
+            q = q.where(Task.state == ts)
     if agent_type:
         q = q.where((Task.target_agent_type == agent_type) | (Task.target_agent_type == None))
     rows = db.exec(q).all()
