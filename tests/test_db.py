@@ -38,3 +38,10 @@ def test_create_all_creates_new_tables():
     tables = set(inspect(engine).get_table_names())
     for name in ["subtask", "gitref", "historyevent", "discussion", "discussionmessage"]:
         assert name in tables, f"missing table {name}"
+
+def test_stage_column_added_to_existing_table():
+    from sqlalchemy import inspect
+    from mio_taskhub.db import engine
+    with engine.connect() as conn:
+        cols = {c["name"] for c in inspect(conn).get_columns("task")}
+    assert "stage" in cols
