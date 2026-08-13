@@ -36,6 +36,30 @@ class TaskState(str, enum.Enum):
         }
         return dst in valid.get(src, set())
 
+class TaskStage(str, enum.Enum):
+    BRAINSTORMING = "brainstorming"
+    DESIGN = "design"
+    PLANNING = "planning"
+    READY = "ready"
+    IMPLEMENTING = "implementing"
+    REVIEW = "review"
+    DONE = "done"
+    CANCELLED = "cancelled"
+
+    @classmethod
+    def can_advance(cls, src: "TaskStage", dst: "TaskStage") -> bool:
+        if dst == cls.CANCELLED:
+            return src != cls.CANCELLED and src != cls.DONE
+        valid = {
+            cls.BRAINSTORMING: {cls.DESIGN},
+            cls.DESIGN: {cls.PLANNING},
+            cls.PLANNING: {cls.READY},
+            cls.READY: {cls.IMPLEMENTING},
+            cls.IMPLEMENTING: {cls.REVIEW},
+            cls.REVIEW: {cls.DONE},
+        }
+        return dst in valid.get(src, set())
+
 class SubtaskStatus(str, enum.Enum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
@@ -82,6 +106,10 @@ class Task(SQLModel, table=True):
     workspace: str = ""
     files: list = Field(default_factory=list, sa_column=Column(JSON))
     deliverables: list = Field(default_factory=list, sa_column=Column(JSON))
+    stage: TaskStage = TaskStage.READY
+    spec_path: str = ""
+    plan_path: str = ""
+    review_result: str = ""
     created_at: datetime = Field(default_factory=_now)
 
 class Agent(SQLModel, table=True):

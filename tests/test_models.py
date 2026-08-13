@@ -47,3 +47,37 @@ def test_task_rich_fields():
         m = DiscussionMessage(discussion_id=d.id, author="user", role="user", content="hi")
         s.add(m); s.commit()
         assert s.get(DiscussionMessage, m.id).content == "hi"
+
+def test_task_stage_and_artifacts():
+    from sqlmodel import Session
+    from mio_taskhub.db import engine
+    from mio_taskhub.models import Task, TaskStage
+    with Session(engine) as s:
+        t = Task(title="stage-test", stage=TaskStage.DESIGN,
+                 spec_path="docs/x.md", plan_path="docs/y.md", review_result="ok")
+        s.add(t); s.commit(); s.refresh(t)
+        assert t.stage == TaskStage.DESIGN
+        assert t.spec_path == "docs/x.md" and t.plan_path == "docs/y.md"
+        assert t.review_result == "ok"
+
+def test_task_default_stage_is_ready():
+    from sqlmodel import Session
+    from mio_taskhub.db import engine
+    from mio_taskhub.models import Task, TaskStage
+    with Session(engine) as s:
+        t = Task(title="default-stage")
+        s.add(t); s.commit(); s.refresh(t)
+        assert t.stage == TaskStage.READY
+
+def test_stage_transition_table():
+    from mio_taskhub.models import TaskStage
+    assert TaskStage.can_advance(TaskStage.BRAINSTORMING, TaskStage.DESIGN)
+    assert TaskStage.can_advance(TaskStage.DESIGN, TaskStage.PLANNING)
+    assert TaskStage.can_advance(TaskStage.PLANNING, TaskStage.READY)
+    assert TaskStage.can_advance(TaskStage.READY, TaskStage.IMPLEMENTING)
+    assert TaskStage.can_advance(TaskStage.IMPLEMENTING, TaskStage.REVIEW)
+    assert TaskStage.can_advance(TaskStage.REVIEW, TaskStage.DONE)
+    assert not TaskStage.can_advance(TaskStage.BRAINSTORMING, TaskStage.PLANNING)
+    assert not TaskStage.can_advance(TaskStage.DONE, TaskStage.READY)
+    assert TaskStage.can_advance(TaskStage.BRAINSTORMING, TaskStage.CANCELLED)
+    assert TaskStage.can_advance(TaskStage.REVIEW, TaskStage.CANCELLED)
