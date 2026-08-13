@@ -21,13 +21,25 @@ def _migrate_stage_column(target_engine=None):
     with eng.connect() as conn:
         cols = {c["name"] for c in inspect(conn).get_columns("task")}
         if "stage" not in cols:
-            conn.execute(text("ALTER TABLE task ADD COLUMN stage VARCHAR NOT NULL DEFAULT 'ready'"))
+            conn.execute(text("ALTER TABLE task ADD COLUMN stage VARCHAR NOT NULL DEFAULT 'READY'"))
         if "spec_path" not in cols:
             conn.execute(text("ALTER TABLE task ADD COLUMN spec_path VARCHAR NOT NULL DEFAULT ''"))
         if "plan_path" not in cols:
             conn.execute(text("ALTER TABLE task ADD COLUMN plan_path VARCHAR NOT NULL DEFAULT ''"))
         if "review_result" not in cols:
             conn.execute(text("ALTER TABLE task ADD COLUMN review_result VARCHAR NOT NULL DEFAULT ''"))
+        # SQLModel stores str-enums by .name (uppercase). Fix any lowercase
+        # legacy values (e.g. from a pre-fix migration) to uppercase names.
+        conn.execute(text(
+            "UPDATE task SET stage = 'BRAINSTORMING' WHERE stage = 'brainstorming'"
+        ))
+        conn.execute(text("UPDATE task SET stage = 'DESIGN' WHERE stage = 'design'"))
+        conn.execute(text("UPDATE task SET stage = 'PLANNING' WHERE stage = 'planning'"))
+        conn.execute(text("UPDATE task SET stage = 'READY' WHERE stage = 'ready'"))
+        conn.execute(text("UPDATE task SET stage = 'IMPLEMENTING' WHERE stage = 'implementing'"))
+        conn.execute(text("UPDATE task SET stage = 'REVIEW' WHERE stage = 'review'"))
+        conn.execute(text("UPDATE task SET stage = 'DONE' WHERE stage = 'done'"))
+        conn.execute(text("UPDATE task SET stage = 'CANCELLED' WHERE stage = 'cancelled'"))
         conn.commit()
 
 def init_db():

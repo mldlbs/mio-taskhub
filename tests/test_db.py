@@ -66,7 +66,7 @@ def test_migrate_stage_column_on_old_table():
             cols = {c["name"] for c in inspect(conn).get_columns("task")}
             assert {"stage", "spec_path", "plan_path", "review_result"} <= cols
             row = conn.execute(text("SELECT stage, spec_path, plan_path, review_result FROM task WHERE id='old1'")).fetchone()
-            assert row[0] == "ready"
+            assert row[0] == "READY"  # SQLModel str-enum stored by .name (uppercase)
             assert row[1] == "" and row[2] == "" and row[3] == ""
         # idempotent: second run is a no-op
         _migrate_stage_column(eng)
