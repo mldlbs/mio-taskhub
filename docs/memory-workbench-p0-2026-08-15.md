@@ -26,11 +26,18 @@ mio-taskhub 需求工作台已交付 P0（想法 + 讨论）；端口 48620；�
 - 测试隔离：`MIO_TASKHUB_DB` 指向临时库；pytest 需在 `mio-taskhub/` 目录跑
 - 前端构建：`web/` 目录 `npm run build`
 - 打包：`python -m PyInstaller mio-taskhub.spec --noconfirm`（datas 用绝对路径 SPECPATH，web assets 进 `_internal/web/dist`）
-- 浮动面板依赖 pywebview（已装；绿色版打包需处理 pythonnet/WebView2，spec 尚未加 widget EXE）
+- 浮动面板依赖 pywebview（已装；绿色版已含 widget EXE：`mio-taskhub-widget.exe`，spec 加了第三个 EXE + webview hiddenimports + icon，冒烟测试通过）
 - hermes-memory 记忆图服务当前不可用（工具返回 JSON 解析错误）
 
-## 下一步（等用户选择）
-- **P1 编排**：Task `depends_on` 支持列表（DAG）；依赖满足自动放行 READY；调度器扩展；空闲 agent 自动捞取；编排视图
-- **事件订阅推送**：task 全局事件 + `taskhub_poll_events(seq)` 增量订阅；WS 推给 UI/浮动面板
-- **Idea → Task 一键拆解**：`FORMED/BROKEN_DOWN` 时生成任务集并与 idea 关联
-- 绿色版加 `mio-taskhub-widget.exe`（PyInstaller 第三个 EXE + pywebview hiddenimports）
+## 已完成（编排/事件/拆解，2026-08-15 会话）
+- **P1 编排（DAG）**：`depends_on` 升级 JSON 数组 + 迁移；调度器依赖满足自动放行 READY（`wiring._release_dependencies`）；环检测（`planner.detect_cycle`，create/update/breakdown 三入口）；board 依赖阻塞告警；FlowView 依赖角标 + TaskDetail 依赖区块
+- **事件订阅推送**：`Event` 表加 entity/entity_id；统一 `emit_event`（与业务同事务）+ `broadcast_for_event`；全量写操作埋点；`GET /api/v1/events?after_seq=N` 增量（不传=最近200/=0=全部/>N=增量）；MCP `taskhub_poll_events`
+- **Idea → Task 一键拆解**：`Task.idea_id`；`POST /ideas/{id}/breakdown`（单事务、ref 依赖、幂等 409、环 422 回滚）；MCP `taskhub_breakdown_idea`；IdeasView 拆解表单
+- 清理 7 个测试残留任务（生产库）+ 临时 DB 检查；README/MCP_INTEGRATION/使用说明 已更新
+- 提交：`b0f2e9a`(spec) → `e40d64d`(plan) → 14 个实现任务 → `2ada194`(MCP depends_on 数组) → widget EXE 打包批次
+- 测试：190 passed；`npm run build` 通过；生产 hub(48620) 运行中，隔离实例端到端验证依赖放行/事件/拆解/环检测/409 全通过
+
+## 下一步（可选）
+- 绿色版加 `mio-taskhub-widget.exe` —— 已完成（第三个 EXE + pywebview hiddenimports + icon，冒烟通过）
+- 空闲 agent 自动捞取（调度器扩展的编排视图部分）—— 待做
+- 对话内拖拽编排 / 更细粒度编排视图 —— 待做

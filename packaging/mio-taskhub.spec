@@ -12,6 +12,11 @@ hiddenimports = (
     + collect_submodules("httpx")
 )
 
+widget_hiddenimports = (
+    ["webview", "clr", "pythonnet"]
+    + collect_submodules("webview")
+)
+
 a = Analysis(
     ["run_hub.py"],
     pathex=[".", ".."],
@@ -46,10 +51,36 @@ exe_mcp = EXE(
     disable_windowed_traceback=False,
 )
 
+a_widget = Analysis(
+    ["run_widget.py"],
+    pathex=[".", ".."],
+    binaries=[],
+    datas=[("../web/public/icon.ico", "web/public")],
+    hiddenimports=widget_hiddenimports,
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    noarchive=False,
+    optimize=0,
+)
+exe_widget = EXE(
+    PYZ(a_widget.pure),
+    a_widget.scripts,
+    exclude_binaries=True,
+    name="mio-taskhub-widget",
+    console=False,
+    disable_windowed_traceback=True,
+    icon="../web/public/icon.ico",
+)
+
 coll = COLLECT(
     exe_hub,
     exe_mcp,
+    exe_widget,
     a.binaries,
     a.datas,
+    a_widget.binaries,
+    a_widget.datas,
     name="mio-taskhub",
 )

@@ -3,12 +3,25 @@
 import ctypes
 import os
 import socket
+import sys
 
 import webview
 
 PORT = int(os.environ.get("MIO_TASKHUB_PORT", "48620"))
 URL = f"http://127.0.0.1:{PORT}/"
-ICO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "web", "public", "icon.ico")
+
+
+def _res_icon() -> str:
+    """解析 icon 路径：打包后取 _MEIPASS 内的资源，源码模式取 web/public。"""
+    if getattr(sys, "frozen", False):
+        base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+        cand = os.path.join(base, "web", "public", "icon.ico")
+        return cand if os.path.exists(cand) else ""
+    cand = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "web", "public", "icon.ico")
+    return cand if os.path.exists(cand) else ""
+
+
+ICO = _res_icon()
 
 WM_SETICON = 0x0080
 IMAGE_ICON = 1
@@ -19,6 +32,8 @@ ICON_BIG = 1
 
 def _apply_icon():
     """给窗口标题栏设置自定义图标（Windows）。"""
+    if not ICO:
+        return
     try:
         w = webview.windows[0]
         hwnd = w.native.Handle

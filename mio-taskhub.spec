@@ -24,6 +24,11 @@ mcp_hiddenimports = (
     + collect_submodules("mcp")
 )
 
+widget_hiddenimports = (
+    ["webview", "clr", "pythonnet"]
+    + collect_submodules("webview")
+)
+
 excludes = [
     "torch", "tensorflow", "torchvision", "keras", "pandas", "numpy",
     "scipy", "matplotlib", "cv2", "transformers", "onnxruntime", "timm",
@@ -82,12 +87,40 @@ exe_mcp = EXE(
     icon=None,
 )
 
+a_widget = Analysis(
+    ["packaging/run_widget.py"],
+    pathex=[SPECPATH],
+    binaries=[],
+    datas=[(os.path.join(SPECPATH, "web", "public", "icon.ico"), "web/public")],
+    hiddenimports=widget_hiddenimports,
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=excludes,
+    noarchive=False,
+    optimize=0,
+)
+pyz_widget = PYZ(a_widget.pure)
+
+exe_widget = EXE(
+    pyz_widget,
+    a_widget.scripts,
+    exclude_binaries=True,
+    name="mio-taskhub-widget",
+    console=False,
+    disable_windowed_traceback=True,
+    icon=os.path.join(SPECPATH, "web", "public", "icon.ico"),
+)
+
 coll = COLLECT(
     exe_hub,
     exe_mcp,
+    exe_widget,
     a_hub.binaries,
     a_mcp.binaries,
+    a_widget.binaries,
     a_hub.datas,
     a_mcp.datas,
+    a_widget.datas,
     name="mio-taskhub",
 )
