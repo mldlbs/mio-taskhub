@@ -97,3 +97,10 @@ def test_next_steps_mentions_ready():
     _mk("a", "ready", priority=1)
     data = client.get("/api/v1/board/summary").json()
     assert any("待领取" in s for s in data["next_steps"])
+
+
+def test_blocked_dependency_alert():
+    parent = _mk("bp", stage="cancelled")
+    child = _mk("bc", stage="planning", depends_on=[parent["id"]])
+    data = client.get("/api/v1/board/summary").json()
+    assert any("依赖阻塞" in a["message"] and child["id"] in a["message"] for a in data["alerts"])

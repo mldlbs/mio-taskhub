@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
 from mio_taskhub.models import Task, TaskStage, TaskState, Run, RunState
+from mio_taskhub.status import is_terminal, task_deps
 from mio_taskhub.utils import _now
 
 router = APIRouter(prefix="/board", tags=["board"])
@@ -89,6 +90,23 @@ def board_summary(agent: str = Query(None), db: Session = Depends(get_session)):
     overdue.sort(key=lambda t: t.due_at)
     for t in overdue[:5]:
         alerts.append({"level": "warning", "message": f"任务「{t.title}」已超截止时间"})
+
+    # 告警：依赖阻塞（前置已 cancelled/failed，不可能放行）
+    for t in tasks:
+        deps = task_deps(t)
+        if not deps:
+            continue
+        stage_v = _stage(t.stage)
+        if stage_v in ("done", "cancelled", "review", "implementing"):
+            continue
+        prereqs = [db.get(Task, d) for d in deps if d]
+        blocked = [p for p in prereqs if p is not None and is_terminal(p)
+                   and p.state.value != "completed" and _stage(p.stage) != "done"]
+        if blocked:
+            alerts.append({
+                "level": "warning",
+                "message": f"任务「{t.title}」（{t.id}）依赖阻塞（前置「{blocked[0].title}」已取消/失败），无法放行",
+            })
 
     # 最近完成
     done_runs = db.exec(
