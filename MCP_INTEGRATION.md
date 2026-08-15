@@ -15,21 +15,35 @@
 ```
 
 - **hub（:48620）** 必须先启动：`python -m uvicorn mio_taskhub.main:app --port 48620`
-- **MCP server** 是本地 stdio 进程，由每个 agent 自己拉起；它把 hub 的 HTTP API 包装成 8 个工具
+- **MCP server** 是本地 stdio 进程，由每个 agent 自己拉起；它把 hub 的 HTTP API 包装成 20+ 个工具
 - 多个 agent 可同时连同一个 hub，各自注册不同名称、FIFO+优先级领取任务
 
 ## 暴露的工具
 
 | 工具名 | 作用 |
 |---|---|
+| `taskhub_status` | 一次获取全局上下文（各阶段计数/待领取/执行中/告警/最近完成/下一步建议） |
+| `taskhub_poll_events` | 增量订阅全局变更事件（建任务/领取/心跳/完成/阶段/想法/讨论），记录 next_seq 轮询 |
 | `taskhub_register` | 注册 agent（幂等，重复注册刷新在线状态） |
 | `taskhub_claim` | 领取一个排队任务，返回 run_id + 任务详情 |
 | `taskhub_heartbeat` | 心跳上报进度（0-100），避免超时 |
 | `taskhub_submit_result` | 提交结果（成功/失败），驱动 completed/retrying/failed |
 | `taskhub_list_tasks` | 看板：按状态 / agent 类型过滤列任务 |
-| `taskhub_get_task` | 查看单个任务完整详情 |
-| `taskhub_create_task` | 提交新任务供各 agent 领取 |
+| `taskhub_get_task` | 查看单个任务完整详情（含依赖/子任务/讨论/阶段产物） |
+| `taskhub_create_task` | 提交新任务（支持 depends_on 依赖数组、stage、产出物） |
+| `taskhub_update_task` | 更新任务细节字段 |
+| `taskhub_advance_stage` | 推进研发阶段（brainstorming→design→planning→ready→implementing→review→done），需带产出物 |
 | `taskhub_cancel_task` | 取消排队中的任务 |
+| `taskhub_add_subtask` | 添加子任务 / `taskhub_update_subtask` 更新子任务状态 |
+| `taskhub_add_gitref` | 关联 Git 引用（分支/commit/PR/tag） |
+| `taskhub_add_history` | 追加执行历史事件 |
+| `taskhub_add_discussion` | 回写讨论结果（摘要+结论）到任务 |
+| `taskhub_add_idea` | 记录想法/需求（状态 new） |
+| `taskhub_ideas` | 查看想法列表（按状态过滤） |
+| `taskhub_update_idea` | 更新想法内容 / 推进状态（new→fermenting→formed→broken_down） |
+| `taskhub_breakdown_idea` | 把成形想法拆解为任务集（子任务用 ref 互相引用依赖） |
+| `taskhub_open_discussion` | 打开讨论会话（绑定 idea 或 task） |
+| `taskhub_discussion_messages` | 读取讨论消息 / `taskhub_reply_discussion` 发消息 / `taskhub_close_discussion` 关闭写结论 |
 
 ## 1. 启动 hub
 
@@ -112,7 +126,20 @@ python -m mio_taskhub.mcp_server
    失败则提交 success=false 并说明原因
 ```
 
-## 4. 手动验证（不启动 hub 时）
+## 4. 增量订阅事件（编排/协作感知）
+
+每个写操作（建任务、领取、心跳、完成、阶段推进、想法、讨论）都会写入事件日志并广播。agent 可通过 `taskhub_poll_events` 增量拉取：
+
+```
+r1 = taskhub_poll_events(seq=0)      # 从头订阅（分页，每页最多 200 条）
+last_seq = r1["next_seq"]            # 记住游标
+r2 = taskhub_poll_events(seq=last_seq)  # 只拿新增
+```
+
+- 心跳事件量大，可按需忽略 `type == "heartbeat"`。
+- 也可通过 WebSocket `ws://127.0.0.1:48620/ws` 接收实时广播（消息含 `event` 字段）。
+
+## 5. 手动验证（不启动 hub 时）
 
 ```bash
 # 启动 hub

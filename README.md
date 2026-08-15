@@ -2,6 +2,8 @@
 
 Cross-agent task hub — local single-user service.
 
+能力：跨 agent 任务中心、研发阶段生命周期（brainstorming→done）、依赖编排（depends_on 数组 + 依赖满足自动放行 + 环检测）、统一事件日志（seq 增量订阅）、想法工作台（Idea→Task 一键拆解）、讨论会话、MCP 工具接入。
+
 ```bash
 pip install -e ".[dev]"
 mio-taskhub serve            # 启动服务（默认 http://localhost:48620）
