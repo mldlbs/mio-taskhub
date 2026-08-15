@@ -6,6 +6,7 @@ import BoardView from './components/BoardView'
 import ListView from './components/ListView'
 import PlanView from './components/PlanView'
 import FlowView from './components/FlowView'
+import TopoView from './components/TopoView'
 import EmbedView from './components/EmbedView'
 import IdeasView from './components/IdeasView'
 import CreateModal from './components/CreateModal'
@@ -220,6 +221,9 @@ export default function App() {
             {view === 'flow' && (
               <FlowView tasks={tasks} onOpen={openTask} onCancel={cancelTask}
                         onAdvance={advanceStage} onMoveToStage={moveToStage} />
+            )}
+            {view === 'topo' && (
+              <TopoView tasks={tasks} onOpen={openTask} />
             )}
             {view === 'ideas' && (
               <IdeasView ideas={ideas} onReload={loadIdeas} />

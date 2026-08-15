@@ -2076,3 +2076,23 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
 .flow-card[draggable]:active { cursor: grabbing; }
 .flow__step.is-dragover { outline: 1px dashed var(--accent, #3ddc97); outline-offset: -2px; }
 
+/* ------------------------------------------------------------
+   TopoView — 依赖拓扑 (Kahn layers)
+   ------------------------------------------------------------ */
+.topo { padding: 24px; display: flex; flex-direction: column; gap: 16px; overflow: auto; }
+.topo__head { display: flex; align-items: baseline; gap: 12px; }
+.topo__title { font-family: var(--font-display, inherit); margin: 0; }
+.topo__count { color: var(--ink-dim, #6b7280); font-size: 12px; }
+.topo__empty { color: var(--ink-dim, #6b7280); padding: 40px 0; text-align: center; }
+.topo__layer { display: flex; gap: 12px; align-items: flex-start; }
+.topo__layer-tag { font-family: var(--font-mono, monospace); font-size: 11px; color: var(--ink-dim, #6b7280); padding-top: 10px; min-width: 32px; }
+.topo__layer-nodes { display: flex; gap: 12px; flex-wrap: wrap; flex: 1; }
+.topo-node { text-align: left; background: var(--bg-soft, #181b20); border: 1px solid var(--border, #2a2e35); border-radius: 10px; padding: 10px 12px; min-width: 180px; max-width: 240px; cursor: pointer; }
+.topo-node--ok { border-color: var(--ok, #3ddc97); }
+.topo-node--danger { border-color: var(--danger, #ff5c5c); }
+.topo-node--live { border-color: var(--accent, #3ddc97); }
+.topo-node__title { font-weight: 600; margin-bottom: 6px; }
+.topo-node__meta { display: flex; gap: 6px; align-items: center; }
+.topo-node__stage { font-size: 11px; color: var(--ink-dim, #6b7280); }
+.topo-node__stats { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-dim, #6b7280); margin-top: 6px; }
+

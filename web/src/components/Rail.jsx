@@ -24,6 +24,14 @@ const VIEWS = [
       <path d="M9 9v6M15 9v6" />
     </svg>
   )},
+  { id: 'topo', label: '拓扑', icon: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+      <circle cx="5" cy="5" r="2" />
+      <circle cx="19" cy="5" r="2" />
+      <circle cx="12" cy="19" r="2" />
+      <path d="M7 6.5 17 5M6 7l4 10M18 7l-4 10" />
+    </svg>
+  )},
   { id: 'ideas', label: '想法', icon: (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 18h6M10 21h4" />
