@@ -9,6 +9,9 @@ from mio_taskhub.models import (
     Discussion, DiscussionMessage,
 )
 from mio_taskhub.utils import _now
+from mio_taskhub.status import normalize_depends, task_deps
+from mio_taskhub.events import emit_event, broadcast_for_event
+from mio_taskhub.planner import detect_cycle
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -40,6 +43,19 @@ def _parse_enum(enum_cls, value, default=None):
     except ValueError:
         raise HTTPException(400, f"invalid value: {value}, expected one of {[e.value for e in enum_cls]}")
 
+def _graph_with(task, db) -> dict:
+    """构建 {id: [dep_ids]} 依赖图（含给定 task 的新值）。"""
+    graph = {}
+    for t in db.exec(select(Task)).all():
+        graph[t.id] = task_deps(t)
+    graph[task.id] = task_deps(task)
+    return graph
+
+def _check_cycle(task, db):
+    cyc = detect_cycle(_graph_with(task, db))
+    if cyc:
+        raise HTTPException(422, f"cyclic dependency: {' → '.join(cyc)}")
+
 @router.post("", response_model=dict)
 def create_task(body: dict, db: Session = Depends(get_session)):
     due_at = _parse_dt(body.get("due_at"), "due_at")
@@ -59,7 +75,7 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         run_at=run_at,
         cron_expr=body.get("cron_expr"),
         est_duration_min=body.get("est_duration_min", 30),
-        depends_on=body.get("depends_on"),
+        depends_on=normalize_depends(body.get("depends_on")),
         max_retries=body.get("max_retries", 3),
         acceptance_criteria=body.get("acceptance_criteria", ""),
         due_at=due_at,
@@ -71,12 +87,16 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         stage=stage,
     )
     db.add(t)
+    _check_cycle(t, db)                       # 成环则抛 422（未 commit，自动回滚）
+    event = emit_event(db, type="task_created", entity="task", entity_id=t.id,
+                       payload={"title": t.title, "stage": t.stage.value})
     db.commit()
     db.refresh(t)
-    _broadcast_task_update(t.id)
+    broadcast_for_event(event)
     return {
         "id": t.id, "title": t.title, "state": t.state.value,
         "priority": t.priority, "created_at": t.created_at.isoformat(),
+        "depends_on": list(t.depends_on or []), "idea_id": t.idea_id,
     }
 
 @router.get("", response_model=list)
@@ -101,7 +121,8 @@ def list_tasks(state: str = None, agent_type: str = None, stage: str = None,
     rows = db.exec(q).all()
     return [
         {"id": r.id, "title": r.title, "state": r.state.value, "stage": r.stage.value,
-         "priority": r.priority, "target_agent_type": r.target_agent_type}
+         "priority": r.priority, "target_agent_type": r.target_agent_type,
+         "depends_on": list(r.depends_on or []), "idea_id": r.idea_id}
         for r in rows
     ]
 
@@ -121,10 +142,11 @@ def _task_detail(t: Task, db: Session) -> dict:
         "priority": t.priority, "target_agent_type": t.target_agent_type,
         "schedule_type": t.schedule_type, "run_at": _fmt(t.run_at),
         "cron_expr": t.cron_expr, "est_duration_min": t.est_duration_min,
-        "depends_on": t.depends_on, "max_retries": t.max_retries, "attempt": t.attempt,
+        "depends_on": list(t.depends_on or []), "max_retries": t.max_retries, "attempt": t.attempt,
         "created_at": t.created_at.isoformat(),
         "acceptance_criteria": t.acceptance_criteria,
         "due_at": _fmt(t.due_at),
+        "idea_id": t.idea_id,
         "labels": t.labels, "project": t.project, "workspace": t.workspace,
         "files": t.files, "deliverables": t.deliverables,
         "stage": t.stage.value if not isinstance(t.stage, str) else t.stage,
@@ -159,11 +181,16 @@ def update_task(task_id: str, body: dict, db: Session = Depends(get_session)):
             v = body[k]
             if k == "due_at":
                 v = _parse_dt(v, "due_at")
-            setattr(t, k, v)
+            if k == "depends_on":
+                t.depends_on = normalize_depends(v)
+                _check_cycle(t, db)
+            else:
+                setattr(t, k, v)
     db.add(t)
+    event = emit_event(db, type="task_updated", entity="task", entity_id=t.id)
     db.commit()
     db.refresh(t)
-    _broadcast_task_update(t.id)
+    broadcast_for_event(event)
     return _task_detail(t, db)
 
 @router.post("/{task_id}/subtasks")

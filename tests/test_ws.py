@@ -36,10 +36,10 @@ def test_create_task_calls_broadcast(monkeypatch):
 
     calls = []
 
-    def _spy(task_id):
-        calls.append(task_id)
+    def _spy(event):
+        calls.append(event.entity_id)
 
-    monkeypatch.setattr(tasks_mod, "_broadcast_task_update", _spy)
+    monkeypatch.setattr(tasks_mod, "broadcast_for_event", _spy)
     client = TestClient(app)
     r = client.post("/api/v1/tasks", json={"title": "WS broadcast"})
     assert r.status_code == 200

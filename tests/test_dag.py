@@ -91,3 +91,37 @@ def test_release_writes_event():
     _release()
     r = client.get("/api/v1/events", params={"after_seq": 0}).json()
     assert any(e["type"] == "task_released" and e["entity_id"] == b["id"] for e in r["events"])
+
+
+def test_create_task_with_deps_returns_array():
+    r = _mk("d", stage="ready", deps=["abc"])
+    assert r["depends_on"] == ["abc"]
+
+
+def test_create_task_cyclic_dependency_rejected():
+    a = _mk("a", stage="ready")
+    b = _mk("b", stage="ready", deps=[a["id"]])
+    r = client.patch(f"/api/v1/tasks/{a['id']}", json={"depends_on": [b["id"]]})
+    assert r.status_code == 422
+    assert "cyclic" in r.json()["detail"]
+
+
+def test_update_depends_on_stores_list():
+    a = _mk("a", stage="ready")
+    b = _mk("b", stage="ready")
+    r = client.patch(f"/api/v1/tasks/{a['id']}", json={"depends_on": [b["id"]]})
+    assert r.status_code == 200
+    d = client.get(f"/api/v1/tasks/{a['id']}").json()
+    assert d["depends_on"] == [b["id"]]
+    assert d["idea_id"] == ""
+
+
+def test_legacy_string_depends_readable():
+    # 直接建一个 depends_on 为字符串的任务模拟旧数据（模型层面已归一化）
+    with Session(engine) as s:
+        t = Task(title="legacy")
+        t.depends_on = ["x"]
+        s.add(t); s.commit()
+        tid = t.id
+    d = client.get(f"/api/v1/tasks/{tid}").json()
+    assert d["depends_on"] == ["x"]
