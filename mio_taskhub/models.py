@@ -157,7 +157,8 @@ class HistoryEvent(SQLModel, table=True):
 
 class Discussion(SQLModel, table=True):
     id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
-    task_id: str = Field(index=True)
+    task_id: str = Field(index=True, default="")
+    idea_id: str = Field(index=True, default="")
     topic: str
     agent: str = ""
     status: str = "open"
@@ -176,9 +177,11 @@ class DiscussionMessage(SQLModel, table=True):
     at: datetime = Field(default_factory=_now)
 
 class Event(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    run_id: str = Field(index=True)
+    id: Optional[int] = Field(default=None, primary_key=True)   # 自增 seq
     type: str
+    entity: str = Field(default="", index=True)
+    entity_id: str = Field(default="", index=True)
+    run_id: str = Field(default="", index=True)                 # 兼容旧字段
     payload: Optional[str] = None
     at: datetime = Field(default_factory=_now)
 
@@ -189,3 +192,30 @@ class Plan(SQLModel, table=True):
     status: str = "draft"
     items: Optional[str] = None
     created_at: datetime = Field(default_factory=_now)
+
+class IdeaStatus(str, enum.Enum):
+    NEW = "new"                 # 记录中
+    FERMENTING = "fermenting"    # 发酵中
+    FORMED = "formed"            # 已成形
+    BROKEN_DOWN = "broken_down"  # 已拆解为任务
+    ARCHIVED = "archived"
+    CANCELLED = "cancelled"
+
+    @classmethod
+    def can_advance(cls, src: "IdeaStatus", dst: "IdeaStatus") -> bool:
+        if dst == cls.ARCHIVED or dst == cls.CANCELLED:
+            return src != cls.ARCHIVED and src != cls.CANCELLED and src != cls.BROKEN_DOWN
+        progress = [cls.NEW, cls.FERMENTING, cls.FORMED, cls.BROKEN_DOWN]
+        if src not in progress or dst not in progress:
+            return False
+        return progress.index(dst) > progress.index(src)
+
+class Idea(SQLModel, table=True):
+    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    title: str
+    description: str = ""
+    status: IdeaStatus = IdeaStatus.NEW
+    project: str = ""
+    labels: list = Field(default_factory=list, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
