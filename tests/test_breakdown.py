@@ -71,6 +71,17 @@ def test_breakdown_cycle_422_rollback():
     _with_client(k)
 
 
+def test_breakdown_without_refs_ok():
+    async def k(c):
+        iid = (await c.post("/api/v1/ideas", json={"title": "x"})).json()["id"]
+        r = await c.post(f"/api/v1/ideas/{iid}/breakdown", json={
+            "tasks": [{"title": "a", "depends_on": []}, {"title": "b", "depends_on": []}]
+        })
+        assert r.status_code == 200
+        assert len(r.json()["tasks"]) == 2
+    _with_client(k)
+
+
 def test_breakdown_404():
     async def k(c):
         r = await c.post("/api/v1/ideas/nope/breakdown", json={"tasks": [{"title": "a"}]})

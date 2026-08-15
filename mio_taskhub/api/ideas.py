@@ -122,8 +122,9 @@ def breakdown_idea(idea_id: str, body: dict, db: Session = Depends(get_session))
     items = body.get("tasks", [])
     if not items:
         raise HTTPException(422, "tasks is required")
-    refs = [it.get("ref") or "" for it in items]
-    if len(set(refs)) != len(refs):
+    refs = [(it.get("ref") or "").strip() for it in items]
+    non_empty = [r for r in refs if r]
+    if len(set(non_empty)) != len(non_empty):
         raise HTTPException(422, "duplicate ref")
     created = []
     try:
