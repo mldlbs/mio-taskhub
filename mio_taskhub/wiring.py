@@ -4,6 +4,8 @@ from mio_taskhub.db import engine
 from mio_taskhub.models import Run, RunState, Task, TaskStage, TaskState
 from mio_taskhub.heartbeat import HeartbeatSweep, RunInfo
 from mio_taskhub.scheduler import Scheduler
+from mio_taskhub.status import is_terminal, dependency_satisfied, task_deps
+from mio_taskhub.events import emit_event, broadcast_for_event
 
 DEFAULT_TIMEOUT_SECONDS = 120
 
@@ -51,7 +53,34 @@ def _on_alive(run_id: str):
     pass
 
 
+def _release_dependencies():
+    """调度器 tick：把依赖全部满足的任务自动放行到 READY。
+
+    放行范围：state 非终态、stage ∈ {brainstorming, design, planning}、depends_on 非空。
+    前置全部 dependency_satisfied → stage=READY + 事件 + 广播。
+    前置存在 cancelled/failed（不可放行）→ 不动（告警由 board.summary 生成）。
+    """
+    with Session(engine) as db:
+        tasks = db.exec(select(Task)).all()
+        for t in tasks:
+            deps = task_deps(t)
+            if not deps:
+                continue
+            stage_v = t.stage.value if not isinstance(t.stage, str) else t.stage
+            if is_terminal(t) or stage_v not in ("brainstorming", "design", "planning"):
+                continue
+            prereqs = [db.get(Task, d) for d in deps if d]
+            if prereqs and all(dependency_satisfied(p) for p in prereqs if p is not None):
+                t.stage = TaskStage.READY
+                event = emit_event(db, type="task_released", entity="task",
+                                   entity_id=t.id, payload={"reason": "deps_met"})
+                db.add(t)
+                db.commit()
+                broadcast_for_event(event)
+
+
 def _get_due_tasks():
+    _release_dependencies()   # 先放行依赖
     now = datetime.now(timezone.utc)
     with Session(engine) as db:
         tasks = db.exec(select(Task).where(Task.state == TaskState.QUEUED)).all()
