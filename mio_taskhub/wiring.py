@@ -118,6 +118,10 @@ def _assign_to_idle_agents():
             if run is None:
                 db.rollback()
                 continue
+            if run.task_id != t.id:
+                # 并发下该 agent 可能已被占（返回了别的 run），跳过此任务
+                db.rollback()
+                continue
             task = db.get(Task, run.task_id)
             event = emit_event(db, type="task_assigned", entity="task", entity_id=task.id,
                                run_id=run.id, payload={"agent": target.name, "reason": "idle_assign",

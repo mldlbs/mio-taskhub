@@ -6,6 +6,7 @@ from mio_taskhub.main import app
 from mio_taskhub.db import engine
 from mio_taskhub.models import Task, Run, RunState, TaskState, TaskStage
 from mio_taskhub.api.tasks import _claim_for
+import mio_taskhub.wiring as wiring
 
 client = TestClient(app)
 
@@ -104,15 +105,6 @@ def test_claim_with_agent_type_skips_future_run_at():
         assert task.title == "past-t"
 
 
-import mio_taskhub.wiring as wiring
-
-
-def _agents():
-    from mio_taskhub.models import Agent
-    with Session(engine) as s:
-        return s.exec(select(Agent)).all()
-
-
 def test_assign_to_idle_agent():
     _register("idle1", "coder")
     _mk("at", stage="ready", agent_type="coder")
@@ -156,3 +148,27 @@ def test_assign_writes_task_assigned_event():
     assigned = [e for e in ev["events"] if e["type"] == "task_assigned"]
     assert assigned, "expected task_assigned event"
     assert "run_id" in assigned[0]["payload"]
+
+
+def test_one_task_per_agent_per_tick():
+    _register("one1", "coder")
+    _mk("o1", stage="ready", agent_type="coder")
+    _mk("o2", stage="ready", agent_type="coder")
+    wiring._assign_to_idle_agents()
+    with Session(engine) as s:
+        t1 = s.exec(select(Task).where(Task.title == "o1")).first()
+        t2 = s.exec(select(Task).where(Task.title == "o2")).first()
+        claimed = [x for x in (t1, t2) if x.state == TaskState.CLAIMED]
+        assert len(claimed) == 1  # 一个 agent 一 tick 最多一单
+
+
+def test_assign_respects_priority_order():
+    _register("prio1", "coder")
+    _mk("low", stage="ready", agent_type="coder", priority=1)
+    _mk("high", stage="ready", agent_type="coder", priority=3)
+    wiring._assign_to_idle_agents()
+    with Session(engine) as s:
+        high = s.exec(select(Task).where(Task.title == "high")).first()
+        low = s.exec(select(Task).where(Task.title == "low")).first()
+        assert high.state == TaskState.CLAIMED
+        assert low.state == TaskState.QUEUED
