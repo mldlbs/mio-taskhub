@@ -299,6 +299,28 @@ def cancel_task(task_id: str, db: Session = Depends(get_session)):
     broadcast_for_event(event)
     return {"ok": True, "state": "cancelled"}
 
+def _apply_stage_requirements(t: Task, dst: TaskStage, body: dict):
+    """应用目标阶段的产出物校验与状态副作用。抛 HTTPException(422) 当产出物缺失。
+
+    design 需 spec_path、planning 需 plan_path、done 需 review_result；
+    done→completed、cancelled→cancelled。
+    """
+    if dst == TaskStage.DESIGN:
+        if not body.get("spec_path"):
+            raise HTTPException(422, "design stage requires spec_path")
+        t.spec_path = body["spec_path"]
+    if dst == TaskStage.PLANNING:
+        if not body.get("plan_path"):
+            raise HTTPException(422, "planning stage requires plan_path")
+        t.plan_path = body["plan_path"]
+    if dst == TaskStage.DONE:
+        if not body.get("review_result"):
+            raise HTTPException(422, "done stage requires review_result")
+        t.review_result = body["review_result"]
+        t.state = TaskState.COMPLETED
+    if dst == TaskStage.CANCELLED:
+        t.state = TaskState.CANCELLED
+
 @router.post("/{task_id}/stage")
 def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
     t = db.get(Task, task_id)
@@ -315,23 +337,10 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
     if not TaskStage.can_advance(src, dst):
         raise HTTPException(400, f"cannot advance from {src.value} to {dst.value}")
     if dst == TaskStage.DESIGN:
-        if not body.get("spec_path"):
-            raise HTTPException(422, "design stage requires spec_path")
         discussions = db.exec(select(Discussion).where(Discussion.task_id == task_id)).all()
         if not discussions:
             raise HTTPException(422, "design stage requires at least one discussion record")
-        t.spec_path = body["spec_path"]
-    if dst == TaskStage.PLANNING:
-        if not body.get("plan_path"):
-            raise HTTPException(422, "planning stage requires plan_path")
-        t.plan_path = body["plan_path"]
-    if dst == TaskStage.DONE:
-        if not body.get("review_result"):
-            raise HTTPException(422, "done stage requires review_result")
-        t.review_result = body["review_result"]
-        t.state = TaskState.COMPLETED
-    if dst == TaskStage.CANCELLED:
-        t.state = TaskState.CANCELLED
+    _apply_stage_requirements(t, dst, body)
     t.stage = dst
     event = emit_event(db, type="task_stage", entity="task", entity_id=task_id,
                        payload={"target": dst.value})
@@ -345,7 +354,11 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
 
 @router.post("/{task_id}/stage/move")
 def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
-    """任意跳转到目标阶段（拖拽用）。不校验相邻性，但保留终态保护与产出物校验。"""
+    """任意跳转到目标阶段（拖拽用）。不校验相邻性，但保留终态保护与产出物校验。
+
+    与 advance_stage 的区别：不要求相邻推进，且 design 阶段不强制要求讨论记录
+    （拖拽是轻量路径，产物可由用户自行补充）。
+    """
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404, "task not found")
@@ -359,21 +372,7 @@ def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
     src = t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
     if src in (TaskStage.DONE, TaskStage.CANCELLED):
         raise HTTPException(400, f"cannot move terminal stage {src.value}")
-    if dst == TaskStage.DESIGN:
-        if not body.get("spec_path"):
-            raise HTTPException(422, "design stage requires spec_path")
-        t.spec_path = body["spec_path"]
-    if dst == TaskStage.PLANNING:
-        if not body.get("plan_path"):
-            raise HTTPException(422, "planning stage requires plan_path")
-        t.plan_path = body["plan_path"]
-    if dst == TaskStage.DONE:
-        if not body.get("review_result"):
-            raise HTTPException(422, "done stage requires review_result")
-        t.review_result = body["review_result"]
-        t.state = TaskState.COMPLETED
-    if dst == TaskStage.CANCELLED:
-        t.state = TaskState.CANCELLED
+    _apply_stage_requirements(t, dst, body)
     from_stage = src.value
     t.stage = dst
     event = emit_event(db, type="task_moved", entity="task", entity_id=t.id,

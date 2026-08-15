@@ -63,3 +63,31 @@ def test_move_writes_event():
 def test_move_404():
     r = client.post("/api/v1/tasks/nope/stage/move", json={"target_stage": "ready"})
     assert r.status_code == 404
+
+
+def test_move_to_planning_requires_plan_path():
+    t = _mk("movep", stage="brainstorming")
+    r = client.post(f"/api/v1/tasks/{t['id']}/stage/move", json={"target_stage": "planning"})
+    assert r.status_code == 422
+    r2 = client.post(f"/api/v1/tasks/{t['id']}/stage/move",
+                     json={"target_stage": "planning", "plan_path": "docs/p.md"})
+    assert r2.status_code == 200
+
+
+def test_move_to_cancelled_sets_state():
+    t = _mk("movec", stage="implementing")
+    r = client.post(f"/api/v1/tasks/{t['id']}/stage/move", json={"target_stage": "cancelled"})
+    assert r.status_code == 200
+    assert r.json()["state"] == "cancelled"
+
+
+def test_move_invalid_stage_400():
+    t = _mk("moveinv", stage="brainstorming")
+    r = client.post(f"/api/v1/tasks/{t['id']}/stage/move", json={"target_stage": "bogus"})
+    assert r.status_code == 400
+
+
+def test_move_missing_target_422():
+    t = _mk("movemiss", stage="brainstorming")
+    r = client.post(f"/api/v1/tasks/{t['id']}/stage/move", json={})
+    assert r.status_code == 422
