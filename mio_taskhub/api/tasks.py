@@ -343,6 +343,49 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
             "plan_path": t.plan_path, "review_result": t.review_result,
             "state": t.state.value}
 
+@router.post("/{task_id}/stage/move")
+def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
+    """任意跳转到目标阶段（拖拽用）。不校验相邻性，但保留终态保护与产出物校验。"""
+    t = db.get(Task, task_id)
+    if not t:
+        raise HTTPException(404, "task not found")
+    target = body.get("target_stage")
+    if not target:
+        raise HTTPException(422, "target_stage is required")
+    try:
+        dst = TaskStage(target)
+    except ValueError:
+        raise HTTPException(400, f"invalid target_stage: {target}")
+    src = t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
+    if src in (TaskStage.DONE, TaskStage.CANCELLED):
+        raise HTTPException(400, f"cannot move terminal stage {src.value}")
+    if dst == TaskStage.DESIGN:
+        if not body.get("spec_path"):
+            raise HTTPException(422, "design stage requires spec_path")
+        t.spec_path = body["spec_path"]
+    if dst == TaskStage.PLANNING:
+        if not body.get("plan_path"):
+            raise HTTPException(422, "planning stage requires plan_path")
+        t.plan_path = body["plan_path"]
+    if dst == TaskStage.DONE:
+        if not body.get("review_result"):
+            raise HTTPException(422, "done stage requires review_result")
+        t.review_result = body["review_result"]
+        t.state = TaskState.COMPLETED
+    if dst == TaskStage.CANCELLED:
+        t.state = TaskState.CANCELLED
+    from_stage = src.value
+    t.stage = dst
+    event = emit_event(db, type="task_moved", entity="task", entity_id=t.id,
+                       payload={"from": from_stage, "to": dst.value})
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    broadcast_for_event(event)
+    return {"id": t.id, "stage": t.stage.value, "spec_path": t.spec_path,
+            "plan_path": t.plan_path, "review_result": t.review_result,
+            "state": t.state.value}
+
 def _claim_for(agent: str, db: Session, agent_type: Optional[str] = None):
     """原子领取：返回该 agent 的 Run 或 None。
 
