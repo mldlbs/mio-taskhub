@@ -96,7 +96,7 @@ def create_task(body: dict, db: Session = Depends(get_session)):
     return {
         "id": t.id, "title": t.title, "state": t.state.value,
         "priority": t.priority, "created_at": t.created_at.isoformat(),
-        "depends_on": list(t.depends_on or []), "idea_id": t.idea_id,
+        "depends_on": task_deps(t), "idea_id": t.idea_id,
     }
 
 @router.get("", response_model=list)
@@ -122,7 +122,7 @@ def list_tasks(state: str = None, agent_type: str = None, stage: str = None,
     return [
         {"id": r.id, "title": r.title, "state": r.state.value, "stage": r.stage.value,
          "priority": r.priority, "target_agent_type": r.target_agent_type,
-         "depends_on": list(r.depends_on or []), "idea_id": r.idea_id}
+         "depends_on": task_deps(r), "idea_id": r.idea_id}
         for r in rows
     ]
 
@@ -142,7 +142,7 @@ def _task_detail(t: Task, db: Session) -> dict:
         "priority": t.priority, "target_agent_type": t.target_agent_type,
         "schedule_type": t.schedule_type, "run_at": _fmt(t.run_at),
         "cron_expr": t.cron_expr, "est_duration_min": t.est_duration_min,
-        "depends_on": list(t.depends_on or []), "max_retries": t.max_retries, "attempt": t.attempt,
+        "depends_on": task_deps(t), "max_retries": t.max_retries, "attempt": t.attempt,
         "created_at": t.created_at.isoformat(),
         "acceptance_criteria": t.acceptance_criteria,
         "due_at": _fmt(t.due_at),
