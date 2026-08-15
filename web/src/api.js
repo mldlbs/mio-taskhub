@@ -5,7 +5,13 @@ async function req(method, path, body) {
   if (body) opts.body = JSON.stringify(body)
   const r = await fetch(BASE + path, opts)
   if (r.status === 204) return null
-  return r.json()
+  const data = await r.json().catch(() => ({}))
+  if (!r.ok) {
+    const detail = data && data.detail
+    const msg = typeof detail === 'string' ? detail : (detail ? JSON.stringify(detail) : `HTTP ${r.status}`)
+    throw new Error(msg)
+  }
+  return data
 }
 
 export const api = {

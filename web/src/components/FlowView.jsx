@@ -58,14 +58,17 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToS
     if (stageId === 'design') {
       const val = window.prompt(`移动到 design 需提供 Spec 路径：`, task.spec_path || '')
       if (val === null) return
+      if (!val.trim()) return
       body.spec_path = val
     } else if (stageId === 'planning') {
       const val = window.prompt(`移动到 planning 需提供 Plan 路径：`, task.plan_path || '')
       if (val === null) return
+      if (!val.trim()) return
       body.plan_path = val
     } else if (stageId === 'done') {
       const val = window.prompt(`移动到 done 需提供审查结论：`, task.review_result || '')
       if (val === null) return
+      if (!val.trim()) return
       body.review_result = val
     }
     try {
