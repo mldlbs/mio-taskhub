@@ -4,7 +4,7 @@ Cross-agent task hub — local single-user service.
 
 ```bash
 pip install -e ".[dev]"
-mio-taskhub serve            # 启动服务（默认 http://localhost:8080）
+mio-taskhub serve            # 启动服务（默认 http://localhost:48620）
 mio-taskhub serve --auth     # 启用 Bearer 认证
 ```
 
@@ -14,5 +14,5 @@ Bearer 认证：
 - WebSocket：连接时传 `?token=<token>` 或 `Authorization: Bearer <token>` 头。
 - Web UI（`/`）与 `/docs` 不要求认证（本地单用户使用）。
 
-API: http://localhost:8080/api/v1/docs
-Web UI: http://localhost:8080/
+API: http://localhost:48620/api/v1/docs
+Web UI: http://localhost:48620/

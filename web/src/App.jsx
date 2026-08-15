@@ -6,6 +6,8 @@ import BoardView from './components/BoardView'
 import ListView from './components/ListView'
 import PlanView from './components/PlanView'
 import FlowView from './components/FlowView'
+import EmbedView from './components/EmbedView'
+import IdeasView from './components/IdeasView'
 import CreateModal from './components/CreateModal'
 import TaskDetail from './components/TaskDetail'
 
@@ -13,7 +15,13 @@ const VIEW_KEY = 'mio.view'
 const CONTRAST_KEY = 'mio.contrast'
 
 export default function App() {
+  const isEmbed = typeof window !== 'undefined' && window.location.hash === '#/embed'
+  if (isEmbed) {
+    return <EmbedView />
+  }
+
   const [tasks, setTasks] = useState([])
+  const [ideas, setIdeas] = useState([])
   const [view, setViewState] = useState(() => {
     try { return localStorage.getItem(VIEW_KEY) || 'board' } catch { return 'board' }
   })
@@ -48,10 +56,17 @@ export default function App() {
       .finally(() => { setLoading(false); setRefreshing(false) })
   }, [])
 
+  const loadIdeas = useCallback(() => {
+    api.listIdeas()
+      .then(data => { setIdeas(data?.ideas || []); setError(null) })
+      .catch(() => { /* 想法加载失败静默（不影响主看板） */ })
+  }, [])
+
   const refresh = useCallback(() => { setRefreshing(true); loadTasks() }, [loadTasks])
 
   useEffect(() => {
     loadTasks()
+    loadIdeas()
 
     let socket = null
     let timer = null
@@ -76,14 +91,14 @@ export default function App() {
     }
 
     connect()
-    const interval = setInterval(loadTasks, 5000)
+    const interval = setInterval(() => { loadTasks(); loadIdeas() }, 5000)
     return () => {
       closed = true
       if (timer) clearTimeout(timer)
       clearInterval(interval)
       if (socket) socket.close()
     }
-  }, [loadTasks])
+  }, [loadTasks, loadIdeas])
 
   const createTask = async (payload) => {
     try {
@@ -199,6 +214,9 @@ export default function App() {
             )}
             {view === 'flow' && (
               <FlowView tasks={tasks} onOpen={openTask} onCancel={cancelTask} onAdvance={advanceStage} />
+            )}
+            {view === 'ideas' && (
+              <IdeasView ideas={ideas} onReload={loadIdeas} />
             )}
           </div>
         </main>

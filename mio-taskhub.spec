@@ -1,4 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 from PyInstaller.utils.hooks import collect_submodules
 
 hiddenimports = [
@@ -35,7 +36,7 @@ a_hub = Analysis(
     ["packaging/run_hub.py"],
     pathex=[SPECPATH],
     binaries=[],
-    datas=[("web/dist", "web/dist")],
+    datas=[(os.path.join(SPECPATH, "web", "dist"), "web/dist")],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

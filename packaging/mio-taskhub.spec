@@ -13,10 +13,10 @@ hiddenimports = (
 )
 
 a = Analysis(
-    ["packaging/run_hub.py"],
-    pathex=["."],
+    ["run_hub.py"],
+    pathex=[".", ".."],
     binaries=[],
-    datas=[("web/dist", "web/dist")],
+    datas=[("../web/dist", "web/dist")],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
@@ -39,7 +39,7 @@ exe_hub = EXE(
 
 exe_mcp = EXE(
     PYZ(a.pure),
-    [("packaging/run_mcp.py", None, None)],
+    ["run_mcp.py"],
     exclude_binaries=True,
     name="mio-taskhub-mcp",
     console=True,

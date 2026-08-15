@@ -4,11 +4,11 @@
 
 ```bash
 # 1. 启动任务中心服务
-cd mio-taskhub && python -m uvicorn mio_taskhub.main:app --port 8080
+cd mio-taskhub && python -m uvicorn mio_taskhub.main:app --port 48620
 
-# 2. 服务运行在 http://127.0.0.1:8080
-#    - Web UI: http://127.0.0.1:8080/
-#    - API: http://127.0.0.1:8080/api/v1
+# 2. 服务运行在 http://127.0.0.1:48620
+#    - Web UI: http://127.0.0.1:48620/
+#    - API: http://127.0.0.1:48620/api/v1
 ```
 
 ## opencode 怎么用
@@ -72,7 +72,7 @@ python agent_wrapper.py claude-code claim # claude-code 领下一个
 
 ## Web UI 看板
 
-浏览器打开 http://localhost:8080 可以看禅道风格看板：
+浏览器打开 http://localhost:48620 可以看禅道风格看板：
 - 6 列状态：待处理 → 已领取 → 进行中 → 已完成 → 失败
 - 拖拽任务卡片改变状态
 - 实时 WebSocket 刷新

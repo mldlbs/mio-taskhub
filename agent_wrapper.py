@@ -4,7 +4,7 @@
 
 import sys, json, time, os, urllib.request, urllib.error
 
-HUB = "http://127.0.0.1:8080/api/v1"
+HUB = "http://127.0.0.1:48620/api/v1"
 
 def req(method, path, body=None):
     url = HUB + path

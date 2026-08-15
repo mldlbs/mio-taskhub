@@ -7,14 +7,14 @@
 ```
 +---------------+    MCP stdio     +------------------+    HTTP    +------------------+
 |  Agent        | <--------------> | mio_taskhub_mcp  | -------->  | mio-taskhub hub  |
-|  (opencode/   |  tools 调用      | (本地 MCP server) |   API/v1   | (FastAPI :8080)  |
+|  (opencode/   |  tools 调用      | (本地 MCP server) |   API/v1   | (FastAPI :48620)  |
 |   claude/codex|                  |                  |  register/ |                  |
 |   /hermes/...) |                 |                  |  claim/    |                  |
 +---------------+                  +------------------+  heartbeat |                  |
                                                         /result    +------------------+
 ```
 
-- **hub（:8080）** 必须先启动：`python -m uvicorn mio_taskhub.main:app --port 8080`
+- **hub（:48620）** 必须先启动：`python -m uvicorn mio_taskhub.main:app --port 48620`
 - **MCP server** 是本地 stdio 进程，由每个 agent 自己拉起；它把 hub 的 HTTP API 包装成 8 个工具
 - 多个 agent 可同时连同一个 hub，各自注册不同名称、FIFO+优先级领取任务
 
@@ -35,8 +35,8 @@
 
 ```bash
 cd mio-taskhub
-python -m uvicorn mio_taskhub.main:app --port 8080
-# Web UI: http://127.0.0.1:8080/   API: http://127.0.0.1:8080/api/v1
+python -m uvicorn mio_taskhub.main:app --port 48620
+# Web UI: http://127.0.0.1:48620/   API: http://127.0.0.1:48620/api/v1
 ```
 
 ## 2. 各 agent 注册 MCP server
@@ -49,7 +49,7 @@ mio-taskhub-mcp
 python -m mio_taskhub.mcp_server
 ```
 
-可选环境变量 `MIO_TASKHUB_URL`，默认 `http://127.0.0.1:8080/api/v1`。
+可选环境变量 `MIO_TASKHUB_URL`，默认 `http://127.0.0.1:48620/api/v1`。
 
 ### opencode
 
@@ -116,7 +116,7 @@ python -m mio_taskhub.mcp_server
 
 ```bash
 # 启动 hub
-python -m uvicorn mio_taskhub.main:app --port 8080
+python -m uvicorn mio_taskhub.main:app --port 48620
 
 # 用 MCP Inspector 交互测试
 npx @modelcontextprotocol/inspector python -m mio_taskhub.mcp_server

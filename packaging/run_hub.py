@@ -37,7 +37,7 @@ def _port_in_use(host, port):
 
 
 def main():
-    port = int(os.environ.get("MIO_TASKHUB_PORT", "8080"))
+    port = int(os.environ.get("MIO_TASKHUB_PORT", "48620"))
     if _port_in_use("127.0.0.1", port):
         _msgbox(
             "mio-taskhub",

@@ -214,3 +214,30 @@ def test_discussion_with_stage_tool(mcp_ctx):
     d = _call("taskhub_add_discussion", {"task_id": tid, "topic": "评审", "agent": "mcp-agent",
                                          "stage": "review", "conclusions": "通过"})
     assert d["stage"] == "review"
+
+
+def test_status_tool_empty(mcp_ctx):
+    data = _call("taskhub_status", {})
+    assert data["counts"]["ready"] == 0
+    assert data["ready_queue"] == []
+    assert data["running"] == []
+    assert data["next_steps"]
+
+
+def test_status_tool_reflects_board(mcp_ctx):
+    _call("taskhub_create_task", {"title": "ST", "stage": "ready", "priority": 2})
+    data = _call("taskhub_status", {})
+    assert data["counts"]["ready"] == 1
+    assert data["ready_queue"][0]["title"] == "ST"
+    assert data["ready_queue"][0]["priority"] == 2
+
+
+def test_status_tool_agent_filter(mcp_ctx):
+    _call("taskhub_create_task", {"title": "ST2", "stage": "ready"})
+    _call("taskhub_claim", {"agent": "mcp-agent"})
+    all_r = _call("taskhub_status", {})["running"]
+    mine = _call("taskhub_status", {"agent": "mcp-agent"})["running"]
+    assert len(all_r) == 1
+    assert len(mine) == 1
+    other = _call("taskhub_status", {"agent": "nobody"})["running"]
+    assert other == []

@@ -6,7 +6,7 @@ Exposes the local task hub as MCP tools so any MCP-capable agent
 claim tasks, send heartbeats and submit results as native tool calls.
 
 Run:    python -m mio_taskhub.mcp_server
-Config: MIO_TASKHUB_URL (default http://127.0.0.1:8080/api/v1)
+Config: MIO_TASKHUB_URL (default http://127.0.0.1:48620/api/v1)
 """
 
 import json
@@ -16,7 +16,7 @@ import httpx
 from pydantic import Field
 from mcp.server.fastmcp import FastMCP
 
-HUB_URL = os.environ.get("MIO_TASKHUB_URL", "http://127.0.0.1:8080/api/v1")
+HUB_URL = os.environ.get("MIO_TASKHUB_URL", "http://127.0.0.1:48620/api/v1")
 TIMEOUT = 15.0
 
 _headers = {}
@@ -28,10 +28,15 @@ _client = httpx.AsyncClient(timeout=TIMEOUT, headers=_headers)
 mcp = FastMCP(
     "mio_taskhub_mcp",
     instructions=(
-        "mio-taskhub 是一个本地跨 agent 任务中心。"
-        "Agent 通过此服务注册、领取任务、发送心跳并提交结果。"
-        "典型流程：taskhub_register 注册 → taskhub_claim 领取 → "
-        "taskhub_heartbeat 心跳 → taskhub_submit_result 提交结果。"
+        "mio-taskhub 是一个本地跨 agent 任务中心，通过本服务以工具调用的方式使用。\n"
+        "对话使用规范：\n"
+        "- 用户提到 任务/看板/派活/进度/待办/活干完没/安排 时，优先调用 taskhub_status 获取全局上下文。\n"
+        "- 看板渲染：把 taskhub_status 结果渲染成 markdown 表格（阶段|数量|任务列表），不要贴原始 JSON。\n"
+        "- 只读询问（看进度/看板）时只调 taskhub_status / taskhub_get_task / taskhub_list_tasks，不创建不修改。\n"
+        "- 建任务用 taskhub_create_task，写清描述/验收标准；先给用户复述标题+描述，确认后再提交。\n"
+        "- 推进阶段用 taskhub_advance_stage，需带产出物路径/审查结论，缺失时先向用户要。\n"
+        "- 任务完成后用 taskhub_submit_result 提交，并向用户一句话汇报结果（成功/失败+原因）。\n"
+        "执行类流程：taskhub_register 注册 → taskhub_claim 领取 → taskhub_heartbeat 心跳 → taskhub_submit_result 提交结果。"
     ),
 )
 
@@ -45,7 +50,7 @@ async def _request(method: str, path: str, params: Optional[dict] = None, body: 
         resp.raise_for_status()
         return resp.json()
     except httpx.ConnectError:
-        return {"error": f"无法连接 mio-taskhub 服务（{HUB_URL}）。请先启动：python -m uvicorn mio_taskhub.main:app --port 8080"}
+        return {"error": f"无法连接 mio-taskhub 服务（{HUB_URL}）。请先启动：python -m uvicorn mio_taskhub.main:app --port 48620"}
     except httpx.HTTPStatusError as e:
         return {"error": f"HTTP {e.response.status_code}: {e.response.text[:200]}"}
     except httpx.HTTPError as e:
@@ -54,6 +59,35 @@ async def _request(method: str, path: str, params: Optional[dict] = None, body: 
 
 def _fmt(data: dict, pretty: bool = True) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2 if pretty else None)
+
+
+@mcp.tool(
+    name="taskhub_status",
+    title="查看任务中心全局状态",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+async def taskhub_status(
+    agent: str = Field(default="", description="当前 agent 名称（可选），传入后 running 只列该 agent 的任务", max_length=64),
+) -> str:
+    """一次获取全局上下文：各阶段任务计数、待领取队列、执行中任务、心跳超时/超期告警、最近完成与下一步建议。
+
+    对话中用户提到 任务/看板/进度/待办/派活 时优先调用本工具，再把结果渲染成
+    markdown 表格展示给用户，而不是贴原始 JSON。
+
+    Args:
+        agent: 可选，只显示该 agent 的执行中任务
+
+    Returns:
+        JSON: {updated_at, counts, ready_queue, running, alerts, recent_done, next_steps}
+    """
+    params = {"agent": agent} if agent else None
+    data = await _request("GET", "/board/summary", params=params)
+    return _fmt(data)
 
 
 @mcp.tool(
@@ -489,6 +523,120 @@ async def taskhub_cancel_task(
         JSON: {"ok": true, "state": "cancelled"}
     """
     data = await _request("DELETE", f"/tasks/{task_id}")
+    return _fmt(data)
+
+
+@mcp.tool(name="taskhub_add_idea", title="记录想法/需求", annotations={
+    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
+})
+async def taskhub_add_idea(
+    title: str = Field(description="想法/需求标题", min_length=1, max_length=200),
+    description: str = Field(default="", description="详细描述", max_length=4000),
+    project: str = Field(default="", description="关联项目名", max_length=200),
+    labels: Optional[list] = Field(default=None, description="标签列表"),
+) -> str:
+    """把用户的一个想法/需求记录下来（状态 new），后续可开会讨论、拆解为任务。"""
+    body = {"title": title, "description": description, "project": project, "labels": labels or []}
+    data = await _request("POST", "/ideas", body=body)
+    return _fmt(data)
+
+
+@mcp.tool(name="taskhub_ideas", title="查看想法列表", annotations={
+    "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False,
+})
+async def taskhub_ideas(
+    status: Optional[str] = Field(default=None, description="状态过滤：new/fermenting/formed/broken_down/archived/cancelled"),
+) -> str:
+    """列出想法/需求（含状态），供用户随时回顾和管理。"""
+    params = {"status": status} if status else None
+    data = await _request("GET", "/ideas", params=params)
+    return _fmt(data)
+
+
+@mcp.tool(name="taskhub_update_idea", title="更新想法/需求", annotations={
+    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
+})
+async def taskhub_update_idea(
+    idea_id: str = Field(description="想法唯一标识", min_length=1),
+    title: Optional[str] = Field(default=None, description="标题"),
+    description: Optional[str] = Field(default=None, description="描述"),
+    status: Optional[str] = Field(default=None, description="状态：new/fermenting/formed/broken_down/archived/cancelled"),
+) -> str:
+    """更新想法内容或推进其状态（发酵/成形/已拆解），体现需求演进过程。"""
+    body = {}
+    if title is not None: body["title"] = title
+    if description is not None: body["description"] = description
+    if status is not None:
+        data = await _request("POST", f"/ideas/{idea_id}/status", body={"status": status})
+        return _fmt(data)
+    data = await _request("PATCH", f"/ideas/{idea_id}", body=body)
+    return _fmt(data)
+
+
+@mcp.tool(name="taskhub_open_discussion", title="打开讨论会话", annotations={
+    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
+})
+async def taskhub_open_discussion(
+    topic: str = Field(description="讨论主题", min_length=1, max_length=200),
+    idea_id: str = Field(default="", description="绑定想法 id（idea 或 task 至少一个）", max_length=64),
+    task_id: str = Field(default="", description="绑定任务 id（idea 或 task 至少一个）", max_length=64),
+    agent: str = Field(default="", description="发起方 agent 名称", max_length=64),
+    stage: str = Field(default="brainstorming", description="研发阶段：brainstorming/design/planning/review/..."),
+) -> str:
+    """针对某个想法或任务开启一个讨论会话，用户与 agent 可双向发消息。"""
+    body = {"topic": topic, "idea_id": idea_id, "task_id": task_id,
+            "agent": agent, "stage": stage}
+    data = await _request("POST", "/discussions", body=body)
+    return _fmt(data)
+
+
+@mcp.tool(name="taskhub_discussion_messages", title="查看讨论消息", annotations={
+    "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False,
+})
+async def taskhub_discussion_messages(
+    discussion_id: Optional[str] = Field(default=None, description="讨论 id（或用 idea_id/task_id 拉取该对象的讨论）", max_length=64),
+    idea_id: Optional[str] = Field(default=None, description="按想法查看其全部讨论", max_length=64),
+    task_id: Optional[str] = Field(default=None, description="按任务查看其全部讨论", max_length=64),
+) -> str:
+    """读取讨论内容（含用户提问/agent 回复），用于加入或续接讨论。"""
+    if discussion_id:
+        data = await _request("GET", f"/discussions/{discussion_id}")
+        return _fmt(data)
+    if idea_id:
+        data = await _request("GET", "/discussions", params={"ref_type": "idea", "ref_id": idea_id})
+        return _fmt(data)
+    if task_id:
+        data = await _request("GET", "/discussions", params={"ref_type": "task", "ref_id": task_id})
+        return _fmt(data)
+    return _fmt({"error": "provide discussion_id or idea_id or task_id"})
+
+
+@mcp.tool(name="taskhub_reply_discussion", title="讨论回消息", annotations={
+    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
+})
+async def taskhub_reply_discussion(
+    discussion_id: str = Field(description="讨论唯一标识", min_length=1),
+    content: str = Field(description="消息内容", min_length=1, max_length=4000),
+    role: str = Field(default="agent", description="角色：user/agent/ask"),
+    author: str = Field(default="", description="发言人", max_length=64),
+) -> str:
+    """在讨论会话中发一条消息（agent 回复或向用户提问 role=ask）。"""
+    body = {"content": content, "role": role, "author": author}
+    data = await _request("POST", f"/discussions/{discussion_id}/messages", body=body)
+    return _fmt(data)
+
+
+@mcp.tool(name="taskhub_close_discussion", title="关闭讨论", annotations={
+    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
+})
+async def taskhub_close_discussion(
+    discussion_id: str = Field(description="讨论唯一标识", min_length=1),
+    conclusions: str = Field(description="讨论结论", max_length=4000),
+    summary: str = Field(default="", description="讨论摘要"),
+) -> str:
+    """结束讨论并回写结论，供后续拆解任务参考。"""
+    body = {"conclusions": conclusions, "summary": summary}
+    data = await _request("POST", f"/discussions/{discussion_id}/close", body=body)
     return _fmt(data)
 
 
