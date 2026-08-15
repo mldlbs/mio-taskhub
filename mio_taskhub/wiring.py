@@ -114,7 +114,7 @@ def _assign_to_idle_agents():
                 break
             if target is None:
                 continue
-            run = _claim_for(target.name, db, agent_type=t.target_agent_type)
+            run = _claim_for(target.name, db, agent_type=target.agent_type or None)
             if run is None:
                 db.rollback()
                 continue

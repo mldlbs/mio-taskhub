@@ -172,3 +172,52 @@ def test_assign_respects_priority_order():
         low = s.exec(select(Task).where(Task.title == "low")).first()
         assert high.state == TaskState.CLAIMED
         assert low.state == TaskState.QUEUED
+
+
+def test_any_type_task_not_starved_by_typed_task():
+    # 高优先但无匹配 agent 的 typed 任务不应让 any-type 任务挨饿
+    _register("starve1", "coder")
+    _mk("typed", stage="ready", agent_type="Y", priority=3)
+    _mk("generic", stage="ready", priority=2)
+    wiring._assign_to_idle_agents()
+    with Session(engine) as s:
+        g = s.exec(select(Task).where(Task.title == "generic")).first()
+        assert g.state == TaskState.CLAIMED
+        run = s.exec(select(Run).where(Run.task_id == g.id)).first()
+        assert run is not None and run.agent_name == "starve1"
+
+
+import threading
+import sqlite3
+from sqlalchemy.exc import OperationalError as SAOperationalError
+
+
+def test_two_agents_race_one_task_single_run():
+    """两个 agent 并发抢同一任务：条件更新保证只有一个 run。"""
+    _register("raceA")
+    _register("raceB")
+    _mk("raceone", stage="ready")
+    results = {}
+    barrier = threading.Barrier(2)
+
+    def _try(name):
+        for _ in range(5):
+            try:
+                with Session(engine) as s:
+                    barrier.wait()  # 同时出发
+                    run = _claim_for(name, s)
+                    s.commit()
+                    results[name] = run.task_id if run else None
+                    return
+            except (sqlite3.OperationalError, SAOperationalError):
+                results[name] = None  # database locked → 视为未抢到
+                return
+
+    ts = [threading.Thread(target=_try, args=(n,)) for n in ("raceA", "raceB")]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    won = [v for v in results.values() if v is not None]
+    assert len(won) == 1  # 只有一个 agent 抢到
+    with Session(engine) as s:
+        runs = s.exec(select(Run)).all()
+        assert len(runs) == 1  # 一个任务只有一个 run
