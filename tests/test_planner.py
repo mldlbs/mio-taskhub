@@ -46,8 +46,11 @@ def test_detect_cycle_simple():
     assert path[0] == path[-1]
 
 def test_detect_cycle_chain():
-    deps = {"a": [], "b": ["a"], "c": ["b"], "a": ["c"]}
-    assert detect_cycle(deps) != []
+    # d 无依赖，a→c→b→a 形成环；环外节点 d 不应被误报
+    deps = {"d": [], "b": ["a"], "c": ["b"], "a": ["c"]}
+    path = detect_cycle(deps)
+    assert path, "expected a cycle"
+    assert path[0] == path[-1]
 
 def test_multi_dep_ordering():
     # parent done → children；child2 依赖 parent + child1
