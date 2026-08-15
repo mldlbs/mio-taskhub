@@ -20,6 +20,8 @@ export default function IdeasView({ ideas, onReload }) {
   const [discTopic, setDiscTopic] = useState('')
   const [msgDraft, setMsgDraft] = useState({})
   const [err, setErr] = useState(null)
+  const [breaking, setBreaking] = useState(false)
+  const [breakRows, setBreakRows] = useState([{ ref: 't1', title: '', deps: '' }])
 
   const fail = useCallback((e) => setErr(e.message || '操作失败'), [])
 
@@ -72,6 +74,26 @@ export default function IdeasView({ ideas, onReload }) {
     try {
       await api.closeDiscussion(d.id, { conclusions, summary: d.summary })
       await reloadDetail()
+    } catch (e) { fail(e) }
+  }
+
+  const addBreakRow = () =>
+    setBreakRows(r => [...r, { ref: `t${r.length + 1}`, title: '', deps: '' }])
+
+  const submitBreakdown = async () => {
+    const rows = breakRows.filter(r => r.title.trim())
+    if (!rows.length) return
+    const tasks = rows.map(r => ({
+      title: r.title.trim(),
+      ref: r.ref || undefined,
+      depends_on: r.deps.split(',').map(s => s.trim()).filter(Boolean),
+    }))
+    try {
+      await api.breakdownIdea(detail.id, { tasks })
+      setBreaking(false)
+      setBreakRows([{ ref: 't1', title: '', deps: '' }])
+      await reloadDetail()
+      onReload()
     } catch (e) { fail(e) }
   }
 
@@ -145,6 +167,11 @@ export default function IdeasView({ ideas, onReload }) {
                 {next && nextMeta && (
                   <button className="btn" onClick={() => advance(next)}>→ 推进为「{nextMeta.label}」</button>
                 )}
+                {detail.status === 'formed' && (
+                  <button className="btn btn--accent" onClick={() => setBreaking(b => !b)}>
+                    {breaking ? '取消拆解' : '→ 拆解为任务'}
+                  </button>
+                )}
                 {(detail.status === 'new' || detail.status === 'fermenting' || detail.status === 'formed') && (
                   <button className="btn btn--ghost" onClick={() => advance('archived')}>归档</button>
                 )}
@@ -194,6 +221,26 @@ export default function IdeasView({ ideas, onReload }) {
                   <div className="ideas__empty">还没有讨论。开一个会，把想法拉上 agent 一起头脑风暴。</div>
                 )}
               </div>
+
+              {breaking && (
+                <div className="idea-detail__break">
+                  <div className="idea-detail__disc-head"><span>拆解为任务（可填依赖 ref）</span></div>
+                  {breakRows.map((r, idx) => (
+                    <div key={idx} className="break-row">
+                      <input className="inp break-row__ref" placeholder="ref" value={r.ref} readOnly />
+                      <input className="inp" placeholder="任务标题" value={r.title}
+                             onChange={e => setBreakRows(rows => rows.map((x, i) => i === idx ? { ...x, title: e.target.value } : x))} />
+                      <input className="inp break-row__deps" placeholder="依赖(逗号分隔)" value={r.deps}
+                             onChange={e => setBreakRows(rows => rows.map((x, i) => i === idx ? { ...x, deps: e.target.value } : x))} />
+                    </div>
+                  ))}
+                  <div className="break-actions">
+                    <button className="btn btn--ghost" onClick={addBreakRow}>+ 加一行</button>
+                    <button className="btn btn--primary" onClick={submitBreakdown}
+                            disabled={!breakRows.some(r => r.title.trim())}>提交拆解</button>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>

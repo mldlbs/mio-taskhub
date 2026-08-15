@@ -2011,3 +2011,48 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
 }
 .msg--user .msg__bubble { background: var(--accent); color: #0b0e13; border-color: var(--accent); }
 
+/* --- dependency chip (FlowView) --- */
+.dep-chip--ok { border-color: var(--ok, #3ddc97); color: var(--ok, #3ddc97); }
+.dep-chip--blocked { border-color: var(--danger, #ff5c5c); color: var(--danger, #ff5c5c); }
+
+/* --- drawer: dependency list (TaskDetail) --- */
+.dep-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dep-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.dep-list li .tag { flex: none; }
+.detail-muted { margin: 0; font-size: 12.5px; color: var(--ink-faint); }
+
+/* --- idea breakdown form (IdeasView) --- */
+.idea-detail__break {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-soft);
+}
+.break-row { display: flex; gap: 8px; align-items: center; }
+.break-row .inp { flex: 1; }
+.break-row__ref { flex: none; width: 52px; text-align: center; color: var(--ink-faint); font-family: var(--font-mono); font-size: 12px; }
+.break-row__deps { flex: none; width: 140px; }
+.break-actions { display: flex; justify-content: flex-end; gap: 8px; }
+

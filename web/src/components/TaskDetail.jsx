@@ -47,7 +47,6 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
   const i = LANES.findIndex(l => l.id === task.state)
   const prev = i > 0 ? LANES[i - 1] : null
   const next = i < LANES.length - 1 ? LANES[i + 1] : null
-  const dep = task.depends_on && tasks.find(t => t.id === task.depends_on)
   const st = tone(task.state)
   const cancellable = task.state === 'queued' || task.state === 'claimed' || task.state === 'retrying'
   const movable = ACTIVE.includes(task.state)
@@ -150,15 +149,24 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
           </section>
         )}
 
-        {task.depends_on && (
-          <section className="drawer__sec">
-            <h3>依赖</h3>
-            <p className="mono" style={{ fontSize: 12, color: 'var(--ink-dim)' }}>
-              ↳ {dep ? dep.title : '（未知任务）'}
-              <span style={{ color: 'var(--ink-faint)' }}> · {task.depends_on}</span>
-            </p>
-          </section>
-        )}
+        <section className="drawer__sec">
+          <h3>依赖</h3>
+          {(task.depends_on || []).length === 0 ? (
+            <p className="detail-muted">无前置任务</p>
+          ) : (
+            <ul className="dep-list">
+              {task.depends_on.map(did => {
+                const dep = (tasks || []).find(x => x.id === did)
+                return (
+                  <li key={did}>
+                    <span>{dep ? dep.title : did}</span>
+                    <span className="tag">{dep ? (dep.state === 'completed' || dep.stage === 'done' ? '已完成' : dep.state) : '未知'}</span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </section>
 
         {task.subtasks && task.subtasks.length > 0 && (
           <section className="drawer__sec">

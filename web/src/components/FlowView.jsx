@@ -22,6 +22,21 @@ const BACKTRACKS = [
 const labelOf = (id) => STAGES.find(s => s.id === id)?.label || id
 const nodeScale = (n) => Math.min(1 + n * 0.06, 1.5)
 
+const depState = (t, tasks) => {
+  const deps = t.depends_on || []
+  if (!deps.length) return null
+  const map = Object.fromEntries(tasks.map(x => [x.id, x]))
+  const blocked = deps.some(d => {
+    const p = map[d]
+    return p && (p.state === 'cancelled' || p.state === 'failed')
+  })
+  const done = deps.every(d => {
+    const p = map[d]
+    return p && (p.state === 'completed' || p.stage === 'done')
+  })
+  return { count: deps.length, done, blocked }
+}
+
 export default function FlowView({ tasks, onOpen, onCancel, onAdvance }) {
   const [advancing, setAdvancing] = useState(null)
   const [artifact, setArtifact] = useState('')
@@ -115,6 +130,16 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance }) {
                   </div>
                   <div className="flow-card__meta">
                     <span className={`chip${p.p >= 3 ? ' chip--p3' : ''}${p.p === 2 ? ' chip--p2' : ''}`}>{p.label}</span>
+                    {(() => {
+                      const ds = depState(t, tasks)
+                      if (!ds) return null
+                      return (
+                        <span
+                          className={`chip dep-chip${ds.done ? ' dep-chip--ok' : ''}${ds.blocked ? ' dep-chip--blocked' : ''}`}
+                          title={ds.blocked ? '前置任务已取消/失败，无法放行' : (ds.done ? '前置任务已完成' : '等待前置任务')}
+                        >⛓ {ds.count}</span>
+                      )
+                    })()}
                     {t.target_agent_type && (
                       <span className="task__agent">
                         <span className="agent-mono" style={{ background: ac.bg, borderColor: ac.fg, color: ac.fg }}>{agMono(t.target_agent_type)}</span>

@@ -32,4 +32,5 @@ export const api = {
   listDiscussions: (refType, refId) => req('GET', `/discussions?ref_type=${refType}&ref_id=${refId}`),
   replyDiscussion: (id, body) => req('POST', `/discussions/${id}/messages`, body),
   closeDiscussion: (id, body) => req('POST', `/discussions/${id}/close`, body),
+  breakdownIdea: (id, body) => req('POST', `/ideas/${id}/breakdown`, body),
 }
