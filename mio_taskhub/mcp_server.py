@@ -640,6 +640,37 @@ async def taskhub_close_discussion(
     return _fmt(data)
 
 
+@mcp.tool(name="taskhub_poll_events", title="增量订阅全局事件", annotations={
+    "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False,
+})
+async def taskhub_poll_events(
+    seq: int = Field(default=0, description="上次消费的 seq；0 表示从头订阅全部；不传则返回最近 200 条"),
+) -> str:
+    """增量订阅全局变更事件（建任务、领取、心跳、完成、阶段推进、想法、讨论等都会产生）。
+
+    调用后记录返回的 next_seq，下次以其为 seq 即可拿到增量。心跳事件量大，可按需忽略 type=heartbeat。
+    """
+    params = {"after_seq": seq}
+    data = await _request("GET", "/events", params=params)
+    return _fmt(data)
+
+
+@mcp.tool(name="taskhub_breakdown_idea", title="把想法拆解为任务集", annotations={
+    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
+})
+async def taskhub_breakdown_idea(
+    idea_id: str = Field(description="想法唯一标识", min_length=1),
+    tasks: list = Field(description="任务列表，每项含 title/ref/depends_on/priority 等字段"),
+) -> str:
+    """把一个已成形想法拆解为多个任务，子任务用 ref 互相引用依赖（如 depends_on: [\"t1\"]）。
+
+    成功后想法状态置 broken_down，任务通过 idea_id 关联回该想法。
+    """
+    body = {"tasks": tasks}
+    data = await _request("POST", f"/ideas/{idea_id}/breakdown", body=body)
+    return _fmt(data)
+
+
 def main():
     mcp.run()
 

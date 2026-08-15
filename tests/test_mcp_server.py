@@ -241,3 +241,33 @@ def test_status_tool_agent_filter(mcp_ctx):
     assert len(mine) == 1
     other = _call("taskhub_status", {"agent": "nobody"})["running"]
     assert other == []
+
+
+def test_poll_events_tool(mcp_ctx):
+    _call("taskhub_create_task", {"title": "PE"})
+    r = _call("taskhub_poll_events", {"seq": 0})
+    assert "next_seq" in r
+    assert any(e["type"] == "task_created" for e in r["events"])
+
+
+def test_poll_events_incremental(mcp_ctx):
+    r1 = _call("taskhub_poll_events", {"seq": 0})
+    _call("taskhub_create_task", {"title": "PE2"})
+    r2 = _call("taskhub_poll_events", {"seq": r1["next_seq"]})
+    assert r2["events"]
+    assert all(e["seq"] > r1["next_seq"] for e in r2["events"])
+
+
+def test_breakdown_idea_tool(mcp_ctx):
+    created = _call("taskhub_add_idea", {"title": "BI"})
+    iid = created["id"]
+    r = _call("taskhub_breakdown_idea", {
+        "idea_id": iid,
+        "tasks": [{"title": "a", "ref": "a", "depends_on": []},
+                  {"title": "b", "ref": "b", "depends_on": ["a"]}],
+    })
+    assert r["idea"]["status"] == "broken_down"
+    assert len(r["tasks"]) == 2
+    b = next(t for t in r["tasks"] if t["ref"] == "b")
+    a = next(t for t in r["tasks"] if t["ref"] == "a")
+    assert b["depends_on"] == [a["id"]]
