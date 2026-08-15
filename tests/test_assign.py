@@ -1,4 +1,5 @@
 # tests/test_assign.py
+from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 from mio_taskhub.main import app
@@ -44,12 +45,19 @@ def test_claim_for_none_when_no_task():
 
 def test_claim_for_respects_agent_type():
     _register("coder1", "coder")
-    _mk("ct", stage="ready", agent_type="coder")
     _mk("devt", stage="ready", agent_type="dev")
+    _mk("ct", stage="ready", agent_type="coder")
     with Session(engine) as s:
-        run = _claim_for("coder1", s)
+        devt = s.exec(select(Task).where(Task.title == "devt")).first()
+        ct = s.exec(select(Task).where(Task.title == "ct")).first()
+        devt.created_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        ct.created_at = datetime(2020, 1, 2, tzinfo=timezone.utc)
+        s.commit()
+    with Session(engine) as s:
+        run = _claim_for("coder1", s, agent_type="coder")
         assert run is not None
         task = s.get(Task, run.task_id)
+        assert task.title == "ct"
         assert task.target_agent_type == "coder"
 
 
@@ -65,8 +73,8 @@ def test_claim_for_does_not_create_duplicate_runs_for_task():
         assert r2 is None or r2.task_id != r1.task_id
 
 
-def test_concurrent_claim_single_run():
-    """模拟两个 agent 并发抢同一任务：条件更新保证只有一个 run。"""
+def test_sequential_second_claim_no_duplicate():
+    """顺序领取同一任务：第一个抢到后，第二个不再产生新 run。"""
     _register("c1")
     _register("c2")
     _mk("race", stage="ready")

@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
@@ -342,11 +343,12 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
             "plan_path": t.plan_path, "review_result": t.review_result,
             "state": t.state.value}
 
-def _claim_for(agent: str, db: Session):
+def _claim_for(agent: str, db: Session, agent_type: Optional[str] = None):
     """原子领取：返回该 agent 的 Run 或 None。
 
     先查 agent 已有 claimed/running run（幂等）；否则按优先级+FIFO 找匹配任务，
     用条件更新（WHERE state='queued'）抢占，避免 SQLite 无 FOR UPDATE 下的并发双 run。
+    传 agent_type 时只匹配 target_agent_type 为该类型或未设置的任务。
     """
     existing = db.exec(
         select(Run).where(Run.agent_name == agent, Run.state.in_([RunState.CLAIMED, RunState.RUNNING]))
@@ -354,6 +356,8 @@ def _claim_for(agent: str, db: Session):
     if existing:
         return existing
     q = select(Task).where(Task.state == TaskState.QUEUED, Task.stage == TaskStage.READY)
+    if agent_type:
+        q = q.where((Task.target_agent_type == agent_type) | (Task.target_agent_type == None))
     rows = db.exec(q.order_by(Task.priority.desc(), Task.created_at.asc())).all()
     now = _now()
     candidate = None
@@ -404,43 +408,11 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
     if existing:
         return {"id": existing.id, "task_id": existing.task_id, "state": existing.state.value,
                 "agent_name": existing.agent_name}
-    # 传 agent_type 时按其过滤并条件更新抢占；否则走 _claim_for
-    if agent_type:
-        q = select(Task).where(Task.state == TaskState.QUEUED, Task.stage == TaskStage.READY,
-                               (Task.target_agent_type == agent_type) | (Task.target_agent_type == None))
-        rows = db.exec(q.order_by(Task.priority.desc(), Task.created_at.asc())).all()
-        now = _now()
-        t = None
-        for cand in rows:
-            if cand.schedule_type == "once" and cand.run_at:
-                run_at = cand.run_at
-                if run_at.tzinfo is None:
-                    run_at = run_at.replace(tzinfo=timezone.utc)
-                if run_at > now:
-                    continue
-            t = cand
-            break
-        if t is None:
-            return Response(status_code=204)
-        from sqlalchemy import update as sa_update
-        res = db.exec(sa_update(Task).where(Task.id == t.id, Task.state == TaskState.QUEUED)
-                      .values(state=TaskState.CLAIMED))
-        if res.rowcount != 1:
-            db.rollback()
-            return Response(status_code=204)
-        task = db.get(Task, t.id)
-        db.refresh(task)
-        task.attempt += 1
-        task.stage = TaskStage.IMPLEMENTING
-        run = Run(id=str(uuid.uuid4())[:8], task_id=task.id, agent_name=agent,
-                  state=RunState.CLAIMED, attempt=task.attempt, started_at=_now(), last_heartbeat=_now())
-        db.add(run)
-    else:
-        run = _claim_for(agent, db)
-        if run is None:
-            db.rollback()
-            return Response(status_code=204)
-        task = db.get(Task, run.task_id)  # _claim_for 已更新 attempt/stage，勿再 refresh
+    run = _claim_for(agent, db, agent_type)
+    if run is None:
+        db.rollback()
+        return Response(status_code=204)
+    task = db.get(Task, run.task_id)  # _claim_for 已更新 attempt/stage，勿再 refresh
     if project and not task.project:
         task.project = project
     if workspace and not task.workspace:
