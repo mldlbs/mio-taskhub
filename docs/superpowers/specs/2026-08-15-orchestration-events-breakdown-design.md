@@ -47,15 +47,49 @@ depends_on: list = Field(default_factory=list, sa_column=Column(JSON))
 - **DB 迁移**（`db.py::_migrate_stage_column` 扩展）：
   - 已有 `depends_on` 列若存了非空单值字符串，改写为 `["旧值"]`（JSON 文本）。
   - 旧库无 JSON 列的 SQLite 无需改列类型（JSON 存 TEXT）。
+  - 迁移归一化规则（旧列为 VARCHAR）：
+
+    | 旧值 | 迁移后 | 说明 |
+    |---|---:|---|
+    | `NULL` | `[]` | 无依赖 |
+    | `""` / 空白 | `[]` | 无依赖 |
+    | `"abc"` | `["abc"]` | 单值包装为数组 |
+    | `'["a","b"]'` | `["a","b"]` | 已是合法 JSON 数组，保留 |
+    | 非法 JSON（如 `"["`、`"{x"`） | `[]` | 兜底为空 + 日志 warning，不阻塞迁移 |
+
+### 状态模型统一
+
+`stage` 与 `state` 两个维度含义不同但终态重叠，全部模块不得各自重复判断。新增纯函数（放 `mio_taskhub/status.py`）：
+
+```python
+TERMINAL_STATES = {"completed", "cancelled", "failed", "blocked_failed"}
+
+def is_terminal(task) -> bool:
+    """任务不可再被调度/放行（终态）。"""
+    return (
+        task.state in TERMINAL_STATES
+        or _stage(task) == "done"
+    )
+
+def dependency_satisfied(task) -> bool:
+    """作为前置依赖时是否算满足。"""
+    return (
+        task.state == "completed"
+        or _stage(task) == "done"
+    )
+```
+
+- **DAG 放行、Board、FlowView、Planner、Scheduler 全部调用这两个函数**，禁止内联 `if task.state == ...` / `if task.stage == ...` 重复判断。
+- 后续调整终态集合只改 `TERMINAL_STATES` 一处。
 
 ### 依赖完成判据
 
-前置任务满足以下任一即视为「已完成」：
+前置任务满足 `dependency_satisfied(task)`（见「状态模型统一」）即视为「已完成」：
 
 - `state == completed`
 - `stage == done`
 
-任务自身不在活跃看板（`cancelled` / `done` / `completed`）时，不参与放行判断。
+任务自身在终态（`is_terminal(task)`，含 `cancelled` / `done` / `completed` / `failed` / `blocked_failed`）时，不参与放行判断。
 
 ### 自动放行（调度器内）
 
@@ -63,7 +97,7 @@ depends_on: list = Field(default_factory=list, sa_column=Column(JSON))
 
 1. 查询所有 `state` 非 `cancelled/done` 且 `stage` 在 `[brainstorming, design, planning]` 且 `depends_on` 非空的任务。
 2. 逐任务检查前置任务是否全部「已完成」。
-3. 全部满足 → `stage = READY`，写 `emit_event("task", id, {reason: "deps_met"})`，广播 `task_update`。
+3. 全部满足 → `stage = READY`，`emit_event(db, type="task_released", entity="task", entity_id=t.id, payload={"reason": "deps_met"})` 后随业务提交，广播 `task_update`。
 4. 有依赖但长时间未满足且前置中存在 `cancelled` / `failed`（不可能放行）的任务 → 在 `board.summary.alerts` 里报「依赖阻塞」告警，并建议处理。
 
 放行不校验 `spec_path`/`plan_path`（与手动推进解耦，编排场景允许前置产物由前序任务负责）。
@@ -108,19 +142,34 @@ class Event(SQLModel, table=True):
 
 ```python
 def emit_event(db: Session, type: str, entity: str = "", entity_id: str = "",
-               run_id: str = "", payload: dict | None = None) -> int
+               payload: dict | None = None) -> Event
 ```
 
-- 写入 Event 行（`payload` 序列化为 JSON 字符串），**与业务写操作同事务提交**（调用方先 `db.add(Event)` 再随业务 `db.commit()`，避免事件与状态不一致）。事务提交后由调用方触发现有 WS 广播（`task_update`/`idea_update`/`discussion_update`，按 entity 映射）。
+- 构造并 `db.add(Event)` 写入（`payload` 序列化为 JSON 字符串），**返回 `Event` 对象**（含自增 `id`/`seq`）。
+- **与业务写操作同事务提交**：调用方先 `emit_event(db, ...)` 拿对象，再随业务 `db.commit()`（避免事件与状态不一致）。提交后由调用方 `broadcast_for_event(event)` 触发现有 WS 广播（`task_update`/`idea_update`/`discussion_update`，按 `entity` 映射）。
+- 统一调用模式：
+
+```python
+event = emit_event(db, type="task_created", entity="task", entity_id=task.id, payload={...})
+db.commit()
+broadcast_for_event(event)
+```
+
 - 在 `main.py` 里作为 WS 广播的单一入口，替换各 `api/*.py` 里的 `_broadcast_*` 内联实现。
-- 调用约定：`emit_event(db, type=..., entity=..., entity_id=..., payload=...)` 只负责 `db.add`，不单独 commit；各 API 在业务 commit 后统一 `broadcast_for_event(event)`。
 - **全量埋点**：create / claim / heartbeat / result / stage / subtask / gitref / idea / discussion 等所有写操作统一调用。
 
 ### 查询接口
 
 `GET /api/v1/events?after_seq=N&limit=200`
 
-- `after_seq` 缺省返回最近 `limit` 条（默认 200）。
+`after_seq` 语义：
+
+| 调用 | 行为 |
+|---|---|
+| 不传 `after_seq` | 返回最近 `limit` 条（默认 200），`next_seq` 指向最新 |
+| `after_seq=0` | 返回全部事件（`seq >= 1`），等效从头订阅 |
+| `after_seq=N` | 返回 `seq > N` 的事件 |
+
 - 返回 `{events: [...], next_seq}`；`events` 按 `seq` 升序；空库 `events=[], next_seq=0`。
 - `next_seq` = 返回的最后一条 `seq`，调用方下次以其为 `after_seq`。
 
@@ -129,7 +178,7 @@ def emit_event(db: Session, type: str, entity: str = "", entity_id: str = "",
 新增 `taskhub_poll_events`：
 
 ```
-参数: seq: int = 0    (上次消费的 seq，0 表示从头/最近)
+参数: seq: int = 0    (上次消费的 seq；0 表示从头订阅全部；不传则返回最近 200 条)
 返回: {seq, next_seq, events: [{seq, type, entity, entity_id, payload}]}
 ```
 
@@ -176,6 +225,7 @@ idea_id: str = Field(default="", index=True)
   4. 全图环检测（复用 `planner.detect_cycle`）→ 成环 422。
   5. idea `status = broken_down`，`updated_at` 刷新。
   6. `emit_event("idea", idea_id, {action: "broken_down", task_ids: [...]})` + 广播；每个任务 emit `task` 事件。
+- **单事务**：整个 breakdown 在一个 DB 事务内完成 —— BEGIN → 创建全部 Task → 建立 ref 映射 → 解析依赖 → 环检测 → 更新 Idea.status → 写入事件 → 单次 COMMIT。任何步骤失败（含 422/409）→ ROLLBACK，不留半建任务脏数据。实现上使用一个 `Session` 全程、失败时 `db.rollback()` 后抛 HTTPException。
 - 返回：`{idea: {...}, tasks: [{id, title, ref, depends_on}]}`。
 
 ### 查询联动
@@ -220,7 +270,8 @@ idea_id: str = Field(default="", index=True)
   - 部分满足不放行
   - 前置 cancelled → 告警 + 不放行
   - 循环依赖检测（create/update 422；`detect_cycle` 纯函数）
-  - 旧单值 `depends_on` 迁移为数组（`_deps` 归一化）
+  - 旧单值 `depends_on` 迁移为数组（`_deps` 归一化 + 迁移异常表各分支）
+  - `status.is_terminal` / `dependency_satisfied` 单元测试（含 `blocked_failed`、`stage=done`）
 - `tests/test_events.py`：
   - seq 自增、`after_seq` 增量、缺省最近 200 条、空库零值
   - 各写操作产生对应事件（create/claim/heartbeat/result/stage/idea/discussion）
