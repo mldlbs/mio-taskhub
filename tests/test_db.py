@@ -110,3 +110,66 @@ def test_migrate_stage_column_on_old_table():
             os.remove(path)
         except OSError:
             pass
+
+def test_migrate_depends_on_and_idea_id():
+    import os
+    import tempfile
+    from sqlalchemy import create_engine, inspect, text
+    from mio_taskhub.db import _migrate_stage_column
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        eng = create_engine(f"sqlite:///{path}")
+        with eng.connect() as conn:
+            conn.execute(text(
+                "CREATE TABLE task (id VARCHAR PRIMARY KEY, title VARCHAR, state VARCHAR, "
+                "depends_on VARCHAR)"
+            ))
+            conn.execute(text(
+                "INSERT INTO task (id, title, state, depends_on) VALUES "
+                "('t1','a','queued','parent'), ('t2','b','queued','[\"x\",\"y\"]'), "
+                "('t3','c','queued',NULL), ('t4','d','queued','[')"
+            ))
+            conn.commit()
+        _migrate_stage_column(eng)
+        with eng.connect() as conn:
+            cols = {c["name"] for c in inspect(conn).get_columns("task")}
+            assert "idea_id" in cols
+            rows = {r[0]: r[1] for r in conn.execute(text("SELECT id, depends_on FROM task"))}
+            assert rows["t1"] == '["parent"]'
+            assert rows["t2"] == '["x","y"]'
+            assert rows["t3"] == "[]"
+            assert rows["t4"] == "[]"
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+def test_migrate_event_entity_columns():
+    import os
+    import tempfile
+    from sqlalchemy import create_engine, inspect, text
+    from mio_taskhub.db import _migrate_stage_column
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        eng = create_engine(f"sqlite:///{path}")
+        with eng.connect() as conn:
+            conn.execute(text(
+                "CREATE TABLE event (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id VARCHAR, "
+                "type VARCHAR, payload VARCHAR, at VARCHAR)"
+            ))
+            conn.execute(text("INSERT INTO event (run_id, type) VALUES ('r1', 'heartbeat')"))
+            conn.commit()
+        _migrate_stage_column(eng)
+        with eng.connect() as conn:
+            cols = {c["name"] for c in inspect(conn).get_columns("event")}
+            assert "entity" in cols and "entity_id" in cols
+            row = conn.execute(text("SELECT entity, entity_id FROM event WHERE run_id='r1'")).fetchone()
+            assert row[0] == "run" and row[1] == "r1"
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass

@@ -94,7 +94,7 @@ class Task(SQLModel, table=True):
     run_at: Optional[datetime] = None
     cron_expr: Optional[str] = None
     est_duration_min: int = 30
-    depends_on: Optional[str] = None
+    depends_on: list = Field(default_factory=list, sa_column=Column(JSON))
     state: TaskState = TaskState.QUEUED
     timeout_min: Optional[int] = None
     max_retries: int = 3
@@ -110,6 +110,7 @@ class Task(SQLModel, table=True):
     spec_path: str = ""
     plan_path: str = ""
     review_result: str = ""
+    idea_id: str = Field(default="", index=True)   # 拆解来源 idea
     created_at: datetime = Field(default_factory=_now)
 
 class Agent(SQLModel, table=True):
