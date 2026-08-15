@@ -91,3 +91,20 @@ def test_broadcast_for_event_maps_entity_and_fallback():
         s.add(unknown_ev); s.commit()
         broadcast_for_event(unknown_ev)
         assert sent and sent[0]["type"] == "event_update"
+
+
+def test_write_operations_emit_events():
+    from fastapi.testclient import TestClient
+    from mio_taskhub.main import app
+    c = TestClient(app)
+    tid = c.post("/api/v1/tasks", json={"title": "E", "stage": "ready"}).json()["id"]
+    c.post("/api/v1/agents/register", json={"name": "a", "agent_type": "t"})
+    claim = c.post("/api/v1/tasks/claim", params={"agent": "a"}).json()
+    c.post(f"/api/v1/runs/{claim['id']}/heartbeat", json={"progress": 50})
+    c.post(f"/api/v1/runs/{claim['id']}/result", json={"success": True, "result": "ok"})
+    iid = c.post("/api/v1/ideas", json={"title": "idea"}).json()["id"]
+    c.post("/api/v1/discussions", json={"idea_id": iid, "topic": "t", "conclusions": "c"})
+    r = c.get("/api/v1/events", params={"after_seq": 0}).json()
+    types = {e["type"] for e in r["events"]}
+    assert {"task_created", "task_claimed", "heartbeat", "task_result",
+            "idea_created", "discussion_created"} <= types

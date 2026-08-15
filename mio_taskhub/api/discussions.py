@@ -1,19 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
-from mio_taskhub.notifications import ws_manager
 from mio_taskhub.models import Discussion, DiscussionMessage, Idea, Task
 from mio_taskhub.utils import _now
+from mio_taskhub.events import emit_event, broadcast_for_event
 
 router = APIRouter(prefix="/discussions", tags=["discussions"])
-
-
-def _broadcast(discussion_id: str):
-    import asyncio
-    try:
-        asyncio.run(ws_manager.broadcast({"type": "discussion_update", "discussion_id": discussion_id}))
-    except Exception:
-        pass
 
 
 def _msg_json(m: DiscussionMessage) -> dict:
@@ -54,14 +46,17 @@ def create_discussion(body: dict, db: Session = Depends(get_session)):
     for m in body.get("messages", []):
         db.add(DiscussionMessage(discussion_id=d.id, author=m.get("author", ""),
                                  role=m.get("role", "user"), content=m.get("content", "")))
+    event = emit_event(db, type="discussion_created", entity="discussion",
+                       entity_id=d.id, payload={"idea_id": idea_id, "task_id": task_id})
     db.commit()
+    db.refresh(d)
+    broadcast_for_event(event)
     if task_id:
         try:
             from mio_taskhub.api.tasks import _broadcast_task_update
             _broadcast_task_update(task_id)
         except Exception:
             pass
-    _broadcast(d.id)
     return _disc_full(d, db)
 
 
@@ -97,14 +92,18 @@ def add_message(discussion_id: str, body: dict, db: Session = Depends(get_sessio
                           author=body.get("author", ""),
                           role=body.get("role", "user"),
                           content=content)
-    db.add(m); db.commit(); db.refresh(m)
+    db.add(m)
+    event = emit_event(db, type="discussion_message", entity="discussion",
+                       entity_id=discussion_id, payload={"role": body.get("role", "user")})
+    db.commit()
+    db.refresh(m)
+    broadcast_for_event(event)
     if d.task_id:
+        from mio_taskhub.api.tasks import _broadcast_task_update
         try:
-            from mio_taskhub.api.tasks import _broadcast_task_update
             _broadcast_task_update(d.task_id)
         except Exception:
             pass
-    _broadcast(discussion_id)
     return _msg_json(m)
 
 
@@ -117,12 +116,14 @@ def close_discussion(discussion_id: str, body: dict, db: Session = Depends(get_s
     d.conclusions = body.get("conclusions", d.conclusions)
     d.status = "closed"
     d.ended_at = _now()
+    event = emit_event(db, type="discussion_closed", entity="discussion",
+                       entity_id=discussion_id, payload={"conclusions": d.conclusions})
     db.add(d); db.commit(); db.refresh(d)
+    broadcast_for_event(event)
     if d.task_id:
         try:
             from mio_taskhub.api.tasks import _broadcast_task_update
             _broadcast_task_update(d.task_id)
         except Exception:
             pass
-    _broadcast(d.id)
     return _disc_full(d, db)

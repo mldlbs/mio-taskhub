@@ -1,19 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
-from mio_taskhub.notifications import ws_manager
 from mio_taskhub.models import Idea, IdeaStatus, Discussion, DiscussionMessage
 from mio_taskhub.utils import _now
+from mio_taskhub.events import emit_event, broadcast_for_event
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
-
-
-def _broadcast_idea(idea_id: str):
-    import asyncio
-    try:
-        asyncio.run(ws_manager.broadcast({"type": "idea_update", "idea_id": idea_id}))
-    except Exception:
-        pass
 
 
 def _idea_json(i: Idea) -> dict:
@@ -49,8 +41,12 @@ def create_idea(body: dict, db: Session = Depends(get_session)):
         project=body.get("project", ""),
         labels=body.get("labels", []) or [],
     )
-    db.add(i); db.commit(); db.refresh(i)
-    _broadcast_idea(i.id)
+    db.add(i)
+    event = emit_event(db, type="idea_created", entity="idea", entity_id=i.id,
+                       payload={"title": i.title})
+    db.commit()
+    db.refresh(i)
+    broadcast_for_event(event)
     return _idea_json(i)
 
 
@@ -85,8 +81,9 @@ def update_idea(idea_id: str, body: dict, db: Session = Depends(get_session)):
         if f in body and body[f] is not None:
             setattr(i, f, body[f])
     i.updated_at = _now()
+    event = emit_event(db, type="idea_updated", entity="idea", entity_id=i.id)
     db.add(i); db.commit(); db.refresh(i)
-    _broadcast_idea(i.id)
+    broadcast_for_event(event)
     return _idea_json(i)
 
 
@@ -103,6 +100,8 @@ def set_idea_status(idea_id: str, body: dict, db: Session = Depends(get_session)
         raise HTTPException(422, f"cannot advance from {i.status.value} to {dst.value}")
     i.status = dst
     i.updated_at = _now()
+    event = emit_event(db, type="idea_status", entity="idea", entity_id=i.id,
+                       payload={"status": dst.value})
     db.add(i); db.commit(); db.refresh(i)
-    _broadcast_idea(i.id)
+    broadcast_for_event(event)
     return _idea_json(i)

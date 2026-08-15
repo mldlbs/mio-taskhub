@@ -384,10 +384,12 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
     task.state = TaskState.CLAIMED
     task.attempt += 1
     task.stage = TaskStage.IMPLEMENTING
+    event = emit_event(db, type="task_claimed", entity="task", entity_id=task.id,
+                       run_id=run.id, payload={"agent": agent, "attempt": task.attempt})
     db.add(run)
     db.add(task)
     db.commit()
     db.refresh(run)
-    _broadcast_task_update(task.id)
+    broadcast_for_event(event)
     return {"id": run.id, "task_id": run.task_id, "state": run.state.value,
             "agent_name": run.agent_name, "attempt": run.attempt}
