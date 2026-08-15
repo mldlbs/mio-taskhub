@@ -51,12 +51,6 @@ def create_discussion(body: dict, db: Session = Depends(get_session)):
     db.commit()
     db.refresh(d)
     broadcast_for_event(event)
-    if task_id:
-        try:
-            from mio_taskhub.api.tasks import _broadcast_task_update
-            _broadcast_task_update(task_id)
-        except Exception:
-            pass
     return _disc_full(d, db)
 
 
@@ -98,12 +92,6 @@ def add_message(discussion_id: str, body: dict, db: Session = Depends(get_sessio
     db.commit()
     db.refresh(m)
     broadcast_for_event(event)
-    if d.task_id:
-        from mio_taskhub.api.tasks import _broadcast_task_update
-        try:
-            _broadcast_task_update(d.task_id)
-        except Exception:
-            pass
     return _msg_json(m)
 
 
@@ -120,10 +108,4 @@ def close_discussion(discussion_id: str, body: dict, db: Session = Depends(get_s
                        entity_id=discussion_id, payload={"conclusions": d.conclusions})
     db.add(d); db.commit(); db.refresh(d)
     broadcast_for_event(event)
-    if d.task_id:
-        try:
-            from mio_taskhub.api.tasks import _broadcast_task_update
-            _broadcast_task_update(d.task_id)
-        except Exception:
-            pass
     return _disc_full(d, db)

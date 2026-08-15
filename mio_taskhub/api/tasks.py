@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
-from mio_taskhub.notifications import ws_manager
 from mio_taskhub.models import (
     Task, TaskState, TaskStage, Run, RunState, Subtask, SubtaskStatus, GitRef, RefType, HistoryEvent,
     Discussion, DiscussionMessage,
@@ -14,13 +13,6 @@ from mio_taskhub.events import emit_event, broadcast_for_event
 from mio_taskhub.planner import detect_cycle
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
-
-def _broadcast_task_update(task_id: str):
-    import asyncio
-    try:
-        asyncio.run(ws_manager.broadcast({"type": "task_update", "task_id": task_id}))
-    except Exception:
-        pass
 
 def _parse_dt(value, name: str):
     if not isinstance(value, str):
@@ -200,8 +192,10 @@ def add_subtask(task_id: str, body: dict, db: Session = Depends(get_session)):
         raise HTTPException(404, "task not found")
     st = Subtask(task_id=task_id, order=body.get("order", 0),
                  title=body.get("title", ""), status=_parse_enum(SubtaskStatus, body.get("status"), "pending"))
+    event = emit_event(db, type="task_subtask_added", entity="task", entity_id=task_id,
+                       payload={"subtask_id": st.id, "title": st.title})
     db.add(st); db.commit(); db.refresh(st)
-    _broadcast_task_update(task_id)
+    broadcast_for_event(event)
     return {"id": st.id, "task_id": st.task_id, "order": st.order,
             "title": st.title, "status": st.status.value}
 
@@ -213,8 +207,10 @@ def update_subtask(task_id: str, sid: str, body: dict, db: Session = Depends(get
     if "title" in body: st.title = body["title"]
     if "order" in body: st.order = body["order"]
     if "status" in body: st.status = _parse_enum(SubtaskStatus, body["status"])
+    event = emit_event(db, type="task_subtask_updated", entity="task", entity_id=task_id,
+                       payload={"subtask_id": st.id, "status": st.status.value})
     db.add(st); db.commit(); db.refresh(st)
-    _broadcast_task_update(task_id)
+    broadcast_for_event(event)
     return {"id": st.id, "task_id": st.task_id, "order": st.order,
             "title": st.title, "status": st.status.value}
 
@@ -225,8 +221,10 @@ def add_gitref(task_id: str, body: dict, db: Session = Depends(get_session)):
         raise HTTPException(404, "task not found")
     g = GitRef(task_id=task_id, ref_type=_parse_enum(RefType, body.get("ref_type"), "branch"),
                value=body.get("value", ""), note=body.get("note", ""))
+    event = emit_event(db, type="task_gitref_added", entity="task", entity_id=task_id,
+                       payload={"gitref_id": g.id, "ref_type": g.ref_type.value})
     db.add(g); db.commit(); db.refresh(g)
-    _broadcast_task_update(task_id)
+    broadcast_for_event(event)
     return {"id": g.id, "task_id": g.task_id, "ref_type": g.ref_type.value,
             "value": g.value, "note": g.note}
 
@@ -238,8 +236,10 @@ def add_history(task_id: str, body: dict, db: Session = Depends(get_session)):
     import json as _json
     h = HistoryEvent(task_id=task_id, type=body.get("type", ""),
                      payload=_json.dumps(body.get("payload")) if body.get("payload") is not None else None)
+    event = emit_event(db, type="task_history_added", entity="task", entity_id=task_id,
+                       payload={"type": h.type})
     db.add(h); db.commit(); db.refresh(h)
-    _broadcast_task_update(task_id)
+    broadcast_for_event(event)
     return {"id": h.id, "task_id": h.task_id, "type": h.type,
             "payload": h.payload, "at": h.at.isoformat()}
 
@@ -258,8 +258,10 @@ def add_discussion(task_id: str, body: dict, db: Session = Depends(get_session))
     for m in body.get("messages", []):
         db.add(DiscussionMessage(discussion_id=d.id, author=m.get("author", ""),
                                  role=m.get("role", "user"), content=m.get("content", "")))
+    event = emit_event(db, type="discussion_created", entity="discussion", entity_id=d.id,
+                       payload={"task_id": task_id})
     db.commit()
-    _broadcast_task_update(task_id)
+    broadcast_for_event(event)
     return {"id": d.id, "task_id": d.task_id, "topic": d.topic, "agent": d.agent,
             "status": d.status, "summary": d.summary, "conclusions": d.conclusions,
             "stage": d.stage, "started_at": d.started_at.isoformat(),
@@ -290,9 +292,10 @@ def cancel_task(task_id: str, db: Session = Depends(get_session)):
     if not t:
         raise HTTPException(404)
     t.state = TaskState.CANCELLED
+    event = emit_event(db, type="task_cancelled", entity="task", entity_id=task_id)
     db.add(t)
     db.commit()
-    _broadcast_task_update(task_id)
+    broadcast_for_event(event)
     return {"ok": True, "state": "cancelled"}
 
 @router.post("/{task_id}/stage")
@@ -329,10 +332,12 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
     if dst == TaskStage.CANCELLED:
         t.state = TaskState.CANCELLED
     t.stage = dst
+    event = emit_event(db, type="task_stage", entity="task", entity_id=task_id,
+                       payload={"target": dst.value})
     db.add(t)
     db.commit()
     db.refresh(t)
-    _broadcast_task_update(task_id)
+    broadcast_for_event(event)
     return {"id": t.id, "stage": t.stage.value, "spec_path": t.spec_path,
             "plan_path": t.plan_path, "review_result": t.review_result,
             "state": t.state.value}
