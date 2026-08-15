@@ -22,10 +22,14 @@ export default function IdeasView({ ideas, onReload }) {
   const [err, setErr] = useState(null)
   const [breaking, setBreaking] = useState(false)
   const [breakRows, setBreakRows] = useState([{ ref: 't1', title: '', deps: '' }])
+  const [submitting, setSubmitting] = useState(false)
 
   const fail = useCallback((e) => setErr(e.message || '操作失败'), [])
 
   const openDetail = useCallback(async (id) => {
+    setBreaking(false)
+    setBreakRows([{ ref: 't1', title: '', deps: '' }])
+    setSubmitting(false)
     try { setDetail(await api.getIdea(id)); setErr(null) } catch (e) { fail(e) }
   }, [fail])
 
@@ -81,8 +85,10 @@ export default function IdeasView({ ideas, onReload }) {
     setBreakRows(r => [...r, { ref: `t${r.length + 1}`, title: '', deps: '' }])
 
   const submitBreakdown = async () => {
+    if (submitting) return
     const rows = breakRows.filter(r => r.title.trim())
     if (!rows.length) return
+    setSubmitting(true)
     const tasks = rows.map(r => ({
       title: r.title.trim(),
       ref: r.ref || undefined,
@@ -95,6 +101,7 @@ export default function IdeasView({ ideas, onReload }) {
       await reloadDetail()
       onReload()
     } catch (e) { fail(e) }
+    finally { setSubmitting(false) }
   }
 
   useEffect(() => {
@@ -237,7 +244,9 @@ export default function IdeasView({ ideas, onReload }) {
                   <div className="break-actions">
                     <button className="btn btn--ghost" onClick={addBreakRow}>+ 加一行</button>
                     <button className="btn btn--primary" onClick={submitBreakdown}
-                            disabled={!breakRows.some(r => r.title.trim())}>提交拆解</button>
+                            disabled={submitting || !breakRows.some(r => r.title.trim())}>
+                      {submitting ? '拆解中…' : '提交拆解'}
+                    </button>
                   </div>
                 </div>
               )}
