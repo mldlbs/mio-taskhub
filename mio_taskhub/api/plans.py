@@ -4,6 +4,7 @@ from sqlmodel import Session, select
 from mio_taskhub.db import get_session
 from mio_taskhub.models import Task, TaskState
 from mio_taskhub.planner import generate_night_plan
+from mio_taskhub.status import normalize_depends
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 
@@ -30,7 +31,7 @@ def night_plan(start: str = Query("22:00"), end: str = Query("07:00"),
             continue
         pool.append({
             "id": t.id, "title": t.title, "est_duration_min": t.est_duration_min,
-            "priority": t.priority, "depends_on": t.depends_on,
+            "priority": t.priority, "depends_on": normalize_depends(t.depends_on),
         })
     plan = generate_night_plan(pool, window_start=_parse_hm(start, time(22, 0)),
                                window_end=_parse_hm(end, time(7, 0)))

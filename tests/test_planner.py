@@ -1,7 +1,7 @@
 # tests/test_planner.py
 import pytest
 from datetime import time
-from mio_taskhub.planner import PlanItem, generate_night_plan
+from mio_taskhub.planner import PlanItem, detect_cycle, generate_night_plan
 
 def test_basic_serial_plan():
     tasks = [
@@ -34,3 +34,28 @@ def test_empty_task_list():
     plan = generate_night_plan([], window_start=time(22, 0), window_end=time(7, 0))
     assert plan.items == []
     assert not plan.has_overflow
+
+def test_detect_cycle_none():
+    deps = {"a": [], "b": ["a"], "c": ["a", "b"]}
+    assert detect_cycle(deps) == []
+
+def test_detect_cycle_simple():
+    deps = {"a": ["b"], "b": ["a"]}
+    path = detect_cycle(deps)
+    assert path, "expected a cycle"
+    assert path[0] == path[-1]
+
+def test_detect_cycle_chain():
+    deps = {"a": [], "b": ["a"], "c": ["b"], "a": ["c"]}
+    assert detect_cycle(deps) != []
+
+def test_multi_dep_ordering():
+    # parent done → children；child2 依赖 parent + child1
+    tasks = [
+        {"id": "p", "title": "p", "est_duration_min": 30, "priority": 0, "depends_on": []},
+        {"id": "c1", "title": "c1", "est_duration_min": 30, "priority": 0, "depends_on": ["p"]},
+        {"id": "c2", "title": "c2", "est_duration_min": 30, "priority": 0, "depends_on": ["p", "c1"]},
+    ]
+    plan = generate_night_plan(tasks, window_start=time(22, 0), window_end=time(7, 0))
+    ids = [i.task_id for i in plan.items]
+    assert ids.index("p") < ids.index("c1") < ids.index("c2")
