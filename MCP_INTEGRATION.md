@@ -33,6 +33,7 @@
 | `taskhub_create_task` | 提交新任务（支持 depends_on 依赖数组、stage、产出物） |
 | `taskhub_update_task` | 更新任务细节字段 |
 | `taskhub_advance_stage` | 推进研发阶段（brainstorming→design→planning→ready→implementing→review→done），需带产出物 |
+| `taskhub_move_to_stage` | 任意跳转到目标阶段（拖拽/自由移动用，保留终态保护与产出物校验） |
 | `taskhub_cancel_task` | 取消排队中的任务 |
 | `taskhub_add_subtask` | 添加子任务 / `taskhub_update_subtask` 更新子任务状态 |
 | `taskhub_add_gitref` | 关联 Git 引用（分支/commit/PR/tag） |
@@ -131,6 +132,14 @@ python -m mio_taskhub.mcp_server
 每个写操作（建任务、领取、心跳、完成、阶段推进、想法、讨论）都会写入事件日志并广播。agent 可通过 `taskhub_poll_events` 增量拉取：
 
 ```
+
+## 4.5 自动分配（hub 主动派活）
+
+hub 调度器每 30s 检查一次：若存在**空闲在线 agent**（已 register、当前无进行中的任务）与待领取的 ready 任务，会自动把任务分配给 agent（写 `task_assigned` 事件，任务进入 claimed）。
+
+- agent 无需主动 claim 即可被分配任务；调用 `taskhub_claim` 会优先返回已分配的 run（幂等）。
+- 分配遵循优先级（高优先先分）+ FIFO，多个 agent 间公平轮转。
+- 若不想被自动分配，可注册后不保持 online，或在任务设置 `target_agent_type` 精确指定执行者。
 r1 = taskhub_poll_events(seq=0)      # 从头订阅（分页，每页最多 200 条）
 last_seq = r1["next_seq"]            # 记住游标
 r2 = taskhub_poll_events(seq=last_seq)  # 只拿新增

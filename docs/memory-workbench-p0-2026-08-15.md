@@ -37,7 +37,16 @@ mio-taskhub 需求工作台已交付 P0（想法 + 讨论）；端口 48620；�
 - 提交：`b0f2e9a`(spec) → `e40d64d`(plan) → 14 个实现任务 → `2ada194`(MCP depends_on 数组) → widget EXE 打包批次
 - 测试：190 passed；`npm run build` 通过；生产 hub(48620) 运行中，隔离实例端到端验证依赖放行/事件/拆解/环检测/409 全通过
 
+## 已完成（自动捞取 + 编排视图，2026-08-15 第二会话）
+- **空闲 agent 自动捞取**：`_claim_for(agent, db, agent_type=None)` 纯函数 + SQLite 条件更新原子领取（一个 task 只一个 run）；调度器 `wiring._assign_to_idle_agents()` Task-first 分配（priority desc + FIFO，避开忙 agent）；事件 `task_assigned` 含 run_id；claim 幂等返回已分配 run；并发测试覆盖
+- **move_to_stage**：`POST /tasks/{id}/stage/move` 任意跳转（拖拽用），保留终态保护 + 产出物校验，与 advance_stage 共享 `_apply_stage_requirements` helper；MCP `taskhub_move_to_stage`
+- **FlowView 拖拽换阶段**：HTML5 DnD + prompt 填产出物；`req()` 修为非 2xx 抛错（错误可见）
+- **FlowView 依赖连线**：SVG overlay + ResizeObserver/MutationObserver + rAF 重绘；useMemo 稳定引用消除无限重渲染（Playwright 验证无警告）
+- **TopoView 拓扑视图**：Kahn 分层 DAG，节点含 depth/indegree/outdegree（未来 CPM），Rail「拓扑」入口；Playwright 验证渲染正常
+- 提交：`60928fe`(spec) → `34c6b80`(plan) → Task1-7 实现 → `ef8c35b`(TopoView)；测试 214 passed
+
 ## 下一步（可选）
-- 绿色版加 `mio-taskhub-widget.exe` —— 已完成（第三个 EXE + pywebview hiddenimports + icon，冒烟通过）
-- 空闲 agent 自动捞取（调度器扩展的编排视图部分）—— 待做
-- 对话内拖拽编排 / 更细粒度编排视图 —— 待做
+- 绿色版加 `mio-taskhub-widget.exe` —— 已完成
+- 空闲 agent 自动捞取 —— 已完成
+- 对话内拖拽编排 / 更细粒度编排视图 —— 已完成（拖拽换阶段 + 依赖连线 + TopoView）
+- 待做：agent 心跳离线标记（现在 register 即 online，无心跳线程）；关键路径（CPM）可视化；跨列依赖连线
