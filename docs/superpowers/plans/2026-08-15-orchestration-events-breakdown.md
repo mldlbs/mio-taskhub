@@ -164,9 +164,27 @@ git commit -m "feat: status.py 统一终态/依赖满足/依赖归一化纯函�
 
 **Files:**
 - Create: `mio_taskhub/events.py`
+- Modify: `mio_taskhub/models.py`（Event 表加 entity/entity_id、run_id 允许空）
 - Test: `tests/test_events.py`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: 更新 Event 模型**
+
+`mio_taskhub/models.py` 的 `Event`（第 179-184 行）改为：
+
+```python
+class Event(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)   # 自增 seq
+    type: str
+    entity: str = Field(default="", index=True)
+    entity_id: str = Field(default="", index=True)
+    run_id: str = Field(default="", index=True)                 # 兼容旧字段
+    payload: Optional[str] = None
+    at: datetime = Field(default_factory=_now)
+```
+
+（注：新库由 create_all 建出含 entity/entity_id 的表；旧库列补齐与 run_id 回填在 Task 3 迁移里做。）
+
+- [ ] **Step 2: Write the failing test**
 
 ```python
 # tests/test_events.py
@@ -184,21 +202,22 @@ def test_emit_event_returns_object_with_seq():
         e = emit_event(s, type="task_created", entity="task", entity_id="t1",
                        payload={"title": "x"})
         assert isinstance(e, Event)
-        assert e.id is not None       # 自增 seq
         s.add(e)                       # emit_event 不 commit，由调用方提交
         s.commit()
+        assert e.id is not None        # seq 在提交后赋值
         assert e.id >= 1
 
 
 def test_event_payload_roundtrip():
     with Session(engine) as s:
         e = emit_event(s, type="heartbeat", entity="run", entity_id="r1",
-                       payload={"progress": 50})
+                       run_id="r1", payload={"progress": 50})
         s.add(e); s.commit()
         got = s.get(Event, e.id)
         d = event_to_dict(got)
         assert d["payload"]["progress"] == 50
         assert d["entity"] == "run" and d["entity_id"] == "r1"
+        assert d["run_id"] == "r1"
 
 
 def test_seq_monotonic():
@@ -206,7 +225,7 @@ def test_seq_monotonic():
         a = emit_event(s, type="a", entity="task", entity_id="1")
         b = emit_event(s, type="b", entity="task", entity_id="2")
         s.add_all([a, b]); s.commit()
-    assert b.id > a.id
+        assert b.id > a.id            # 在 session 块内断言，避免 DetachedInstanceError
 
 
 def test_emit_event_no_commit():
@@ -227,12 +246,9 @@ def test_event_to_dict_no_payload():
         assert d["seq"] == e.id
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 3: Run `python -m pytest tests/test_events.py -q`** — Expected FAIL: `ModuleNotFoundError: No module named 'mio_taskhub.events'`
 
-Run: `python -m pytest tests/test_events.py -q`
-Expected: FAIL with `ModuleNotFoundError: No module named 'mio_taskhub.events'`
-
-- [ ] **Step 3: Write implementation**
+- [ ] **Step 4: Write implementation** — create `mio_taskhub/events.py`:
 
 ```python
 # mio_taskhub/events.py
@@ -292,22 +308,24 @@ def broadcast_for_event(event: Event):
         pass
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 5: Run `python -m pytest tests/test_events.py -q`** — Expected PASS (5 passed)
 
-Run: `python -m pytest tests/test_events.py -q`
-Expected: PASS (5 passed)
+- [ ] **Step 6: 全量回归**
 
-- [ ] **Step 5: Commit**
+Run: `python -m pytest tests/ -q`
+Expected: PASS（145 原有 + 5 新增）
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add mio_taskhub/events.py tests/test_events.py
-git commit -m "feat: events.py 统一事件写入与 WS 广播入口"
+git add mio_taskhub/models.py mio_taskhub/events.py tests/test_events.py
+git commit -m "feat: events.py 统一事件写入与 WS 广播入口（Event 加 entity 列）"
 ```
 
-### Task 3: 模型与迁移（depends_on 数组、idea_id、Event 扩展）
+### Task 3: 迁移（depends_on 数组化、idea_id、Event 列补齐）+ Task 模型
 
 **Files:**
-- Modify: `mio_taskhub/models.py`
+- Modify: `mio_taskhub/models.py`（仅 Task.depends_on→list、Task.idea_id；Event 已在 Task 2 改好）
 - Modify: `mio_taskhub/db.py`
 - Test: `tests/test_db.py`, `tests/test_models.py`
 
@@ -384,9 +402,9 @@ def test_migrate_event_entity_columns():
 Run: `python -m pytest tests/test_db.py -q`
 Expected: FAIL on the two new tests (`no such column: idea_id` / `no such column: entity`)
 
-- [ ] **Step 3: Update models.py**
+- [ ] **Step 3: Update models.py**（Event 已在 Task 2 改好，这里只改 Task）
 
-`Task.depends_on`（第 97 行）改为 JSON 数组；`Task` 末尾加 `idea_id`；`Event`（第 179-184 行）加 `entity`/`entity_id`、`run_id` 允许空：
+`Task.depends_on`（第 97 行）改为 JSON 数组；`Task` 末尾加 `idea_id`：
 
 ```python
 from sqlalchemy import Column, JSON
@@ -397,17 +415,6 @@ class Task(SQLModel, table=True):
     # ...（其余字段不变）...
     idea_id: str = Field(default="", index=True)   # 拆解来源 idea
     created_at: datetime = Field(default_factory=_now)
-```
-
-```python
-class Event(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)   # 自增 seq
-    type: str
-    entity: str = Field(default="", index=True)
-    entity_id: str = Field(default="", index=True)
-    run_id: str = Field(default="", index=True)                 # 兼容旧字段
-    payload: Optional[str] = None
-    at: datetime = Field(default_factory=_now)
 ```
 
 - [ ] **Step 4: Update db.py migration**
