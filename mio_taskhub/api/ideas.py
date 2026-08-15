@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
-from mio_taskhub.models import Idea, IdeaStatus, Discussion, DiscussionMessage
+from mio_taskhub.models import Idea, IdeaStatus, Discussion, DiscussionMessage, Task, TaskStage
 from mio_taskhub.utils import _now
+from mio_taskhub.status import normalize_depends, task_deps
+from mio_taskhub.planner import detect_cycle
 from mio_taskhub.events import emit_event, broadcast_for_event
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
@@ -69,6 +71,9 @@ def get_idea(idea_id: str, db: Session = Depends(get_session)):
                           "at": m.at.isoformat()} for m in msgs],
         })
     out["discussions"] = ds
+    tasks = db.exec(select(Task).where(Task.idea_id == idea_id).order_by(Task.created_at)).all()
+    out["tasks"] = [{"id": t.id, "title": t.title, "stage": t.stage.value,
+                     "state": t.state.value} for t in tasks]
     return out
 
 
@@ -105,3 +110,82 @@ def set_idea_status(idea_id: str, body: dict, db: Session = Depends(get_session)
     db.add(i); db.commit(); db.refresh(i)
     broadcast_for_event(event)
     return _idea_json(i)
+
+
+@router.post("/{idea_id}/breakdown")
+def breakdown_idea(idea_id: str, body: dict, db: Session = Depends(get_session)):
+    i = db.get(Idea, idea_id)
+    if not i:
+        raise HTTPException(404, "idea not found")
+    if i.status == IdeaStatus.BROKEN_DOWN:
+        raise HTTPException(409, "already broken down")
+    items = body.get("tasks", [])
+    if not items:
+        raise HTTPException(422, "tasks is required")
+    refs = [it.get("ref") or "" for it in items]
+    if len(set(refs)) != len(refs):
+        raise HTTPException(422, "duplicate ref")
+    created = []
+    try:
+        for it in items:
+            title = (it.get("title") or "").strip()
+            if not title:
+                raise HTTPException(422, "task title is required")
+            stage_val = it.get("stage", "brainstorming")
+            try:
+                stage = TaskStage(stage_val)
+            except ValueError:
+                raise HTTPException(400, f"invalid stage: {stage_val}")
+            t = Task(
+                title=title,
+                description=it.get("description", ""),
+                target_agent_type=it.get("target_agent_type"),
+                priority=it.get("priority", 0),
+                est_duration_min=it.get("est_duration_min", 30),
+                max_retries=it.get("max_retries", 3),
+                acceptance_criteria=it.get("acceptance_criteria", ""),
+                depends_on=normalize_depends(it.get("depends_on")),
+                idea_id=idea_id,
+                stage=stage,
+            )
+            db.add(t)
+            created.append(t)
+        db.flush()  # 获得自增 id 与 ref2id
+        ref2id = {it.get("ref"): t.id for it, t in zip(items, created) if it.get("ref")}
+        # 解析 depends_on：ref → real id；未知 ref/id → 422
+        for it, t in zip(items, created):
+            resolved = []
+            for dep in normalize_depends(it.get("depends_on")):
+                real = ref2id.get(dep, dep)
+                if real not in [x.id for x in created] and db.get(Task, real) is None:
+                    raise HTTPException(422, f"unknown dependency ref: {dep}")
+                resolved.append(real)
+            t.depends_on = resolved
+        # 环检测
+        graph = {t.id: list(t.depends_on or []) for t in created}
+        cyc = detect_cycle(graph)
+        if cyc:
+            raise HTTPException(422, f"cyclic dependency: {' → '.join(cyc)}")
+        i.status = IdeaStatus.BROKEN_DOWN
+        i.updated_at = _now()
+        idea_event = emit_event(db, type="idea_broken_down", entity="idea", entity_id=idea_id,
+                                payload={"action": "broken_down",
+                                         "task_ids": [t.id for t in created]})
+        task_events = [emit_event(db, type="task_created", entity="task", entity_id=t.id,
+                                  payload={"title": t.title, "stage": t.stage.value})
+                       for t in created]
+        db.add(i)
+        db.commit()
+        db.refresh(i)
+    except HTTPException:
+        db.rollback()
+        raise
+    broadcast_for_event(idea_event)
+    for ev in task_events:
+        broadcast_for_event(ev)
+    return {
+        "idea": _idea_json(db.get(Idea, idea_id)),
+        "tasks": [{"id": t.id, "title": t.title, "ref": it.get("ref", ""),
+                   "depends_on": task_deps(t)}
+                  for it, t in zip(items, created)],
+    }
