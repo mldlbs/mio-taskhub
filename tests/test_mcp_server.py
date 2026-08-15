@@ -141,6 +141,14 @@ def test_update_task_tool(mcp_ctx):
     assert r["labels"] == ["blocked"]
 
 
+def test_create_and_update_task_depends_on_array(mcp_ctx):
+    parent = _call("taskhub_create_task", {"title": "DepParent"})
+    created = _call("taskhub_create_task", {"title": "DepChild", "depends_on": [parent["id"]]})
+    assert created["depends_on"] == [parent["id"]]
+    r = _call("taskhub_update_task", {"task_id": created["id"], "depends_on": []})
+    assert r["depends_on"] == []
+
+
 def test_subtask_tools(mcp_ctx):
     created = _call("taskhub_create_task", {"title": "Sub"})
     tid = created["id"]

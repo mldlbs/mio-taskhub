@@ -308,7 +308,7 @@ async def taskhub_create_task(
     target_agent_type: Optional[str] = Field(default=None, description="指定可执行的 agent 类型，为空表示任意"),
     priority: int = Field(default=0, description="优先级 0-3，越大越优先", ge=0, le=3),
     est_duration_min: int = Field(default=30, description="预估耗时（分钟）", ge=1, le=1440),
-    depends_on: Optional[str] = Field(default=None, description="前置任务 id"),
+    depends_on: Optional[list] = Field(default=None, description="前置任务 id 列表（依赖全部完成后才放行），如 [\"task1\", \"task2\"]"),
     max_retries: int = Field(default=3, description="最大重试次数", ge=0, le=10),
     acceptance_criteria: str = Field(default="", description="验收标准 / 完成定义"),
     due_at: Optional[str] = Field(default=None, description="截止时间 ISO 格式"),
@@ -327,7 +327,7 @@ async def taskhub_create_task(
         target_agent_type: 指定执行者类型，为空表示任意
         priority: 0-3 优先级
         est_duration_min: 预估耗时分钟数
-        depends_on: 前置任务 id
+        depends_on: 前置任务 id 列表（依赖全部完成后才放行）
         max_retries: 最大重试次数
         acceptance_criteria: 验收标准 / 完成定义
         due_at: 截止时间 ISO 格式
@@ -375,6 +375,7 @@ async def taskhub_update_task(
     workspace: Optional[str] = Field(default=None, description="工作区路径"),
     files: Optional[list] = Field(default=None, description="文件路径列表"),
     deliverables: Optional[list] = Field(default=None, description="产出物路径列表"),
+    depends_on: Optional[list] = Field(default=None, description="前置任务 id 列表（替换现有依赖）"),
 ) -> str:
     """更新任务细节字段。仅传需要修改的字段。
     Args:
@@ -386,7 +387,7 @@ async def taskhub_update_task(
     body = {k: v for k, v in {
         "title": title, "description": description, "acceptance_criteria": acceptance_criteria,
         "due_at": due_at, "labels": labels, "project": project, "workspace": workspace,
-        "files": files, "deliverables": deliverables,
+        "files": files, "deliverables": deliverables, "depends_on": depends_on,
     }.items() if v is not None}
     data = await _request("PATCH", f"/tasks/{task_id}", body=body)
     return _fmt(data)
