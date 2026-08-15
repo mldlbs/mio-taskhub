@@ -102,3 +102,57 @@ def test_claim_with_agent_type_skips_future_run_at():
     with Session(engine) as s:
         task = s.get(Task, claimed["task_id"])
         assert task.title == "past-t"
+
+
+import mio_taskhub.wiring as wiring
+
+
+def _agents():
+    from mio_taskhub.models import Agent
+    with Session(engine) as s:
+        return s.exec(select(Agent)).all()
+
+
+def test_assign_to_idle_agent():
+    _register("idle1", "coder")
+    _mk("at", stage="ready", agent_type="coder")
+    wiring._assign_to_idle_agents()
+    with Session(engine) as s:
+        task = s.exec(select(Task).where(Task.title == "at")).first()
+        assert task.state == TaskState.CLAIMED
+        assert task.stage == TaskStage.IMPLEMENTING
+        run = s.exec(select(Run).where(Run.task_id == task.id)).first()
+        assert run is not None and run.agent_name == "idle1"
+
+
+def test_busy_agent_not_assigned():
+    _register("busy1", "coder")
+    _mk("b1", stage="ready", agent_type="coder")
+    # 先让 busy1 占一个 run
+    with Session(engine) as s:
+        _claim_for("busy1", s)
+        s.commit()
+    _mk("b2", stage="ready", agent_type="coder")
+    wiring._assign_to_idle_agents()
+    with Session(engine) as s:
+        t2 = s.exec(select(Task).where(Task.title == "b2")).first()
+        assert t2.state == TaskState.QUEUED  # busy agent 不再被分配
+
+
+def test_task_first_assigns_later_registered_agent():
+    _register("late1", "coder")
+    _mk("lt", stage="ready", agent_type="coder")
+    wiring._assign_to_idle_agents()
+    with Session(engine) as s:
+        task = s.exec(select(Task).where(Task.title == "lt")).first()
+        assert task.state == TaskState.CLAIMED
+
+
+def test_assign_writes_task_assigned_event():
+    _register("ev1", "coder")
+    _mk("et", stage="ready", agent_type="coder")
+    wiring._assign_to_idle_agents()
+    ev = client.get("/api/v1/events", params={"after_seq": 0}).json()
+    assigned = [e for e in ev["events"] if e["type"] == "task_assigned"]
+    assert assigned, "expected task_assigned event"
+    assert "run_id" in assigned[0]["payload"]

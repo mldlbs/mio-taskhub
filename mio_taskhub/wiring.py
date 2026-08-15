@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 from sqlmodel import Session, select
 from mio_taskhub.db import engine
-from mio_taskhub.models import Run, RunState, Task, TaskStage, TaskState
+from mio_taskhub.api.tasks import _claim_for
+from mio_taskhub.models import Agent, AgentStatus, Run, RunState, Task, TaskStage, TaskState
 from mio_taskhub.heartbeat import HeartbeatSweep, RunInfo
 from mio_taskhub.scheduler import Scheduler
 from mio_taskhub.status import is_terminal, dependency_satisfied, task_deps
@@ -79,8 +80,56 @@ def _release_dependencies():
                 broadcast_for_event(event)
 
 
+def _assign_to_idle_agents():
+    """Task-first 调度：把 ready 待领任务按优先级分配给空闲在线 agent。
+
+    先排任务（priority desc, created_at asc），逐任务找匹配空闲 agent，
+    agent 分到任务后即标记忙（一 tick 一个 agent 最多一单）。
+    """
+    with Session(engine) as db:
+        ready = db.exec(
+            select(Task).where(Task.state == TaskState.QUEUED, Task.stage == TaskStage.READY)
+            .order_by(Task.priority.desc(), Task.created_at.asc())
+        ).all()
+        now = datetime.now(timezone.utc)
+        for t in ready:
+            if t.schedule_type == "once" and t.run_at:
+                run_at = t.run_at
+                if run_at.tzinfo is None:
+                    run_at = run_at.replace(tzinfo=timezone.utc)
+                if run_at > now:
+                    continue
+            agents = db.exec(select(Agent).where(Agent.status == AgentStatus.ONLINE)).all()
+            target = None
+            for a in agents:
+                if a.agent_type and t.target_agent_type and a.agent_type != t.target_agent_type:
+                    continue
+                busy = db.exec(
+                    select(Run).where(Run.agent_name == a.name,
+                                      Run.state.in_([RunState.CLAIMED, RunState.RUNNING]))
+                ).first()
+                if busy:
+                    continue
+                target = a
+                break
+            if target is None:
+                continue
+            run = _claim_for(target.name, db, agent_type=t.target_agent_type)
+            if run is None:
+                db.rollback()
+                continue
+            task = db.get(Task, run.task_id)
+            event = emit_event(db, type="task_assigned", entity="task", entity_id=task.id,
+                               run_id=run.id, payload={"agent": target.name, "reason": "idle_assign",
+                                                       "run_id": run.id})
+            db.add(task)
+            db.commit()
+            broadcast_for_event(event)
+
+
 def _get_due_tasks():
     _release_dependencies()   # 先放行依赖
+    _assign_to_idle_agents()  # 再分配空闲 agent
     now = datetime.now(timezone.utc)
     with Session(engine) as db:
         tasks = db.exec(select(Task).where(Task.state == TaskState.QUEUED)).all()
