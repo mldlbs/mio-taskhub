@@ -70,7 +70,7 @@ def _release_dependencies():
             if is_terminal(t) or stage_v not in ("brainstorming", "design", "planning"):
                 continue
             prereqs = [db.get(Task, d) for d in deps if d]
-            if prereqs and all(dependency_satisfied(p) for p in prereqs if p is not None):
+            if prereqs and all(p is not None and dependency_satisfied(p) for p in prereqs):
                 t.stage = TaskStage.READY
                 event = emit_event(db, type="task_released", entity="task",
                                    entity_id=t.id, payload={"reason": "deps_met"})

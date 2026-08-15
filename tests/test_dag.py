@@ -43,10 +43,31 @@ def test_partial_deps_not_released():
 
 
 def test_done_means_satisfied():
+    # state=completed（非 stage=done）也应满足依赖
+    parent = _mk("p", stage="ready")
+    client.post("/api/v1/agents/register", json={"name": "dag-a", "agent_type": "t"})
+    claim = client.post("/api/v1/tasks/claim", params={"agent": "dag-a"}).json()
+    client.post(f"/api/v1/runs/{claim['id']}/heartbeat", json={"progress": 100})
+    client.post(f"/api/v1/runs/{claim['id']}/result", json={"success": True, "result": "ok"})
+    b = _mk("b", stage="planning", deps=[parent["id"]])
+    _release()
+    assert _stage(b["id"]) == TaskStage.READY
+
+
+def test_dangling_dep_not_released():
+    b = _mk("b", stage="planning", deps=["bogus-id"])
+    _release()
+    assert _stage(b["id"]) == TaskStage.PLANNING
+
+
+def test_release_idempotent_no_duplicate_events():
     a = _mk("a", stage="done")
     b = _mk("b", stage="planning", deps=[a["id"]])
     _release()
-    assert _stage(b["id"]) == TaskStage.READY
+    _release()  # 第二次 tick 不应再发事件
+    r = client.get("/api/v1/events", params={"after_seq": 0}).json()
+    released = [e for e in r["events"] if e["type"] == "task_released"]
+    assert len(released) == 1
 
 
 def test_cancelled_dependency_blocks_and_alerts():
