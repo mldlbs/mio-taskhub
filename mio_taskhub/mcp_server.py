@@ -138,9 +138,9 @@ async def taskhub_claim(
 ) -> str:
     """按优先级 + FIFO 领取一个排队任务，并返回 Run 上下文（含任务详情）。
 
-    若该 agent 已有进行中的 run，会返回同一个 run（幂等）。无可用任务时
-    返回空结果。领取后应执行任务，过程中发送 taskhub_heartbeat，
-    完成后调用 taskhub_submit_result。
+    若该 agent 已有进行中的 run，会返回同一个 run（幂等）。hub 调度器可能已
+    为你自动分配任务（task_assigned 事件），调用本工具会优先返回已分配 run。
+    无可用任务时返回空结果。
 
     Args:
         agent: 当前 agent 名称
@@ -499,6 +499,29 @@ async def taskhub_advance_stage(
     if plan_path is not None: body["plan_path"] = plan_path
     if review_result is not None: body["review_result"] = review_result
     data = await _request("POST", f"/tasks/{task_id}/stage", body=body)
+    return _fmt(data)
+
+
+@mcp.tool(name="taskhub_move_to_stage", title="任意移动到目标阶段", annotations={
+    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
+})
+async def taskhub_move_to_stage(
+    task_id: str = Field(description="任务唯一标识", min_length=1),
+    target_stage: str = Field(description="目标阶段：brainstorming/design/planning/ready/implementing/review/done/cancelled"),
+    spec_path: Optional[str] = Field(default=None, description="设计文档路径（目标为 design 时必填）"),
+    plan_path: Optional[str] = Field(default=None, description="计划文档路径（目标为 planning 时必填）"),
+    review_result: Optional[str] = Field(default=None, description="审查结论（目标为 done 时必填）"),
+) -> str:
+    """任意跳转到目标阶段（不要求相邻），保留终态保护与产出物校验。
+
+    与 advance_stage 的区别：advance_stage 只允许相邻推进 + 回溯；
+    move_to_stage 用于拖拽等自由移动场景。
+    """
+    body = {"target_stage": target_stage}
+    if spec_path is not None: body["spec_path"] = spec_path
+    if plan_path is not None: body["plan_path"] = plan_path
+    if review_result is not None: body["review_result"] = review_result
+    data = await _request("POST", f"/tasks/{task_id}/stage/move", body=body)
     return _fmt(data)
 
 

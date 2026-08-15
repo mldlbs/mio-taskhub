@@ -266,6 +266,14 @@ def test_poll_events_incremental(mcp_ctx):
     assert all(e["seq"] > r1["next_seq"] for e in r2["events"])
 
 
+def test_move_to_stage_tool(mcp_ctx):
+    created = _call("taskhub_create_task", {"title": "MV", "stage": "brainstorming"})
+    r = _call("taskhub_move_to_stage", {"task_id": created["id"], "target_stage": "review"})
+    assert r["stage"] == "review"
+    d = _call("taskhub_get_task", {"task_id": created["id"]})
+    assert d["stage"] == "review"
+
+
 def test_breakdown_idea_tool(mcp_ctx):
     created = _call("taskhub_add_idea", {"title": "BI"})
     iid = created["id"]
