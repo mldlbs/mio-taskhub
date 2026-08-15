@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
 from mio_taskhub.models import Task, TaskStage, TaskState, Run, RunState
-from mio_taskhub.status import is_terminal, task_deps
+from mio_taskhub.status import is_terminal, task_deps, dependency_satisfied
 from mio_taskhub.utils import _now
 
 router = APIRouter(prefix="/board", tags=["board"])
@@ -97,11 +97,11 @@ def board_summary(agent: str = Query(None), db: Session = Depends(get_session)):
         if not deps:
             continue
         stage_v = _stage(t.stage)
-        if stage_v in ("done", "cancelled", "review", "implementing"):
+        if stage_v not in ("brainstorming", "design", "planning"):
             continue
         prereqs = [db.get(Task, d) for d in deps if d]
         blocked = [p for p in prereqs if p is not None and is_terminal(p)
-                   and p.state.value != "completed" and _stage(p.stage) != "done"]
+                   and not dependency_satisfied(p)]
         if blocked:
             alerts.append({
                 "level": "warning",

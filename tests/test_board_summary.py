@@ -104,3 +104,30 @@ def test_blocked_dependency_alert():
     child = _mk("bc", stage="planning", depends_on=[parent["id"]])
     data = client.get("/api/v1/board/summary").json()
     assert any("依赖阻塞" in a["message"] and child["id"] in a["message"] for a in data["alerts"])
+
+
+def test_completed_dependency_no_alert():
+    # 前置完成（state=completed）不应告警；需先领取并完成
+    parent = _mk("cp", stage="ready")
+    client.post("/api/v1/agents/register", json={"name": "b-a", "agent_type": "t"})
+    claim = client.post("/api/v1/tasks/claim", params={"agent": "b-a"}).json()
+    client.post(f"/api/v1/runs/{claim['id']}/heartbeat", json={"progress": 100})
+    client.post(f"/api/v1/runs/{claim['id']}/result", json={"success": True, "result": "ok"})
+    child = _mk("cc", stage="planning", depends_on=[parent["id"]])
+    data = client.get("/api/v1/board/summary").json()
+    assert not any("依赖阻塞" in a["message"] for a in data["alerts"])
+
+
+def test_ready_dependency_not_flagged_as_blocked():
+    parent = _mk("rp", stage="cancelled")
+    child = _mk("rc", stage="ready", depends_on=[parent["id"]])
+    data = client.get("/api/v1/board/summary").json()
+    # ready 任务可被领取，不应报「无法放行」
+    assert not any(child["id"] in a["message"] and "依赖阻塞" in a["message"] for a in data["alerts"])
+
+
+def test_done_stage_dependency_no_alert():
+    parent = _mk("dp", stage="done")
+    child = _mk("dc", stage="planning", depends_on=[parent["id"]])
+    data = client.get("/api/v1/board/summary").json()
+    assert not any("依赖阻塞" in a["message"] for a in data["alerts"])
