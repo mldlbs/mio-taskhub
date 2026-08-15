@@ -5,7 +5,7 @@ from fastapi import FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
 from mio_taskhub.auth import generate_token, get_token, make_auth_middleware
 from mio_taskhub.db import init_db
-from mio_taskhub.api import tasks, agents, runs, plans
+from mio_taskhub.api import tasks, agents, runs, plans, board, ideas, discussions, events
 from mio_taskhub.notifications import ws_manager
 
 app = FastAPI(title="mio-taskhub", version="0.1.0")
@@ -15,6 +15,10 @@ app.include_router(tasks.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(agents.router, prefix="/api/v1", tags=["agents"])
 app.include_router(runs.router, prefix="/api/v1", tags=["runs"])
 app.include_router(plans.router, prefix="/api/v1", tags=["plans"])
+app.include_router(board.router, prefix="/api/v1", tags=["board"])
+app.include_router(ideas.router, prefix="/api/v1", tags=["ideas"])
+app.include_router(discussions.router, prefix="/api/v1", tags=["discussions"])
+app.include_router(events.router, prefix="/api/v1", tags=["events"])
 
 app.state.auth_token = os.environ.get("MIO_TASKHUB_TOKEN", "")
 app.middleware("http")(make_auth_middleware())
@@ -70,7 +74,7 @@ def run():
     import argparse
     parser = argparse.ArgumentParser(prog="mio-taskhub")
     parser.add_argument("command", nargs="?", default="serve", help="serve")
-    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--port", type=int, default=48620)
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--auth", action="store_true", help="enable Bearer auth")
     parser.add_argument("--token", default=None, help="auth token (default: MIO_TASKHUB_TOKEN env)")
