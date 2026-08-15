@@ -13,6 +13,9 @@ web/dist/
 server.log
 server.err
 
+# MCP 调试工具运行时产物
+gh-kit.json
+
 # PyInstaller build artifacts
 build/
 dist/
