@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { prio, fmtDur, agMono, agColor } from '../constants'
 
 const STAGES = [
@@ -80,10 +80,13 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToS
     }
   }
 
-  const flowTasks = tasks.filter(t => t.stage !== 'cancelled')
-  const byStage = Object.fromEntries(STAGES.map(s => [s.id, flowTasks.filter(t => t.stage === s.id)]))
+  const flowTasks = useMemo(() => tasks.filter(t => t.stage !== 'cancelled'), [tasks])
+  const byStage = useMemo(
+    () => Object.fromEntries(STAGES.map(s => [s.id, flowTasks.filter(t => t.stage === s.id)])),
+    [flowTasks]
+  )
   const stage = STAGES.find(s => s.id === expanded)
-  const activeTasks = stage ? byStage[stage.id] : []
+  const activeTasks = useMemo(() => (stage ? byStage[stage.id] : []), [stage, byStage])
 
   const computeEdges = useCallback(() => {
     if (!panelRef.current || expanded === null) { setEdges([]); return }
