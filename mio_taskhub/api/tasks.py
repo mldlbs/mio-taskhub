@@ -342,6 +342,58 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
             "plan_path": t.plan_path, "review_result": t.review_result,
             "state": t.state.value}
 
+def _claim_for(agent: str, db: Session):
+    """原子领取：返回该 agent 的 Run 或 None。
+
+    先查 agent 已有 claimed/running run（幂等）；否则按优先级+FIFO 找匹配任务，
+    用条件更新（WHERE state='queued'）抢占，避免 SQLite 无 FOR UPDATE 下的并发双 run。
+    """
+    existing = db.exec(
+        select(Run).where(Run.agent_name == agent, Run.state.in_([RunState.CLAIMED, RunState.RUNNING]))
+    ).first()
+    if existing:
+        return existing
+    q = select(Task).where(Task.state == TaskState.QUEUED, Task.stage == TaskStage.READY)
+    rows = db.exec(q.order_by(Task.priority.desc(), Task.created_at.asc())).all()
+    now = _now()
+    candidate = None
+    for t in rows:
+        if t.schedule_type == "once" and t.run_at:
+            run_at = t.run_at
+            if run_at.tzinfo is None:
+                run_at = run_at.replace(tzinfo=timezone.utc)
+            if run_at > now:
+                continue
+        candidate = t
+        break
+    if not candidate:
+        return None
+    # 条件更新抢占（原子）：只有 state 仍是 queued 才算抢到
+    from sqlalchemy import update as sa_update
+    res = db.exec(
+        sa_update(Task)
+        .where(Task.id == candidate.id, Task.state == TaskState.QUEUED)
+        .values(state=TaskState.CLAIMED)
+    )
+    if res.rowcount != 1:
+        db.rollback()
+        return None  # 已被并发领取，跳过
+    task = db.get(Task, candidate.id)
+    db.refresh(task)  # 确保 state/attempt 与 DB 同步
+    task.attempt += 1
+    task.stage = TaskStage.IMPLEMENTING
+    run = Run(
+        id=str(uuid.uuid4())[:8],
+        task_id=task.id,
+        agent_name=agent,
+        state=RunState.CLAIMED,
+        attempt=task.attempt,
+        started_at=_now(),
+        last_heartbeat=_now(),
+    )
+    db.add(run)
+    return run
+
 @router.post("/claim")
 def claim_task(agent: str = Query(...), agent_type: str = Query(None),
                project: str = Query(None), workspace: str = Query(None),
@@ -352,46 +404,40 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
     if existing:
         return {"id": existing.id, "task_id": existing.task_id, "state": existing.state.value,
                 "agent_name": existing.agent_name}
-    q = select(Task).where(Task.state == TaskState.QUEUED, Task.stage == TaskStage.READY)
+    # 传 agent_type 时按其过滤并条件更新抢占；否则走 _claim_for
     if agent_type:
-        q = q.where((Task.target_agent_type == agent_type) | (Task.target_agent_type == None))
-    rows = db.exec(
-        q.order_by(Task.priority.desc(), Task.created_at.asc())
-    ).all()
-    now = _now()
-    task = None
-    for t in rows:
-        if t.schedule_type == "once" and t.run_at:
-            run_at = t.run_at
-            if run_at.tzinfo is None:
-                run_at = run_at.replace(tzinfo=timezone.utc)
-            if run_at > now:
-                continue
-        task = t
-        break
-    if not task:
-        return Response(status_code=204)
+        q = select(Task).where(Task.state == TaskState.QUEUED, Task.stage == TaskStage.READY,
+                               (Task.target_agent_type == agent_type) | (Task.target_agent_type == None))
+        t = db.exec(q.order_by(Task.priority.desc(), Task.created_at.asc())).first()
+        if t is None:
+            return Response(status_code=204)
+        from sqlalchemy import update as sa_update
+        res = db.exec(sa_update(Task).where(Task.id == t.id, Task.state == TaskState.QUEUED)
+                      .values(state=TaskState.CLAIMED))
+        if res.rowcount != 1:
+            db.rollback()
+            return Response(status_code=204)
+        task = db.get(Task, t.id)
+        db.refresh(task)
+        task.attempt += 1
+        task.stage = TaskStage.IMPLEMENTING
+        run = Run(id=str(uuid.uuid4())[:8], task_id=task.id, agent_name=agent,
+                  state=RunState.CLAIMED, attempt=task.attempt, started_at=_now(), last_heartbeat=_now())
+        db.add(run)
+    else:
+        run = _claim_for(agent, db)
+        if run is None:
+            db.rollback()
+            return Response(status_code=204)
+        task = db.get(Task, run.task_id)  # _claim_for 已更新 attempt/stage，勿再 refresh
     if project and not task.project:
         task.project = project
     if workspace and not task.workspace:
         task.workspace = workspace
     if files and not task.files:
         task.files = [f.strip() for f in files.split(",") if f.strip()]
-    run = Run(
-        id=str(uuid.uuid4())[:8],
-        task_id=task.id,
-        agent_name=agent,
-        state=RunState.CLAIMED,
-        attempt=task.attempt + 1,
-        started_at=_now(),
-        last_heartbeat=_now(),
-    )
-    task.state = TaskState.CLAIMED
-    task.attempt += 1
-    task.stage = TaskStage.IMPLEMENTING
     event = emit_event(db, type="task_claimed", entity="task", entity_id=task.id,
                        run_id=run.id, payload={"agent": agent, "attempt": task.attempt})
-    db.add(run)
     db.add(task)
     db.commit()
     db.refresh(run)
