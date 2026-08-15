@@ -79,3 +79,18 @@ def test_concurrent_claim_single_run():
         s.commit()
     runs = _runs_for(task_id)
     assert len(runs) == 1
+
+
+def test_claim_with_agent_type_skips_future_run_at():
+    from datetime import datetime, timedelta, timezone
+    _register("r1", "rt")
+    past = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    _mk("past-t", stage="ready", agent_type="rt", run_at=past)
+    _mk("future-t", stage="ready", agent_type="rt", run_at=future, priority=3)
+    r = client.post("/api/v1/tasks/claim", params={"agent": "r1", "agent_type": "rt"})
+    assert r.status_code == 200
+    claimed = r.json()
+    with Session(engine) as s:
+        task = s.get(Task, claimed["task_id"])
+        assert task.title == "past-t"

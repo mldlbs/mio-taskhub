@@ -408,7 +408,18 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
     if agent_type:
         q = select(Task).where(Task.state == TaskState.QUEUED, Task.stage == TaskStage.READY,
                                (Task.target_agent_type == agent_type) | (Task.target_agent_type == None))
-        t = db.exec(q.order_by(Task.priority.desc(), Task.created_at.asc())).first()
+        rows = db.exec(q.order_by(Task.priority.desc(), Task.created_at.asc())).all()
+        now = _now()
+        t = None
+        for cand in rows:
+            if cand.schedule_type == "once" and cand.run_at:
+                run_at = cand.run_at
+                if run_at.tzinfo is None:
+                    run_at = run_at.replace(tzinfo=timezone.utc)
+                if run_at > now:
+                    continue
+            t = cand
+            break
         if t is None:
             return Response(status_code=204)
         from sqlalchemy import update as sa_update
