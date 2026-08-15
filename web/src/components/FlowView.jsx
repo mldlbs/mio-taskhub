@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { prio, fmtDur, agMono, agColor } from '../constants'
 
 const STAGES = [
@@ -42,6 +42,8 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToS
   const [artifact, setArtifact] = useState('')
   const [expanded, setExpanded] = useState(STAGES[0].id)
   const [draggingId, setDraggingId] = useState(null)
+  const [edges, setEdges] = useState([])
+  const panelRef = useRef(null)
 
   const onCardDragStart = (e, id) => {
     setDraggingId(id)
@@ -82,6 +84,42 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToS
   const byStage = Object.fromEntries(STAGES.map(s => [s.id, flowTasks.filter(t => t.stage === s.id)]))
   const stage = STAGES.find(s => s.id === expanded)
   const activeTasks = stage ? byStage[stage.id] : []
+
+  const computeEdges = useCallback(() => {
+    if (!panelRef.current || expanded === null) { setEdges([]); return }
+    const panel = panelRef.current
+    const cards = panel.querySelectorAll('.flow-card')
+    const rects = {}
+    cards.forEach(c => {
+      const id = c.getAttribute('data-task-id')
+      if (id) rects[id] = c.getBoundingClientRect()
+    })
+    const panelRect = panel.getBoundingClientRect()
+    const out = []
+    activeTasks.forEach(t => {
+      ;(t.depends_on || []).forEach(depId => {
+        if (!rects[t.id] || !rects[depId]) return
+        const a = rects[t.id]
+        const b = rects[depId]
+        out.push({
+          id: `${depId}->${t.id}`,
+          x1: b.right - panelRect.left, y1: b.top + b.height / 2 - panelRect.top,
+          x2: a.left - panelRect.left, y2: a.top + a.height / 2 - panelRect.top,
+        })
+      })
+    })
+    setEdges(out)
+  }, [activeTasks, expanded])
+
+  useEffect(() => {
+    computeEdges()
+    if (!panelRef.current) return
+    const ro = new ResizeObserver(() => requestAnimationFrame(computeEdges))
+    ro.observe(panelRef.current)
+    const mo = new MutationObserver(() => requestAnimationFrame(computeEdges))
+    mo.observe(panelRef.current, { childList: true, subtree: true })
+    return () => { ro.disconnect(); mo.disconnect() }
+  }, [computeEdges, expanded])
 
   useEffect(() => {
     if (!advancing) return
@@ -146,17 +184,23 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToS
         </div>
 
         {stage && (
-          <div className="flow__panel">
+          <div className="flow__panel" ref={panelRef}>
             <div className="flow__panel-head">
               <span className="flow__panel-title">{stage.label}</span>
               <span className="flow__panel-count">{activeTasks.length} 个任务</span>
             </div>
+            <svg className="flow__edges" aria-hidden="true">
+              {edges.map(e => (
+                <line key={e.id} x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2}
+                      className="flow__edge" />
+              ))}
+            </svg>
             {activeTasks.map(t => {
               const p = prio(t.priority)
               const ac = t.target_agent_type && agColor(t.target_agent_type)
               const next = nextStage(t.stage)
               return (
-                <div key={t.id} className="flow-card" role="button" tabIndex={0}
+                <div key={t.id} className="flow-card" data-task-id={t.id} role="button" tabIndex={0}
                   draggable
                   onDragStart={e => onCardDragStart(e, t.id)}
                   aria-label={`任务 ${t.title}，阶段 ${stage.label}。回车查看详情`}
