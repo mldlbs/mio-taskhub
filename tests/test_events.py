@@ -6,6 +6,7 @@ from sqlmodel import Session, select
 from mio_taskhub.db import engine
 from mio_taskhub.models import Event
 from mio_taskhub.events import emit_event, event_to_dict, broadcast_for_event
+from mio_taskhub.notifications import ws_manager
 
 
 def test_emit_event_returns_object_with_seq():
@@ -55,3 +56,38 @@ def test_event_to_dict_no_payload():
         d = event_to_dict(s.get(Event, e.id))
         assert d["payload"] is None
         assert d["seq"] == e.id
+
+
+def test_broadcast_for_event_maps_entity_and_fallback():
+    sent = []
+
+    class FakeWS:
+        async def accept(self):
+            pass
+
+        async def send_text(self, data):
+            sent.append(json.loads(data))
+
+    async def _connect():
+        await ws_manager.connect(FakeWS())
+
+    asyncio.run(_connect())
+
+    with Session(engine) as s:
+        task_ev = emit_event(s, type="task_created", entity="task", entity_id="t1")
+        s.add(task_ev); s.commit()
+        broadcast_for_event(task_ev)
+        assert sent and sent[0]["type"] == "task_update"
+        assert sent[0]["event"]["seq"] == task_ev.id
+
+        sent.clear()
+        idea_ev = emit_event(s, type="idea_created", entity="idea", entity_id="i1")
+        s.add(idea_ev); s.commit()
+        broadcast_for_event(idea_ev)
+        assert sent and sent[0]["type"] == "idea_update"
+
+        sent.clear()
+        unknown_ev = emit_event(s, type="x", entity="agent", entity_id="a1")
+        s.add(unknown_ev); s.commit()
+        broadcast_for_event(unknown_ev)
+        assert sent and sent[0]["type"] == "event_update"
