@@ -31,6 +31,16 @@ def test_latest_without_after_seq():
     assert data["next_seq"] == data["events"][-1]["seq"]
 
 
+def test_latest_returns_most_recent_when_over_limit():
+    _seed(250)   # seeds seq 1..250
+    r = client.get("/api/v1/events").json()
+    events = r["events"]
+    assert len(events) == 200
+    assert events[0]["seq"] == 51          # 最旧的是 51（250-200+1）
+    assert events[-1]["seq"] == 250        # 最新的是 250
+    assert r["next_seq"] == 250
+
+
 def test_incremental_after_seq():
     _seed(5)
     r1 = client.get("/api/v1/events").json()

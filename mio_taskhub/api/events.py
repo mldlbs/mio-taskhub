@@ -17,7 +17,11 @@ def list_events(after_seq: int = Query(None), limit: int = Query(DEFAULT_LIMIT, 
     q = select(Event)
     if after_seq is not None and after_seq > 0:
         q = q.where(Event.id > after_seq)
-    rows = db.exec(q.order_by(Event.id.asc()).limit(limit)).all()
+    if after_seq is None:
+        rows = db.exec(q.order_by(Event.id.desc()).limit(limit)).all()
+        rows.reverse()
+    else:
+        rows = db.exec(q.order_by(Event.id.asc()).limit(limit)).all()
     events = [event_to_dict(e) for e in rows]
     return {
         "events": events,
