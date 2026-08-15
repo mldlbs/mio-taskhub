@@ -37,10 +37,43 @@ const depState = (t, tasks) => {
   return { count: deps.length, done, blocked }
 }
 
-export default function FlowView({ tasks, onOpen, onCancel, onAdvance }) {
+export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToStage }) {
   const [advancing, setAdvancing] = useState(null)
   const [artifact, setArtifact] = useState('')
   const [expanded, setExpanded] = useState(STAGES[0].id)
+  const [draggingId, setDraggingId] = useState(null)
+
+  const onCardDragStart = (e, id) => {
+    setDraggingId(id)
+    e.dataTransfer.setData('text/plain', id)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const onColumnDrop = async (stageId) => {
+    if (!draggingId) return
+    const task = tasks.find(t => t.id === draggingId)
+    setDraggingId(null)
+    if (!task || task.stage === stageId) return
+    const body = { target_stage: stageId }
+    if (stageId === 'design') {
+      const val = window.prompt(`移动到 design 需提供 Spec 路径：`, task.spec_path || '')
+      if (val === null) return
+      body.spec_path = val
+    } else if (stageId === 'planning') {
+      const val = window.prompt(`移动到 planning 需提供 Plan 路径：`, task.plan_path || '')
+      if (val === null) return
+      body.plan_path = val
+    } else if (stageId === 'done') {
+      const val = window.prompt(`移动到 done 需提供审查结论：`, task.review_result || '')
+      if (val === null) return
+      body.review_result = val
+    }
+    try {
+      await onMoveToStage(task.id, body)
+    } catch (e) {
+      alert('移动失败: ' + (e.message || '阶段不合法'))
+    }
+  }
 
   const flowTasks = tasks.filter(t => t.stage !== 'cancelled')
   const byStage = Object.fromEntries(STAGES.map(s => [s.id, flowTasks.filter(t => t.stage === s.id)]))
@@ -84,7 +117,12 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance }) {
       <div className="flow__canvas">
         <div className="flow__nodes">
           {STAGES.map((s, i) => (
-            <div key={s.id} className="flow__step">
+            <div key={s.id} className="flow__step"
+              onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+              onDragEnter={e => { e.currentTarget.classList.add('is-dragover') }}
+              onDragLeave={e => { e.currentTarget.classList.remove('is-dragover') }}
+              onDrop={e => { e.preventDefault(); e.currentTarget.classList.remove('is-dragover'); onColumnDrop(s.id) }}
+            >
               {i > 0 && (
                 <div className="flow__arrow" aria-hidden="true"><span>→</span></div>
               )}
@@ -116,6 +154,8 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance }) {
               const next = nextStage(t.stage)
               return (
                 <div key={t.id} className="flow-card" role="button" tabIndex={0}
+                  draggable
+                  onDragStart={e => onCardDragStart(e, t.id)}
                   aria-label={`任务 ${t.title}，阶段 ${stage.label}。回车查看详情`}
                   onClick={() => onOpen && onOpen(t)}
                   onKeyDown={(e) => {

@@ -124,6 +124,11 @@ export default function App() {
     catch (e) { setError('推进阶段失败: ' + e.message) }
   }
 
+  const moveToStage = async (id, body) => {
+    try { await api.moveToStage(id, body); loadTasks() }
+    catch (e) { setError('移动阶段失败: ' + (e.message || '阶段不合法')) }
+  }
+
   const advanceTaskStage = (task) => {
     const next = { brainstorming:'design', design:'planning', planning:'ready',
                    ready:'implementing', implementing:'review', review:'done' }[task.stage]
@@ -213,7 +218,8 @@ export default function App() {
               <PlanView tasks={tasks} />
             )}
             {view === 'flow' && (
-              <FlowView tasks={tasks} onOpen={openTask} onCancel={cancelTask} onAdvance={advanceStage} />
+              <FlowView tasks={tasks} onOpen={openTask} onCancel={cancelTask}
+                        onAdvance={advanceStage} onMoveToStage={moveToStage} />
             )}
             {view === 'ideas' && (
               <IdeasView ideas={ideas} onReload={loadIdeas} />
