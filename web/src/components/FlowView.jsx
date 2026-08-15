@@ -42,6 +42,7 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToS
   const [artifact, setArtifact] = useState('')
   const [expanded, setExpanded] = useState(STAGES[0].id)
   const [draggingId, setDraggingId] = useState(null)
+  const [hoveredId, setHoveredId] = useState(null)
   const [edges, setEdges] = useState([])
   const panelRef = useRef(null)
 
@@ -106,6 +107,8 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToS
         const b = rects[depId]
         out.push({
           id: `${depId}->${t.id}`,
+          from: depId,
+          to: t.id,
           x1: b.right - panelRect.left, y1: b.top + b.height / 2 - panelRect.top,
           x2: a.left - panelRect.left, y2: a.top + a.height / 2 - panelRect.top,
         })
@@ -193,10 +196,13 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToS
               <span className="flow__panel-count">{activeTasks.length} 个任务</span>
             </div>
             <svg className="flow__edges" aria-hidden="true">
-              {edges.map(e => (
-                <line key={e.id} x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2}
-                      className="flow__edge" />
-              ))}
+              {edges.map(e => {
+                const active = hoveredId && (e.from === hoveredId || e.to === hoveredId)
+                return (
+                  <line key={e.id} x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2}
+                        className={`flow__edge${active ? ' is-active' : ''}`} />
+                )
+              })}
             </svg>
             {activeTasks.map(t => {
               const p = prio(t.priority)
@@ -205,6 +211,8 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToS
               return (
                 <div key={t.id} className="flow-card" data-task-id={t.id} role="button" tabIndex={0}
                   draggable
+                  onMouseEnter={() => setHoveredId(t.id)}
+                  onMouseLeave={() => setHoveredId(null)}
                   onDragStart={e => onCardDragStart(e, t.id)}
                   aria-label={`任务 ${t.title}，阶段 ${stage.label}。回车查看详情`}
                   onClick={() => onOpen && onOpen(t)}

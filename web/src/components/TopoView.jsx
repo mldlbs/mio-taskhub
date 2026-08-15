@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { prio, fmtDur } from '../constants'
 
 const STAGE_TONE = {
@@ -48,11 +48,22 @@ function kahnLayers(tasks) {
 export default function TopoView({ tasks, onOpen }) {
   const { layers, meta } = useMemo(() => kahnLayers(tasks), [tasks])
   const byId = Object.fromEntries(tasks.map(t => [t.id, t]))
+  const [hoveredId, setHoveredId] = useState(null)
   const isBlocked = (t) =>
     (t.depends_on || []).some(d => {
       const dep = byId[d]
       return dep && (dep.state === 'cancelled' || dep.state === 'failed')
     })
+
+  const connectedIds = (id) => {
+    if (!id) return new Set()
+    const out = new Set()
+    const t = byId[id]
+    if (!t) return out
+    ;(t.depends_on || []).forEach(d => { if (byId[d]) out.add(d) })
+    tasks.forEach(x => { if ((x.depends_on || []).includes(id)) out.add(x.id) })
+    return out
+  }
 
   return (
     <div className="topo">
@@ -69,9 +80,13 @@ export default function TopoView({ tasks, onOpen }) {
               const p = prio(t.priority)
               const blocked = isBlocked(t)
               const tone = blocked ? 'danger' : (STAGE_TONE[t.stage] || 'dim')
+              const conn = connectedIds(hoveredId)
+              const hl = hoveredId && (hoveredId === t.id || conn.has(t.id))
               return (
-                <button key={t.id} className={`topo-node topo-node--${tone}`}
+                <button key={t.id} className={`topo-node topo-node--${tone}${hl ? ' is-hovered' : ''}`}
                   role="button" tabIndex={0}
+                  onMouseEnter={() => setHoveredId(t.id)}
+                  onMouseLeave={() => setHoveredId(null)}
                   aria-label={`任务 ${t.title}，阶段 ${t.stage}。回车查看详情`}
                   onClick={() => onOpen && onOpen(t)}
                   onKeyDown={e => { if (e.key === 'Enter' && onOpen) onOpen(t) }}>

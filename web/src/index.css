@@ -1719,6 +1719,7 @@ body { font-size: 15px; }
   stroke-width: 1.5;
   opacity: 0.45;
 }
+.flow__edge.is-active { stroke: var(--accent, #3ddc97); stroke-width: 2.5; opacity: 1; }
 .flow__panel-head {
   grid-column: 1 / -1;
   display: flex;
@@ -2092,6 +2093,7 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
 .topo-node--danger { border-color: var(--danger, #ff5c5c); }
 .topo-node--live { border-color: var(--accent, #3ddc97); }
 .topo-node__title { font-weight: 600; margin-bottom: 6px; }
+.topo-node.is-hovered { box-shadow: 0 0 0 2px var(--accent, #3ddc97); }
 .topo-node__meta { display: flex; gap: 6px; align-items: center; }
 .topo-node__stage { font-size: 11px; color: var(--ink-dim, #6b7280); }
 .topo-node__stats { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-dim, #6b7280); margin-top: 6px; }
