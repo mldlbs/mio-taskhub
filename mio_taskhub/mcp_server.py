@@ -644,11 +644,12 @@ async def taskhub_close_discussion(
     "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False,
 })
 async def taskhub_poll_events(
-    seq: int = Field(default=0, description="上次消费的 seq；0 表示从头订阅全部；不传则返回最近 200 条"),
+    seq: int = Field(default=0, ge=0, description="上次消费的 seq；0 表示从头订阅全部（分页取回，每页最多 200 条）"),
 ) -> str:
     """增量订阅全局变更事件（建任务、领取、心跳、完成、阶段推进、想法、讨论等都会产生）。
 
-    调用后记录返回的 next_seq，下次以其为 seq 即可拿到增量。心跳事件量大，可按需忽略 type=heartbeat。
+    调用后记录返回的 next_seq，下次以其为 seq 即可拿到增量；一次最多返回 200 条，
+    落后较多时需按 next_seq 多次轮询。心跳事件量大，可按需忽略 type=heartbeat。
     """
     params = {"after_seq": seq}
     data = await _request("GET", "/events", params=params)
