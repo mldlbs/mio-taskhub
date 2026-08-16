@@ -4,6 +4,7 @@ import ctypes
 import os
 import socket
 import sys
+import threading
 
 import webview
 
@@ -51,6 +52,53 @@ def _hub_alive() -> bool:
         return s.connect_ex(("127.0.0.1", PORT)) == 0
 
 
+def _start_tray(window, on_quit):
+    """在独立线程启动系统托盘图标。返回 Icon 对象。
+
+    - 单击/菜单「显示面板」→ window.show()
+    - 菜单「退出」→ on_quit()（停托盘 + 销毁窗口）
+    降级：pystray/PIL 不可用时不驻留托盘（保持现状行为）。
+    """
+    try:
+        import pystray
+        from PIL import Image
+    except Exception:
+        return None
+
+    def _show(_icon=None, _item=None):
+        try:
+            window.show()
+        except Exception:
+            pass
+
+    def _quit(_icon=None, _item=None):
+        try:
+            _icon.stop()
+        except Exception:
+            pass
+        on_quit()
+
+    try:
+        if ICO:
+            img = Image.open(ICO)
+        else:
+            img = Image.new("RGB", (32, 32), (61, 220, 151))
+        icon = pystray.Icon(
+            "mio-taskhub",
+            img,
+            "mio-taskhub · 任务中心",
+            menu=pystray.Menu(
+                pystray.MenuItem("显示面板", _show, default=True),
+                pystray.MenuItem("退出", _quit),
+            ),
+        )
+        t = threading.Thread(target=icon.run, daemon=True)
+        t.start()
+        return icon
+    except Exception:
+        return None
+
+
 def main():
     if not _hub_alive():
         try:
@@ -64,7 +112,7 @@ def main():
             pass
         return
 
-    webview.create_window(
+    window = webview.create_window(
         "mio-taskhub · 任务中心",
         URL,
         width=1080,
@@ -74,7 +122,31 @@ def main():
         on_top=True,
         background_color="#0f1115",
     )
+
+    quit_flag = {"done": False}
+
+    def _on_quit():
+        quit_flag["done"] = True
+        try:
+            window.destroy()
+        except Exception:
+            pass
+
+    # 拦截关窗：隐藏到托盘而非退出（若托盘可用）
+    tray = _start_tray(window, _on_quit)
+    if tray is not None:
+        def _on_closing():
+            window.hide()
+            return False  # 取消关闭
+        window.events.closing += _on_closing
+
     webview.start(func=_apply_icon)
+    # webview.start 返回（窗口被 destroy 或进程退出）——若托盘还在则停止
+    if tray is not None:
+        try:
+            tray.stop()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
