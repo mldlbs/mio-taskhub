@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { prio, fmtDur } from '../constants'
+import { computeCPM } from '../cpm'
 
 const STAGE_TONE = {
   done: 'ok', cancelled: 'dim', review: 'live',
@@ -46,7 +47,8 @@ function kahnLayers(tasks) {
 }
 
 export default function TopoView({ tasks, onOpen }) {
-  const { layers, meta } = useMemo(() => kahnLayers(tasks), [tasks])
+  const { layers } = useMemo(() => kahnLayers(tasks), [tasks])
+  const cpm = useMemo(() => computeCPM(tasks), [tasks])
   const byId = Object.fromEntries(tasks.map(t => [t.id, t]))
   const [hoveredId, setHoveredId] = useState(null)
   const isBlocked = (t) =>
@@ -71,6 +73,12 @@ export default function TopoView({ tasks, onOpen }) {
         <h2 className="topo__title">依赖拓扑</h2>
         <span className="topo__count">{tasks.length} 个任务 · {layers.length} 层</span>
       </div>
+      <div className="topo__metrics">
+        <span>总工期 {fmtDur(cpm.total)}</span>
+        <span>关键路径 {cpm.criticalPath.length} 任务</span>
+        <span>并行度 {cpm.parallel}</span>
+        <span>阻塞 {tasks.filter(isBlocked).length}</span>
+      </div>
       {layers.length === 0 && <div className="topo__empty">还没有任务。</div>}
       {layers.map((layer, i) => (
         <div key={i} className="topo__layer">
@@ -82,8 +90,10 @@ export default function TopoView({ tasks, onOpen }) {
               const tone = blocked ? 'danger' : (STAGE_TONE[t.stage] || 'dim')
               const conn = connectedIds(hoveredId)
               const hl = hoveredId && (hoveredId === t.id || conn.has(t.id))
+              const crit = cpm.critical[t.id]
+              const flt = cpm.float[t.id]
               return (
-                <button key={t.id} className={`topo-node topo-node--${tone}${hl ? ' is-hovered' : ''}`}
+                <button key={t.id} className={`topo-node topo-node--${tone}${hl ? ' is-hovered' : ''}${crit ? ' is-critical' : ''}`}
                   role="button" tabIndex={0}
                   onMouseEnter={() => setHoveredId(t.id)}
                   onMouseLeave={() => setHoveredId(null)}
@@ -97,7 +107,7 @@ export default function TopoView({ tasks, onOpen }) {
                   </div>
                   <div className="topo-node__stats">
                     <span>{fmtDur(t.est_duration_min)}</span>
-                    <span>{blocked ? '阻塞' : `↓${meta.outdegree[t.id] || 0} ↑${meta.indegree[t.id] || 0}`}</span>
+                    <span>{blocked ? '阻塞' : (crit ? '关键' : `浮动 ${fmtDur(flt)}`)}</span>
                   </div>
                 </button>
               )
