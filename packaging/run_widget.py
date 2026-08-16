@@ -86,7 +86,7 @@ def _start_tray(window, on_quit):
         icon = pystray.Icon(
             "mio-taskhub",
             img,
-            "mio-taskhub · 任务中心",
+            "MIO-TASKHUB · 任务中心",
             menu=pystray.Menu(
                 pystray.MenuItem("显示面板", _show, default=True),
                 pystray.MenuItem("退出", _quit),
@@ -113,7 +113,7 @@ def main():
         return
 
     window = webview.create_window(
-        "mio-taskhub · 任务中心",
+        "MIO-TASKHUB · 任务中心",
         URL,
         width=1080,
         height=720,
