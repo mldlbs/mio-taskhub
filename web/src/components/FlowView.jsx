@@ -44,7 +44,9 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToS
   const [draggingId, setDraggingId] = useState(null)
   const [hoveredId, setHoveredId] = useState(null)
   const [edges, setEdges] = useState([])
+  const [globalEdges, setGlobalEdges] = useState([])
   const panelRef = useRef(null)
+  const canvasRef = useRef(null)
 
   const onCardDragStart = (e, id) => {
     setDraggingId(id)
@@ -127,6 +129,47 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToS
     return () => { ro.disconnect(); mo.disconnect() }
   }, [computeEdges, expanded])
 
+  const computeGlobalEdges = useCallback(() => {
+    if (expanded === null || !canvasRef.current) { setGlobalEdges([]); return }
+    const container = canvasRef.current
+    const containerRect = container.getBoundingClientRect()
+    const steps = container.querySelectorAll('.flow__step')
+    const colCenters = {}
+    steps.forEach(st => {
+      const colId = st.getAttribute('data-col')
+      if (!colId) return
+      const r = st.querySelector('.flow-node')?.getBoundingClientRect()
+      if (r) colCenters[colId] = {
+        x: r.left - containerRect.left + container.scrollLeft + r.width / 2,
+        y: r.top - containerRect.top + container.scrollTop + r.height / 2,
+      }
+    })
+    const edges = []
+    flowTasks.forEach(t => {
+      ;(t.depends_on || []).forEach(depId => {
+        const dep = flowTasks.find(x => x.id === depId)
+        if (!dep || dep.stage === t.stage) return  // 只画跨列
+        const from = colCenters[dep.stage]
+        const to = colCenters[t.stage]
+        if (!from || !to) return
+        const touchesExpanded = t.stage === expanded || dep.stage === expanded
+        if (!touchesExpanded) return  // 只画与当前展开列相关的跨列边
+        edges.push({ id: `${depId}->${t.id}`, from, to })
+      })
+    })
+    setGlobalEdges(edges)
+  }, [flowTasks, expanded])
+
+  useEffect(() => {
+    computeGlobalEdges()
+    if (!canvasRef.current) return
+    const ro = new ResizeObserver(() => requestAnimationFrame(computeGlobalEdges))
+    ro.observe(canvasRef.current)
+    const mo = new MutationObserver(() => requestAnimationFrame(computeGlobalEdges))
+    mo.observe(canvasRef.current, { childList: true, subtree: true })
+    return () => { ro.disconnect(); mo.disconnect() }
+  }, [computeGlobalEdges, expanded])
+
   useEffect(() => {
     if (!advancing) return
     const onKey = (e) => { if (e.key === 'Escape') { setAdvancing(null); setArtifact('') } }
@@ -160,11 +203,20 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToS
   }
 
   return (
-    <div className="flow">
+    <div className="flow" ref={canvasRef}>
       <div className="flow__canvas">
+        <svg className="flow__global-edges" aria-hidden="true">
+          {globalEdges.map(e => {
+            const active = hoveredId && (e.id.startsWith(hoveredId + '->') || e.id.endsWith('->' + hoveredId))
+            return (
+              <line key={e.id} x1={e.from.x} y1={e.from.y} x2={e.to.x} y2={e.to.y}
+                    className={`flow__global-edge${active ? ' is-active' : ''}`} />
+            )
+          })}
+        </svg>
         <div className="flow__nodes">
           {STAGES.map((s, i) => (
-            <div key={s.id} className="flow__step"
+            <div key={s.id} data-col={s.id} className="flow__step"
               onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
               onDragEnter={e => { e.currentTarget.classList.add('is-dragover') }}
               onDragLeave={e => { e.currentTarget.classList.remove('is-dragover') }}

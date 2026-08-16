@@ -1585,6 +1585,7 @@ body { font-size: 15px; }
 
 /* --- flow canvas --- */
 .flow {
+  position: relative;
   min-height: 100%;
   display: flex;
   flex-direction: column;
@@ -1720,6 +1721,9 @@ body { font-size: 15px; }
   opacity: 0.45;
 }
 .flow__edge.is-active { stroke: var(--accent, #3ddc97); stroke-width: 2.5; opacity: 1; }
+.flow__global-edges { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; overflow: visible; }
+.flow__global-edge { stroke: var(--ink-dim, #6b7280); stroke-width: 1; stroke-dasharray: 4 3; opacity: 0.35; }
+.flow__global-edge.is-active { stroke: var(--accent, #3ddc97); stroke-width: 2; opacity: 1; stroke-dasharray: none; }
 .flow__panel-head {
   grid-column: 1 / -1;
   display: flex;
