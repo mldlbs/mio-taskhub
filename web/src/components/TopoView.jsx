@@ -10,7 +10,8 @@ const STAGE_TONE = {
 
 function kahnLayers(tasks) {
   const byId = Object.fromEntries(tasks.map(t => [t.id, t]))
-  const deps = Object.fromEntries(tasks.map(t => [t.id, t.depends_on || []]))
+  const succ = {}
+  tasks.forEach(t => { succ[t.id] = [] })
   const indegree = {}
   const outdegree = {}
   tasks.forEach(t => { indegree[t.id] = 0; outdegree[t.id] = 0 })
@@ -19,31 +20,34 @@ function kahnLayers(tasks) {
       if (!byId[d]) return
       indegree[t.id] += 1
       outdegree[d] += 1
+      succ[d].push(t.id)
     })
   })
   const depth = {}
   const layers = []
-  const remaining = new Set(tasks.map(t => t.id))
-  let frontier = tasks.filter(t => (indegree[t.id] || 0) === 0)
+  let frontier = tasks.filter(t => (indegree[t.id] || 0) === 0).map(t => t.id)
   let d = 0
   while (frontier.length) {
     const next = []
-    frontier.forEach(t => { depth[t.id] = d })
-    layers.push(frontier)
-    frontier.forEach(t => {
-      ;(deps[t.id] || []).forEach(dep => {
-        if (!byId[dep]) return
-        indegree[dep] -= 1
-        if (indegree[dep] === 0 && remaining.has(dep)) {
-          next.push(byId[dep])
-          remaining.delete(dep)
-        }
+    frontier.forEach(id => {
+      depth[id] = d
+      layers.push(byId[id])
+      ;(succ[id] || []).forEach(child => {
+        indegree[child] -= 1
+        if (indegree[child] === 0) next.push(child)
       })
     })
     frontier = next
     d += 1
   }
-  return { layers, meta: { depth, indegree, outdegree } }
+  const grouped = {}
+  tasks.forEach(t => {
+    const dd = depth[t.id]
+    if (dd === undefined) return
+    ;(grouped[dd] = grouped[dd] || []).push(t)
+  })
+  const layerList = Object.keys(grouped).sort((a, b) => a - b).map(k => grouped[k])
+  return { layers: layerList, meta: { depth, indegree, outdegree } }
 }
 
 export default function TopoView({ tasks, onOpen }) {
