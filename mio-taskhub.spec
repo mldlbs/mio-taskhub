@@ -25,7 +25,7 @@ mcp_hiddenimports = (
 )
 
 widget_hiddenimports = (
-    ["webview", "clr", "pythonnet"]
+    ["webview", "clr", "pythonnet", "pystray", "PIL", "PIL.Image"]
     + collect_submodules("webview")
 )
 
@@ -36,6 +36,8 @@ excludes = [
     "skimage", "jax", "cupy", "PIL", "fsspec", "av", "sentry_sdk",
     "psycopg2", "psycopg2_binary", "psycopg",
 ]
+
+widget_excludes = [x for x in excludes if x != "PIL"]
 
 a_hub = Analysis(
     ["packaging/run_hub.py"],
@@ -96,7 +98,7 @@ a_widget = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=excludes,
+    excludes=widget_excludes,
     noarchive=False,
     optimize=0,
 )

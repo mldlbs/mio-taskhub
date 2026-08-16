@@ -13,7 +13,7 @@ hiddenimports = (
 )
 
 widget_hiddenimports = (
-    ["webview", "clr", "pythonnet"]
+    ["webview", "clr", "pythonnet", "pystray", "PIL", "PIL.Image"]
     + collect_submodules("webview")
 )
 
