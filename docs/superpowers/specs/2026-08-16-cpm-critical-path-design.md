@@ -30,7 +30,19 @@
 // }
 ```
 
-**算法**（est_duration_min 为权重，时长规则见上）：
+**算法**（est_duration_min 为权重）：
+
+**任务时长规则（`taskDuration`）**：
+
+| 状态 | 时长 |
+|---|---|
+| `completed` / `stage==done` / `stage==cancelled` | `0`（不再阻塞后续） |
+| `implementing`（进行中） | 剩余时间；拿不到则 `est_duration × 0.5` |
+| `review`（审查中） | 剩余时间；拿不到则 `est_duration × 0.25` |
+| 其余（ready/planning/design/brainstorming/blocked） | `est_duration` |
+
+- `est_duration_min` 缺失或非有限数 → `DEFAULT_DURATION = 60`（`Number.isFinite(Number(est)) ? est : 60`，防 NaN 且不把显式 0 误当缺失）。
+- 悬挂依赖（id 不在 tasks）忽略，整个 DAG 仍可算。
 
 ```
 正向传递（earliest）:

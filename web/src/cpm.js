@@ -6,7 +6,8 @@ export const DEFAULT_DURATION = 60
 export function taskDuration(task) {
   const stage = task.stage
   const state = task.state
-  const est = Number(task.est_duration_min) || DEFAULT_DURATION
+  const parsed = Number(task.est_duration_min)
+  const est = Number.isFinite(parsed) ? parsed : DEFAULT_DURATION
   if (state === 'completed' || stage === 'done' || stage === 'cancelled') return 0
   if (stage === 'implementing') return Math.round(est * 0.5)
   if (stage === 'review') return Math.round(est * 0.25)
