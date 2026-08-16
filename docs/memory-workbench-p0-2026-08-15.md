@@ -51,4 +51,5 @@ mio-taskhub 需求工作台已交付 P0（想法 + 讨论）；端口 48620；�
 - 对话内拖拽编排 / 更细粒度编排视图 —— 已完成（拖拽换阶段 + 依赖连线 + TopoView）
 - widget 系统托盘驻留 —— 已完成（pystray 图标：关窗隐藏、单击打开、菜单退出；widget EXE 打包含 pystray/PIL；spec `docs/superpowers/specs/2026-08-15-widget-tray-design.md`）
 - agent 心跳与超时离线 —— 已完成（POST /agents/heartbeat upsert 自动注册不写事件防风暴；`_mark_stale_agents` DB 过滤 180s 超时离线；`_scheduler_tick` 封装 stale→release→assign；`_on_timeout` agent OFFLINE 即回收 run（sweep 对 agent_offline 也触发）；MCP `taskhub_agent_heartbeat` + wrapper `heartbeat-agent` + setup-agent.ps1 引导；spec `docs/superpowers/specs/2026-08-16-agent-heartbeat-design.md`）
-- 待做：关键路径（CPM）可视化；跨列依赖连线
+- CPM 关键路径 + 跨列依赖连线 —— 已完成（`web/src/cpm.js` 纯函数：ES/EF/LS/LF/float/单条关键路径回溯/并行度；TopoView 信息栏「总工期/关键路径/并行度/阻塞」+ `is-critical` 高亮 + 节点 float；FlowView 跨列虚线连线（全局 SVG，坐标统一含 scroll 偏移，只画与展开列相关的边）；`list_tasks` 补 `est_duration_min`（CPM 时长必需）；修复 kahnLayers 预先存在 bug（剥层用后继关系，带依赖链任务全部渲染）；spec `docs/superpowers/specs/2026-08-16-cpm-critical-path-design.md`）
+- 待做：甘特图视图；多关键路径枚举；资源均衡
