@@ -34,3 +34,25 @@ def register(body: dict, db: Session = Depends(get_session)):
     db.commit()
     broadcast_for_event(event)
     return {"name": name, "status": "registered"}
+
+@router.post("/heartbeat")
+def heartbeat(body: dict, db: Session = Depends(get_session)):
+    """agent 心跳（upsert 自动注册）：刷新 last_heartbeat + ONLINE。
+
+    不写事件（防心跳事件风暴）；未注册的 name 自动创建。
+    """
+    name = body.get("name")
+    if not name:
+        return JSONResponse(status_code=400, content={"error": "name is required"})
+    a = db.get(Agent, name)
+    if a is None:
+        a = Agent(name=name, agent_type="cli", status=AgentStatus.ONLINE,
+                  last_heartbeat=datetime.now(timezone.utc))
+    else:
+        a.status = AgentStatus.ONLINE
+        a.last_heartbeat = datetime.now(timezone.utc)
+    db.add(a)
+    db.commit()
+    db.refresh(a)
+    return {"name": a.name, "status": "online",
+            "last_heartbeat": a.last_heartbeat.isoformat()}
