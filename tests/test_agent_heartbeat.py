@@ -129,3 +129,28 @@ def test_scheduler_tick_runs_all_three():
     client.post("/api/v1/tasks", json={"title": "tick-task", "stage": "ready"})
     wiring._scheduler_tick()
     assert _agent_status("tick-agent") == AgentStatus.OFFLINE
+
+
+def test_sweep_recycles_offline_agent_run_despite_large_timeout():
+    """端到端：agent OFFLINE 时，即使 task.timeout_min 很大，sweep 也回收其 run。"""
+    _mk_agent("sweep-zombie", status=AgentStatus.OFFLINE)
+    from mio_taskhub.models import Task, TaskStage, TaskState, Run, RunState
+    with Session(engine) as s:
+        t = Task(title="sweep-zombie-task", stage=TaskStage.READY, timeout_min=600)
+        s.add(t); s.commit(); s.refresh(t)
+        tid = t.id
+    claim = client.post("/api/v1/tasks/claim", params={"agent": "sweep-zombie"}).json()
+    rid = claim["id"]
+    with Session(engine) as s:
+        run = s.get(Run, rid)
+        run.last_heartbeat = datetime.now(timezone.utc) - timedelta(seconds=200)  # 未到 run 超时
+        s.add(run); s.commit()
+    # 直接跑 sweep（走真实触发路径）
+    sweep = wiring.HeartbeatSweep(get_runs=wiring._get_runs,
+                                  on_timeout=wiring._on_timeout, on_alive=lambda r: None)
+    sweep._sweep()
+    with Session(engine) as s:
+        run = s.get(Run, rid)
+        assert run.state == RunState.FINISHED
+        task = s.get(Task, tid)
+        assert task.state == TaskState.QUEUED

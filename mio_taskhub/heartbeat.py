@@ -16,6 +16,7 @@ class RunInfo:
     attempt: int
     max_retries: int
     timeout_seconds: int = 120
+    agent_offline: bool = False
 
 class HeartbeatSweep:
     def __init__(
@@ -57,7 +58,8 @@ class HeartbeatSweep:
             if run.state not in (RunState.CLAIMED, RunState.RUNNING):
                 continue
             try:
-                if now - run.last_heartbeat > getattr(run, "timeout_seconds", self.timeout):
+                expired = now - run.last_heartbeat > getattr(run, "timeout_seconds", self.timeout)
+                if run.agent_offline or expired:
                     self._on_timeout(run.run_id, run.task_id)
                 else:
                     self._on_alive(run.run_id)

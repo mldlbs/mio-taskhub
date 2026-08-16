@@ -18,6 +18,7 @@ def _get_runs():
         out = []
         for run in runs:
             task = db.get(Task, run.task_id)
+            agent = db.get(Agent, run.agent_name)
             timeout_sec = (task.timeout_min * 60) if task and task.timeout_min else DEFAULT_TIMEOUT_SECONDS
             last_hb = run.last_heartbeat or run.started_at
             if last_hb.tzinfo is None:
@@ -27,6 +28,7 @@ def _get_runs():
                 state=run.state, last_heartbeat=last_hb.timestamp(),
                 attempt=run.attempt, max_retries=task.max_retries if task else 3,
                 timeout_seconds=timeout_sec,
+                agent_offline=agent is None or agent.status == AgentStatus.OFFLINE,
             ))
         return out
 
