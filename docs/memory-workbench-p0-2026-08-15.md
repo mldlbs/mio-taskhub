@@ -49,4 +49,5 @@ mio-taskhub 需求工作台已交付 P0（想法 + 讨论）；端口 48620；�
 - 绿色版加 `mio-taskhub-widget.exe` —— 已完成
 - 空闲 agent 自动捞取 —— 已完成
 - 对话内拖拽编排 / 更细粒度编排视图 —— 已完成（拖拽换阶段 + 依赖连线 + TopoView）
+- widget 系统托盘驻留 —— 已完成（pystray 图标：关窗隐藏、单击打开、菜单退出；widget EXE 打包含 pystray/PIL；spec `docs/superpowers/specs/2026-08-15-widget-tray-design.md`）
 - 待做：agent 心跳离线标记（现在 register 即 online，无心跳线程）；关键路径（CPM）可视化；跨列依赖连线
