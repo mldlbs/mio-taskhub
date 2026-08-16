@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from sqlmodel import Session, select
 from mio_taskhub.db import engine
 from mio_taskhub.api.tasks import _claim_for
@@ -9,6 +9,7 @@ from mio_taskhub.status import is_terminal, dependency_satisfied, task_deps
 from mio_taskhub.events import emit_event, broadcast_for_event
 
 DEFAULT_TIMEOUT_SECONDS = 120
+AGENT_TIMEOUT_SECONDS = 180
 
 
 def _get_runs():
@@ -34,6 +35,25 @@ def _on_timeout(run_id: str, task_id: str):
     with Session(engine) as db:
         run = db.get(Run, run_id)
         task = db.get(Task, task_id)
+        if run and run.state in (RunState.CLAIMED, RunState.RUNNING):
+            agent = db.get(Agent, run.agent_name)
+            agent_offline = agent is None or agent.status == AgentStatus.OFFLINE
+            if agent_offline:
+                run.state = RunState.FINISHED
+                run.result = "agent offline"
+                run.finished_at = datetime.now(timezone.utc)
+                run.exit_code = 1
+                db.add(run)
+                if task:
+                    if task.attempt >= task.max_retries:
+                        task.state = TaskState.FAILED
+                    else:
+                        task.state = TaskState.QUEUED
+                        task.stage = TaskStage.READY
+                    db.add(task)
+                db.commit()
+                return
+        # 原有逻辑：run 心跳超时（HeartbeatSweep 触发）
         if run and run.state in (RunState.CLAIMED, RunState.RUNNING):
             run.state = RunState.FINISHED
             run.result = "heartbeat timeout"
@@ -131,9 +151,37 @@ def _assign_to_idle_agents():
             broadcast_for_event(event)
 
 
+def _mark_stale_agents():
+    """把超过 AGENT_TIMEOUT_SECONDS 未心跳的 agent 标记为 OFFLINE。
+
+    只改 agent status，不动 Run（run 由 _on_timeout 回收）。DB 层过滤，不全表遍历。
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=AGENT_TIMEOUT_SECONDS)).replace(tzinfo=None)
+    with Session(engine) as db:
+        stale = db.exec(
+            select(Agent).where(
+                Agent.status != AgentStatus.OFFLINE,
+                Agent.last_heartbeat.is_not(None),
+                Agent.last_heartbeat < cutoff,
+            )
+        ).all()
+        for a in stale:
+            a.status = AgentStatus.OFFLINE
+            event = emit_event(db, type="agent_offline", entity="agent",
+                               entity_id=a.name, payload={"reason": "heartbeat_timeout"})
+            db.add(a)
+            db.commit()
+            broadcast_for_event(event)
+
+
+def _scheduler_tick():
+    _mark_stale_agents()          # ① agent 生命周期
+    _release_dependencies()       # ② 依赖放行
+    _assign_to_idle_agents()      # ③ 空闲分配
+
+
 def _get_due_tasks():
-    _release_dependencies()   # 先放行依赖
-    _assign_to_idle_agents()  # 再分配空闲 agent
+    _scheduler_tick()
     now = datetime.now(timezone.utc)
     with Session(engine) as db:
         tasks = db.exec(select(Task).where(Task.state == TaskState.QUEUED)).all()
