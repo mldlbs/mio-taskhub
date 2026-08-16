@@ -16,14 +16,21 @@
 
 ### A1. 纯函数 `web/src/cpm.js`
 
-新文件，导出 `computeCPM(tasks)`：
+新文件，导出 `computeCPM(tasks)`，**完全独立纯函数（不依赖 React/DOM/ViewModel，TopoView/FlowView/未来 Dashboard 可复用）**：
 
 ```javascript
 // tasks: [{id, est_duration_min, depends_on, state, stage}]
-// 返回 { total, es, ef, ls, lf, float, critical }
+// 返回 {
+//   total,            // 总工期（分钟）
+//   es, ef, ls, lf,   // {id: 分钟}
+//   float,            // {id: 分钟}  LS-ES
+//   criticalPath,     // [id] 单条最长路径（回溯得到）
+//   critical,         // {id: bool} 是否在 criticalPath 上
+//   parallel,         // 最大并行度 = max(拓扑层宽)
+// }
 ```
 
-**算法**（est_duration_min 为权重）：
+**算法**（est_duration_min 为权重，时长规则见上）：
 
 ```
 正向传递（earliest）:
@@ -36,19 +43,19 @@
   LS[node] = LF[node] - dur[node]
 
 浮动: float[node] = LS[node] - ES[node]
-关键路径: float == 0 且非终态
+
+关键路径（单条）: 从 EF==total 的终节点回溯，逐级取 EF 最大的前驱，直到无前驱。
+  critical[node] = node ∈ criticalPath
 ```
-
-**已完成/正在执行的任务**：`dur = 0`（done/cancelled/implementing/review 不再阻塞后续），但上游仍正常参与计算。这样关键路径反映"剩余工作"的最长链。
-
-- `state == "completed"` 或 `stage == "done"` / `stage == "cancelled"` → `dur = 0`
-- 悬挂依赖（id 不在 tasks）忽略。
 
 ### A2. TopoView 使用
 
-- 顶部显示「总工期 Xh · 关键路径 N 任务」（`total` 四舍五入到小时）。
+- 顶部信息栏（`topo__metrics`）：
+  - 「总工期 Xh · 关键路径 N 任务 · 并行度 M · 阻塞 K」
+  - 并行度 = `computeCPM().parallel`（max 拓扑层宽）
+  - 阻塞数 = `isBlocked(t)` 计数
 - 关键路径节点加 `is-critical` class（accent 边框 + 弱发光）。
-- 节点 stats 区显示 float：`float === 0 ? '关键' : '浮动 Xh'`（替换或补充现有 `↓out ↑in`）。
+- 节点 stats 区显示 float：`critical ? '关键' : \`浮动 ${fmtDur(float)}\``（替换现有 `↓out ↑in`）。
 - hover 高亮逻辑不变。
 
 ### A3. 测试
@@ -69,6 +76,14 @@
   - 当前展开列 → 其他列（本列任务是其他列的依赖）
   - 不画两个都非展开列之间的边。
 - **重绘**：复用 observer 模式（ResizeObserver + MutationObserver + rAF），在展开切换/窗口缩放/任务变更时重算 `getBoundingClientRect`。
+- **坐标系统一（关键）**：`getBoundingClientRect()` 返回视口坐标，SVG 用容器坐标。画布若可横向/纵向滚动（overflow:auto），直接相减会偏移。统一换算：
+
+```javascript
+const containerRect = flowContainer.getBoundingClientRect()
+const x = nodeRect.left - containerRect.left + flowContainer.scrollLeft
+const y = nodeRect.top  - containerRect.top  + flowContainer.scrollTop
+```
+
 - **hover**：hover 卡片 → 高亮其所有连线（列内 + 跨列，统一 `is-active` class）。
 
 ### B2. 样式
