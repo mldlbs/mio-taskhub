@@ -158,6 +158,7 @@ def _mark_stale_agents():
 
     只改 agent status，不动 Run（run 由 _on_timeout 回收）。DB 层过滤，不全表遍历。
     """
+    # SQLite 存储的 datetime 无 tzinfo（naive UTC），故 cutoff 也用 naive 比较
     cutoff = (datetime.now(timezone.utc) - timedelta(seconds=AGENT_TIMEOUT_SECONDS)).replace(tzinfo=None)
     with Session(engine) as db:
         stale = db.exec(
