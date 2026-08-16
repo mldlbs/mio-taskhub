@@ -1,6 +1,6 @@
 # mio-taskhub agent wrapper
 # Usage: python agent_wrapper.py <agent_name> <action> [args...]
-# Actions: register | claim | heartbeat | result
+# Actions: register | claim | heartbeat | result | heartbeat-agent | list
 
 import sys, json, time, os, urllib.request, urllib.error
 
@@ -54,6 +54,10 @@ def main():
         msg = sys.argv[5] if len(sys.argv) > 5 else ("done" if success else "failed")
         r = req("POST", f"/runs/{run_id}/result", {"success": success, "result": msg})
         print(f"Result submitted: state={r['state']} result={r['result']}")
+
+    elif action == "heartbeat-agent":
+        r = req("POST", "/agents/heartbeat", {"name": agent})
+        print(f"Heartbeat: status={r['status']} last_heartbeat={r['last_heartbeat']}")
 
     elif action == "list":
         r = req("GET", "/tasks")

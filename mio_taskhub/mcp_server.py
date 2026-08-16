@@ -36,7 +36,8 @@ mcp = FastMCP(
         "- 建任务用 taskhub_create_task，写清描述/验收标准；先给用户复述标题+描述，确认后再提交。\n"
         "- 推进阶段用 taskhub_advance_stage，需带产出物路径/审查结论，缺失时先向用户要。\n"
         "- 任务完成后用 taskhub_submit_result 提交，并向用户一句话汇报结果（成功/失败+原因）。\n"
-        "执行类流程：taskhub_register 注册 → taskhub_claim 领取 → taskhub_heartbeat 心跳 → taskhub_submit_result 提交结果。"
+        "执行类流程：taskhub_register 注册 → taskhub_claim 领取 → taskhub_heartbeat 心跳 → taskhub_submit_result 提交结果。\n"
+        "- 空闲时周期性调用 taskhub_agent_heartbeat 保持在线，否则超时会被标记离线；未注册时调用会自动注册。"
     ),
 )
 
@@ -116,6 +117,21 @@ async def taskhub_register(
         JSON: {"name": "opencode", "status": "online"} 或错误信息
     """
     data = await _request("POST", "/agents/register", body={"name": name, "agent_type": agent_type})
+    return _fmt(data)
+
+
+@mcp.tool(name="taskhub_agent_heartbeat", title="Agent 心跳保活", annotations={
+    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False,
+})
+async def taskhub_agent_heartbeat(
+    name: str = Field(description="当前 agent 名称，需与 register 一致", min_length=1, max_length=64),
+) -> str:
+    """保持 agent 在线（心跳保活）。
+
+    空闲时周期性调用（建议约 1 分钟一次），避免超过 180s 被标记离线。
+    未注册的 name 会自动注册（upsert）。
+    """
+    data = await _request("POST", "/agents/heartbeat", body={"name": name})
     return _fmt(data)
 
 

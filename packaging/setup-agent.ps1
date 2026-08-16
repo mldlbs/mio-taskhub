@@ -151,7 +151,7 @@ mio-taskhub 是本地跨 agent 任务中心（服务 http://127.0.0.1:48620）�
 - taskhub_advance_stage：→design 需 spec_path，→planning 需 plan_path，→done 需 review_result；产出物缺失先向用户要。
 
 ### 执行与汇报
-- taskhub_register → taskhub_claim → 执行中 taskhub_heartbeat → 完成后 taskhub_submit_result，并向用户一句话汇报结果。
+- 注册后空闲时周期性调用 taskhub_agent_heartbeat 保持在线；taskhub_register → taskhub_claim → 执行中 taskhub_heartbeat → 完成后 taskhub_submit_result，并向用户一句话汇报结果。
 
 ### 想法与讨论（需求发酵）
 - 用户说「记个想法 / 有需求 / 有个点子」时，用 taskhub_add_idea 记录，提示用户可在界面「想法」查看/推进。

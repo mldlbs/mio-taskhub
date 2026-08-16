@@ -287,3 +287,9 @@ def test_breakdown_idea_tool(mcp_ctx):
     b = next(t for t in r["tasks"] if t["ref"] == "b")
     a = next(t for t in r["tasks"] if t["ref"] == "a")
     assert b["depends_on"] == [a["id"]]
+
+
+def test_agent_heartbeat_tool(mcp_ctx):
+    r = _call("taskhub_agent_heartbeat", {"name": "hbmcp"})
+    assert r["status"] == "online"
+    assert "last_heartbeat" in r
