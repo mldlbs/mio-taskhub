@@ -115,7 +115,8 @@ def list_tasks(state: str = None, agent_type: str = None, stage: str = None,
     return [
         {"id": r.id, "title": r.title, "state": r.state.value, "stage": r.stage.value,
          "priority": r.priority, "target_agent_type": r.target_agent_type,
-         "depends_on": task_deps(r), "idea_id": r.idea_id}
+         "depends_on": task_deps(r), "idea_id": r.idea_id,
+         "est_duration_min": r.est_duration_min}
         for r in rows
     ]
 
