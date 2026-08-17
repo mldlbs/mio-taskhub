@@ -57,6 +57,14 @@ WEB_DIR = _web_dir()
 if os.path.isdir(WEB_DIR):
     app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
 
+
+@app.middleware("http")
+async def no_cache_html(request, call_next):
+    resp = await call_next(request)
+    if "text/html" in resp.headers.get("content-type", ""):
+        resp.headers["Cache-Control"] = "no-store, max-age=0"
+    return resp
+
 @app.on_event("startup")
 def start_scheduler():
     from mio_taskhub.wiring import start_background_jobs

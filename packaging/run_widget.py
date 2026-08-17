@@ -9,7 +9,11 @@ import threading
 import webview
 
 PORT = int(os.environ.get("MIO_TASKHUB_PORT", "48620"))
-URL = f"http://127.0.0.1:{PORT}/"
+
+
+def _hub_url() -> str:
+    """每次启动带时间戳，强制 WebView2 绕过 index.html 缓存。"""
+    return f"http://127.0.0.1:{PORT}/?_={int(__import__('time').time())}"
 
 
 def _res_icon() -> str:
@@ -68,6 +72,7 @@ def _start_tray(window, on_quit):
     def _show(_icon=None, _item=None):
         try:
             window.show()
+            window.reload()
         except Exception:
             pass
 
@@ -114,12 +119,11 @@ def main():
 
     window = webview.create_window(
         "MIO-TASKHUB · 任务中心",
-        URL,
+        _hub_url(),
         width=1080,
         height=720,
         min_size=(640, 480),
         resizable=True,
-        on_top=True,
         background_color="#0f1115",
     )
 
