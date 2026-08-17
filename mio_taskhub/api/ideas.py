@@ -1,7 +1,9 @@
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
-from mio_taskhub.models import Idea, IdeaStatus, Discussion, DiscussionMessage, Task, TaskStage
+from mio_taskhub.models import (Idea, IdeaChange, IdeaStatus, Task, TaskKind, TaskStage,
+                                Discussion, DiscussionMessage, TaskState)
 from mio_taskhub.utils import _now
 from mio_taskhub.status import normalize_depends, task_deps
 from mio_taskhub.planner import detect_cycle
@@ -14,6 +16,7 @@ def _idea_json(i: Idea) -> dict:
     return {
         "id": i.id, "title": i.title, "description": i.description,
         "status": i.status.value, "project": i.project, "labels": i.labels,
+        "version": i.version,
         "created_at": i.created_at.isoformat(), "updated_at": i.updated_at.isoformat(),
     }
 
@@ -74,6 +77,12 @@ def get_idea(idea_id: str, db: Session = Depends(get_session)):
     tasks = db.exec(select(Task).where(Task.idea_id == idea_id).order_by(Task.created_at)).all()
     out["tasks"] = [{"id": t.id, "title": t.title, "stage": t.stage.value,
                      "state": t.state.value} for t in tasks]
+    changes = db.exec(select(IdeaChange).where(IdeaChange.idea_id == idea_id)
+                      .order_by(IdeaChange.id.desc())).all()
+    out["changes"] = [{
+        "id": c.id, "version": c.version, "created_at": c.created_at.isoformat(),
+        "diff": c.diff, "reason": c.reason,
+    } for c in changes]
     return out
 
 
@@ -82,14 +91,84 @@ def update_idea(idea_id: str, body: dict, db: Session = Depends(get_session)):
     i = db.get(Idea, idea_id)
     if not i:
         raise HTTPException(404, "idea not found")
+    versioning = body.get("versioning", "full")
+    if versioning not in ("full", "history_only", "none"):
+        raise HTTPException(422, f"invalid versioning, expected one of full/history_only/none: {versioning}")
+    track_change = bool(body.get("track_change", True))
+
+    diff = {}
     for f in ("title", "description", "project", "labels"):
         if f in body and body[f] is not None:
-            setattr(i, f, body[f])
+            old = getattr(i, f)
+            if old != body[f]:
+                diff[f] = {"old": old, "new": body[f]}
+
+    track_events = []
+    if diff:
+        for f, d in diff.items():
+            setattr(i, f, d["new"])
+        if versioning == "full":
+            i.version += 1
+            db.add(IdeaChange(idea_id=idea_id, version=i.version, diff=diff,
+                              reason=body.get("change_reason", "")))
+        elif versioning == "history_only":
+            db.add(IdeaChange(idea_id=idea_id, version=i.version, diff=diff,
+                              reason=body.get("change_reason", "")))
+        if versioning == "full" and track_change:
+            ev = _upsert_change_tracking_task(i, db)
+            if ev:
+                track_events.append(ev)
     i.updated_at = _now()
-    event = emit_event(db, type="idea_updated", entity="idea", entity_id=i.id)
-    db.add(i); db.commit(); db.refresh(i)
+    event = emit_event(db, type="idea_updated", entity="idea", entity_id=i.id,
+                       payload={"version": i.version})
+    db.add(i)
+    db.commit()
+    db.refresh(i)
     broadcast_for_event(event)
+    for ev in track_events:
+        broadcast_for_event(ev)
     return _idea_json(i)
+
+
+def _upsert_change_tracking_task(i: Idea, db: Session):
+    """在存在关联 task 的前提下，生成/更新唯一一条活跃变更跟踪任务。返回 Event 或 None。"""
+    related = db.exec(select(Task).where(Task.idea_id == i.id)).first()
+    if related is None:
+        return None
+    existing = db.exec(select(Task).where(
+        Task.idea_id == i.id,
+        Task.task_kind == TaskKind.CHANGE_TRACKING,
+        Task.state.not_in([TaskState.COMPLETED, TaskState.CANCELLED]),
+    )).first()
+    title = f"[变更] {i.title} v{i.version}"
+    summary = "；".join(
+        f"{f}: {d['old']} → {d['new']}" for f, d in _last_diff(db, i.id).items()
+    )
+    description = f"需求已变更到 v{i.version}。请 review 已拆解任务与 spec 是否需同步。\n变更内容：{summary}"
+    if existing:
+        existing.title = title
+        existing.description = description
+        ev = emit_event(db, type="task_updated", entity="task", entity_id=existing.id,
+                        payload={"title": title})
+        return ev
+    t = Task(
+        id=str(uuid.uuid4())[:8],
+        title=title,
+        description=description,
+        stage=TaskStage.REVIEW,
+        idea_id=i.id,
+        task_kind=TaskKind.CHANGE_TRACKING,
+    )
+    db.add(t)
+    ev = emit_event(db, type="task_created", entity="task", entity_id=t.id,
+                    payload={"title": title})
+    return ev
+
+
+def _last_diff(db: Session, idea_id: str) -> dict:
+    row = db.exec(select(IdeaChange).where(IdeaChange.idea_id == idea_id)
+                  .order_by(IdeaChange.id.desc())).first()
+    return row.diff if row else {}
 
 
 @router.post("/{idea_id}/status")

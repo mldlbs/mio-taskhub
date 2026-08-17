@@ -119,3 +119,99 @@ def test_discussion_bindings():
         r = await c.post("/api/v1/discussions", json={"idea_id": iid, "topic": "y", "conclusions": "直接结论"})
         assert r.json()["status"] == "closed"
     _with_client(k)
+
+
+def test_idea_versioning_full():
+    async def k(c):
+        iid = (await c.post("/api/v1/ideas", json={"title": "t"})).json()["id"]
+        r = await c.patch(f"/api/v1/ideas/{iid}", json={"description": "补充"})
+        assert r.status_code == 200
+        assert r.json()["version"] == 2
+        d = await c.get(f"/api/v1/ideas/{iid}")
+        changes = d.json()["changes"]
+        assert len(changes) == 1
+        assert changes[0]["version"] == 2
+        assert changes[0]["diff"] == {"description": {"old": "", "new": "补充"}}
+    _with_client(k)
+
+
+def test_idea_versioning_history_only_and_none():
+    async def k(c):
+        iid = (await c.post("/api/v1/ideas", json={"title": "t", "description": "a"})).json()["id"]
+        r = await c.patch(f"/api/v1/ideas/{iid}", json={"description": "b", "versioning": "history_only"})
+        assert r.json()["version"] == 1          # 不递增
+        d = await c.get(f"/api/v1/ideas/{iid}")
+        assert len(d.json()["changes"]) == 1      # 但留痕
+        r = await c.patch(f"/api/v1/ideas/{iid}", json={"description": "c", "versioning": "none"})
+        assert r.json()["version"] == 1
+        d = await c.get(f"/api/v1/ideas/{iid}")
+        assert len(d.json()["changes"]) == 1      # 无新增
+    _with_client(k)
+
+
+def test_idea_versioning_no_change_no_version():
+    async def k(c):
+        iid = (await c.post("/api/v1/ideas", json={"title": "t", "description": "a"})).json()["id"]
+        r = await c.patch(f"/api/v1/ideas/{iid}", json={"description": "a"})
+        assert r.json()["version"] == 1           # 未变化不触发
+    _with_client(k)
+
+
+def test_idea_versioning_invalid():
+    async def k(c):
+        iid = (await c.post("/api/v1/ideas", json={"title": "t"})).json()["id"]
+        r = await c.patch(f"/api/v1/ideas/{iid}", json={"description": "x", "versioning": "bogus"})
+        assert r.status_code == 422
+    _with_client(k)
+
+
+def test_change_tracking_task_created_and_dedup():
+    async def k(c):
+        iid = (await c.post("/api/v1/ideas", json={"title": "需求A"})).json()["id"]
+        # 拆解产生关联 task（breakdown 自动设 idea_id 与 BROKEN_DOWN）
+        r = await c.post(f"/api/v1/ideas/{iid}/breakdown", json={
+            "tasks": [{"ref": "t1", "title": "实现A"}]
+        })
+        assert r.status_code == 200
+        # 第一次修改 → 生成变更任务
+        await c.patch(f"/api/v1/ideas/{iid}", json={"description": "v2描述"})
+        tasks = (await c.get("/api/v1/tasks")).json()
+        ct = [t for t in tasks if t["idea_id"] == iid and t["title"].startswith("[变更]")]
+        assert len(ct) == 1
+        assert ct[0]["title"] == "[变更] 需求A v2"
+        # 第二次修改 → 更新而非新建
+        await c.patch(f"/api/v1/ideas/{iid}", json={"description": "v3描述"})
+        tasks = (await c.get("/api/v1/tasks")).json()
+        ct = [t for t in tasks if t["idea_id"] == iid and t["title"].startswith("[变更]")]
+        assert len(ct) == 1
+        assert ct[0]["title"] == "[变更] 需求A v3"
+    _with_client(k)
+
+
+def test_change_tracking_respects_flags():
+    async def k(c):
+        iid = (await c.post("/api/v1/ideas", json={"title": "需求B"})).json()["id"]
+        await c.post(f"/api/v1/ideas/{iid}/breakdown", json={"tasks": [{"ref": "t1", "title": "实现B"}]})
+        # history_only → 不生成
+        await c.patch(f"/api/v1/ideas/{iid}", json={"description": "h", "versioning": "history_only"})
+        tasks = (await c.get("/api/v1/tasks")).json()
+        assert not any(t["idea_id"] == iid and t["title"].startswith("[变更]") for t in tasks)
+        # full + track_change=false → 不生成
+        await c.patch(f"/api/v1/ideas/{iid}", json={"description": "f", "track_change": False})
+        tasks = (await c.get("/api/v1/tasks")).json()
+        assert not any(t["idea_id"] == iid and t["title"].startswith("[变更]") for t in tasks)
+        # full → 生成
+        await c.patch(f"/api/v1/ideas/{iid}", json={"description": "g"})
+        tasks = (await c.get("/api/v1/tasks")).json()
+        assert any(t["idea_id"] == iid and t["title"].startswith("[变更]") for t in tasks)
+    _with_client(k)
+
+
+def test_change_tracking_requires_associated_task():
+    async def k(c):
+        iid = (await c.post("/api/v1/ideas", json={"title": "需求C"})).json()["id"]
+        # 未拆解（无关联 task）→ 不生成
+        await c.patch(f"/api/v1/ideas/{iid}", json={"description": "v2"})
+        tasks = (await c.get("/api/v1/tasks")).json()
+        assert not any(t["idea_id"] == iid and t["title"].startswith("[变更]") for t in tasks)
+    _with_client(k)
