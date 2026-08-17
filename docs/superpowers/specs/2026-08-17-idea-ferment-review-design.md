@@ -94,12 +94,24 @@ transition_idea_status()
 | `taskhub_submit_review(idea_id, recommend, reasoning)` | 提交评审。`recommend` ∈ {nothing, ferment, form, archive} = **agent 判断**；hub 内部按 `can_advance` 校验（一次最多推进一档），执行实际动作。写 IdeaHistory（reasoning = 评审依据/决策摘要） |
 | `taskhub_idea_history(idea_id)` | 查询想法完整轨迹（时间线） |
 
-**recommend 语义**：agent 给出期望目标状态，hub 只允许推进当前状态的下一档（或 archive）。例：状态 new 时 recommend=form → 422（只能先到 fermenting）；recommend=nothing → 不推进但记录评审。
+**recommend 语义**：agent 给出期望目标状态，hub 只允许推进当前状态的下一档（或 archive）。例：状态 new 时 recommend=form → 422（只能先到 fermenting）。
+
+**recommend=nothing 行为**（写死）：
+- 不调用 transition
+- 写 `kind=review` History（reasoning 即评审结论）
+- 更新 `last_reviewed_at`
+- `review_count += 1`
+
+从而严格区分「评审过但未推进」与「从未评审」。
+
+**archive/cancel 权限边界**：`recommend=archive` 仅代理 agent 归档；`cancel` 仅人工/管理操作，不放入 recommend 集合。
+
+**submit_review 原子性**：状态变更（如有）+ review History + `last_reviewed_at` + `review_count` 必须在**同一个 DB transaction** 内完成。任一失败整体回滚，杜绝「状态已推进但轨迹缺失」。
 
 后端 API（ideas.py）：
-- `POST /api/v1/ideas/{id}/review` — 提交评审：调 `transition_idea_status` + 写 `kind=review` History
-- `GET /api/v1/ideas/{id}/history` — 轨迹列表
-- `GET /api/v1/ideas/{id}` 响应增加 `history`、`last_reviewed_at`、`review_count`
+- `POST /api/v1/ideas/{id}/review` — 提交评审：单事务内调 `transition_idea_status`（如需）+ 写 `kind=review` History + 更新评审元数据
+- `GET /api/v1/ideas/{id}/history` — 独立轨迹接口，**分页**（page/page_size），避免随 Idea 长期运行无限膨胀
+- `GET /api/v1/ideas/{id}` 仅返回基础信息 + `last_reviewed_at` + `review_count`，**不内嵌完整 history**；前端详情页单独请求 history
 
 ### 5. 前端时间线（IdeasView.jsx + index.css）
 
@@ -116,10 +128,13 @@ transition_idea_status()
 
 ## 测试
 
-- 评审推进：agent 提交 review 后状态正确推进 + IdeaHistory 记录（含 reasoning）
+- 评审推进：agent 提交 review 后状态正确推进 + review History + 评审元数据全部落库
+- 评审原子性：模拟 History 写入失败 → 状态不变、元数据不变（整体回滚）
 - 非法评审：recommend 目标不可达（如 new 直接 recommend=form）→ 422，状态不变
+- recommend=nothing：不推进状态，但写 review History 且 last_reviewed_at/review_count 更新
 - 全入口轨迹：手动推进 / breakdown / archive / cancel 均写 `kind=status` History
-- 轨迹查询：`GET /ideas/{id}/history` 按时间排序
+- 轨迹分页：`GET /ideas/{id}/history?page=2&page_size=10` 正常工作
+- `GET /ideas/{id}` 不返回完整 history
 - 讨论关闭写轨迹
 - 评审去重：同一 idea 已有在途 idea_review 任务时不重复派单
 - 可配置：INTERVAL / INITIAL_DELAY 环境变量生效
