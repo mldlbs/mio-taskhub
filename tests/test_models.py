@@ -81,3 +81,18 @@ def test_stage_transition_table():
     assert not TaskStage.can_advance(TaskStage.DONE, TaskStage.READY)
     assert TaskStage.can_advance(TaskStage.BRAINSTORMING, TaskStage.CANCELLED)
     assert TaskStage.can_advance(TaskStage.REVIEW, TaskStage.CANCELLED)
+
+def test_idea_version_and_ideachange_models():
+    from mio_taskhub.models import Idea, IdeaChange
+    i = Idea(title="t")
+    assert i.version == 1
+    c = IdeaChange(idea_id="x", version=1, diff={"title": {"old": "A", "new": "B"}}, reason="r")
+    assert c.id is None  # 自增主键，insert 后赋值
+    assert c.diff == {"title": {"old": "A", "new": "B"}}
+
+
+def test_task_kind_default_normal():
+    from mio_taskhub.models import Task, TaskKind
+    t = Task(title="t")
+    assert t.task_kind == TaskKind.NORMAL
+    assert TaskKind.CHANGE_TRACKING.value == "change_tracking"

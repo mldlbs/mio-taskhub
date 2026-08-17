@@ -60,6 +60,10 @@ class TaskStage(str, enum.Enum):
         }
         return dst in valid.get(src, set())
 
+class TaskKind(str, enum.Enum):
+    NORMAL = "normal"
+    CHANGE_TRACKING = "change_tracking"
+
 class SubtaskStatus(str, enum.Enum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
@@ -98,6 +102,7 @@ class Task(SQLModel, table=True):
     state: TaskState = TaskState.QUEUED
     timeout_min: Optional[int] = None
     max_retries: int = 3
+    task_kind: TaskKind = TaskKind.NORMAL
     attempt: int = 0
     acceptance_criteria: str = ""
     due_at: Optional[datetime] = None
@@ -216,7 +221,18 @@ class Idea(SQLModel, table=True):
     title: str
     description: str = ""
     status: IdeaStatus = IdeaStatus.NEW
+    version: int = 1
     project: str = ""
     labels: list = Field(default_factory=list, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
+
+class IdeaChange(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)  # 自增，供 before_id 游标分页（同 Event.id 模式）
+    idea_id: str = Field(index=True)
+    version: int                          # 该条变更发生时 idea 的版本号
+    created_at: datetime = Field(default_factory=_now)
+    diff: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    reason: str = ""
+
+    # diff 结构：{field: {"old": ..., "new": ...}}
