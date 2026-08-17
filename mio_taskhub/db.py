@@ -32,6 +32,8 @@ def _migrate_stage_column(target_engine=None):
                 conn.execute(text("ALTER TABLE task ADD COLUMN review_result VARCHAR NOT NULL DEFAULT ''"))
             if "idea_id" not in cols:
                 conn.execute(text("ALTER TABLE task ADD COLUMN idea_id VARCHAR NOT NULL DEFAULT ''"))
+            if "task_kind" not in cols:
+                conn.execute(text("ALTER TABLE task ADD COLUMN task_kind VARCHAR NOT NULL DEFAULT 'NORMAL'"))
             if "depends_on" in cols:
                 # depends_on 归一化（旧 VARCHAR 单值 → JSON 数组文本）
                 from mio_taskhub.status import normalize_depends
@@ -54,6 +56,11 @@ def _migrate_stage_column(target_engine=None):
             conn.execute(text("UPDATE task SET stage = 'REVIEW' WHERE stage = 'review'"))
             conn.execute(text("UPDATE task SET stage = 'DONE' WHERE stage = 'done'"))
             conn.execute(text("UPDATE task SET stage = 'CANCELLED' WHERE stage = 'cancelled'"))
+        # Idea table: add version column if missing (existing installs).
+        if "idea" in tables:
+            icols = {c["name"] for c in inspect(conn).get_columns("idea")}
+            if "version" not in icols:
+                conn.execute(text("ALTER TABLE idea ADD COLUMN version INTEGER NOT NULL DEFAULT 1"))
         # Discussion table: add stage/idea_id column if missing (existing installs).
         if "discussion" in tables:
             dcols = {c["name"] for c in inspect(conn).get_columns("discussion")}

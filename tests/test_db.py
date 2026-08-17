@@ -173,3 +173,40 @@ def test_migrate_event_entity_columns():
             os.remove(path)
         except OSError:
             pass
+
+def test_migrate_idea_version_and_task_kind_columns():
+    import os
+    import tempfile
+    from sqlalchemy import create_engine, inspect, text
+    from mio_taskhub.db import _migrate_stage_column
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        eng = create_engine(f"sqlite:///{path}")
+        with eng.connect() as conn:
+            conn.execute(text("CREATE TABLE idea (id VARCHAR PRIMARY KEY, title VARCHAR)"))
+            conn.execute(text("INSERT INTO idea (id, title) VALUES ('i1', 't')"))
+            conn.execute(text(
+                "CREATE TABLE task (id VARCHAR PRIMARY KEY, title VARCHAR, state VARCHAR)"
+            ))
+            conn.execute(text("INSERT INTO task (id, title, state) VALUES ('t1', 'x', 'queued')"))
+            conn.commit()
+        _migrate_stage_column(eng)
+        with eng.connect() as conn:
+            icols = {c["name"] for c in inspect(conn).get_columns("idea")}
+            assert "version" in icols
+            v = conn.execute(text("SELECT version FROM idea WHERE id='i1'")).fetchone()[0]
+            assert v == 1
+            tcols = {c["name"] for c in inspect(conn).get_columns("task")}
+            assert "task_kind" in tcols
+            k = conn.execute(text("SELECT task_kind FROM task WHERE id='t1'")).fetchone()[0]
+            assert k == "NORMAL"  # SQLModel str-enum 按 .name 存储（大写）
+        _migrate_stage_column(eng)  # 幂等
+        with eng.connect() as conn:
+            icols = {c["name"] for c in inspect(conn).get_columns("idea")}
+            assert "version" in icols
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
