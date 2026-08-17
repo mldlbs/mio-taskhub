@@ -96,3 +96,54 @@ def test_task_kind_default_normal():
     t = Task(title="t")
     assert t.task_kind == TaskKind.NORMAL
     assert TaskKind.CHANGE_TRACKING.value == "change_tracking"
+
+
+def test_ideachange_db_roundtrip():
+    from mio_taskhub.models import IdeaChange
+    from mio_taskhub.db import get_session
+    from sqlalchemy import inspect
+    from mio_taskhub.db import engine
+    s = next(get_session())
+    try:
+        c1 = IdeaChange(idea_id="i-roundtrip-1", version=1,
+                        diff={"title": {"old": "A", "new": "B"}}, reason="r1")
+        s.add(c1)
+        s.commit()
+        s.refresh(c1)
+        assert c1.id is not None
+
+        c2 = IdeaChange(idea_id="i-roundtrip-1", version=2,
+                        diff={"description": {"old": "x", "new": "y"}}, reason="r2")
+        s.add(c2)
+        s.commit()
+        s.refresh(c2)
+        assert c2.id > c1.id  # 自增主键严格递增，供 before_id 游标分页
+
+        # 嵌套 JSON diff 往返
+        assert c1.diff == {"title": {"old": "A", "new": "B"}}
+        assert c2.diff == {"description": {"old": "x", "new": "y"}}
+
+        # idea_id 索引存在
+        idxs = inspect(engine).get_indexes("ideachange")
+        assert any("idea_id" in idx["column_names"] for idx in idxs)
+    finally:
+        s.close()
+
+
+def test_task_kind_db_roundtrip():
+    from mio_taskhub.models import Task, TaskKind
+    from mio_taskhub.db import get_session
+    from sqlalchemy import text
+    s = next(get_session())
+    try:
+        t = Task(title="roundtrip-ct", task_kind=TaskKind.CHANGE_TRACKING)
+        s.add(t)
+        s.commit()
+        s.refresh(t)
+        assert t.task_kind == TaskKind.CHANGE_TRACKING
+        # 数据库中以 .name（大写）存储
+        raw = s.execute(text("SELECT task_kind FROM task WHERE id=:tid"),
+                        {"tid": t.id}).scalar_one()
+        assert raw == "CHANGE_TRACKING"
+    finally:
+        s.close()
