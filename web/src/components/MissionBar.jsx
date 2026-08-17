@@ -10,7 +10,8 @@ function useClock() {
   return now
 }
 
-export default function MissionBar({ tasks, ws, lastSync, refreshing, onRefresh, onOpenModal, onFocusLane }) {
+export default function MissionBar({ tasks, ws, lastSync, refreshing, onRefresh, onOpenModal, onFocusLane,
+                                     filter, onFilterChange, projectOptions, workspaceOptions }) {
   const now = useClock()
   const counts = Object.fromEntries(LANES.map(l => [l.id, 0]))
   tasks.forEach(t => { if (counts[t.state] != null) counts[t.state] += 1 })
@@ -39,6 +40,27 @@ export default function MissionBar({ tasks, ws, lastSync, refreshing, onRefresh,
             <span key={counts[l.id]} className="meter__value">{counts[l.id]}</span>
           </button>
         ))}
+      </div>
+
+      <div className="mission__filters" aria-label="按项目/工作区筛选">
+        <select
+          className="fsel"
+          value={filter?.project || ''}
+          onChange={e => onFilterChange({ ...filter, project: e.target.value })}
+          aria-label="按项目筛选"
+        >
+          <option value="">项目：全部</option>
+          {projectOptions.map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <select
+          className="fsel"
+          value={filter?.workspace || ''}
+          onChange={e => onFilterChange({ ...filter, workspace: e.target.value })}
+          aria-label="按工作区筛选"
+        >
+          <option value="">工作区：全部</option>
+          {workspaceOptions.map(w => <option key={w} value={w}>{w}</option>)}
+        </select>
       </div>
 
       <div className="mission__right">

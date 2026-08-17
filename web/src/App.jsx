@@ -37,6 +37,7 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false)
   const [lastSync, setLastSync] = useState(null)
   const [focus, setFocus] = useState(null) // { id, t }
+  const [filter, setFilter] = useState({ project: '', workspace: '' })
 
   const setView = useCallback((v) => {
     setViewState(v)
@@ -184,19 +185,38 @@ export default function App() {
     setFocus({ id, t: Date.now() })
   }, [setView])
 
+  const projectOptions = [...new Set([
+    ...tasks.map(t => t.project).filter(Boolean),
+    ...ideas.map(i => i.project).filter(Boolean),
+  ])].sort()
+  const workspaceOptions = [...new Set(tasks.map(t => t.workspace).filter(Boolean))].sort()
+
+  const filteredTasks = filter.project
+    ? tasks.filter(t => t.project === filter.project)
+    : filter.workspace
+      ? tasks.filter(t => t.workspace === filter.workspace)
+      : tasks
+  const filteredIdeas = filter.project
+    ? ideas.filter(i => i.project === filter.project)
+    : ideas
+
   return (
     <div className="shell">
       <Rail view={view} onChange={setView} wsLive={ws} contrast={contrast} onToggleContrast={toggleContrast} />
 
       <div className="main">
         <MissionBar
-          tasks={tasks}
+          tasks={filteredTasks}
           ws={ws}
           lastSync={lastSync}
           refreshing={refreshing}
           onRefresh={refresh}
           onOpenModal={() => setModal(true)}
           onFocusLane={focusLane}
+          filter={filter}
+          onFilterChange={setFilter}
+          projectOptions={projectOptions}
+          workspaceOptions={workspaceOptions}
         />
 
         {error && (
@@ -210,23 +230,23 @@ export default function App() {
         <main className="viewport">
           <div className="view-fade" key={view}>
             {view === 'board' && (
-              <BoardView tasks={tasks} onMove={moveTask} onCancel={cancelTask} onOpen={openTask} loading={loading} focus={focus} />
+              <BoardView tasks={filteredTasks} onMove={moveTask} onCancel={cancelTask} onOpen={openTask} loading={loading} focus={focus} />
             )}
             {view === 'list' && (
-              <ListView tasks={tasks} onCancel={cancelTask} onOpen={openTask} />
+              <ListView tasks={filteredTasks} onCancel={cancelTask} onOpen={openTask} />
             )}
             {view === 'plan' && (
-              <PlanView tasks={tasks} />
+              <PlanView tasks={filteredTasks} />
             )}
             {view === 'flow' && (
-              <FlowView tasks={tasks} onOpen={openTask} onCancel={cancelTask}
+              <FlowView tasks={filteredTasks} onOpen={openTask} onCancel={cancelTask}
                         onAdvance={advanceStage} onMoveToStage={moveToStage} />
             )}
             {view === 'topo' && (
-              <TopoView tasks={tasks} onOpen={openTask} />
+              <TopoView tasks={filteredTasks} onOpen={openTask} />
             )}
             {view === 'ideas' && (
-              <IdeasView ideas={ideas} onReload={loadIdeas} />
+              <IdeasView ideas={filteredIdeas} onReload={loadIdeas} />
             )}
           </div>
         </main>

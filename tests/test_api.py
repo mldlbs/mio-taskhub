@@ -35,6 +35,14 @@ def test_list_tasks():
     assert r.status_code == 200
     assert isinstance(r.json(), list)
 
+def test_list_tasks_includes_project_fields():
+    client.post("/api/v1/tasks", json={"title": "Proj", "project": "proj-x", "workspace": "/w/x"})
+    d = client.get("/api/v1/tasks").json()
+    hit = next((t for t in d if t["title"] == "Proj"), None)
+    assert hit is not None
+    assert hit["project"] == "proj-x"
+    assert hit["workspace"] == "/w/x"
+
 def test_claim_task_creates_run():
     client.post("/api/v1/tasks", json={"title": "Claim me", "stage": "ready"})
     client.post("/api/v1/agents/register", json={"name": "agent1", "agent_type": "test"})
