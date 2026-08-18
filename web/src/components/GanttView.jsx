@@ -165,7 +165,7 @@ export default function GanttView({ tasks, onOpen }) {
                   const hl = hoveredId && (hoveredId === t.id || conn.has(t.id))
                   return (
                     <div key={t.id} className="gantt__cell" style={{ left: es * scale, width: dur * scale }}>
-                      <div className="gantt__float" style={{ left: (ef - es) * scale, width: Math.max(ls - ef, 0) }} />
+                      <div className="gantt__float" style={{ left: (ef - es) * scale, width: Math.max(ls - ef, 0) * scale }} />
                       <button className={`gantt__bar${isCrit ? ' is-critical' : ''}${hl ? ' is-hovered' : ''}`}
                         data-gantt-bar={t.id}
                         style={{ width: Math.max(dur * scale, 3) }}
