@@ -34,6 +34,10 @@ LR_LOADFROMFILE = 0x0010
 ICON_SMALL = 0
 ICON_BIG = 1
 
+ERROR_ALREADY_EXISTS = 183
+_SINGLE_INSTANCE_LOCK = "mio-taskhub-widget-instance"
+WINDOW_TITLE = "MIO-TASKHUB · 任务中心"
+
 
 def _apply_icon():
     """给窗口标题栏设置自定义图标（Windows）。"""
@@ -54,6 +58,25 @@ def _hub_alive() -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(1)
         return s.connect_ex(("127.0.0.1", PORT)) == 0
+
+
+def _single_instance():
+    """命名互斥锁：确保只有一个小面板窗口。
+
+    已存在实例时激活已有窗口（显示并置前）并返回 None，调用方应退出。
+    """
+    try:
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.CreateMutexW(None, False, _SINGLE_INSTANCE_LOCK)
+        if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
+            hwnd = ctypes.windll.user32.FindWindowW(None, WINDOW_TITLE)
+            if hwnd:
+                ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+            return None
+        return handle
+    except Exception:
+        return None
 
 
 def _start_tray(window, on_quit):
@@ -105,6 +128,9 @@ def _start_tray(window, on_quit):
 
 
 def main():
+    if _single_instance() is None:
+        return  # 已有面板在运行，已激活它
+
     if not _hub_alive():
         try:
             ctypes.windll.user32.MessageBoxW(
@@ -118,7 +144,7 @@ def main():
         return
 
     window = webview.create_window(
-        "MIO-TASKHUB · 任务中心",
+        WINDOW_TITLE,
         _hub_url(),
         width=1080,
         height=720,
