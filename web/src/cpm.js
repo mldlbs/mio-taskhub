@@ -2,7 +2,7 @@
 // 独立纯函数：关键路径法（CPM）。不依赖 React/DOM，TopoView/FlowView/Dashboard 可复用。
 export const DEFAULT_DURATION = 60
 
-// 关键路径 float 容忍误差（分钟）
+// 关键路径 float 容差；criticalPath（精确 float==0）与 critical（容差内）在 float∈(0,0.5] 时可能不一致
 export const EPSILON = 0.5
 
 // 任务时长（分钟）：已完成=0，进行中按剩余时间退化，其余用 est_duration
@@ -42,6 +42,9 @@ export function computeCPM(tasks, opts = {}) {
       if (indegree[c] === 0 && !seen.has(c)) { seen.add(c); queue.push(c) }
     })
   }
+  // 环检测：order 未覆盖的节点属于环（含自环）。CPM 假定 DAG，
+  // 环节点 es/ef/float 是垃圾值，后面从关键路径计算中防御性忽略。
+  const inOrder = new Set(order)
 
   // 正向：ES / EF
   const es = {}, ef = {}
@@ -66,12 +69,15 @@ export function computeCPM(tasks, opts = {}) {
   const float = {}
   tasks.forEach(t => { float[t.id] = ls[t.id] - es[t.id] })
 
-  // 单条关键路径：从 EF==total 的终节点回溯，逐级取 EF 最大的前驱
-  const terminals = tasks.filter(t => ef[t.id] === total)
-  const start = terminals.length ? terminals[0].id : (tasks[0] ? tasks[0].id : null)
+  // 单条关键路径：从 EF==total 的终节点回溯，逐级取 EF 最大的前驱。
+  // 仅从拓扑序内终节点回溯（环节点已在 order 中排除，防死循环）
+  const terminals = tasks.filter(t => inOrder.has(t.id) && ef[t.id] === total)
+  const start = terminals.length ? terminals[0].id : null
   const criticalPath = []
   let cur = start
-  while (cur) {
+  const seenPath = new Set()
+  while (cur && !seenPath.has(cur)) {
+    seenPath.add(cur)  // 环防护
     criticalPath.push(cur)
     const preds = deps[cur]
     if (!preds.length) break
@@ -79,7 +85,6 @@ export function computeCPM(tasks, opts = {}) {
   }
   criticalPath.reverse()
   const critical = {}
-  tasks.forEach(t => { critical[t.id] = criticalPath.includes(t.id) })
 
   // 并行度：max 拓扑层宽
   const layer = {}
@@ -96,15 +101,22 @@ export function computeCPM(tasks, opts = {}) {
   // 多关键路径：float≈0 节点子图的 DFS，收集全部 root→terminal 路径
   const crit = {}
   tasks.forEach(t => { crit[t.id] = float[t.id] <= EPSILON })
+  // 环节点不在拓扑序中，float 为垃圾值；从关键路径计算中排除
+  // （CPM 假定 DAG，环输入被防御性忽略）
+  if (order.length < tasks.length) {
+    tasks.forEach(t => { if (!inOrder.has(t.id)) crit[t.id] = false })
+  }
   const isRoot = id => deps[id].length === 0
   const isTerminal = id => (succ[id] || []).length === 0
   const allCriticalPaths = []
-  const dfs = (id, path) => {
+  const dfs = (id, path, onPath) => {
+    if (onPath.has(id)) return  // 环防护
     const cur = path.concat(id)
     if (isTerminal(id)) { allCriticalPaths.push(cur); return }
-    ;(succ[id] || []).forEach(c => { if (crit[c]) dfs(c, cur) })
+    const nextOn = new Set(onPath).add(id)
+    ;(succ[id] || []).forEach(c => { if (crit[c]) dfs(c, cur, nextOn) })
   }
-  tasks.forEach(t => { if (crit[t.id] && isRoot(t.id)) dfs(t.id, []) })
+  tasks.forEach(t => { if (crit[t.id] && isRoot(t.id)) dfs(t.id, [], new Set()) })
 
   // critical 标志 = 在任一关键路径上
   const onAny = new Set()
@@ -131,9 +143,10 @@ export function computeCPM(tasks, opts = {}) {
   })
 
   // 资源冲突：超阈值区间（默认阈值 = target_agent_type 去重数，无则不标注）
+  // 全局并行度告警启发式：并行任务总数超过可用 agent 数，而非同一 agent 争用检测（spec A3 已确认）
   const agentSet = new Set(tasks.map(t => t.target_agent_type).filter(Boolean))
   const maxParallel = opts.maxParallel !== undefined ? opts.maxParallel : (agentSet.size || null)
-  const conflicts = maxParallel ? parallelProfile.filter(s => s.count > maxParallel) : []
+  const conflicts = maxParallel != null ? parallelProfile.filter(s => s.count > maxParallel) : []
   const resourceConflicts = conflicts.reduce((acc, s) => {
     const last = acc[acc.length - 1]
     if (last && last.end === s.start && last.count === s.count) last.end = s.end
