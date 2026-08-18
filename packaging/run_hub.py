@@ -31,6 +31,14 @@ def _msgbox(title, text):
         pass
 
 
+def _log(msg):
+    try:
+        with open(LOG, "a", encoding="utf-8") as f:
+            f.write(f"[tray] {msg}\n")
+    except Exception:
+        pass
+
+
 def _res_icon() -> str:
     """解析 icon 路径：打包后取 _MEIPASS 内的资源，源码模式取 web/public。"""
     if getattr(sys, "frozen", False):
@@ -47,14 +55,17 @@ ICO = _res_icon()
 def _start_tray(url: str, server_ref: dict):
     """系统托盘驻留：打开浮动面板 / 退出服务。
 
-    - 菜单「打开面板」→ 启动 widget 浮动窗口（run_widget.main，单独线程）
+    - 菜单「打开面板」→ 启动 widget 浮动窗口（独立进程）
     - 菜单「退出」→ 停托盘 + 请求 uvicorn 优雅退出
-    降级：pystray/PIL 不可用或面板启动失败时回退为打开浏览器。
+    失败时写日志到 console.log 并返回 None（保持仅服务运行）。
     """
     try:
         import pystray
         from PIL import Image
-    except Exception:
+        has = f"pystray={getattr(pystray, '__version__', '?')} PIL={getattr(Image, '__version__', '?')}"
+        _log(f"tray deps: {has}")
+    except Exception as e:
+        _log(f"tray deps import failed: {e!r}")
         return None
 
     def _open_panel(_icon=None, _item=None):
@@ -93,8 +104,10 @@ def _start_tray(url: str, server_ref: dict):
         )
         t = threading.Thread(target=icon.run, daemon=True)
         t.start()
+        _log("tray started")
         return icon
-    except Exception:
+    except Exception as e:
+        _log(f"tray start failed: {e!r}")
         return None
 
 
@@ -104,18 +117,46 @@ def _port_in_use(host, port):
         return s.connect_ex((host, port)) == 0
 
 
+_HUB_LOCK = "mio-taskhub-hub-instance"
+_ERROR_ALREADY_EXISTS = 183
+
+
+def _single_hub_instance():
+    """命名互斥锁：确保只有一个 hub 实例（避免重复启动出现多托盘）。"""
+    try:
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.CreateMutexW(None, False, _HUB_LOCK)
+        if handle and kernel32.GetLastError() == _ERROR_ALREADY_EXISTS:
+            return None
+        return handle
+    except Exception:
+        return "unknown"
+
+
+def _release_hub_lock(lock):
+    try:
+        if lock and lock != "unknown":
+            ctypes.windll.kernel32.CloseHandle(lock)
+    except Exception:
+        pass
+
+
 def main():
     port = int(os.environ.get("MIO_TASKHUB_PORT", "48620"))
     url = f"http://127.0.0.1:{port}"
+
+    lock = _single_hub_instance()
+    if lock is None:
+        # 已有 hub 在运行，静默退出（避免出现第二个托盘图标）
+        return
+
     if _port_in_use("127.0.0.1", port):
         _msgbox(
             "mio-taskhub",
             f"端口 {port} 已被占用，可能任务中心已经在运行。\n\n"
-            f"本窗口可关闭，浏览器将打开 http://127.0.0.1:{port}",
+            f"请从系统托盘打开面板，或访问 {url}",
         )
-        webbrowser.open(url)
         return
-    threading.Timer(1.2, lambda: webbrowser.open(url)).start()
     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="info")
     server = uvicorn.Server(config)
     tray = _start_tray(url, {"server": server})
@@ -127,6 +168,7 @@ def main():
                 tray.stop()
             except Exception:
                 pass
+        _release_hub_lock(lock)
 
 
 if __name__ == "__main__":
