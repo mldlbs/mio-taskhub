@@ -1996,6 +1996,11 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
   display: inline-block; padding: 1px 8px; border-radius: 999px;
   font-size: 11px; color: var(--ink-dim); border: 1px solid var(--line-strong);
 }
+.tag--version {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em;
+  color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, var(--line-strong));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
 .ideas { height: 100%; display: flex; flex-direction: column; gap: 12px; }
 .ideas__top { display: flex; align-items: center; justify-content: space-between; }
 .ideas__title { font-size: 16px; font-weight: 700; margin: 0; }
@@ -2091,6 +2096,24 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
 .break-row__ref { flex: none; width: 52px; text-align: center; color: var(--ink-faint); font-family: var(--font-mono); font-size: 12px; }
 .break-row__deps { flex: none; width: 140px; }
 .break-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* --- idea version history & edit (IdeasView) --- */
+.idea-detail__history { display: flex; flex-direction: column; gap: 6px; }
+.idea-detail__history .btn { align-self: flex-start; }
+.idea-detail__changes { display: flex; flex-direction: column; gap: 4px; }
+.change-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg-soft); font-size: 12px;
+}
+.change-row__at { color: var(--ink-faint); font-family: var(--font-mono); font-size: 11px; }
+.change-row__reason { color: var(--ink-dim); overflow-wrap: anywhere; }
+.change-row__fields { margin-left: auto; color: var(--ink-faint); font-size: 11px; }
+.idea-detail__edit {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--bg-soft);
+}
 
 /* --- FlowView drag & drop --- */
 .flow-card[draggable] { cursor: grab; }

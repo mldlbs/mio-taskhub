@@ -23,6 +23,9 @@ export default function IdeasView({ ideas, onReload }) {
   const [breaking, setBreaking] = useState(false)
   const [breakRows, setBreakRows] = useState([{ ref: 't1', title: '', deps: '' }])
   const [submitting, setSubmitting] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editForm, setEditForm] = useState({ title: '', description: '', reason: '' })
 
   const fail = useCallback((e) => setErr(e.message || '操作失败'), [])
 
@@ -30,6 +33,8 @@ export default function IdeasView({ ideas, onReload }) {
     setBreaking(false)
     setBreakRows([{ ref: 't1', title: '', deps: '' }])
     setSubmitting(false)
+    setShowHistory(false)
+    setEditing(false)
     try { setDetail(await api.getIdea(id)); setErr(null) } catch (e) { fail(e) }
   }, [fail])
 
@@ -104,6 +109,19 @@ export default function IdeasView({ ideas, onReload }) {
     finally { setSubmitting(false) }
   }
 
+  const submitEdit = async () => {
+    try {
+      await api.updateIdea(detail.id, {
+        title: editForm.title.trim(),
+        description: editForm.description,
+        change_reason: editForm.reason.trim(),
+      })
+      setEditing(false)
+      await reloadDetail()
+      onReload()
+    } catch (e) { fail(e) }
+  }
+
   useEffect(() => {
     if (!detail) return
     const t = setInterval(reloadDetail, 5000)
@@ -145,6 +163,7 @@ export default function IdeasView({ ideas, onReload }) {
               <button key={i.id} className={`idea-card${detail?.id === i.id ? ' is-active' : ''}`} onClick={() => openDetail(i.id)}>
                 <div className="idea-card__head">
                   <span className="idea-card__title">{i.title}</span>
+                  {i.version > 1 && <span className="tag tag--version">v{i.version}</span>}
                   <span className={`badge badge--${m.tone}`}>{m.label}</span>
                 </div>
                 {i.project && <div className="idea-card__project">{i.project}</div>}
@@ -163,12 +182,31 @@ export default function IdeasView({ ideas, onReload }) {
             <>
               <div className="idea-detail__head">
                 <h3>{detail.title}</h3>
+                <span className="tag tag--version">v{detail.version}</span>
                 <span className={`badge badge--${(IDEA_META[detail.status] || IDEA_META.new).tone}`}>
                   {(IDEA_META[detail.status] || IDEA_META.new).label}
                 </span>
               </div>
               {detail.project && <div className="idea-card__project">项目：{detail.project}</div>}
               <p className="idea-detail__desc">{detail.description || '（暂无描述）'}</p>
+
+              <div className="idea-detail__history">
+                <button className="btn btn--ghost" onClick={() => setShowHistory(s => !s)}>
+                  变更历史（{detail.changes?.length || 0}）{showHistory ? '▾' : '▸'}
+                </button>
+                {showHistory && (
+                  <div className="idea-detail__changes">
+                    {(detail.changes || []).map(ch => (
+                      <div key={ch.id} className="change-row">
+                        <span className="tag tag--version">v{ch.version}</span>
+                        <span className="change-row__at">{new Date(ch.created_at).toLocaleString()}</span>
+                        {ch.reason && <span className="change-row__reason">{ch.reason}</span>}
+                        <span className="change-row__fields">{Object.keys(ch.diff || {}).join(', ')}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <div className="idea-detail__actions">
                 {next && nextMeta && (
@@ -182,6 +220,10 @@ export default function IdeasView({ ideas, onReload }) {
                 {(detail.status === 'new' || detail.status === 'fermenting' || detail.status === 'formed') && (
                   <button className="btn btn--ghost" onClick={() => advance('archived')}>归档</button>
                 )}
+                <button className="btn btn--ghost" onClick={() => {
+                  setEditForm({ title: detail.title, description: detail.description, reason: '' })
+                  setEditing(true)
+                }}>编辑</button>
               </div>
 
               <div className="idea-detail__disc">
@@ -247,6 +289,23 @@ export default function IdeasView({ ideas, onReload }) {
                             disabled={submitting || !breakRows.some(r => r.title.trim())}>
                       {submitting ? '拆解中…' : '提交拆解'}
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {editing && (
+                <div className="idea-detail__edit">
+                  <div className="idea-detail__disc-head"><span>编辑需求</span></div>
+                  <input className="inp" placeholder="标题" value={editForm.title}
+                         onChange={e => setEditForm({ ...editForm, title: e.target.value })} />
+                  <textarea className="inp" rows={3} placeholder="描述" value={editForm.description}
+                            onChange={e => setEditForm({ ...editForm, description: e.target.value })} />
+                  <input className="inp" placeholder="变更原因（建议填写）" value={editForm.reason}
+                         onChange={e => setEditForm({ ...editForm, reason: e.target.value })} />
+                  <div className="break-actions">
+                    <button className="btn btn--ghost" onClick={() => setEditing(false)}>取消</button>
+                    <button className="btn btn--primary" onClick={submitEdit}
+                            disabled={!editForm.title.trim()}>保存</button>
                   </div>
                 </div>
               )}
