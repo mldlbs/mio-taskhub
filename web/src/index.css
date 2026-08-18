@@ -2144,3 +2144,34 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
 .topo__metrics span { background: var(--bg-soft, #181b20); border: 1px solid var(--border, #2a2e35); border-radius: 6px; padding: 4px 10px; }
 .topo-node.is-critical { border-color: var(--accent, #3ddc97); box-shadow: 0 0 0 1px var(--accent, #3ddc97), 0 0 12px rgba(61,220,151,0.25); }
 
+
+/* --- gantt view --- */
+.gantt { padding: 24px; overflow: auto; }
+.gantt__head { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
+.gantt__title { font-size: 18px; font-weight: 700; margin: 0; }
+.gantt__group { display: flex; gap: 6px; }
+.gantt__group-btn.is-active { background: var(--accent, #4f7cff); color: #fff; border-color: transparent; }
+.gantt__metrics { display: flex; gap: 14px; font-size: 12.5px; color: var(--ink-dim); margin-left: auto; flex-wrap: wrap; }
+.gantt__body { position: relative; min-width: fit-content; }
+.gantt__axis { position: relative; height: 26px; }
+.gantt__axis-grid { position: relative; height: 100%; }
+.gantt__tick { position: absolute; top: 0; height: 100%; border-left: 1px solid var(--line, #e3e3e3); }
+.gantt__tick span { position: absolute; top: 6px; left: 4px; font-size: 10.5px; color: var(--ink-faint); white-space: nowrap; }
+/* 坐标系契约：bars 测量的原点 = body 左上 = svg 用户空间原点（组件内联 absolute top:0 left:0 铺满 body），此处不得覆盖 top/left */
+.gantt__edges { pointer-events: none; z-index: 1; }
+.gantt__edge { stroke: var(--line-strong, #c9c9c9); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.gantt__edge.is-active { stroke: var(--accent, #4f7cff); stroke-width: 1.6; }
+.gantt__row { display: flex; border-top: 1px solid var(--line, #eee); }
+.gantt__row-label { flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px; overflow: hidden; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.gantt__row-label-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gantt__row-count { font-size: 10.5px; color: var(--ink-faint); }
+.gantt__track { position: relative; flex: 1; }
+.gantt__conflict { position: absolute; top: 0; height: 100%; background: rgba(255, 92, 92, 0.15); border-left: 2px solid rgba(255, 92, 92, 0.6); }
+.gantt__parallel { position: absolute; top: 0; height: 100%; background: var(--accent, #4f7cff); }
+.gantt__cell { position: absolute; top: 0; height: 100%; overflow: visible; }
+.gantt__bar { position: absolute; top: 10px; height: 24px; border-radius: 5px; border: 1px solid var(--line-strong, #c9c9c9); background: var(--panel, #fff); color: var(--ink); font-size: 11px; padding: 0 8px; display: flex; align-items: center; overflow: hidden; cursor: pointer; }
+.gantt__bar.is-critical { background: var(--danger, #ff5c5c); border-color: #e04545; color: #fff; }
+.gantt__bar.is-hovered { box-shadow: 0 0 0 2px var(--accent, #4f7cff); z-index: 2; }
+.gantt__bar-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gantt__float { position: absolute; top: 16px; height: 12px; background: repeating-linear-gradient(135deg, rgba(0,0,0,0.08) 0 3px, transparent 3px 6px); }
+.gantt__empty { padding: 40px 0; text-align: center; color: var(--ink-faint); }

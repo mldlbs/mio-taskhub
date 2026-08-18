@@ -7,6 +7,7 @@ import ListView from './components/ListView'
 import PlanView from './components/PlanView'
 import FlowView from './components/FlowView'
 import TopoView from './components/TopoView'
+import GanttView from './components/GanttView'
 import EmbedView from './components/EmbedView'
 import IdeasView from './components/IdeasView'
 import CreateModal from './components/CreateModal'
@@ -244,6 +245,9 @@ export default function App() {
             )}
             {view === 'topo' && (
               <TopoView tasks={filteredTasks} onOpen={openTask} />
+            )}
+            {view === 'gantt' && (
+              <GanttView tasks={filteredTasks} onOpen={openTask} />
             )}
             {view === 'ideas' && (
               <IdeasView ideas={filteredIdeas} onReload={loadIdeas} />

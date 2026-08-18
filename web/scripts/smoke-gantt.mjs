@@ -11,6 +11,8 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const entry = path.join(here, '..', 'src', 'components', 'GanttView.jsx')
 const outfile = path.join(here, '.smoke-gantt.cjs')
 
+const rmOutfile = () => import('node:fs').then(fs => { try { fs.rmSync(outfile) } catch {} })
+
 await build({
   entryPoints: [entry],
   bundle: true,
@@ -58,5 +60,6 @@ render('normal', [
   T('d', { est_duration_min: 30, depends_on: ['b', 'c'], target_agent_type: 'claude' }),
 ], 'data-gantt-bar="a"')
 
+await rmOutfile()
 if (process.exitCode) process.exit(process.exitCode)
 console.log('Gantt smoke OK')

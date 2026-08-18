@@ -32,6 +32,13 @@ const VIEWS = [
       <path d="M7 6.5 17 5M6 7l4 10M18 7l-4 10" />
     </svg>
   )},
+  { id: 'gantt', label: '甘特', icon: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+      <path d="M3 5h18M3 12h18M3 19h18" />
+      <path d="M6 5v14M12 5v14M18 5v14" />
+      <path d="M4 8h8M7 15h11" />
+    </svg>
+  )},
   { id: 'ideas', label: '想法', icon: (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 18h6M10 21h4" />
