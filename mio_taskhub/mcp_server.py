@@ -602,8 +602,8 @@ async def taskhub_update_idea(
     description: Optional[str] = Field(default=None, description="描述"),
     status: Optional[str] = Field(default=None, description="状态：new/fermenting/formed/broken_down/archived/cancelled"),
     change_reason: Optional[str] = Field(default=None, description="变更原因（写入版本历史与变更跟踪任务）"),
-    versioning: Optional[str] = Field(default="full", description="版本策略：full/history_only/none"),
-    track_change: Optional[bool] = Field(default=True, description="是否生成/更新变更跟踪任务"),
+    versioning: Optional[str] = Field(default=None, description="版本策略：full/history_only/none（缺省由后端决定，默认 full）"),
+    track_change: Optional[bool] = Field(default=None, description="是否生成/更新变更跟踪任务（缺省由后端决定，默认 true）"),
 ) -> str:
     """更新想法内容或推进其状态（发酵/成形/已拆解），体现需求演进过程。"""
     if status is not None:

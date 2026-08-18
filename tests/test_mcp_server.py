@@ -311,3 +311,5 @@ def test_update_idea_versioning_tool(mcp_ctx):
         "versioning": "history_only",
     })
     assert d2["version"] == 2
+    d3 = _call("taskhub_update_idea", {"idea_id": iid, "description": "v4"})
+    assert d3["version"] == 3   # 省略 versioning → 后端默认 full，版本递增
