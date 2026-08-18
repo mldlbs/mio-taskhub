@@ -1,5 +1,6 @@
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
 from mio_taskhub.models import (Idea, IdeaChange, IdeaStatus, Task, TaskKind, TaskStage,
@@ -94,7 +95,9 @@ def update_idea(idea_id: str, body: dict, db: Session = Depends(get_session)):
     versioning = body.get("versioning", "full")
     if versioning not in ("full", "history_only", "none"):
         raise HTTPException(422, f"invalid versioning, expected one of full/history_only/none: {versioning}")
-    track_change = bool(body.get("track_change", True))
+    track_change = body.get("track_change", True)
+    if not isinstance(track_change, bool):
+        track_change = str(track_change).lower() not in ("false", "0", "no", "")
 
     diff = {}
     for f in ("title", "description", "project", "labels"):
@@ -103,21 +106,29 @@ def update_idea(idea_id: str, body: dict, db: Session = Depends(get_session)):
             if old != body[f]:
                 diff[f] = {"old": old, "new": body[f]}
 
-    track_events = []
     if diff:
         for f, d in diff.items():
             setattr(i, f, d["new"])
         if versioning == "full":
             i.version += 1
+        if versioning in ("full", "history_only"):
             db.add(IdeaChange(idea_id=idea_id, version=i.version, diff=diff,
                               reason=body.get("change_reason", "")))
-        elif versioning == "history_only":
-            db.add(IdeaChange(idea_id=idea_id, version=i.version, diff=diff,
-                              reason=body.get("change_reason", "")))
+        i.updated_at = _now()
+        event = emit_event(db, type="idea_updated", entity="idea", entity_id=i.id,
+                           payload={"version": i.version})
+        db.add(i)
+        db.commit()          # 先提交 idea 本体与历史（版本一致性）
+        db.refresh(i)
+        broadcast_for_event(event)
         if versioning == "full" and track_change:
-            ev = _upsert_change_tracking_task(i, db)
-            if ev:
-                track_events.append(ev)
+            track_ev = _upsert_change_tracking_task(i, diff, db,
+                                                    reason=body.get("change_reason", ""))
+            if track_ev:
+                db.commit()
+                broadcast_for_event(track_ev)
+        return _idea_json(i)
+    # 无 diff：仅更新 updated_at 并 emit（保持既有行为，不递增版本）
     i.updated_at = _now()
     event = emit_event(db, type="idea_updated", entity="idea", entity_id=i.id,
                        payload={"version": i.version})
@@ -125,12 +136,18 @@ def update_idea(idea_id: str, body: dict, db: Session = Depends(get_session)):
     db.commit()
     db.refresh(i)
     broadcast_for_event(event)
-    for ev in track_events:
-        broadcast_for_event(ev)
     return _idea_json(i)
 
 
-def _upsert_change_tracking_task(i: Idea, db: Session):
+def _build_description(i: Idea, diff: dict, reason: str = "") -> str:
+    summary = "；".join(f"{f}: {d['old']} → {d['new']}" for f, d in diff.items())
+    desc = f"需求已变更到 v{i.version}。请 review 已拆解任务与 spec 是否需同步。\n变更内容：{summary}"
+    if reason:
+        desc += f"\n变更原因：{reason}"
+    return desc
+
+
+def _upsert_change_tracking_task(i: Idea, diff: dict, db: Session, reason: str = ""):
     """在存在关联 task 的前提下，生成/更新唯一一条活跃变更跟踪任务。返回 Event 或 None。"""
     related = db.exec(select(Task).where(Task.idea_id == i.id)).first()
     if related is None:
@@ -141,10 +158,7 @@ def _upsert_change_tracking_task(i: Idea, db: Session):
         Task.state.not_in([TaskState.COMPLETED, TaskState.CANCELLED]),
     )).first()
     title = f"[变更] {i.title} v{i.version}"
-    summary = "；".join(
-        f"{f}: {d['old']} → {d['new']}" for f, d in _last_diff(db, i.id).items()
-    )
-    description = f"需求已变更到 v{i.version}。请 review 已拆解任务与 spec 是否需同步。\n变更内容：{summary}"
+    description = _build_description(i, diff, reason)
     if existing:
         existing.title = title
         existing.description = description
@@ -160,15 +174,26 @@ def _upsert_change_tracking_task(i: Idea, db: Session):
         task_kind=TaskKind.CHANGE_TRACKING,
     )
     db.add(t)
+    try:
+        db.flush()
+    except IntegrityError:
+        # 并发下已有活跃变更任务：回退为更新（不动 version/历史）
+        db.rollback()
+        existing = db.exec(select(Task).where(
+            Task.idea_id == i.id,
+            Task.task_kind == TaskKind.CHANGE_TRACKING,
+            Task.state.not_in([TaskState.COMPLETED, TaskState.CANCELLED]),
+        )).first()
+        if existing:
+            existing.title = title
+            existing.description = description
+            ev = emit_event(db, type="task_updated", entity="task", entity_id=existing.id,
+                            payload={"title": title})
+            return ev
+        raise
     ev = emit_event(db, type="task_created", entity="task", entity_id=t.id,
                     payload={"title": title})
     return ev
-
-
-def _last_diff(db: Session, idea_id: str) -> dict:
-    row = db.exec(select(IdeaChange).where(IdeaChange.idea_id == idea_id)
-                  .order_by(IdeaChange.id.desc())).first()
-    return row.diff if row else {}
 
 
 @router.post("/{idea_id}/status")

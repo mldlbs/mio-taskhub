@@ -174,6 +174,59 @@ def test_migrate_event_entity_columns():
         except OSError:
             pass
 
+def test_migrate_change_tracking_unique_index():
+    import os
+    import tempfile
+    from sqlalchemy import create_engine, inspect, text
+    from sqlalchemy.exc import IntegrityError
+    from mio_taskhub.db import _migrate_stage_column
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        eng = create_engine(f"sqlite:///{path}")
+        with eng.connect() as conn:
+            conn.execute(text(
+                "CREATE TABLE task (id VARCHAR PRIMARY KEY, title VARCHAR, state VARCHAR)"
+            ))
+            conn.commit()
+        _migrate_stage_column(eng)
+        # 迁移后索引存在
+        with eng.connect() as conn:
+            idx = {r[1] for r in conn.execute(text("PRAGMA index_list('task')"))}
+            assert "uq_task_active_change_tracking" in idx
+            conn.execute(text(
+                "INSERT INTO task (id, title, state, task_kind, idea_id) VALUES "
+                "('ct1', 'a', 'QUEUED', 'CHANGE_TRACKING', 'i1')"
+            ))
+            conn.commit()
+        # 同 idea 第二条活跃变更任务 → 违反唯一索引
+        with eng.connect() as conn:
+            try:
+                conn.execute(text(
+                    "INSERT INTO task (id, title, state, task_kind, idea_id) VALUES "
+                    "('ct2', 'b', 'QUEUED', 'CHANGE_TRACKING', 'i1')"
+                ))
+                conn.commit()
+                raise AssertionError("expected IntegrityError for duplicate active change tracking task")
+            except IntegrityError:
+                pass
+        # 终态（COMPLETED）不与活跃冲突；不同 idea 不冲突
+        with eng.connect() as conn:
+            conn.execute(text(
+                "INSERT INTO task (id, title, state, task_kind, idea_id) VALUES "
+                "('ct3', 'c', 'COMPLETED', 'CHANGE_TRACKING', 'i1')"
+            ))
+            conn.execute(text(
+                "INSERT INTO task (id, title, state, task_kind, idea_id) VALUES "
+                "('ct4', 'd', 'QUEUED', 'CHANGE_TRACKING', 'i2')"
+            ))
+            conn.commit()
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
 def test_migrate_idea_version_and_task_kind_columns():
     import os
     import tempfile

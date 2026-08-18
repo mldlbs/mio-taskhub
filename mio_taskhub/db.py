@@ -56,6 +56,14 @@ def _migrate_stage_column(target_engine=None):
             conn.execute(text("UPDATE task SET stage = 'REVIEW' WHERE stage = 'review'"))
             conn.execute(text("UPDATE task SET stage = 'DONE' WHERE stage = 'done'"))
             conn.execute(text("UPDATE task SET stage = 'CANCELLED' WHERE stage = 'cancelled'"))
+            # 部分唯一索引：一个 idea 最多一条活跃（非终态）变更跟踪任务
+            _idx = conn.execute(text("PRAGMA index_list('task')")).fetchall()
+            if not any(r[1] == 'uq_task_active_change_tracking' for r in _idx):
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_task_active_change_tracking "
+                    "ON task (idea_id) WHERE task_kind = 'CHANGE_TRACKING' "
+                    "AND state NOT IN ('COMPLETED', 'CANCELLED')"
+                ))
         # Idea table: add version column if missing (existing installs).
         if "idea" in tables:
             icols = {c["name"] for c in inspect(conn).get_columns("idea")}

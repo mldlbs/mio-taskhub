@@ -173,18 +173,44 @@ def test_change_tracking_task_created_and_dedup():
             "tasks": [{"ref": "t1", "title": "实现A"}]
         })
         assert r.status_code == 200
-        # 第一次修改 → 生成变更任务
-        await c.patch(f"/api/v1/ideas/{iid}", json={"description": "v2描述"})
+        # 第一次修改 → 生成变更任务（含 change_reason）
+        await c.patch(f"/api/v1/ideas/{iid}", json={"description": "v2描述", "change_reason": "需求方补充"})
         tasks = (await c.get("/api/v1/tasks")).json()
         ct = [t for t in tasks if t["idea_id"] == iid and t["title"].startswith("[变更]")]
         assert len(ct) == 1
         assert ct[0]["title"] == "[变更] 需求A v2"
+        assert ct[0]["stage"] == "review"
+        det = (await c.get(f"/api/v1/tasks/{ct[0]['id']}")).json()
+        assert "v2" in det["description"]
+        assert "需求方补充" in det["description"]
         # 第二次修改 → 更新而非新建
         await c.patch(f"/api/v1/ideas/{iid}", json={"description": "v3描述"})
         tasks = (await c.get("/api/v1/tasks")).json()
         ct = [t for t in tasks if t["idea_id"] == iid and t["title"].startswith("[变更]")]
         assert len(ct) == 1
         assert ct[0]["title"] == "[变更] 需求A v3"
+    _with_client(k)
+
+
+def test_idea_versioning_diff_on_other_fields():
+    async def k(c):
+        iid = (await c.post("/api/v1/ideas", json={"title": "t", "project": "", "labels": []})).json()["id"]
+        # 改 project → 一条记录，diff 键为 project
+        r = await c.patch(f"/api/v1/ideas/{iid}", json={"project": "p1"})
+        assert r.json()["version"] == 2
+        d = await c.get(f"/api/v1/ideas/{iid}")
+        changes = d.json()["changes"]
+        assert len(changes) == 1
+        assert set(changes[0]["diff"].keys()) == {"project"}
+        assert changes[0]["diff"]["project"] == {"old": "", "new": "p1"}
+        # 改 labels → 第二条记录，diff 键为 labels
+        r = await c.patch(f"/api/v1/ideas/{iid}", json={"labels": ["x", "y"]})
+        assert r.json()["version"] == 3
+        d = await c.get(f"/api/v1/ideas/{iid}")
+        changes = d.json()["changes"]
+        assert len(changes) == 2
+        assert set(changes[0]["diff"].keys()) == {"labels"}   # 最新在前（id desc）
+        assert changes[0]["diff"]["labels"] == {"old": [], "new": ["x", "y"]}
     _with_client(k)
 
 
