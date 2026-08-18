@@ -601,14 +601,20 @@ async def taskhub_update_idea(
     title: Optional[str] = Field(default=None, description="标题"),
     description: Optional[str] = Field(default=None, description="描述"),
     status: Optional[str] = Field(default=None, description="状态：new/fermenting/formed/broken_down/archived/cancelled"),
+    change_reason: Optional[str] = Field(default=None, description="变更原因（写入版本历史与变更跟踪任务）"),
+    versioning: Optional[str] = Field(default="full", description="版本策略：full/history_only/none"),
+    track_change: Optional[bool] = Field(default=True, description="是否生成/更新变更跟踪任务"),
 ) -> str:
     """更新想法内容或推进其状态（发酵/成形/已拆解），体现需求演进过程。"""
-    body = {}
-    if title is not None: body["title"] = title
-    if description is not None: body["description"] = description
     if status is not None:
         data = await _request("POST", f"/ideas/{idea_id}/status", body={"status": status})
         return _fmt(data)
+    body = {}
+    if title is not None: body["title"] = title
+    if description is not None: body["description"] = description
+    if change_reason is not None: body["change_reason"] = change_reason
+    if versioning is not None: body["versioning"] = versioning
+    if track_change is not None: body["track_change"] = track_change
     data = await _request("PATCH", f"/ideas/{idea_id}", body=body)
     return _fmt(data)
 

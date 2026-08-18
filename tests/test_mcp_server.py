@@ -293,3 +293,21 @@ def test_agent_heartbeat_tool(mcp_ctx):
     r = _call("taskhub_agent_heartbeat", {"name": "hbmcp"})
     assert r["status"] == "online"
     assert "last_heartbeat" in r
+
+
+def test_update_idea_versioning_tool(mcp_ctx):
+    iid = _call("taskhub_add_idea", {"title": "MCP需求"})["id"]
+    d = _call("taskhub_update_idea", {
+        "idea_id": iid,
+        "description": "v2",
+        "change_reason": "补充说明",
+        "versioning": "full",
+        "track_change": False,
+    })
+    assert d["version"] == 2
+    d2 = _call("taskhub_update_idea", {
+        "idea_id": iid,
+        "description": "v3",
+        "versioning": "history_only",
+    })
+    assert d2["version"] == 2
