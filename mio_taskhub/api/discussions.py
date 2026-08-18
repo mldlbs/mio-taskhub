@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
-from mio_taskhub.models import Discussion, DiscussionMessage, Idea, Task
+from mio_taskhub.models import Discussion, DiscussionMessage, Idea, Task, IdeaHistory
 from mio_taskhub.utils import _now
 from mio_taskhub.events import emit_event, broadcast_for_event
 
@@ -104,6 +104,14 @@ def close_discussion(discussion_id: str, body: dict, db: Session = Depends(get_s
     d.conclusions = body.get("conclusions", d.conclusions)
     d.status = "closed"
     d.ended_at = _now()
+    # 关联 idea 时写 kind=discussion 轨迹
+    if d.idea_id:
+        db.add(IdeaHistory(
+            idea_id=d.idea_id,
+            kind="discussion",
+            reasoning=d.conclusions or None,
+            extra={"discussion_id": discussion_id, "conclusions": d.conclusions, "topic": d.topic},
+        ))
     event = emit_event(db, type="discussion_closed", entity="discussion",
                        entity_id=discussion_id, payload={"conclusions": d.conclusions})
     db.add(d); db.commit(); db.refresh(d)
