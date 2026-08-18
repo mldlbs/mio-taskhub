@@ -220,6 +220,77 @@ def set_idea_status(idea_id: str, body: dict, db: Session = Depends(get_session)
     return _idea_json(i)
 
 
+# recommend 映射：agent 给出期望目标状态，hub 只推进一档
+_RECOMMEND_MAP = {
+    "ferment": IdeaStatus.FERMENTING,
+    "form": IdeaStatus.FORMED,
+    "archive": IdeaStatus.ARCHIVED,
+}
+
+
+@router.post("/{idea_id}/review")
+def submit_review(idea_id: str, body: dict, db: Session = Depends(get_session)):
+    i = db.get(Idea, idea_id)
+    if not i:
+        raise HTTPException(404, "idea not found")
+    recommend = (body.get("recommend") or "").strip()
+    reasoning = body.get("reasoning")
+    actor = body.get("actor") or "agent"
+
+    # nothing：只记录评审，不推进
+    if recommend == "nothing":
+        i.review_count += 1
+        i.last_reviewed_at = _now()
+        i.updated_at = _now()
+        db.add(i)
+        db.add(IdeaHistory(
+            idea_id=idea_id,
+            kind="review",
+            reasoning=reasoning,
+            extra={"recommend": "nothing"},
+        ))
+        event = emit_event(db, type="idea_review", entity="idea", entity_id=idea_id,
+                           payload={"recommend": "nothing", "reasoning": reasoning, "actor": actor})
+        db.commit()
+        db.refresh(i)
+        return _idea_json(i)
+
+    # 非法 recommend
+    if recommend not in _RECOMMEND_MAP:
+        raise HTTPException(400, f"invalid recommend: {recommend}")
+
+    dst = _RECOMMEND_MAP[recommend]
+    if not IdeaStatus.can_advance(i.status, dst):
+        raise HTTPException(422, f"cannot advance from {i.status.value} to {dst.value}")
+
+    # 推进状态 + 写 kind=status + 更新元数据（单事务）
+    from_status = i.status.value
+    i.status = dst
+    i.review_count += 1
+    i.last_reviewed_at = _now()
+    i.updated_at = _now()
+    db.add(i)
+    # kind=status 轨迹
+    db.add(IdeaHistory(
+        idea_id=idea_id,
+        kind="status",
+        reasoning=None,
+        extra={"from": from_status, "to": dst.value, "source": "review"},
+    ))
+    # kind=review 轨迹
+    db.add(IdeaHistory(
+        idea_id=idea_id,
+        kind="review",
+        reasoning=reasoning,
+        extra={"recommend": recommend, "from": from_status, "to": dst.value},
+    ))
+    event = emit_event(db, type="idea_review", entity="idea", entity_id=idea_id,
+                       payload={"recommend": recommend, "reasoning": reasoning, "actor": actor})
+    db.commit()
+    db.refresh(i)
+    return _idea_json(i)
+
+
 def transition_idea_status(idea: Idea, dst: IdeaStatus, db: Session, actor: str = "system", source: str = "manual"):
     """唯一状态变更入口：校验 can_advance → 变更状态 + updated_at + kind=status 轨迹 + emit event。
     供 set_idea_status / breakdown_idea / review / archive/cancel 复用。"""
