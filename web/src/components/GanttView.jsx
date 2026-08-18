@@ -7,9 +7,13 @@ const TRACK_BASE = 800         // 目标可视宽度 px（不足时放宽到下�
 const LABEL_W = 150            // 行标题列宽 px
 const ROW_H = 44               // 每行高度 px
 
-// 刻度粒度：找满足 粒度*scale >= 70px 的最小整粒度（分钟）
+// 刻度粒度：找满足 粒度*scale >= 70px 的最小整粒度（分钟），总刻度数上限 60
 const TICK_UNITS = [15, 30, 60, 120, 240, 480, 960, 1440, 2880, 5760]
-const tickUnit = (total, scale) => TICK_UNITS.find(u => u * scale >= 70) || TICK_UNITS[TICK_UNITS.length - 1]
+const tickUnit = (total, scale) => {
+  let u = TICK_UNITS.find(x => x * scale >= 70) || TICK_UNITS[TICK_UNITS.length - 1]
+  while (total / u > 60 && u < TICK_UNITS[TICK_UNITS.length - 1]) u = TICK_UNITS[TICK_UNITS.indexOf(u) + 1]
+  return u
+}
 
 // 行分组模式
 const GROUP_MODES = [
@@ -57,6 +61,7 @@ export default function GanttView({ tasks, onOpen }) {
   }, [tasks, groupMode, cpm])
 
   // 依赖箭头测量：每行 track 内 bar 的绝对位置
+  // bars 坐标以 body 左上为原点，svg absolute 铺满 body 与其 1:1 映射
   const measureBars = useCallback(() => {
     if (!bodyRef.current) return
     const bodyRect = bodyRef.current.getBoundingClientRect()
@@ -66,7 +71,13 @@ export default function GanttView({ tasks, onOpen }) {
       const r = el.getBoundingClientRect()
       out[id] = { left: r.left - bodyRect.left, top: r.top - bodyRect.top, width: r.width, height: r.height }
     })
-    setBars(out)
+    setBars(prev => {
+      const changed = Object.keys(out).some(id => {
+        const p = prev[id]
+        return !p || p.left !== out[id].left || p.top !== out[id].top || p.width !== out[id].width
+      })
+      return changed ? out : prev
+    })
   }, [])
 
   useEffect(() => {
@@ -116,14 +127,14 @@ export default function GanttView({ tasks, onOpen }) {
         <div className="gantt__metrics">
           <span>总工期 {fmtDur(cpm.total)}</span>
           <span>关键路径 {cpm.allCriticalPaths.length} 条</span>
-          <span>峰值并行 {cpm.parallelProfile.length ? Math.max(...cpm.parallelProfile.map(s => s.count)) : 0}</span>
+          <span>峰值并行 {cpm.parallelProfile.reduce((m, s) => Math.max(m, s.count), 0)}</span>
           <span>冲突 {cpm.resourceConflicts.length} 段</span>
         </div>
       </div>
 
       {tasks.length === 0 && <div className="gantt__empty">还没有任务。</div>}
 
-      <div className="gantt__body" ref={bodyRef}>
+      <div className="gantt__body" style={{ position: 'relative' }} ref={bodyRef}>
         <div className="gantt__axis" style={{ marginLeft: labelOffset }}>
           <div className="gantt__axis-grid" style={{ width: trackW }}>
             {ticks.map((t, i) => (
@@ -134,7 +145,9 @@ export default function GanttView({ tasks, onOpen }) {
           </div>
         </div>
 
-        <svg className="gantt__edges" width={labelOffset + trackW} height={rows.length * ROW_H} aria-hidden="true">
+        <svg className="gantt__edges"
+          style={{ position: 'absolute', top: 0, left: 0, width: labelOffset + trackW, height: rows.length * ROW_H, pointerEvents: 'none', zIndex: 1 }}
+          aria-hidden="true">
           {edges.map(e => {
             const active = hoveredId && (e.id.startsWith(hoveredId + '->') || e.id.endsWith('->' + hoveredId))
             return <line key={e.id} x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2}
