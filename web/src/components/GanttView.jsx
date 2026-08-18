@@ -134,7 +134,7 @@ export default function GanttView({ tasks, onOpen }) {
 
       {tasks.length === 0 && <div className="gantt__empty">还没有任务。</div>}
 
-      <div className="gantt__body" style={{ position: 'relative' }} ref={bodyRef}>
+      <div className="gantt__body" ref={bodyRef}>
         <div className="gantt__axis" style={{ marginLeft: labelOffset }}>
           <div className="gantt__axis-grid" style={{ width: trackW }}>
             {ticks.map((t, i) => (
@@ -146,7 +146,7 @@ export default function GanttView({ tasks, onOpen }) {
         </div>
 
         <svg className="gantt__edges"
-          style={{ position: 'absolute', top: 0, left: 0, width: labelOffset + trackW, height: rows.length * ROW_H, pointerEvents: 'none', zIndex: 1 }}
+          style={{ position: 'absolute', top: 0, left: 0, width: labelOffset + trackW, height: rows.length * ROW_H }}
           aria-hidden="true">
           {edges.map(e => {
             const active = hoveredId && (e.id.startsWith(hoveredId + '->') || e.id.endsWith('->' + hoveredId))
