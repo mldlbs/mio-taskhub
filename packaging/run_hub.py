@@ -69,13 +69,16 @@ def _start_tray(url: str, server_ref: dict):
         return None
 
     def _open_panel(_icon=None, _item=None):
-        # 独立进程启动 widget（webview 事件循环需在各自进程的主线程）
+        # 独立进程启动 widget（webview 事件循环需在各自进程的主线程）。
+        # 从 hub 打开的面板不显示自己的托盘（避免出现两个图标）。
         try:
+            env = dict(os.environ)
+            env["MIO_TASKHUB_WIDGET_NO_TRAY"] = "1"
             if getattr(sys, "frozen", False):
-                subprocess.Popen([sys.executable, "widget"])
+                subprocess.Popen([sys.executable, "widget"], env=env)
             else:
                 script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "run.py")
-                subprocess.Popen([sys.executable, script, "widget"])
+                subprocess.Popen([sys.executable, script, "widget"], env=env)
         except Exception:
             webbrowser.open(url)
 

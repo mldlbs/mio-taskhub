@@ -162,8 +162,10 @@ def main():
         except Exception:
             pass
 
-    # 拦截关窗：隐藏到托盘而非退出（若托盘可用）
-    tray = _start_tray(window, _on_quit)
+    # 拦截关窗：隐藏到托盘而非退出（若托盘可用）。
+    # 从 hub 托盘打开的面板（NO_TRAY=1）不显示独立托盘，关窗直接退出。
+    no_tray = os.environ.get("MIO_TASKHUB_WIDGET_NO_TRAY") == "1"
+    tray = _start_tray(window, _on_quit) if not no_tray else None
     if tray is not None:
         def _on_closing():
             window.hide()
