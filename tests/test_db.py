@@ -1,6 +1,6 @@
 # tests/test_db.py
 from mio_taskhub.db import get_session, init_db, engine
-from mio_taskhub.models import Task, Agent, TaskState
+from mio_taskhub.models import Task, Agent, TaskState, Idea, IdeaHistory, IdeaStatus, TaskKind
 from sqlmodel import select
 
 def test_init_db_and_create_task():
@@ -263,3 +263,38 @@ def test_migrate_idea_version_and_task_kind_columns():
             os.remove(path)
         except OSError:
             pass
+
+
+def test_idea_history_creation():
+    """IdeaHistory 表存在，能创建记录，kind 枚举值存入正确。"""
+    init_db()
+    s = next(get_session())
+    try:
+        i = Idea(title="测试想法")
+        s.add(i)
+        s.commit()
+        s.refresh(i)
+
+        h = IdeaHistory(
+            idea_id=i.id,
+            kind="review",
+            reasoning="测试评审",
+            extra={"recommend": "ferment", "from": "new", "to": "fermenting"},
+        )
+        s.add(h)
+        s.commit()
+        s.refresh(h)
+
+        assert h.id is not None
+        assert h.idea_id == i.id
+        assert h.kind == "review"
+        assert h.reasoning == "测试评审"
+        assert h.extra["recommend"] == "ferment"
+        assert h.at is not None
+
+        # 查回
+        found = s.exec(select(IdeaHistory).where(IdeaHistory.idea_id == i.id)).first()
+        assert found is not None
+        assert found.kind == "review"
+    finally:
+        s.close()

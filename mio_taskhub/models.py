@@ -63,6 +63,7 @@ class TaskStage(str, enum.Enum):
 class TaskKind(str, enum.Enum):
     NORMAL = "normal"
     CHANGE_TRACKING = "change_tracking"
+    REVIEW = "review"
 
 class SubtaskStatus(str, enum.Enum):
     PENDING = "pending"
@@ -226,6 +227,8 @@ class Idea(SQLModel, table=True):
     labels: list = Field(default_factory=list, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
+    last_reviewed_at: Optional[datetime] = Field(default=None, index=True)
+    review_count: int = 0
 
 class IdeaChange(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)  # 自增，供 before_id 游标分页（同 Event.id 模式）
@@ -236,3 +239,13 @@ class IdeaChange(SQLModel, table=True):
     reason: str = ""
 
     # diff 结构：{field: {"old": ..., "new": ...}}
+
+
+class IdeaHistory(SQLModel, table=True):
+    """想法完整轨迹：评审/流转/讨论/操作记录。kind ∈ review/status/discussion/operation"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    idea_id: str = Field(index=True)
+    kind: str                                 # review/status/discussion/operation
+    reasoning: Optional[str] = None           # 决策摘要（非完整 CoT）
+    extra: dict = Field(default_factory=dict, sa_column=Column(JSON))  # 结构化上下文
+    at: datetime = Field(default_factory=_now, index=True)
