@@ -2,6 +2,9 @@
 // 独立纯函数：关键路径法（CPM）。不依赖 React/DOM，TopoView/FlowView/Dashboard 可复用。
 export const DEFAULT_DURATION = 60
 
+// 关键路径 float 容忍误差（分钟）
+export const EPSILON = 0.5
+
 // 任务时长（分钟）：已完成=0，进行中按剩余时间退化，其余用 est_duration
 export function taskDuration(task) {
   const stage = task.stage
@@ -14,7 +17,7 @@ export function taskDuration(task) {
   return est
 }
 
-export function computeCPM(tasks) {
+export function computeCPM(tasks, opts = {}) {
   const byId = Object.fromEntries(tasks.map(t => [t.id, t]))
   const dur = {}
   tasks.forEach(t => { dur[t.id] = taskDuration(t) })
@@ -90,11 +93,62 @@ export function computeCPM(tasks) {
     ? Math.max(...Object.values(layerWidth))
     : 0
 
+  // 多关键路径：float≈0 节点子图的 DFS，收集全部 root→terminal 路径
+  const crit = {}
+  tasks.forEach(t => { crit[t.id] = float[t.id] <= EPSILON })
+  const isRoot = id => deps[id].length === 0
+  const isTerminal = id => (succ[id] || []).length === 0
+  const allCriticalPaths = []
+  const dfs = (id, path) => {
+    const cur = path.concat(id)
+    if (isTerminal(id)) { allCriticalPaths.push(cur); return }
+    ;(succ[id] || []).forEach(c => { if (crit[c]) dfs(c, cur) })
+  }
+  tasks.forEach(t => { if (crit[t.id] && isRoot(t.id)) dfs(t.id, []) })
+
+  // critical 标志 = 在任一关键路径上
+  const onAny = new Set()
+  allCriticalPaths.forEach(p => p.forEach(id => onAny.add(id)))
+  tasks.forEach(t => { critical[t.id] = onAny.has(t.id) })
+
+  // 并行度曲线：扫描线 [ES, EF) 区间覆盖计数
+  const ev = []
+  tasks.forEach(t => {
+    if (dur[t.id] <= 0) return
+    ev.push({ t: es[t.id], d: +1 })
+    ev.push({ t: ef[t.id], d: -1 })
+  })
+  ev.sort((a, b) => a.t - b.t || a.d - b.d)
+  const parallelProfile = []
+  let curCount = 0
+  let prevT = null
+  ev.forEach(e => {
+    if (prevT !== null && curCount > 0 && e.t > prevT) {
+      parallelProfile.push({ start: prevT, end: e.t, count: curCount })
+    }
+    curCount += e.d
+    prevT = e.t
+  })
+
+  // 资源冲突：超阈值区间（默认阈值 = target_agent_type 去重数，无则不标注）
+  const agentSet = new Set(tasks.map(t => t.target_agent_type).filter(Boolean))
+  const maxParallel = opts.maxParallel !== undefined ? opts.maxParallel : (agentSet.size || null)
+  const conflicts = maxParallel ? parallelProfile.filter(s => s.count > maxParallel) : []
+  const resourceConflicts = conflicts.reduce((acc, s) => {
+    const last = acc[acc.length - 1]
+    if (last && last.end === s.start && last.count === s.count) last.end = s.end
+    else acc.push({ start: s.start, end: s.end, count: s.count })
+    return acc
+  }, [])
+
   return {
     total,
     es, ef, ls, lf, float,
     criticalPath,
     critical,
     parallel,
+    allCriticalPaths,
+    parallelProfile,
+    resourceConflicts,
   }
 }
