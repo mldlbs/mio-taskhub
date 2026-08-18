@@ -53,8 +53,17 @@ function kahnLayers(tasks) {
 export default function TopoView({ tasks, onOpen }) {
   const { layers } = useMemo(() => kahnLayers(tasks), [tasks])
   const cpm = useMemo(() => computeCPM(tasks), [tasks])
+  const critIds = useMemo(() => {
+    if (showAll) {
+      const s = new Set()
+      cpm.allCriticalPaths.forEach(p => p.forEach(id => s.add(id)))
+      return s
+    }
+    return new Set(cpm.criticalPath)
+  }, [showAll, cpm])
   const byId = Object.fromEntries(tasks.map(t => [t.id, t]))
   const [hoveredId, setHoveredId] = useState(null)
+  const [showAll, setShowAll] = useState(false)
   const isBlocked = (t) =>
     (t.depends_on || []).some(d => {
       const dep = byId[d]
@@ -75,12 +84,17 @@ export default function TopoView({ tasks, onOpen }) {
     <div className="topo">
       <div className="topo__head">
         <h2 className="topo__title">依赖拓扑</h2>
+        <button className={`btn btn--ghost topo__toggle${showAll ? ' is-active' : ''}`}
+          onClick={() => setShowAll(s => !s)} aria-pressed={showAll}>
+          {showAll ? `全部关键路径 (${cpm.allCriticalPaths.length})` : '单条关键路径'}
+        </button>
         <span className="topo__count">{tasks.length} 个任务 · {layers.length} 层</span>
       </div>
       <div className="topo__metrics">
         <span>总工期 {fmtDur(cpm.total)}</span>
-        <span>关键路径 {cpm.criticalPath.length} 任务</span>
+        <span>关键路径 {cpm.allCriticalPaths.length} 条</span>
         <span>并行度 {cpm.parallel}</span>
+        <span>冲突 {cpm.resourceConflicts.length} 段</span>
         <span>阻塞 {tasks.filter(isBlocked).length}</span>
       </div>
       {layers.length === 0 && <div className="topo__empty">还没有任务。</div>}
@@ -94,7 +108,7 @@ export default function TopoView({ tasks, onOpen }) {
               const tone = blocked ? 'danger' : (STAGE_TONE[t.stage] || 'dim')
               const conn = connectedIds(hoveredId)
               const hl = hoveredId && (hoveredId === t.id || conn.has(t.id))
-              const crit = cpm.critical[t.id]
+              const crit = critIds.has(t.id)
               const flt = cpm.float[t.id]
               return (
                 <button key={t.id} className={`topo-node topo-node--${tone}${hl ? ' is-hovered' : ''}${crit ? ' is-critical' : ''}`}

@@ -53,6 +53,11 @@ assert(r5.critical.a && r5.critical.b && r5.critical.c && r5.critical.d,
   'critical 应为任一关键路径上的节点')
 assert(r5.criticalPath.length === 3, `单条 criticalPath=${r5.criticalPath}`)
 
+// 单条 criticalPath 是全部 allCriticalPaths 的子集
+const cpSet = new Set(r5.criticalPath)
+const allSet = new Set(r5.allCriticalPaths.flat())
+console.assert([...cpSet].every(id => allSet.has(id)), 'single criticalPath ⊆ allCriticalPaths')
+
 // parallelProfile: a[0,120) c[0,180) 重叠 [0,120) count=2, [120,180) count=1(c), [180,210) count=1(d 在 180 起, 与 c 无重叠)
 const r6 = computeCPM([
   { id: 'a', est_duration_min: 120, depends_on: [], state: 'queued', stage: 'ready' },
