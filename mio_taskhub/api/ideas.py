@@ -57,7 +57,9 @@ def create_idea(body: dict, db: Session = Depends(get_session)):
 
 
 @router.get("/{idea_id}")
-def get_idea(idea_id: str, db: Session = Depends(get_session)):
+def get_idea(idea_id: str, include_changes: bool = Query(True),
+             before_id: int = Query(None), limit: int = Query(20, ge=1, le=100),
+             db: Session = Depends(get_session)):
     i = db.get(Idea, idea_id)
     if not i:
         raise HTTPException(404, "idea not found")
@@ -78,12 +80,15 @@ def get_idea(idea_id: str, db: Session = Depends(get_session)):
     tasks = db.exec(select(Task).where(Task.idea_id == idea_id).order_by(Task.created_at)).all()
     out["tasks"] = [{"id": t.id, "title": t.title, "stage": t.stage.value,
                      "state": t.state.value} for t in tasks]
-    changes = db.exec(select(IdeaChange).where(IdeaChange.idea_id == idea_id)
-                      .order_by(IdeaChange.id.desc())).all()
-    out["changes"] = [{
-        "id": c.id, "version": c.version, "created_at": c.created_at.isoformat(),
-        "diff": c.diff, "reason": c.reason,
-    } for c in changes]
+    if include_changes:
+        q = select(IdeaChange).where(IdeaChange.idea_id == idea_id)
+        if before_id is not None:
+            q = q.where(IdeaChange.id < before_id)
+        changes = db.exec(q.order_by(IdeaChange.id.desc()).limit(limit)).all()
+        out["changes"] = [{
+            "id": c.id, "version": c.version, "created_at": c.created_at.isoformat(),
+            "diff": c.diff, "reason": c.reason,
+        } for c in changes]
     return out
 
 

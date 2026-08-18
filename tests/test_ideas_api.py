@@ -241,3 +241,21 @@ def test_change_tracking_requires_associated_task():
         tasks = (await c.get("/api/v1/tasks")).json()
         assert not any(t["idea_id"] == iid and t["title"].startswith("[变更]") for t in tasks)
     _with_client(k)
+
+
+def test_idea_history_pagination():
+    async def k(c):
+        iid = (await c.post("/api/v1/ideas", json={"title": "t"})).json()["id"]
+        for desc in ("a", "b", "c", "d", "e"):
+            await c.patch(f"/api/v1/ideas/{iid}", json={"description": desc})
+        d = (await c.get(f"/api/v1/ideas/{iid}", params={"limit": 2})).json()
+        assert len(d["changes"]) == 2                 # 默认返回最新 N 条
+        latest = [x["version"] for x in d["changes"]]
+        assert latest == sorted(latest, reverse=True)  # 按 id 倒序 = 新→旧
+        before = d["changes"][-1]["id"]
+        d2 = (await c.get(f"/api/v1/ideas/{iid}", params={"before_id": before, "limit": 2})).json()
+        assert len(d2["changes"]) == 2                 # 游标翻页
+        assert all(x["id"] < before for x in d2["changes"])
+        d3 = (await c.get(f"/api/v1/ideas/{iid}", params={"include_changes": "false"})).json()
+        assert "changes" not in d3
+    _with_client(k)
