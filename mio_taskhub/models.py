@@ -212,10 +212,14 @@ class IdeaStatus(str, enum.Enum):
     def can_advance(cls, src: "IdeaStatus", dst: "IdeaStatus") -> bool:
         if dst == cls.ARCHIVED or dst == cls.CANCELLED:
             return src != cls.ARCHIVED and src != cls.CANCELLED and src != cls.BROKEN_DOWN
+        # breakdown 可从任意非终态直接推进
+        if dst == cls.BROKEN_DOWN:
+            return src not in (cls.ARCHIVED, cls.CANCELLED, cls.BROKEN_DOWN)
         progress = [cls.NEW, cls.FERMENTING, cls.FORMED, cls.BROKEN_DOWN]
         if src not in progress or dst not in progress:
             return False
-        return progress.index(dst) > progress.index(src)
+        # 只允许推进到下一档（相邻）
+        return progress.index(dst) == progress.index(src) + 1
 
 class Idea(SQLModel, table=True):
     id: Optional[str] = Field(default_factory=_uuid, primary_key=True)

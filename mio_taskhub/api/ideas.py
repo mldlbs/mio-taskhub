@@ -4,7 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
 from mio_taskhub.models import (Idea, IdeaChange, IdeaStatus, Task, TaskKind, TaskStage,
-                                Discussion, DiscussionMessage, TaskState)
+                                Discussion, DiscussionMessage, TaskState, IdeaHistory)
 from mio_taskhub.utils import _now
 from mio_taskhub.status import normalize_depends, task_deps
 from mio_taskhub.planner import detect_cycle
@@ -18,6 +18,8 @@ def _idea_json(i: Idea) -> dict:
         "id": i.id, "title": i.title, "description": i.description,
         "status": i.status.value, "project": i.project, "labels": i.labels,
         "version": i.version,
+        "last_reviewed_at": i.last_reviewed_at.isoformat() if i.last_reviewed_at else None,
+        "review_count": i.review_count,
         "created_at": i.created_at.isoformat(), "updated_at": i.updated_at.isoformat(),
     }
 
@@ -212,13 +214,65 @@ def set_idea_status(idea_id: str, body: dict, db: Session = Depends(get_session)
         raise HTTPException(400, f"invalid status, expected one of {[e.value for e in IdeaStatus]}")
     if not IdeaStatus.can_advance(i.status, dst):
         raise HTTPException(422, f"cannot advance from {i.status.value} to {dst.value}")
-    i.status = dst
-    i.updated_at = _now()
-    event = emit_event(db, type="idea_status", entity="idea", entity_id=i.id,
-                       payload={"status": dst.value})
-    db.add(i); db.commit(); db.refresh(i)
-    broadcast_for_event(event)
+    transition_idea_status(i, dst, db, actor="user", source="manual")
+    db.commit()
+    db.refresh(i)
     return _idea_json(i)
+
+
+def transition_idea_status(idea: Idea, dst: IdeaStatus, db: Session, actor: str = "system", source: str = "manual"):
+    """唯一状态变更入口：校验 can_advance → 变更状态 + updated_at + kind=status 轨迹 + emit event。
+    供 set_idea_status / breakdown_idea / review / archive/cancel 复用。"""
+    if not IdeaStatus.can_advance(idea.status, dst):
+        raise HTTPException(422, f"cannot advance from {idea.status.value} to {dst.value}")
+    from_status = idea.status.value
+    idea.status = dst
+    idea.updated_at = _now()
+    db.add(idea)
+    # 写 kind=status 轨迹
+    db.add(IdeaHistory(
+        idea_id=idea.id,
+        kind="status",
+        reasoning=None,
+        extra={"from": from_status, "to": dst.value, "source": source},
+    ))
+    event = emit_event(db, type="idea_status", entity="idea", entity_id=idea.id,
+                       payload={"status": dst.value, "source": source})
+    # 注意：不在此 commit，由调用者统一提交（保证原子性）
+
+
+@router.get("/{idea_id}/history")
+def get_idea_history(idea_id: str, page: int = 1, page_size: int = 50, db: Session = Depends(get_session)):
+    i = db.get(Idea, idea_id)
+    if not i:
+        raise HTTPException(404, "idea not found")
+    if page < 1:
+        page = 1
+    if page_size < 1 or page_size > 200:
+        page_size = 50
+    # 总数
+    from sqlalchemy import func
+    total = db.exec(select(func.count(IdeaHistory.id)).where(IdeaHistory.idea_id == idea_id)).one()
+    # 分页：新的在前
+    items = db.exec(
+        select(IdeaHistory)
+        .where(IdeaHistory.idea_id == idea_id)
+        .order_by(IdeaHistory.at.desc(), IdeaHistory.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    return {
+        "count": total,
+        "page": page,
+        "page_size": page_size,
+        "items": [{
+            "id": h.id,
+            "kind": h.kind,
+            "reasoning": h.reasoning,
+            "extra": h.extra,
+            "at": h.at.isoformat(),
+        } for h in items]
+    }
 
 
 @router.post("/{idea_id}/breakdown")
@@ -276,8 +330,7 @@ def breakdown_idea(idea_id: str, body: dict, db: Session = Depends(get_session))
         cyc = detect_cycle(graph)
         if cyc:
             raise HTTPException(422, f"cyclic dependency: {' → '.join(cyc)}")
-        i.status = IdeaStatus.BROKEN_DOWN
-        i.updated_at = _now()
+        transition_idea_status(i, IdeaStatus.BROKEN_DOWN, db, actor="user", source="breakdown")
         idea_event = emit_event(db, type="idea_broken_down", entity="idea", entity_id=idea_id,
                                 payload={"action": "broken_down",
                                          "task_ids": [t.id for t in created]})
