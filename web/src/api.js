@@ -30,7 +30,7 @@ export const api = {
   result: (rid, body) => req('POST', `/runs/${rid}/result`, body),
   nightPlan: (start, end) => req('GET', `/plans/night?start=${start}&end=${end}`),
   listIdeas: (params) => req('GET', '/ideas' + (params ? '?' + new URLSearchParams(params).toString() : '')),
-  getIdea: (id) => req('GET', `/ideas/${id}`),
+  getIdea: (id, params) => req('GET', `/ideas/${id}` + (params ? '?' + new URLSearchParams(params).toString() : '')),
   createIdea: (body) => req('POST', '/ideas', body),
   updateIdea: (id, body) => req('PATCH', `/ideas/${id}`, body),
   advanceIdea: (id, status) => req('POST', `/ideas/${id}/status`, { status }),
