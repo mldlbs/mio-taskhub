@@ -69,6 +69,10 @@ def _migrate_stage_column(target_engine=None):
             icols = {c["name"] for c in inspect(conn).get_columns("idea")}
             if "version" not in icols:
                 conn.execute(text("ALTER TABLE idea ADD COLUMN version INTEGER NOT NULL DEFAULT 1"))
+            if "last_reviewed_at" not in icols:
+                conn.execute(text("ALTER TABLE idea ADD COLUMN last_reviewed_at VARCHAR"))
+            if "review_count" not in icols:
+                conn.execute(text("ALTER TABLE idea ADD COLUMN review_count INTEGER NOT NULL DEFAULT 0"))
         # Discussion table: add stage/idea_id column if missing (existing installs).
         if "discussion" in tables:
             dcols = {c["name"] for c in inspect(conn).get_columns("discussion")}

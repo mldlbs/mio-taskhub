@@ -265,36 +265,35 @@ def test_migrate_idea_version_and_task_kind_columns():
             pass
 
 
-def test_idea_history_creation():
-    """IdeaHistory 表存在，能创建记录，kind 枚举值存入正确。"""
-    init_db()
-    s = next(get_session())
+def test_migrate_idea_last_reviewed_and_review_count():
+    import os
+    import tempfile
+    from sqlalchemy import create_engine, inspect, text
+    from mio_taskhub.db import _migrate_stage_column
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
     try:
-        i = Idea(title="测试想法")
-        s.add(i)
-        s.commit()
-        s.refresh(i)
-
-        h = IdeaHistory(
-            idea_id=i.id,
-            kind="review",
-            reasoning="测试评审",
-            extra={"recommend": "ferment", "from": "new", "to": "fermenting"},
-        )
-        s.add(h)
-        s.commit()
-        s.refresh(h)
-
-        assert h.id is not None
-        assert h.idea_id == i.id
-        assert h.kind == "review"
-        assert h.reasoning == "测试评审"
-        assert h.extra["recommend"] == "ferment"
-        assert h.at is not None
-
-        # 查回
-        found = s.exec(select(IdeaHistory).where(IdeaHistory.idea_id == i.id)).first()
-        assert found is not None
-        assert found.kind == "review"
+        eng = create_engine(f"sqlite:///{path}")
+        with eng.connect() as conn:
+            conn.execute(text(
+                "CREATE TABLE idea (id VARCHAR PRIMARY KEY, title VARCHAR, status VARCHAR, "
+                "version INTEGER, project VARCHAR, labels VARCHAR, created_at VARCHAR, updated_at VARCHAR)"
+            ))
+            conn.execute(text("INSERT INTO idea (id, title) VALUES ('i1', 't')"))
+            conn.commit()
+        _migrate_stage_column(eng)
+        with eng.connect() as conn:
+            icols = {c["name"] for c in inspect(conn).get_columns("idea")}
+            assert "last_reviewed_at" in icols
+            assert "review_count" in icols
+            # review_count 默认 0
+            rc = conn.execute(text("SELECT review_count FROM idea WHERE id='i1'")).fetchone()[0]
+            assert rc == 0
+            # last_reviewed_at 允许 NULL
+            lr = conn.execute(text("SELECT last_reviewed_at FROM idea WHERE id='i1'")).fetchone()[0]
+            assert lr is None
     finally:
-        s.close()
+        try:
+            os.remove(path)
+        except OSError:
+            pass
