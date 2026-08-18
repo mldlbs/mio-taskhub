@@ -19,13 +19,11 @@ hiddenimports = [
     "sqlalchemy.dialects.sqlite",
 ]
 
-mcp_hiddenimports = (
-    ["httpx", "mcp", "mcp.server.fastmcp", "pydantic"]
+all_hiddenimports = (
+    hiddenimports
+    + ["httpx", "mcp", "mcp.server.fastmcp", "pydantic",
+       "webview", "clr", "pythonnet", "pystray", "PIL", "PIL.Image"]
     + collect_submodules("mcp")
-)
-
-widget_hiddenimports = (
-    ["webview", "clr", "pythonnet", "pystray", "PIL", "PIL.Image"]
     + collect_submodules("webview")
 )
 
@@ -40,15 +38,18 @@ excludes = [
 widget_excludes = [x for x in excludes if x != "PIL"]
 
 a_hub = Analysis(
-    ["packaging/run_hub.py"],
+    ["packaging/run.py"],
     pathex=[SPECPATH],
     binaries=[],
-    datas=[(os.path.join(SPECPATH, "web", "dist"), "web/dist")],
-    hiddenimports=hiddenimports,
+    datas=[
+        (os.path.join(SPECPATH, "web", "dist"), "web/dist"),
+        (os.path.join(SPECPATH, "web", "public", "icon.ico"), "web/public"),
+    ],
+    hiddenimports=all_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=excludes,
+    excludes=widget_excludes,
     noarchive=False,
     optimize=0,
 )
@@ -61,68 +62,12 @@ exe_hub = EXE(
     name="mio-taskhub",
     console=False,
     disable_windowed_traceback=True,
-    icon=None,
-)
-
-a_mcp = Analysis(
-    ["packaging/run_mcp.py"],
-    pathex=[SPECPATH],
-    binaries=[],
-    datas=[],
-    hiddenimports=mcp_hiddenimports,
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
-    excludes=excludes,
-    noarchive=False,
-    optimize=0,
-)
-pyz_mcp = PYZ(a_mcp.pure)
-
-exe_mcp = EXE(
-    pyz_mcp,
-    a_mcp.scripts,
-    exclude_binaries=True,
-    name="mio-taskhub-mcp",
-    console=True,
-    disable_windowed_traceback=False,
-    icon=None,
-)
-
-a_widget = Analysis(
-    ["packaging/run_widget.py"],
-    pathex=[SPECPATH],
-    binaries=[],
-    datas=[(os.path.join(SPECPATH, "web", "public", "icon.ico"), "web/public")],
-    hiddenimports=widget_hiddenimports,
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
-    excludes=widget_excludes,
-    noarchive=False,
-    optimize=0,
-)
-pyz_widget = PYZ(a_widget.pure)
-
-exe_widget = EXE(
-    pyz_widget,
-    a_widget.scripts,
-    exclude_binaries=True,
-    name="mio-taskhub-widget",
-    console=False,
-    disable_windowed_traceback=True,
     icon=os.path.join(SPECPATH, "web", "public", "icon.ico"),
 )
 
 coll = COLLECT(
     exe_hub,
-    exe_mcp,
-    exe_widget,
     a_hub.binaries,
-    a_mcp.binaries,
-    a_widget.binaries,
     a_hub.datas,
-    a_mcp.datas,
-    a_widget.datas,
     name="mio-taskhub",
 )

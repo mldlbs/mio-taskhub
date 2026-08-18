@@ -35,11 +35,11 @@ $distDir = Join-Path $root 'dist\mio-taskhub'
 if (-not (Test-Path $distDir)) { throw "未找到打包产物: $distDir" }
 
 # ---------- 4) 复制分发文件 ----------
-Write-Host '[4/5] 复制分发文件 (setup 脚本 / 使用说明 / workbuddy skill) ...'
+Write-Host '[4/5] 复制分发文件 (setup 脚本 / 使用说明 / workbuddy skill / widget 入口) ...'
 $distFiles = @(
     'setup-agent.bat', 'setup-agent.ps1',
     'setup-opencode.bat', 'setup-opencode.ps1',
-    '使用说明.txt'
+    '使用说明.txt', 'mio-taskhub-widget.bat'
 )
 foreach ($f in $distFiles) {
     $src = Join-Path $root "packaging\$f"

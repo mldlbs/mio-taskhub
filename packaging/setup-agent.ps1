@@ -1,10 +1,11 @@
 ﻿# 一键配置各类 agent 连接 mio-taskhub
 # 自动检测：opencode / claude code / codex / workbuddy，有则配，无则跳过
 $ErrorActionPreference = 'Stop'
-$mcpExe = Join-Path $PSScriptRoot 'mio-taskhub-mcp.exe'
+$exe = Join-Path $PSScriptRoot 'mio-taskhub.exe'
+$exeArgs = @('mcp')
 
-if (-not (Test-Path $mcpExe)) {
-    Write-Host '[错误] 找不到 mio-taskhub-mcp.exe，请确认它在解压文件夹里。'
+if (-not (Test-Path $exe)) {
+    Write-Host '[错误] 找不到 mio-taskhub.exe，请确认它在解压文件夹里。'
     Read-Host '按回车退出'
     exit 1
 }
@@ -20,12 +21,12 @@ $done = $false
 $ocDir = Join-Path $env:USERPROFILE '.config\opencode'
 $ocCfg = Join-Path $ocDir 'opencode.jsonc'
 New-Item -ItemType Directory -Force -Path $ocDir | Out-Null
-$exeEscaped = $mcpExe.Replace('\', '\\')
+$exeEscaped = $exe.Replace('\', '\\')
 $ocEntry = @"
   "mcp": {
     "mio-taskhub": {
       "type": "local",
-      "command": ["$exeEscaped"],
+      "command": ["$exeEscaped", "mcp"],
       "enabled": true
     }
   }
@@ -62,8 +63,8 @@ else {
 
 # ---------- 2) codex ----------
 $cxCfg = Join-Path $env:USERPROFILE '.codex\config.toml'
-$tomlSingle = $mcpExe.Replace("'", "''")
-$tomlBlock = "`r`n[mcp_servers.mio-taskhub]`r`ncommand = '$tomlSingle'`r`nargs = []`r`n"
+$tomlSingle = $exe.Replace("'", "''")
+$tomlBlock = "`r`n[mcp_servers.mio-taskhub]`r`ncommand = '$tomlSingle'`r`nargs = ['mcp']`r`n"
 if (-not (Test-Path $cxCfg)) {
     New-Item -ItemType Directory -Force -Path (Split-Path $cxCfg) | Out-Null
     "`n$tomlBlock" | Set-Content -Path $cxCfg -Encoding UTF8
@@ -86,13 +87,13 @@ else {
 $claudeCmd = Get-Command claude -ErrorAction SilentlyContinue
 if ($claudeCmd) {
     try {
-        & claude mcp add mio-taskhub -- "$mcpExe" 2>$null | Out-Null
+        & claude mcp add mio-taskhub -- "$exe" mcp 2>$null | Out-Null
         Write-Host '[OK] claude code  → 已通过 claude mcp add 配置'
         $done = $true
     }
     catch {
         Write-Host '[跳过] claude code 自动配置失败，请手动执行:'
-        Write-Host "       claude mcp add mio-taskhub -- `"$mcpExe`""
+        Write-Host "       claude mcp add mio-taskhub -- `"$exe`" mcp"
     }
 }
 else {
@@ -103,7 +104,7 @@ else {
 $wbCfg = Join-Path $env:USERPROFILE '.workbuddy\mcp.json'
 if (-not (Test-Path $wbCfg)) {
     New-Item -ItemType Directory -Force -Path (Split-Path $wbCfg) | Out-Null
-    $wbObj = [ordered]@{ mcpServers = [ordered]@{ 'mio-taskhub' = [ordered]@{ command = $mcpExe; args = @() } } }
+    $wbObj = [ordered]@{ mcpServers = [ordered]@{ 'mio-taskhub' = [ordered]@{ command = $exe; args = @('mcp') } } }
     [IO.File]::WriteAllText($wbCfg, ($wbObj | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding($false)))
     Write-Host '[OK] workbuddy   → 已创建配置'
     $done = $true
@@ -119,7 +120,7 @@ else {
             if (-not $wbObj.mcpServers) {
                 $wbObj | Add-Member -NotePropertyName 'mcpServers' -NotePropertyValue @{}
             }
-            $wbObj.mcpServers | Add-Member -NotePropertyName 'mio-taskhub' -NotePropertyValue ([ordered]@{ command = $mcpExe; args = @() })
+            $wbObj.mcpServers | Add-Member -NotePropertyName 'mio-taskhub' -NotePropertyValue ([ordered]@{ command = $exe; args = @('mcp') })
             [IO.File]::WriteAllText($wbCfg, ($wbObj | ConvertTo-Json -Depth 8), (New-Object System.Text.UTF8Encoding($false)))
             Write-Host '[OK] workbuddy   → 已追加配置'
             $done = $true
@@ -127,7 +128,7 @@ else {
     }
     catch {
         Write-Host '[跳过] workbuddy 配置解析失败，请手动把下面内容加入 mcp.json:'
-        Write-Host "       `"mio-taskhub`": { `"command`": `"$mcpExe`", `"args`": [] }"
+        Write-Host "       `"mio-taskhub`": { `"command`": `"$exe`", `"args`": [`"mcp`"] }"
     }
 }
 

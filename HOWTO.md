@@ -88,9 +88,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1
 ```
 
 产物包含：
-- `mio-taskhub.exe`：任务中心 hub，双击启动 + 自动开浏览器
-- `mio-taskhub-mcp.exe`：MCP 服务端（agent 自动调用，人不用碰）
-- `mio-taskhub-widget.exe`：置顶浮动任务面板（可收进系统托盘）
+- `mio-taskhub.exe`：单 EXE，按参数分派三种功能
+  - 双击 → 任务中心 hub，自动开浏览器
+  - `mio-taskhub.exe mcp` → MCP 服务端（agent 经 stdio 调用，人不用碰）
+  - `mio-taskhub.exe widget` → 置顶浮动任务面板（可收进系统托盘）
+- `mio-taskhub-widget.bat`：双击启动浮动面板的入口
 - `setup-agent.bat`：一键识别并配置 opencode / claude code / codex / workbuddy（双击）
 - `使用说明.txt`：给最终用户的图文说明
 
@@ -98,14 +100,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1
 ③ 重启 agent 说"使用 mio-taskhub 领取任务"。全程免 Python、免联网。
 
 维护要点：
-- 唯一打包 spec 在根目录 `mio-taskhub.spec`（三个 EXE：hub/mcp/widget + excludes 瘦身），不要复制副本
-- 打包入口脚本在 `packaging/run_hub.py`（启动 hub）、`packaging/run_mcp.py`（MCP）、`packaging/run_widget.py`（浮动面板）
-- 一键打包脚本 `packaging/build.ps1`：先 `npm run build` 前端 → PyInstaller → 复制 setup 脚本/使用说明/workbuddy skill → 压缩 zip
+- 唯一打包 spec 在根目录 `mio-taskhub.spec`（单 EXE：hub/mcp/widget 三合一 + excludes 瘦身），不要复制副本
+- 统一入口在 `packaging/run.py`，按 `sys.argv[1]` 分派到 `run_hub.py`（hub）/ `mio_taskhub.mcp_server`（MCP）/ `run_widget.py`（面板）
+- 一键打包脚本 `packaging/build.ps1`：先 `npm run build` 前端 → PyInstaller → 复制 setup 脚本/使用说明/workbuddy skill/widget 入口 → 压缩 zip
 - 一键配置脚本 `packaging/setup-agent.ps1`：自动检测 opencode/claude code/codex/workbuddy 并写配置
-  （workbuddy 写 `~/.workbuddy/mcp.json` 的 mcpServers）；
+  （MCP 启动命令统一为 `mio-taskhub.exe mcp`，配置脚本已带 `mcp` 参数）；
   注意 .ps1 必须存为 **UTF-8 with BOM**，否则 PowerShell 5.1 按 ANSI 读取中文会解析失败；
   hash 键 `mio-taskhub` 带连字符必须加引号；向已有 JSON 对象追加块时记得补逗号
-- 无黑框模式（console=False）下 stdout 为 None，需在 run_hub.py 里重定向到日志文件，否则 uvicorn 日志配置会崩
+- 无黑框模式（console=False）下 stdout 为 None，需在 run.py 里重定向到日志文件，否则 uvicorn 日志配置会崩
+  （MCP 分支走 stdio 不做重定向，windowed 下管道句柄仍有效，已实测）
 - 前端改动后由 build.ps1 自动先 `cd web && npm run build` 再打包（Web UI 从 `web/dist` 打包进 exe）
 - 排除重型依赖（torch/pandas/scipy 等）见 spec 的 excludes，防止体积膨胀到 GB 级
 - 打包要求 Windows 64 位；Mac/Linux 用户需在对应系统重打

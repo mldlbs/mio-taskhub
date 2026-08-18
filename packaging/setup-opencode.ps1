@@ -1,9 +1,9 @@
 ﻿# one-click configure opencode for mio-taskhub
 $ErrorActionPreference = 'Stop'
-$mcpExe = Join-Path $PSScriptRoot 'mio-taskhub-mcp.exe'
+$exe = Join-Path $PSScriptRoot 'mio-taskhub.exe'
 
-if (-not (Test-Path $mcpExe)) {
-    Write-Host '[Error] cannot find mio-taskhub-mcp.exe in this folder.'
+if (-not (Test-Path $exe)) {
+    Write-Host '[Error] cannot find mio-taskhub.exe in this folder.'
     Read-Host 'Press Enter to exit'
     exit 1
 }
@@ -12,12 +12,12 @@ $configDir = Join-Path $env:USERPROFILE '.config\opencode'
 $config = Join-Path $configDir 'opencode.jsonc'
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
 
-$exeEscaped = $mcpExe.Replace('\', '\\')
+$exeEscaped = $exe.Replace('\', '\\')
 $entry = @"
   "mcp": {
     "mio-taskhub": {
       "type": "local",
-      "command": ["$exeEscaped"],
+      "command": ["$exeEscaped", "mcp"],
       "enabled": true
     }
   }
