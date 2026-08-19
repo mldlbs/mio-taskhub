@@ -51,6 +51,8 @@ function kahnLayers(tasks) {
 }
 
 export default function TopoView({ tasks, onOpen }) {
+  const [hoveredId, setHoveredId] = useState(null)
+  const [showAll, setShowAll] = useState(false)
   const { layers } = useMemo(() => kahnLayers(tasks), [tasks])
   const cpm = useMemo(() => computeCPM(tasks), [tasks])
   const critIds = useMemo(() => {
@@ -62,8 +64,6 @@ export default function TopoView({ tasks, onOpen }) {
     return new Set(cpm.criticalPath)
   }, [showAll, cpm])
   const byId = Object.fromEntries(tasks.map(t => [t.id, t]))
-  const [hoveredId, setHoveredId] = useState(null)
-  const [showAll, setShowAll] = useState(false)
   const isBlocked = (t) =>
     (t.depends_on || []).some(d => {
       const dep = byId[d]
