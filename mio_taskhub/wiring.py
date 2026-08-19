@@ -203,9 +203,14 @@ def _on_enqueue(task_id: str):
     pass
 
 
+from mio_taskhub.idea_review import IdeaReviewScanner
+
+
 def start_background_jobs():
     sweep = HeartbeatSweep(get_runs=_get_runs, on_timeout=_on_timeout, on_alive=_on_alive)
     scheduler = Scheduler(get_due_tasks=_get_due_tasks, on_enqueue=_on_enqueue)
+    idea_scanner = IdeaReviewScanner()
     sweep.start()
     scheduler.start()
-    return sweep, scheduler
+    idea_scanner.start()
+    return sweep, scheduler, idea_scanner
