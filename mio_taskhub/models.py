@@ -63,7 +63,7 @@ class TaskStage(str, enum.Enum):
 class TaskKind(str, enum.Enum):
     NORMAL = "normal"
     CHANGE_TRACKING = "change_tracking"
-    REVIEW = "review"
+    REVIEW = "idea_review"
 
 class SubtaskStatus(str, enum.Enum):
     PENDING = "pending"
@@ -250,6 +250,8 @@ class IdeaHistory(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     idea_id: str = Field(index=True)
     kind: str                                 # review/status/discussion/operation
+    actor: str = ""
+    content: str = ""
     reasoning: Optional[str] = None           # 决策摘要（非完整 CoT）
     extra: dict = Field(default_factory=dict, sa_column=Column(JSON))  # 结构化上下文
     at: datetime = Field(default_factory=_now, index=True)
