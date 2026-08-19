@@ -144,6 +144,56 @@ def _release_hub_lock(lock):
         pass
 
 
+def _probe_service(url) -> bool:
+    """探测端口上是自己的服务（返回 JSON 数组/任务特征）。"""
+    try:
+        import urllib.request
+
+        with urllib.request.urlopen(f"{url}/api/v1/tasks", timeout=2) as r:
+            body = r.read(200).decode("utf-8", "replace")
+            return r.status == 200 and body.strip().startswith("[")
+    except Exception:
+        return False
+
+
+def _reclaim_port(port):
+    """端口被残留进程占用（无响应或非本服务）时，杀掉占用者并接管。
+
+    返回 True 表示已清理成功（可重试启动），False 表示无法接管。
+    """
+    try:
+        import urllib.request
+        import json as _json
+        import subprocess as _sp
+
+        out = _sp.run(
+            ["powershell", "-NoProfile", "-Command",
+             f"Get-NetTCPConnection -LocalPort {port} -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess"],
+            capture_output=True, text=True, timeout=10,
+        )
+        pids = [int(x) for x in out.stdout.split() if x.strip().isdigit()]
+        for pid in pids:
+            if pid <= 0 or pid == os.getpid():
+                continue
+            info = _sp.run(
+                ["powershell", "-NoProfile", "-Command",
+                 f"(Get-Process -Id {pid} -ErrorAction SilentlyContinue).ProcessName"],
+                capture_output=True, text=True, timeout=10,
+            )
+            name = info.stdout.strip()
+            # 只清理 mio-taskhub 相关进程，绝不接管无关程序
+            if name.lower() in ("python", "mio-taskhub", "mio-taskhub.exe"):
+                _log(f"reclaim port {port}: kill pid={pid} name={name}")
+                try:
+                    _sp.run(["taskkill", "/pid", str(pid), "/f"], capture_output=True, timeout=10)
+                except Exception:
+                    pass
+        return True
+    except Exception as e:
+        _log(f"reclaim port failed: {e!r}")
+        return False
+
+
 def main():
     port = int(os.environ.get("MIO_TASKHUB_PORT", "48620"))
     url = f"http://127.0.0.1:{port}"
@@ -153,18 +203,37 @@ def main():
         # 已有 hub 在运行，静默退出（避免出现第二个托盘图标）
         return
 
-    if _port_in_use("127.0.0.1", port):
-        _msgbox(
-            "mio-taskhub",
-            f"端口 {port} 已被占用，可能任务中心已经在运行。\n\n"
-            f"请从系统托盘打开面板，或访问 {url}",
-        )
-        return
+    if _port_in_use("127.0.0.1", port) and not _probe_service(url):
+        # 端口被占用但服务无响应——大概率是残留进程占着端口，清理后接管
+        _log(f"port {port} busy, no healthy service -> reclaim")
+        if not _reclaim_port(port):
+            _msgbox(
+                "mio-taskhub",
+                f"端口 {port} 已被其他程序占用且无法自动接管。\n\n"
+                f"请关闭占用该端口的程序后重试。",
+            )
+            return
+        import time as _time
+
+        _time.sleep(2)
+
     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="info")
-    server = uvicorn.Server(config)
-    tray = _start_tray(url, {"server": server})
+    current = {"server": None}  # 可变的当前 server 引用，托盘/守卫共用
+    tray = _start_tray(url, current)
     try:
-        server.run()
+        # 守卫循环：uvicorn 崩溃/异常后退 2 秒自动重启，托盘持续驻留
+        while True:
+            server = uvicorn.Server(config)
+            current["server"] = server
+            try:
+                server.run()
+                break  # 正常退出（托盘「退出」设 should_exit）
+            except BaseException as e:
+                _log(f"hub crashed, restart in 2s: {e!r}")
+                import time as _time
+
+                _time.sleep(2)
+                continue
     finally:
         if tray is not None:
             try:
