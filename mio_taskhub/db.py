@@ -73,6 +73,13 @@ def _migrate_stage_column(target_engine=None):
                 conn.execute(text("ALTER TABLE idea ADD COLUMN last_reviewed_at DATETIME"))
             if "review_count" not in icols:
                 conn.execute(text("ALTER TABLE idea ADD COLUMN review_count INTEGER NOT NULL DEFAULT 0"))
+        # IdeaHistory table: add actor/content columns if missing (existing installs).
+        if "ideahistory" in tables:
+            icols = {c["name"] for c in inspect(conn).get_columns("ideahistory")}
+            if "actor" not in icols:
+                conn.execute(text("ALTER TABLE ideahistory ADD COLUMN actor VARCHAR NOT NULL DEFAULT ''"))
+            if "content" not in icols:
+                conn.execute(text("ALTER TABLE ideahistory ADD COLUMN content VARCHAR NOT NULL DEFAULT ''"))
         # Discussion table: add stage/idea_id column if missing (existing installs).
         if "discussion" in tables:
             dcols = {c["name"] for c in inspect(conn).get_columns("discussion")}

@@ -299,6 +299,39 @@ def test_migrate_idea_last_reviewed_and_review_count():
             pass
 
 
+def test_migrate_ideahistory_actor_content_columns():
+    """旧库 ideahistory 表补齐 actor/content 列。"""
+    import os
+    import tempfile
+    from sqlalchemy import create_engine, inspect, text
+    from mio_taskhub.db import _migrate_stage_column
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        eng = create_engine(f"sqlite:///{path}")
+        with eng.connect() as conn:
+            conn.execute(text(
+                "CREATE TABLE ideahistory (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "idea_id VARCHAR, kind VARCHAR, reasoning VARCHAR, extra VARCHAR, at VARCHAR)"
+            ))
+            conn.execute(text(
+                "INSERT INTO ideahistory (idea_id, kind) VALUES ('i1', 'review')"
+            ))
+            conn.commit()
+        _migrate_stage_column(eng)
+        with eng.connect() as conn:
+            icols = {c["name"] for c in inspect(conn).get_columns("ideahistory")}
+            assert "actor" in icols
+            assert "content" in icols
+            row = conn.execute(text("SELECT actor, content FROM ideahistory WHERE idea_id='i1'")).fetchone()
+            assert row[0] == "" and row[1] == ""
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
 def test_transition_idea_status_records_history():
     """transition_idea_status 为唯一入口：状态变更 + kind=status 历史记录。"""
     from mio_taskhub.api.ideas import transition_idea_status
