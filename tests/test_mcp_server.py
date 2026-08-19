@@ -313,3 +313,25 @@ def test_update_idea_versioning_tool(mcp_ctx):
     assert d2["version"] == 2
     d3 = _call("taskhub_update_idea", {"idea_id": iid, "description": "v4"})
     assert d3["version"] == 3   # 省略 versioning → 后端默认 full，版本递增
+
+
+def test_review_idea_tools_flow(mcp_ctx):
+    iid = _call("taskhub_add_idea", {"title": "MCP 评审"})["id"]
+    ctx = _call("taskhub_review_idea", {"idea_id": iid})
+    assert ctx["idea"]["title"] == "MCP 评审"
+    assert "checklist" in ctx and "recommend_options" in ctx
+    r = _call("taskhub_submit_review",
+              {"idea_id": iid, "recommend": "ferment", "reasoning": "ok"})
+    assert r["status"] == "fermenting"
+    assert r["review_count"] == 1
+    hist = _call("taskhub_idea_history", {"idea_id": iid})
+    assert hist["count"] == 2
+
+
+def test_review_idea_history_paged(mcp_ctx):
+    iid = _call("taskhub_add_idea", {"title": "paged"})["id"]
+    for _ in range(3):
+        _call("taskhub_submit_review", {"idea_id": iid, "recommend": "nothing"})
+    hist = _call("taskhub_idea_history", {"idea_id": iid, "page": 2, "page_size": 2})
+    assert hist["count"] == 3
+    assert len(hist["items"]) == 1

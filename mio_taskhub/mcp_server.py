@@ -718,6 +718,61 @@ async def taskhub_breakdown_idea(
     return _fmt(data)
 
 
+@mcp.tool(name="taskhub_review_idea", title="获取想法评审上下文", annotations={
+    "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False,
+})
+async def taskhub_review_idea(
+    idea_id: str = Field(description="想法唯一标识", min_length=1),
+) -> str:
+    """返回想法详情 + 讨论 + 最近轨迹 + 4 项判定清单，供评审 agent 使用。"""
+    detail = await _request("GET", f"/ideas/{idea_id}")
+    if "error" in detail:
+        return _fmt(detail)
+    hist = await _request("GET", f"/ideas/{idea_id}/history",
+                          params={"page": 1, "page_size": 20})
+    items = hist.get("items", []) if "error" not in hist else []
+    return _fmt({
+        "idea": detail,
+        "discussion_count": len(detail.get("discussions", [])),
+        "recent_history": items,
+        "checklist": [
+            "1) 描述是否完整（背景/目标/边界）？",
+            "2) 讨论是否活跃（消息数与结论）？",
+            "3) 存活时长是否足够发酵？",
+            "4) 是否与既有想法/任务重复？",
+        ],
+        "recommend_options": ["nothing", "ferment", "form", "archive"],
+    })
+
+
+@mcp.tool(name="taskhub_submit_review", title="提交想法评审结论", annotations={
+    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
+})
+async def taskhub_submit_review(
+    idea_id: str = Field(description="想法唯一标识", min_length=1),
+    recommend: str = Field(description="评审结论：nothing/ferment/form/archive（hub 只推进当前状态下一档）"),
+    reasoning: str = Field(default="", description="评审依据/决策摘要"),
+) -> str:
+    """提交评审结论。状态推进 + kind=review 轨迹 + 评审元数据在同一事务内完成。"""
+    body = {"recommend": recommend, "reasoning": reasoning, "actor": "agent"}
+    data = await _request("POST", f"/ideas/{idea_id}/review", body=body)
+    return _fmt(data)
+
+
+@mcp.tool(name="taskhub_idea_history", title="查询想法完整轨迹", annotations={
+    "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False,
+})
+async def taskhub_idea_history(
+    idea_id: str = Field(description="想法唯一标识", min_length=1),
+    page: int = Field(default=1, ge=1, description="页码"),
+    page_size: int = Field(default=50, ge=1, le=200, description="每页条数"),
+) -> str:
+    """查询想法的评审/流转/讨论/操作完整轨迹（时间线，新的在前）。"""
+    data = await _request("GET", f"/ideas/{idea_id}/history",
+                          params={"page": page, "page_size": page_size})
+    return _fmt(data)
+
+
 def main():
     mcp.run()
 
