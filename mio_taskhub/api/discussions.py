@@ -109,6 +109,8 @@ def close_discussion(discussion_id: str, body: dict, db: Session = Depends(get_s
         db.add(IdeaHistory(
             idea_id=d.idea_id,
             kind="discussion",
+            actor=body.get("actor", "") or "user",
+            content=f"讨论《{d.topic}》已关闭",
             reasoning=d.conclusions or None,
             extra={"discussion_id": discussion_id, "conclusions": d.conclusions, "topic": d.topic},
         ))

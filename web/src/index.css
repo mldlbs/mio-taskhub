@@ -1584,6 +1584,10 @@ body { font-size: 15px; }
   overflow-y: auto;
 }
 
+.idea-detail__hist { margin-top: 18px; }
+.hist-row__content { font-size: 12px; color: var(--ink); }
+.hist-row__more { font-size: 10.5px; color: var(--ink-faint); padding: 4px 0 8px; }
+
 /* ============================================================
    v6 — 研发流程：Flow 泳道 · 阶段进度条
    ============================================================ */

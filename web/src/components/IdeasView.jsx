@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { api } from '../api'
-import { fmtAgo } from '../constants'
+import { fmtAgo, fmtDate } from '../constants'
 
 const IDEA_META = {
   new:        { label: '记录中', tone: 'dim' },
@@ -12,6 +12,7 @@ const IDEA_META = {
 }
 const NEXT_STATUS = { new: 'fermenting', fermenting: 'formed', formed: 'broken_down' }
 const ROLE_LABEL = { user: '你', agent: 'agent', ask: 'agent 提问' }
+const KIND_LABEL = { review: '评审', status: '状态流转', discussion: '讨论', operation: '操作' }
 
 export default function IdeasView({ ideas, onReload }) {
   const [creating, setCreating] = useState(false)
@@ -26,6 +27,7 @@ export default function IdeasView({ ideas, onReload }) {
   const [showHistory, setShowHistory] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editForm, setEditForm] = useState({ title: '', description: '', reason: '' })
+  const [hist, setHist] = useState(null)
 
   const fail = useCallback((e) => setErr(e.message || '操作失败'), [])
 
@@ -35,12 +37,18 @@ export default function IdeasView({ ideas, onReload }) {
     setSubmitting(false)
     setShowHistory(false)
     setEditing(false)
-    try { setDetail(await api.getIdea(id)); setErr(null) } catch (e) { fail(e) }
+    try {
+      const [d, h] = await Promise.all([api.getIdea(id), api.ideaHistory(id)])
+      setDetail(d); setHist(h); setErr(null)
+    } catch (e) { fail(e) }
   }, [fail])
 
   const reloadDetail = useCallback(async () => {
     if (!detail) return
-    try { setDetail(await api.getIdea(detail.id)) } catch (e) { /* 静默 */ }
+    try {
+      const [d, h] = await Promise.all([api.getIdea(detail.id), api.ideaHistory(detail.id)])
+      setDetail(d); setHist(h)
+    } catch (e) { /* 静默 */ }
   }, [detail])
 
   const submitIdea = async () => {
@@ -188,6 +196,9 @@ export default function IdeasView({ ideas, onReload }) {
                 </span>
               </div>
               {detail.project && <div className="idea-card__project">项目：{detail.project}</div>}
+              {detail.last_reviewed_at && (
+                <div className="idea-card__project">上次评审：{fmtDate(detail.last_reviewed_at)}</div>
+              )}
               <p className="idea-detail__desc">{detail.description || '（暂无描述）'}</p>
 
               <div className="idea-detail__history">
@@ -268,6 +279,32 @@ export default function IdeasView({ ideas, onReload }) {
                 ))}
                 {(!detail.discussions || detail.discussions.length === 0) && (
                   <div className="ideas__empty">还没有讨论。开一个会，把想法拉上 agent 一起头脑风暴。</div>
+                )}
+              </div>
+
+              <div className="idea-detail__hist">
+                <div className="idea-detail__disc-head"><span>轨迹（{hist?.count || 0}）</span></div>
+                {(hist?.items || []).length === 0 && <div className="ideas__empty">还没有轨迹记录。</div>}
+                {hist && hist.items && hist.items.length > 0 && (
+                  <div className="drawer__timeline">
+                    {hist.items.map(h => (
+                      <div key={h.id} className="hist-row">
+                        <span className="hist-row__dot" aria-hidden="true" />
+                        <div className="hist-row__body">
+                          <div className="hist-row__head">
+                            <b>{KIND_LABEL[h.kind] || h.kind}</b>
+                            <span className="hist-row__at mono">{fmtDate(h.at)}</span>
+                            {h.actor && <span className="tag">{h.actor}</span>}
+                          </div>
+                          <div className="hist-row__content">{h.content}</div>
+                          {h.reasoning && <pre className="hist-row__payload mono">{h.reasoning}</pre>}
+                        </div>
+                      </div>
+                    ))}
+                    {hist.count > hist.items.length && (
+                      <div className="hist-row__more">… 更早的记录请用 MCP taskhub_idea_history 查询</div>
+                    )}
+                  </div>
                 )}
               </div>
 

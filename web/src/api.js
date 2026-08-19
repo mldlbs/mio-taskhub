@@ -40,4 +40,6 @@ export const api = {
   replyDiscussion: (id, body) => req('POST', `/discussions/${id}/messages`, body),
   closeDiscussion: (id, body) => req('POST', `/discussions/${id}/close`, body),
   breakdownIdea: (id, body) => req('POST', `/ideas/${id}/breakdown`, body),
+  ideaHistory: (id, page = 1, pageSize = 20) =>
+    req('GET', `/ideas/${id}/history?page=${page}&page_size=${pageSize}`),
 }

@@ -246,6 +246,8 @@ def submit_review(idea_id: str, body: dict, db: Session = Depends(get_session)):
         db.add(IdeaHistory(
             idea_id=idea_id,
             kind="review",
+            actor=actor,
+            content=f"评审：暂不推进（recommend=nothing）",
             reasoning=reasoning,
             extra={"recommend": "nothing"},
         ))
@@ -274,6 +276,8 @@ def submit_review(idea_id: str, body: dict, db: Session = Depends(get_session)):
     db.add(IdeaHistory(
         idea_id=idea_id,
         kind="status",
+        actor=actor,
+        content=f"评审推进：{from_status} → {dst.value}",
         reasoning=None,
         extra={"from": from_status, "to": dst.value, "source": "review"},
     ))
@@ -281,6 +285,8 @@ def submit_review(idea_id: str, body: dict, db: Session = Depends(get_session)):
     db.add(IdeaHistory(
         idea_id=idea_id,
         kind="review",
+        actor=actor,
+        content=f"评审 recommend={recommend}",
         reasoning=reasoning,
         extra={"recommend": recommend, "from": from_status, "to": dst.value},
     ))
@@ -304,6 +310,8 @@ def transition_idea_status(idea: Idea, dst: IdeaStatus, db: Session, actor: str 
     db.add(IdeaHistory(
         idea_id=idea.id,
         kind="status",
+        actor=actor,
+        content=f"{from_status} → {dst.value}",
         reasoning=None,
         extra={"from": from_status, "to": dst.value, "source": source},
     ))
@@ -339,6 +347,8 @@ def get_idea_history(idea_id: str, page: int = 1, page_size: int = 50, db: Sessi
         "items": [{
             "id": h.id,
             "kind": h.kind,
+            "actor": h.actor,
+            "content": h.content,
             "reasoning": h.reasoning,
             "extra": h.extra,
             "at": h.at.isoformat(),
