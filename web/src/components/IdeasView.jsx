@@ -41,6 +41,8 @@ export default function IdeasView({ ideas, onReload }) {
   const [editing, setEditing] = useState(false)
   const [editForm, setEditForm] = useState({ title: '', description: '', reason: '' })
   const [hist, setHist] = useState(null)
+  // 列表类型过滤：all / idea / adr
+  const [typeFilter, setTypeFilter] = useState('all')
   // ADR 相关状态
   const [showEvolveModal, setShowEvolveModal] = useState(false)
   const [adrForm, setAdrForm] = useState({ madr_context: '', madr_decision: '', madr_consequences: '', reason: '' })
@@ -199,6 +201,9 @@ export default function IdeasView({ ideas, onReload }) {
   const next = NEXT_STATUS[detail?.status]
   const nextMeta = next ? IDEA_META[next] : null
 
+  const filtered = typeFilter === 'all' ? ideas : ideas.filter(i => i.idea_type === typeFilter)
+  const adrCount = ideas.filter(i => i.idea_type === 'adr').length
+
   return (
     <div className="ideas">
       {err && <div className="errorbar" role="alert"><span>▲</span><span>{err}</span><button onClick={() => setErr(null)} aria-label="关闭">×</button></div>}
@@ -206,6 +211,19 @@ export default function IdeasView({ ideas, onReload }) {
       <div className="ideas__top">
         <h2 className="ideas__title">想法与需求</h2>
         <button className="btn btn--primary" onClick={() => setCreating(c => !c)}>{creating ? '取消' : '+ 记个想法'}</button>
+      </div>
+
+      <div className="ideas__filter">
+        {[
+          { k: 'all', label: `全部 ${ideas.length}` },
+          { k: 'idea', label: `想法 ${ideas.length - adrCount}` },
+          { k: 'adr', label: `ADR ${adrCount}` },
+        ].map(f => (
+          <button key={f.k} className={`ideas__filter-btn${typeFilter === f.k ? ' is-on' : ''}`}
+            onClick={() => setTypeFilter(f.k)} aria-pressed={typeFilter === f.k}>
+            {f.label}
+          </button>
+        ))}
       </div>
 
       {creating && (
@@ -224,14 +242,18 @@ export default function IdeasView({ ideas, onReload }) {
 
       <div className="ideas__cols">
         <div className="ideas__list">
-          {ideas.length === 0 && <div className="ideas__empty">还没有想法。点右上角「记个想法」，随手把需求、点子、改进记下来。</div>}
-          {ideas.map(i => {
-            const m = IDEA_META[i.status] || IDEA_META.new
+          {filtered.length === 0 && <div className="ideas__empty">{typeFilter === 'adr' ? '还没有 ADR。把想法推进到「已成形」后可演化为 ADR。' : '还没有想法。点右上角「记个想法」，随手把需求、点子、改进记下来。'}</div>}
+          {filtered.map(i => {
+            const isAdr = i.idea_type === 'adr'
+            const m = isAdr
+              ? (ADR_STATUS_META[i.adr_status] || ADR_STATUS_META.proposed)
+              : (IDEA_META[i.status] || IDEA_META.new)
             return (
-              <button key={i.id} className={`idea-card${detail?.id === i.id ? ' is-active' : ''}`} onClick={() => openDetail(i.id)}>
+              <button key={i.id} className={`idea-card${detail?.id === i.id ? ' is-active' : ''}${isAdr ? ' idea-card--adr' : ''}`} onClick={() => openDetail(i.id)}>
                 <div className="idea-card__head">
+                  {isAdr && i.adr_number != null && <span className="tag tag--version adr-num">ADR-{String(i.adr_number).padStart(3, '0')}</span>}
                   <span className="idea-card__title">{i.title}</span>
-                  {i.version > 1 && <span className="tag tag--version">v{i.version}</span>}
+                  {!isAdr && i.version > 1 && <span className="tag tag--version">v{i.version}</span>}
                   <span className={`badge badge--${m.tone}`}>{m.label}</span>
                 </div>
                 {i.project && <div className="idea-card__project">{i.project}</div>}
@@ -249,6 +271,9 @@ export default function IdeasView({ ideas, onReload }) {
           {detail && (
             <>
               <div className="idea-detail__head">
+                {detail.idea_type === 'adr' && detail.adr_number != null && (
+                  <span className="tag tag--version adr-num">ADR-{String(detail.adr_number).padStart(3, '0')}</span>
+                )}
                 <h3>{detail.title}</h3>
                 <span className="tag tag--version">v{detail.version}</span>
                 <span className={`badge badge--${(IDEA_META[detail.status] || IDEA_META.new).tone}`}>

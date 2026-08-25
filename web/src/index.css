@@ -1928,6 +1928,12 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 .ideas { height: 100%; display: flex; flex-direction: column; gap: 12px; }
+.ideas__filter { display: flex; gap: 6px; }
+.ideas__filter-btn { padding: 4px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-dim); cursor: pointer; transition: all 0.18s var(--ease); }
+.ideas__filter-btn:hover { color: var(--ink); border-color: var(--line-strong); }
+.ideas__filter-btn.is-on { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-soft); }
+.adr-num { flex: none; font-weight: 600; }
+.idea-card--adr { border-left: 2px solid var(--accent-soft); }
 .ideas__top { display: flex; align-items: center; justify-content: space-between; }
 .ideas__title { font-size: 16px; font-weight: 700; margin: 0; }
 .ideas__create { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-soft); }
