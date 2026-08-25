@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { LANES, fmtTime } from '../constants'
+import { api } from '../api'
+import { fmtTime } from '../constants'
 
 function useClock() {
   const [now, setNow] = useState(() => new Date())
@@ -10,14 +11,23 @@ function useClock() {
   return now
 }
 
-export default function MissionBar({ tasks, ws, lastSync, refreshing, onRefresh, onOpenModal, onFocusLane,
+export default function MissionBar({ tasks, ws, lastSync, refreshing, onRefresh, onOpenModal,
                                      filter, onFilterChange, projectOptions, workspaceOptions }) {
   const now = useClock()
-  const counts = Object.fromEntries(LANES.map(l => [l.id, 0]))
-  tasks.forEach(t => { if (counts[t.state] != null) counts[t.state] += 1 })
   const total = tasks.length
   const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
-
+  const [summary, setSummary] = useState(null)
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    const fetch = () => api.boardSummary().then(d => { if (!cancelled) setSummary(d) }).catch(() => {})
+    fetch()
+    const t = setInterval(fetch, 8000)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [])
+  const q = summary?.ready_queue || []
+  const running = summary?.running || []
+  const alerts = summary?.alerts || []
   return (
     <header className="mission">
       <div className="mission__brand">
@@ -26,20 +36,6 @@ export default function MissionBar({ tasks, ws, lastSync, refreshing, onRefresh,
           <h1 className="mission__name">MIO<em>·</em>HUB</h1>
           <span className="mission__sub">cross-agent task bus</span>
         </div>
-      </div>
-
-      <div className="mission__meters" aria-label="任务统计，点击可跳转到对应列">
-        {LANES.map(l => (
-          <button
-            key={l.id}
-            className={`meter${l.tone === 'live' ? ' is-live' : ''}`}
-            title={`${l.label} · 点击跳转`}
-            onClick={() => onFocusLane && onFocusLane(l.id)}
-          >
-            <span className="meter__label">{l.en}</span>
-            <span key={counts[l.id]} className="meter__value">{counts[l.id]}</span>
-          </button>
-        ))}
       </div>
 
       <div className="mission__filters" aria-label="按项目/工作区筛选">
@@ -73,6 +69,45 @@ export default function MissionBar({ tasks, ws, lastSync, refreshing, onRefresh,
           <span className="mono" style={{ color: 'var(--ink-faint)' }}>×{total}</span>
         </div>
 
+        <div className="queue-capsule">
+          <button className={`queue-capsule__pill${alerts.length ? ' has-alert' : ''}`} onClick={() => setOpen(v => !v)} aria-label="调度队列">
+            <span>队列 {q.length}</span>
+            <span className="queue-capsule__sep">·</span>
+            <span>运行 {running.length}</span>
+            {alerts.length > 0 && <span className="queue-capsule__alert">⚠{alerts.length}</span>}
+            <span className="queue-capsule__chev">{open ? '▴' : '▾'}</span>
+          </button>
+          {open && (
+            <div className="queue-capsule__pop" role="dialog" aria-label="调度详情">
+              <div className="queue-capsule__sec">
+                <div className="queue-capsule__title">调度队列 · {q.length}（按优先级）</div>
+                {q.length ? (
+                  <ol className="queue-capsule__list">
+                    {q.slice(0, 8).map(it => (
+                      <li key={it.id} className="queue-capsule__item"><span className="queue-capsule__p">P{it.priority}</span>{it.title}</li>
+                    ))}
+                  </ol>
+                ) : <div className="queue-capsule__empty">暂无排队</div>}
+                {q.length > 8 && <div className="queue-capsule__more">…还有 {q.length - 8} 个</div>}
+              </div>
+              {running.length > 0 && (
+                <div className="queue-capsule__sec">
+                  <div className="queue-capsule__title">执行中 · {running.length}</div>
+                  <ul className="queue-capsule__list">
+                    {running.slice(0, 5).map(r => <li key={r.id} className="queue-capsule__item is-running"><span className="queue-capsule__dot" />{r.title}</li>)}
+                  </ul>
+                </div>
+              )}
+              {alerts.length > 0 && (
+                <div className="queue-capsule__sec is-alert">
+                  <div className="queue-capsule__title">告警 · {alerts.length}</div>
+                  {alerts.slice(0, 3).map((a, i) => <div key={i} className="queue-capsule__alert-row">⚠ {a.message}</div>)}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="sync">
           <span className="sync__txt">{lastSync ? `SYNC ${fmtTime(lastSync.toISOString())}` : 'SYNC …'}</span>
           <button
@@ -102,6 +137,7 @@ export default function MissionBar({ tasks, ws, lastSync, refreshing, onRefresh,
           }}
         >＋ 新建任务</button>
       </div>
+
     </header>
   )
 }

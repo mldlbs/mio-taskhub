@@ -19,10 +19,19 @@ def _parse_hm(s: str, default: time) -> time:
     except Exception:
         return default
 
+@router.get("/projects")
+def list_projects(db: Session = Depends(get_session)):
+    q = select(Task.project).where(Task.state.in_(PLANNABLE), Task.project != "")
+    rows = db.exec(q).all()
+    return sorted(set(rows))
+
 @router.get("/night")
 def night_plan(start: str = Query("22:00"), end: str = Query("07:00"),
-               task_ids: str = Query(None), db: Session = Depends(get_session)):
+               task_ids: str = Query(None), project: str = Query(None),
+               db: Session = Depends(get_session)):
     q = select(Task).where(Task.state.in_(PLANNABLE))
+    if project:
+        q = q.where(Task.project == project)
     tasks = db.exec(q).all()
     pool = []
     wanted = {x.strip() for x in task_ids.split(",")} if task_ids else None
@@ -41,7 +50,8 @@ def night_plan(start: str = Query("22:00"), end: str = Query("07:00"),
         "has_overflow": plan.has_overflow,
         "items": [
             {"task_id": i.task_id, "title": i.title, "est_duration_min": i.est_duration_min,
-             "scheduled_start": i.scheduled_start, "scheduled_end": i.scheduled_end}
+             "scheduled_start": i.scheduled_start, "scheduled_end": i.scheduled_end,
+             "project": next((t.get("project", "") for t in pool if t["id"] == i.task_id), "")}
             for i in plan.items
         ],
     }

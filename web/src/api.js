@@ -34,7 +34,12 @@ export const api = {
   retryTask: (id) => req('POST', `/tasks/${id}/retry`, {}),
   heartbeat: (rid, body) => req('POST', `/runs/${rid}/heartbeat`, body),
   result: (rid, body) => req('POST', `/runs/${rid}/result`, body),
-  nightPlan: (start, end) => req('GET', `/plans/night?start=${start}&end=${end}`),
+  nightPlan: (start, end, project) => {
+    let url = `/plans/night?start=${start}&end=${end}`;
+    if (project) url += `&project=${encodeURIComponent(project)}`;
+    return req('GET', url);
+  },
+  listProjects: () => req('GET', '/plans/projects'),
   listIdeas: (params) => req('GET', '/ideas' + (params ? '?' + new URLSearchParams(params).toString() : '')),
   getIdea: (id, params) => req('GET', `/ideas/${id}` + (params ? '?' + new URLSearchParams(params).toString() : '')),
   createIdea: (body) => req('POST', '/ideas', body),

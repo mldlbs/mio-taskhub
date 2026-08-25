@@ -1,5 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { LANES, STATE_META, prio, fmtDur, fmtDate } from '../constants'
+import { api } from '../api'
+import DependencyGraph from './DependencyGraph'
 
 const tone = (s) => STATE_META[s]?.tone || 'dim'
 const ACTIVE = ['queued', 'claimed', 'running', 'retrying']
@@ -29,7 +31,7 @@ function payloadText(p) {
   return typeof p === 'string' ? p : JSON.stringify(p)
 }
 
-export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onToggleSubtask, onAdvance }) {
+export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onToggleSubtask, onAdvance, onOpenDocs, onOpenTask, onRetry }) {
   const closeRef = useRef(null)
 
   useEffect(() => {
@@ -50,6 +52,22 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
   const st = tone(task.state)
   const cancellable = task.state === 'queued' || task.state === 'claimed' || task.state === 'retrying'
   const movable = ACTIVE.includes(task.state)
+  const retryable = task.state === 'failed' || task.state === 'retrying'
+  const [retryCountdown, setRetryCountdown] = useState(task.retry_countdown ?? null)
+  useEffect(() => {
+    if (task.state !== 'retrying' || !task.retry_at) {
+      setRetryCountdown(null)
+      return
+    }
+    const tick = () => {
+      const rt = new Date(task.retry_at)
+      const diff = Math.max(0, Math.floor((rt - new Date()) / 1000))
+      setRetryCountdown(diff)
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [task.retry_at, task.state])
   const due = task.due_at ? new Date(task.due_at) : null
   const overdue = !!due && !Number.isNaN(+due) && due < new Date()
   const hasCtx = task.project || task.workspace || (task.files && task.files.length) || (task.deliverables && task.deliverables.length)
@@ -79,6 +97,12 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
           <div className="kv"><span>创建时间</span><b className="mono">{fmtDate(task.created_at)}</b></div>
           <div className="kv"><span>尝试次数</span><b className="mono">{task.attempt ?? 0} / {task.max_retries ?? 3}</b></div>
           <div className="kv"><span>最大重试</span><b className="mono">{task.max_retries ?? 3}</b></div>
+          {task.retry_at && task.state === 'retrying' && (
+            <div className="kv"><span>下次重试</span><b className="mono">{fmtDate(task.retry_at)} {retryCountdown !== null ? `(${retryCountdown}s 后)` : ''}</b></div>
+          )}
+          {task.retry_backoff_seconds && task.state === 'retrying' && (
+            <div className="kv"><span>退避间隔</span><b className="mono">{task.retry_backoff_seconds}s (2^{task.attempt}×2)</b></div>
+          )}
           {due && (
             <div className={`kv${overdue ? ' is-due' : ''}`}>
               <span>截止时间</span>
@@ -94,10 +118,34 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
           </div>
         )}
 
-        {task.spec_path && <div className="kv"><span>Spec</span><b className="mono">{task.spec_path}</b></div>}
-        {task.plan_path && <div className="kv"><span>Plan</span><b className="mono">{task.plan_path}</b></div>}
+        {(task.spec_path || task.plan_path || task.workspace) && (
+          <section className="drawer__sec">
+            <button className="btn btn--primary" onClick={onOpenDocs}>查看文档 · Spec / Plan / 自动发现</button>
+          </section>
+        )}
         {task.review_result && (
           <div className="drawer__sec"><h3>审查结论</h3><p>{task.review_result}</p></div>
+        )}
+
+        {task.runs && task.runs.length > 0 && (
+          <section className="drawer__sec">
+            <h3>完成报告 · {task.runs.length} 次执行</h3>
+            {task.runs.map(r => {
+              const ok = r.state === 'FINISHED' && (r.exit_code ?? 0) === 0
+              return (
+                <div key={r.id} className={`run-report${ok ? ' is-ok' : r.exit_code ? ' is-fail' : ''}`}>
+                  <div className="run-report__head">
+                    <b className="mono">{r.agent_name || 'agent'}</b>
+                    <span className={`chip${ok ? ' disc-status' : r.exit_code ? ' chip--due' : ''}`}>{r.state}{r.attempt > 1 ? ` · 第 ${r.attempt} 次` : ''}</span>
+                    <span className="hist-row__at mono">
+                      {r.started_at ? fmtDate(r.started_at) : ''}{r.finished_at ? ` → ${fmtDate(r.finished_at)}` : ''}
+                    </span>
+                  </div>
+                  {r.result && <pre className="run-report__body mono">{r.result}</pre>}
+                </div>
+              )
+            })}
+          </section>
         )}
 
         {task.labels && task.labels.length > 0 && (
@@ -160,12 +208,15 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
                 return (
                   <li key={did}>
                     <span>{dep ? dep.title : did}</span>
-                    <span className="tag">{dep ? (dep.state === 'completed' || dep.stage === 'done' ? '已完成' : dep.state) : '未知'}</span>
+                    <span className="tag">{dep ? (dep.state === 'completed' || dep.stage === 'done' ? '已完成' : dep.state) : '缺失'}</span>
                   </li>
                 )
               })}
             </ul>
           )}
+          <div style={{ marginTop: 12 }}>
+            <DependencyGraph task={task} tasks={tasks} onOpen={onOpenTask} />
+          </div>
         </section>
 
         {task.subtasks && task.subtasks.length > 0 && (
@@ -244,6 +295,15 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
         )}
 
         <footer className="drawer__foot">
+          {retryable && onRetry && (
+            <button
+              className="btn btn--primary"
+              onClick={async () => { try { await onRetry(task.id); onClose() } catch (e) { /* error handled by App */ } }}
+            >重试</button>
+          )}
+          {task.state === 'retrying' && retryCountdown !== null && (
+            <span className="mono" style={{ fontSize: 12, opacity: .7 }}>{retryCountdown}s 后自动重入队列</span>
+          )}
           {task.stage && !['done','cancelled'].includes(task.stage) && onAdvance && (
             <button className="btn btn--ghost" onClick={() => onAdvance(task)}>推进阶段 →</button>
           )}

@@ -147,25 +147,37 @@ async def taskhub_agent_heartbeat(
 )
 async def taskhub_claim(
     agent: str = Field(description="当前 agent 名称，需先注册", min_length=1, max_length=64),
-    agent_type: Optional[str] = Field(default=None, description="若设置，只领取匹配该类型的任务", max_length=32),
+    agent_type: Optional[str] = Field(default=None, description="若设置，只领取匹配该类型的任务；不传则自动回查注册 agent_type", max_length=32),
+    task_id: Optional[str] = Field(default=None, description="指定领取某个任务（按 id 直接认领，无视阶段），用于点名提取特定任务", max_length=64),
     project: Optional[str] = Field(default=None, description="关联项目名", max_length=200),
     workspace: Optional[str] = Field(default=None, description="工作区根路径", max_length=500),
     files: Optional[str] = Field(default=None, description="逗号分隔的文件路径列表", max_length=2000),
 ) -> str:
-    """按优先级 + FIFO 领取一个排队任务，并返回 Run 上下文（含任务详情）。
+    """按关联度 + 优先级 + FIFO 领取一个排队任务，或按 task_id 直接认领指定任务，并返回 Run 上下文（含任务详情）。
 
     若该 agent 已有进行中的 run，会返回同一个 run（幂等）。hub 调度器可能已
     为你自动分配任务（task_assigned 事件），调用本工具会优先返回已分配 run。
     无可用任务时返回空结果。
 
+    领取排序（内部使用，不硬排斥）：类型匹配 > 无人认领 > 他人专属，但他人
+    专属任务仍可被领到（仅排后面）。agent_type 不传时自动回查注册类型用于排序。
+
+    指定 task_id 时直接认领该任务（无视阶段，仅校验未认领），适合「点名提取」
+    某个尚未进入 ready 的业务任务。
+
     Args:
         agent: 当前 agent 名称
-        agent_type: 可选，只领取匹配该类型的任务
+        agent_type: 可选，影响领取排序（类型匹配优先）
+        task_id: 可选，直接认领指定任务
 
     Returns:
         JSON: {"id": run_id, "task_id": ..., "task": {...详情...}, "state": "claimed"}
     """
-    query = {"agent": agent, "agent_type": agent_type}
+    query = {"agent": agent}
+    if agent_type:
+        query["agent_type"] = agent_type
+    if task_id:
+        query["task_id"] = task_id
     if project: query["project"] = project
     if workspace: query["workspace"] = workspace
     if files: query["files"] = files
@@ -306,6 +318,101 @@ async def taskhub_get_task(
     """
     data = await _request("GET", f"/tasks/{task_id}")
     return _fmt(data)
+
+
+@mcp.tool(
+    name="taskhub_read_spec",
+    title="读取任务 spec 设计文档",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+async def taskhub_read_spec(
+    task_id: str = Field(description="任务唯一标识", min_length=1),
+) -> str:
+    """读取任务的 spec（设计文档）内容。
+
+    任务进入 design 阶段需提供 spec_path。本工具读取该文件原文，便于 agent 据此执行实现。
+
+    Args:
+        task_id: 任务唯一标识
+
+    Returns:
+        spec 文件内容（文本）；未设置或文件缺失时给出提示。
+    """
+    task = await _request("GET", f"/tasks/{task_id}")
+    if "error" in task:
+        return _fmt(task)
+    spec_path = (task.get("spec_path") or "").strip()
+    if not spec_path:
+        return (
+            f"任务 {task_id} 未设置 spec_path（尚未进入 design 阶段或未填写设计文档）。"
+            "可用 taskhub_advance_stage 推进到 design 时提供 spec_path。"
+        )
+    return _read_doc(task, spec_path, "spec")
+
+
+@mcp.tool(
+    name="taskhub_read_plan",
+    title="读取任务 plan 实现计划",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+async def taskhub_read_plan(
+    task_id: str = Field(description="任务唯一标识", min_length=1),
+) -> str:
+    """读取任务的 plan（实现计划）内容。
+
+    任务进入 planning 阶段需提供 plan_path。本工具读取该文件原文，便于 agent 据此排期与执行。
+
+    Args:
+        task_id: 任务唯一标识
+
+    Returns:
+        plan 文件内容（文本）；未设置或文件缺失时给出提示。
+    """
+    task = await _request("GET", f"/tasks/{task_id}")
+    if "error" in task:
+        return _fmt(task)
+    plan_path = (task.get("plan_path") or "").strip()
+    if not plan_path:
+        return (
+            f"任务 {task_id} 未设置 plan_path（尚未进入 planning 阶段或未填写计划文档）。"
+            "可用 taskhub_advance_stage 推进到 planning 时提供 plan_path。"
+        )
+    return _read_doc(task, plan_path, "plan")
+
+
+def _read_doc(task: dict, path_str: str, kind: str) -> str:
+    """按 spec/plan 路径读取文档内容，处理相对路径与缺失情况。"""
+    import pathlib
+
+    p = pathlib.Path(path_str)
+    if not p.is_absolute():
+        base = (task.get("workspace") or "").strip()
+        if not base:
+            return (f"任务未设置 workspace，且 {kind}_path 为相对路径「{path_str}」，无法确定基准目录。"
+                    f"请改用绝对路径，或在任务中填写 workspace 后重试。")
+        p = pathlib.Path(base) / p
+    p = p.resolve()
+    if not p.exists():
+        return (f"任务 {task.get('id', '?')} 的 {kind} 文件不存在：{p}\n"
+                f"（基于 workspace「{base}」解析）")
+    try:
+        text = p.read_text(encoding="utf-8", errors="replace")
+    except Exception as e:
+        return f"读取 {kind} 文件失败：{p}\n{e}"
+    MAX = 200_000
+    if len(text) > MAX:
+        text = text[:MAX] + f"\n\n...[已截断，超出 {MAX} 字符]"
+    return f"# {kind}: {p}\n\n{text}"
 
 
 @mcp.tool(
@@ -563,6 +670,33 @@ async def taskhub_cancel_task(
         JSON: {"ok": true, "state": "cancelled"}
     """
     data = await _request("DELETE", f"/tasks/{task_id}")
+    return _fmt(data)
+
+
+@mcp.tool(
+    name="taskhub_retry_task",
+    title="重试任务",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+async def taskhub_retry_task(
+    task_id: str = Field(description="任务唯一标识", min_length=1),
+) -> str:
+    """手动重试一个已失败或退避中的任务，立即重入 queued/ready。
+
+    适用于超限进入 failed 后人工触发，或 retrying 时跳过退避。
+
+    Args:
+        task_id: 任务唯一标识
+
+    Returns:
+        JSON: {"id":..., "state": "queued", ...}
+    """
+    data = await _request("POST", f"/tasks/{task_id}/retry", body={})
     return _fmt(data)
 
 

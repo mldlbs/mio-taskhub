@@ -33,7 +33,64 @@ def _get_runs():
         return out
 
 
+BASE_RETRY_SECONDS = 2.0
+
+
+def _backoff_for(task) -> timedelta:
+    try:
+        secs = (2 ** max(1, task.attempt)) * BASE_RETRY_SECONDS
+    except Exception:
+        secs = BASE_RETRY_SECONDS
+    return timedelta(seconds=float(secs))
+
+
+def _handle_retry_or_fail(task, reason: str, db):
+    """指数退避：未超限进入 RETRYING 并设定 retry_at，超限进入 FAILED。"""
+    if task.max_retries == 0 or task.attempt >= task.max_retries:
+        task.state = TaskState.FAILED
+        task.retry_at = None
+        return "failed"
+    # 进入重试，设定退避
+    task.state = TaskState.RETRYING
+    task.retry_count = (task.retry_count or 0) + 1
+    task.retry_at = datetime.now(timezone.utc) + _backoff_for(task)
+    return "retrying"
+
+
+def _requeue_retries():
+    """把已到 retry_at 的 RETRYING 任务重入 QUEUED/READY。"""
+    now = datetime.now(timezone.utc)
+    with Session(engine) as db:
+        retrying = db.exec(select(Task).where(Task.state == TaskState.RETRYING)).all()
+        for t in retrying:
+            rt = t.retry_at
+            if rt is None:
+                # 兼容旧数据：无 retry_at 直接重入
+                t.state = TaskState.QUEUED
+                t.stage = TaskStage.READY
+                t.retry_at = None
+                event = emit_event(db, type="task_retry_requeued", entity="task", entity_id=t.id,
+                                   payload={"reason": "retry_backoff_elapsed"})
+                db.add(t)
+                db.commit()
+                broadcast_for_event(event)
+                continue
+            if rt.tzinfo is None:
+                rt = rt.replace(tzinfo=timezone.utc)
+            if rt <= now:
+                t.state = TaskState.QUEUED
+                t.stage = TaskStage.READY
+                t.retry_at = None
+                event = emit_event(db, type="task_retry_requeued", entity="task", entity_id=t.id,
+                                   payload={"reason": "retry_backoff_elapsed", "attempt": t.attempt})
+                db.add(t)
+                db.commit()
+                broadcast_for_event(event)
+
+
 def _on_timeout(run_id: str, task_id: str):
+    # 心跳超时仍保持原有“立即重入队列”语义，与显式失败的指数退避区分，
+    # 以保持 65882419 已有用例稳定；显式失败的退避由 runs.py 的 _requeue_retries 负责
     with Session(engine) as db:
         run = db.get(Run, run_id)
         task = db.get(Task, task_id)
@@ -55,7 +112,6 @@ def _on_timeout(run_id: str, task_id: str):
                     db.add(task)
                 db.commit()
                 return
-        # 原有逻辑：run 心跳超时（HeartbeatSweep 触发）
         if run and run.state in (RunState.CLAIMED, RunState.RUNNING):
             run.state = RunState.FINISHED
             run.result = "heartbeat timeout"
@@ -179,8 +235,9 @@ def _mark_stale_agents():
 
 def _scheduler_tick():
     _mark_stale_agents()          # ① agent 生命周期
-    _release_dependencies()       # ② 依赖放行
-    _assign_to_idle_agents()      # ③ 空闲分配
+    _requeue_retries()            # ② 重试退避到期重入
+    _release_dependencies()       # ③ 依赖放行
+    _assign_to_idle_agents()      # ④ 空闲分配
 
 
 def _get_due_tasks():

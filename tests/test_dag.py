@@ -55,9 +55,10 @@ def test_done_means_satisfied():
 
 
 def test_dangling_dep_not_released():
-    b = _mk("b", stage="planning", deps=["bogus-id"])
-    _release()
-    assert _stage(b["id"]) == TaskStage.PLANNING
+    # 新规：缺失依赖直接校验失败（422），而非静默悬挂
+    r = client.post("/api/v1/tasks", json={"title": "b", "stage": "planning", "depends_on": ["bogus-id"]})
+    assert r.status_code == 422
+    assert "dependency not found" in r.json()["detail"]
 
 
 def test_release_idempotent_no_duplicate_events():
@@ -94,8 +95,21 @@ def test_release_writes_event():
 
 
 def test_create_task_with_deps_returns_array():
-    r = _mk("d", stage="ready", deps=["abc"])
-    assert r["depends_on"] == ["abc"]
+    parent = _mk("parent", stage="ready")
+    r = _mk("d", stage="ready", deps=[parent["id"]])
+    assert r["depends_on"] == [parent["id"]]
+
+def test_create_task_missing_dependency_rejected():
+    r = client.post("/api/v1/tasks", json={"title": "m", "stage": "ready", "depends_on": ["not-exist"]})
+    assert r.status_code == 422
+    assert "dependency not found" in r.json()["detail"]
+
+def test_create_task_self_dependency_rejected():
+    # 先创建一个任务，再尝试自依赖（通过 patch）
+    t = _mk("self", stage="ready")
+    r = client.patch(f"/api/v1/tasks/{t['id']}", json={"depends_on": [t["id"]]})
+    assert r.status_code == 422
+    assert "itself" in r.json()["detail"] or "cyclic" in r.json()["detail"]
 
 
 def test_create_task_cyclic_dependency_rejected():

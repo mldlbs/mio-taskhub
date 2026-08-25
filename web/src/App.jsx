@@ -12,6 +12,7 @@ import EmbedView from './components/EmbedView'
 import IdeasView from './components/IdeasView'
 import CreateModal from './components/CreateModal'
 import TaskDetail from './components/TaskDetail'
+import DocPanel from './components/DocPanel'
 
 const VIEW_KEY = 'mio.view'
 const CONTRAST_KEY = 'mio.contrast'
@@ -34,6 +35,7 @@ export default function App() {
   const [error, setError] = useState(null)
   const [modal, setModal] = useState(false)
   const [detail, setDetail] = useState(null)
+  const [docTask, setDocTask] = useState(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [lastSync, setLastSync] = useState(null)
@@ -119,6 +121,16 @@ export default function App() {
       loadTasks()
     } catch (e) {
       setError('取消失败: ' + e.message)
+    }
+  }
+
+  const retryTask = async (id) => {
+    try {
+      await api.retryTask(id)
+      loadTasks()
+    } catch (e) {
+      setError('重试失败: ' + e.message)
+      throw e
     }
   }
 
@@ -213,7 +225,6 @@ export default function App() {
           refreshing={refreshing}
           onRefresh={refresh}
           onOpenModal={() => setModal(true)}
-          onFocusLane={focusLane}
           filter={filter}
           onFilterChange={setFilter}
           projectOptions={projectOptions}
@@ -266,7 +277,13 @@ export default function App() {
           onMove={moveTask}
           onToggleSubtask={toggleSubtask}
           onAdvance={advanceTaskStage}
+          onOpenDocs={() => setDocTask(detail)}
+          onOpenTask={openTask}
+          onRetry={retryTask}
         />
+      )}
+      {docTask && (
+        <DocPanel task={docTask} onClose={() => setDocTask(null)} />
       )}
     </div>
   )
