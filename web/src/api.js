@@ -56,6 +56,7 @@ export const api = {
   // ADR API
   evolveToAdr: (id, body) => req('POST', `/ideas/${id}/evolve-to-adr`, body),
   adrAction: (id, body) => req('POST', `/ideas/${id}/adr-action`, body),
+  adrMarkdown: (id) => req('GET', `/ideas/${id}/adr-md`),
   boardSummary: (agent) => req('GET', '/board/summary' + (agent ? `?agent=${encodeURIComponent(agent)}` : '')),
   status: (agent) => req('GET', '/status' + (agent ? `?agent=${encodeURIComponent(agent)}` : '')),
 }

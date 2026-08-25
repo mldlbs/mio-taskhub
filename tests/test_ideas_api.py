@@ -318,6 +318,35 @@ def test_adr_evolve_wrong_status():
     _with_client(k)
 
 
+def test_adr_md_inline_fallback():
+    """adr-md：文件未落盘时应即时渲染兜底；非 ADR 应 422"""
+    async def k(c):
+        # 非 ADR
+        r = await c.post("/api/v1/ideas", json={"title": "普通想法"})
+        plain_id = r.json()["id"]
+        r = await c.get(f"/api/v1/ideas/{plain_id}/adr-md")
+        assert r.status_code == 422
+
+        # ADR 未落盘（测试环境无 GitSyncWorker）
+        r = await c.post("/api/v1/ideas", json={"title": "MD测试", "description": ""})
+        iid = r.json()["id"]
+        await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "fermenting"})
+        await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "formed"})
+        await c.post(f"/api/v1/ideas/{iid}/evolve-to-adr",
+                     json={"madr_context": "上下文X", "madr_decision": "决策Y"})
+        r = await c.get(f"/api/v1/ideas/{iid}/adr-md")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["source"] == "inline"
+        assert "# ADR-" in data["content"]
+        assert "决策Y" in data["content"]
+
+        # 404
+        r = await c.get("/api/v1/ideas/nope/adr-md")
+        assert r.status_code == 404
+    _with_client(k)
+
+
 def test_adr_action_accept():
     """测试 accept 操作"""
     async def k(c):

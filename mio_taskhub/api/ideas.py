@@ -684,3 +684,24 @@ def adr_action(idea_id: str, body: dict, db: Session = Depends(get_session)):
     broadcast_for_event(event)
     
     return _idea_json(i)
+
+
+@router.get("/{idea_id}/adr-md")
+def get_adr_markdown(idea_id: str, db: Session = Depends(get_session)):
+    """查看 ADR 原始 Markdown：优先读落盘文件，缺失时即时渲染兜底。"""
+    i = db.get(Idea, idea_id)
+    if not i:
+        raise HTTPException(404, "idea not found")
+    if i.idea_type != IdeaType.ADR:
+        raise HTTPException(422, "idea is not an ADR")
+
+    path = i.adr_file_path or ""
+    if path:
+        try:
+            with open(path, encoding="utf-8") as f:
+                return {"path": path, "content": f.read(), "source": "file"}
+        except OSError:
+            pass  # 文件缺失则即时渲染
+
+    from mio_taskhub.git_sync import _render_adr_markdown
+    return {"path": "", "content": _render_adr_markdown(i), "source": "inline"}

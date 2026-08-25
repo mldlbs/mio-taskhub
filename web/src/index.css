@@ -1934,6 +1934,9 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
 .ideas__filter-btn.is-on { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-soft); }
 .adr-num { flex: none; font-weight: 600; }
 .idea-card--adr { border-left: 2px solid var(--accent-soft); }
+.adr-md-modal { width: min(760px, 96vw); max-height: 86vh; display: flex; flex-direction: column; gap: 10px; }
+.adr-md-path { margin: 0; font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); overflow-wrap: anywhere; }
+.adr-md-body { flex: 1; overflow-y: auto; background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; padding: 18px 22px; }
 .ideas__top { display: flex; align-items: center; justify-content: space-between; }
 .ideas__title { font-size: 16px; font-weight: 700; margin: 0; }
 .ideas__create { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-soft); }

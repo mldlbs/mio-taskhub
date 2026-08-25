@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
+import { marked } from 'marked'
 import { api } from '../api'
 import { fmtAgo, fmtDate } from '../constants'
 
@@ -49,6 +50,9 @@ export default function IdeasView({ ideas, onReload }) {
   const [showAdrAction, setShowAdrAction] = useState(false)
   const [adrAction, setAdrAction] = useState({ action: '', reason: '', replacement_id: '' })
   const [adrList, setAdrList] = useState([])
+  // ADR 文档查看
+  const [adrMd, setAdrMd] = useState(null)
+  const [mdLoading, setMdLoading] = useState(false)
 
   const fail = useCallback((e) => setErr(e.message || '操作失败'), [])
 
@@ -190,6 +194,17 @@ export default function IdeasView({ ideas, onReload }) {
       const res = await api.listIdeas({ idea_type: 'adr', adr_status: 'accepted' })
       setAdrList(res.ideas || [])
     } catch (e) { /* 静默 */ }
+  }
+
+  // 查看 ADR 原始 Markdown
+  const openAdrMd = async () => {
+    if (!detail) return
+    setMdLoading(true)
+    try {
+      const res = await api.adrMarkdown(detail.id)
+      setAdrMd(res)
+    } catch (e) { fail(e) }
+    finally { setMdLoading(false) }
   }
 
   useEffect(() => {
@@ -353,8 +368,15 @@ export default function IdeasView({ ideas, onReload }) {
                 <div className="idea-detail__adr">
                   <div className="idea-detail__adr-head">
                     <span>ADR 信息</span>
-                    <span className={`badge badge--${(ADR_STATUS_META[detail.adr_status] || ADR_STATUS_META.proposed).tone}`}>
-                      {(ADR_STATUS_META[detail.adr_status] || ADR_STATUS_META.proposed).label}
+                    <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+                      {detail.adr_number != null && (
+                        <button className="btn btn--ghost" onClick={openAdrMd} disabled={mdLoading}>
+                          {mdLoading ? '加载中…' : '📄 查看文档'}
+                        </button>
+                      )}
+                      <span className={`badge badge--${(ADR_STATUS_META[detail.adr_status] || ADR_STATUS_META.proposed).tone}`}>
+                        {(ADR_STATUS_META[detail.adr_status] || ADR_STATUS_META.proposed).label}
+                      </span>
                     </span>
                   </div>
                   {detail.madr_context && (
@@ -546,6 +568,20 @@ export default function IdeasView({ ideas, onReload }) {
           )}
         </div>
       </div>
+
+      {/* ADR 原始 Markdown 弹层 */}
+      {adrMd && (
+        <div className="overlay" onClick={() => setAdrMd(null)}>
+          <div className="modal adr-md-modal" role="dialog" aria-modal="true" aria-label="ADR 文档" onClick={e => e.stopPropagation()}>
+            <div className="modal__head">
+              <h3>ADR 文档 {adrMd.source === 'inline' && <span className="tag">未同步 · 即时渲染</span>}</h3>
+              <button className="modal__close" onClick={() => setAdrMd(null)} aria-label="关闭">×</button>
+            </div>
+            {adrMd.path && <p className="adr-md-path">{adrMd.path}</p>}
+            <div className="md adr-md-body" dangerouslySetInnerHTML={{ __html: marked(adrMd.content) }} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
