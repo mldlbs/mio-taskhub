@@ -2,4 +2,4 @@
 
 | Number | Title | Status | Updated |
 |--------|-------|--------|---------|
-| ADR-001 | ADR（架构决策记录） 管理 | proposed | 2026-08-25 |
+| ADR-001 | ADR（架构决策记录） 管理 | accepted | 2026-08-25 |
