@@ -6,6 +6,7 @@
 - 幂等：重启/重复消费不产生错误状态
 - 只处理 ADR 相关事件，不扩展到所有 Idea 事件
 """
+import os
 import subprocess
 import logging
 import threading
@@ -21,10 +22,14 @@ from .models import OutboxEvent, OutboxStatus, Idea, IdeaType
 
 logger = logging.getLogger("git_sync")
 
-# 配置
-ADR_DIR = Path("docs/adr")
+# 配置：MIO_TASKHUB_ADR_DIR 可覆盖默认落盘目录（默认 CWD 下 docs/adr）
 POLL_INTERVAL = 2  # 秒
 MAX_RETRIES = 3
+
+
+def _adr_dir() -> Path:
+    env = os.environ.get("MIO_TASKHUB_ADR_DIR", "").strip()
+    return Path(env) if env else Path("docs/adr")
 
 
 def _run_git(*args: str) -> bool:
@@ -47,7 +52,7 @@ def _run_git(*args: str) -> bool:
 
 def _ensure_adr_dir():
     """确保 ADR 目录存在"""
-    ADR_DIR.mkdir(parents=True, exist_ok=True)
+    _adr_dir().mkdir(parents=True, exist_ok=True)
 
 
 def _render_adr_markdown(idea: Idea) -> str:
@@ -70,14 +75,18 @@ def _render_adr_markdown(idea: Idea) -> str:
     lines += ["## Context", "", idea.madr_context or "(to be completed)", ""]
     lines += ["## Decision", "", idea.madr_decision or "(to be completed)", ""]
 
-    # 备选方案
+    # 备选方案（兼容字符串 / 列表两种输入）
     if idea.madr_alternatives:
         lines += ["## Alternatives", ""]
-        for idx, alt in enumerate(idea.madr_alternatives, 1):
-            if isinstance(alt, dict):
-                lines.append(f"{idx}. **{alt.get('title', '')}**: {alt.get('description', '')}")
-            else:
-                lines.append(f"{idx}. {alt}")
+        alts = idea.madr_alternatives
+        if isinstance(alts, str):
+            lines.append(alts)
+        else:
+            for idx, alt in enumerate(alts, 1):
+                if isinstance(alt, dict):
+                    lines.append(f"{idx}. **{alt.get('title', '')}**: {alt.get('description', '')}")
+                else:
+                    lines.append(f"{idx}. {alt}")
         lines += [""]
 
     lines += ["## Consequences", "", idea.madr_consequences or "(to be completed)", ""]
@@ -130,7 +139,7 @@ def _process_event(db: Session, event: OutboxEvent) -> bool:
         # 渲染 ADR 文件
         content = _render_adr_markdown(idea)
         filename = _get_adr_filename(idea)
-        filepath = ADR_DIR / filename
+        filepath = _adr_dir() / filename
         filepath.write_text(content, encoding="utf-8")
 
         # 更新 idea 的文件路径
@@ -140,7 +149,7 @@ def _process_event(db: Session, event: OutboxEvent) -> bool:
     elif event.event_type in ("accept", "reject", "deprecate", "supersede"):
         # 重新渲染 ADR 文件（状态已更新）
         filename = _get_adr_filename(idea)
-        filepath = ADR_DIR / filename
+        filepath = _adr_dir() / filename
         if filepath.exists():
             content = _render_adr_markdown(idea)
             filepath.write_text(content, encoding="utf-8")
@@ -162,11 +171,11 @@ def _process_event(db: Session, event: OutboxEvent) -> bool:
         .order_by(Idea.adr_number)
     ).all()
     readme_content = _render_readme(all_adrs)
-    (ADR_DIR / "README.md").write_text(readme_content, encoding="utf-8")
+    (_adr_dir() / "README.md").write_text(readme_content, encoding="utf-8")
 
     # Git commit: 一个事件 = 一个 commit
     adr_file = str(filepath)
-    readme_file = str(ADR_DIR / "README.md")
+    readme_file = str(_adr_dir() / "README.md")
     _run_git("add", adr_file, readme_file)
 
     commit_msg = f"ADR-{idea.adr_number:03d}: {event.event_type}" if idea.adr_number else f"ADR: {event.event_type}"

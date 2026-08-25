@@ -545,6 +545,33 @@ def test_git_sync_render_adr_markdown():
     assert "Alt 1" in md
 
 
+def test_git_sync_render_adr_alternatives_string():
+    """madr_alternatives 为字符串时应整段渲染，而非逐字符拆成列表"""
+    from mio_taskhub.git_sync import _render_adr_markdown
+    from mio_taskhub.models import Idea, IdeaType, IdeaStatus
+    from datetime import datetime
+
+    idea = Idea(
+        id="test-456",
+        title="Str Alt ADR",
+        idea_type=IdeaType.ADR,
+        adr_number=2,
+        adr_status=IdeaStatus.PROPOSED,
+        version=1,
+        madr_context="ctx",
+        madr_decision="dec",
+        madr_consequences="cons",
+        madr_alternatives="A) 独立实体表 B) 同步写 Git",
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+    md = _render_adr_markdown(idea)
+    alt_section = md.split("## Alternatives")[1]
+    assert "A) 独立实体表 B) 同步写 Git" in alt_section
+    assert "\n2. " not in alt_section  # 未被逐字符编号
+
+
 def test_git_sync_render_readme():
     """测试 README 索引渲染"""
     from mio_taskhub.git_sync import _render_readme

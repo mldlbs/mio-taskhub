@@ -227,6 +227,9 @@ class IdeaStatus(str, enum.Enum):
         # breakdown 可从任意非终态直接推进
         if dst == cls.BROKEN_DOWN:
             return src not in (cls.ARCHIVED, cls.CANCELLED, cls.BROKEN_DOWN)
+        # 回流：拆解任务全部完成后可回到 formed 继续演化（如沉淀为 ADR）
+        if src == cls.BROKEN_DOWN and dst == cls.FORMED:
+            return True
         # 演化为 ADR：只有 formed 可以演化为 proposed
         if dst == cls.PROPOSED:
             return src == cls.FORMED
