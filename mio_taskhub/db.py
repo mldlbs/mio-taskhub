@@ -87,6 +87,13 @@ def _migrate_stage_column(target_engine=None):
                 conn.execute(text("ALTER TABLE discussion ADD COLUMN stage VARCHAR NOT NULL DEFAULT 'brainstorming'"))
             if "idea_id" not in dcols:
                 conn.execute(text("ALTER TABLE discussion ADD COLUMN idea_id VARCHAR NOT NULL DEFAULT ''"))
+        # Task table: retry_at / retry_count for exponential backoff (existing installs).
+        if "task" in tables:
+            tcols_retry = {c["name"] for c in inspect(conn).get_columns("task")}
+            if "retry_at" not in tcols_retry:
+                conn.execute(text("ALTER TABLE task ADD COLUMN retry_at DATETIME"))
+            if "retry_count" not in tcols_retry:
+                conn.execute(text("ALTER TABLE task ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0"))
         # Event table: backfill entity/entity_id from run_id (existing installs).
         if "event" in tables:
             ecols = {c["name"] for c in inspect(conn).get_columns("event")}
@@ -97,6 +104,33 @@ def _migrate_stage_column(target_engine=None):
             conn.execute(text(
                 "UPDATE event SET entity='run', entity_id=run_id WHERE entity='' AND run_id IS NOT NULL AND run_id != ''"
             ))
+        # ADR 扩展字段迁移（existing installs）
+        if "idea" in tables:
+            acols = {c["name"] for c in inspect(conn).get_columns("idea")}
+            if "idea_type" not in acols:
+                conn.execute(text("ALTER TABLE idea ADD COLUMN idea_type VARCHAR NOT NULL DEFAULT 'IDEA'"))
+            if "adr_number" not in acols:
+                conn.execute(text("ALTER TABLE idea ADD COLUMN adr_number INTEGER"))
+            if "adr_status" not in acols:
+                conn.execute(text("ALTER TABLE idea ADD COLUMN adr_status VARCHAR"))
+            if "superseded_by" not in acols:
+                conn.execute(text("ALTER TABLE idea ADD COLUMN superseded_by VARCHAR"))
+            if "madr_context" not in acols:
+                conn.execute(text("ALTER TABLE idea ADD COLUMN madr_context TEXT"))
+            if "madr_decision" not in acols:
+                conn.execute(text("ALTER TABLE idea ADD COLUMN madr_decision TEXT"))
+            if "madr_consequences" not in acols:
+                conn.execute(text("ALTER TABLE idea ADD COLUMN madr_consequences TEXT"))
+            if "madr_alternatives" not in acols:
+                conn.execute(text("ALTER TABLE idea ADD COLUMN madr_alternatives TEXT"))
+            if "adr_file_path" not in acols:
+                conn.execute(text("ALTER TABLE idea ADD COLUMN adr_file_path VARCHAR"))
+        # IdeaChange 表添加 change_type 字段
+        if "ideachange" in tables:
+            iccols = {c["name"] for c in inspect(conn).get_columns("ideachange")}
+            if "change_type" not in iccols:
+                conn.execute(text("ALTER TABLE ideachange ADD COLUMN change_type VARCHAR NOT NULL DEFAULT 'FIELD_CHANGE'"))
+        # OutboxEvent 表由 SQLModel.metadata.create_all 自动创建，无需迁移
         conn.commit()
 
 def init_db():

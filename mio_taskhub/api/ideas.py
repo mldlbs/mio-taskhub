@@ -3,14 +3,27 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
-from mio_taskhub.models import (Idea, IdeaChange, IdeaStatus, Task, TaskKind, TaskStage,
-                                Discussion, DiscussionMessage, TaskState, IdeaHistory)
+from mio_taskhub.models import (Idea, IdeaChange, IdeaStatus, IdeaType, Task, TaskKind, TaskStage,
+                                Discussion, DiscussionMessage, TaskState, IdeaHistory, ChangeType,
+                                OutboxEvent, OutboxStatus)
 from mio_taskhub.utils import _now
 from mio_taskhub.status import normalize_depends, task_deps
 from mio_taskhub.planner import detect_cycle
 from mio_taskhub.events import emit_event, broadcast_for_event
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
+
+
+def _get_next_adr_number(db: Session) -> int:
+    """获取下一个 ADR 序号"""
+    result = db.exec(
+        select(Idea.adr_number)
+        .where(Idea.adr_number.is_not(None))
+        .order_by(Idea.adr_number.desc())
+    ).first()
+    if result is None:
+        return 1
+    return result + 1
 
 
 def _idea_json(i: Idea) -> dict:
@@ -21,11 +34,27 @@ def _idea_json(i: Idea) -> dict:
         "last_reviewed_at": i.last_reviewed_at.isoformat() if i.last_reviewed_at else None,
         "review_count": i.review_count,
         "created_at": i.created_at.isoformat(), "updated_at": i.updated_at.isoformat(),
+        # ADR 扩展字段
+        "idea_type": i.idea_type.value,
+        "adr_number": i.adr_number,
+        "adr_status": i.adr_status.value if i.adr_status else None,
+        "superseded_by": i.superseded_by,
+        "madr_context": i.madr_context,
+        "madr_decision": i.madr_decision,
+        "madr_consequences": i.madr_consequences,
+        "madr_alternatives": i.madr_alternatives,
+        "adr_file_path": i.adr_file_path,
     }
 
 
 @router.get("")
-def list_ideas(status: str = None, project: str = "", db: Session = Depends(get_session)):
+def list_ideas(
+    status: str = None,
+    project: str = "",
+    idea_type: str = None,
+    adr_status: str = None,
+    db: Session = Depends(get_session)
+):
     q = select(Idea)
     if status:
         try:
@@ -34,6 +63,16 @@ def list_ideas(status: str = None, project: str = "", db: Session = Depends(get_
             raise HTTPException(400, f"invalid status: {status}")
     if project:
         q = q.where(Idea.project == project)
+    if idea_type:
+        try:
+            q = q.where(Idea.idea_type == IdeaType(idea_type))
+        except ValueError:
+            raise HTTPException(400, f"invalid idea_type: {idea_type}")
+    if adr_status:
+        try:
+            q = q.where(Idea.adr_status == IdeaStatus(adr_status))
+        except ValueError:
+            raise HTTPException(400, f"invalid adr_status: {adr_status}")
     rows = db.exec(q.order_by(Idea.updated_at.desc())).all()
     return {"count": len(rows), "ideas": [_idea_json(i) for i in rows]}
 
@@ -433,3 +472,215 @@ def breakdown_idea(idea_id: str, body: dict, db: Session = Depends(get_session))
                    "depends_on": task_deps(t)}
                   for it, t in zip(items, created)],
     }
+
+
+# ==================== ADR API ====================
+
+@router.post("/{idea_id}/evolve-to-adr")
+def evolve_to_adr(idea_id: str, body: dict, db: Session = Depends(get_session)):
+    """
+    将 Idea 演化为 ADR（幂等/并发安全）
+    """
+    # 乐观锁：使用 FOR UPDATE 确保并发安全
+    i = db.get(Idea, idea_id, with_for_update=True)
+    if not i:
+        raise HTTPException(404, "idea not found")
+    
+    # 幂等性检查
+    if i.idea_type == IdeaType.ADR:
+        raise HTTPException(409, "IDEA_ALREADY_ADR")
+    
+    # 状态约束：只有 formed 可演化
+    if i.status != IdeaStatus.FORMED:
+        raise HTTPException(422, f"can only evolve from 'formed', current status: {i.status.value}")
+    
+    # 记录变更前的状态
+    old_type = i.idea_type.value
+    old_status = i.status.value
+    
+    # 执行演化
+    i.idea_type = IdeaType.ADR
+    i.adr_status = IdeaStatus.PROPOSED
+    i.status = IdeaStatus.PROPOSED  # 同步更新 status 以保持兼容
+    i.adr_number = _get_next_adr_number(db)  # 分配 ADR 序号
+
+    # 填充 MADR 字段
+    if "madr_context" in body:
+        i.madr_context = body["madr_context"]
+    if "madr_decision" in body:
+        i.madr_decision = body["madr_decision"]
+    if "madr_consequences" in body:
+        i.madr_consequences = body["madr_consequences"]
+    if "madr_alternatives" in body:
+        i.madr_alternatives = body["madr_alternatives"]
+
+    # 更新版本
+    i.version += 1
+    i.updated_at = _now()
+
+    # 记录变更历史
+    db.add(IdeaChange(
+        idea_id=idea_id,
+        version=i.version,
+        diff={
+            "idea_type": {"old": old_type, "new": i.idea_type.value},
+            "adr_status": {"old": old_status, "new": i.adr_status.value},
+            "adr_number": {"old": None, "new": i.adr_number},
+        },
+        reason=body.get("reason", ""),
+        change_type=ChangeType.TYPE_EVOLUTION,
+    ))
+
+    # 写入 OutboxEvent（供异步 Git Sync Worker 消费）
+    db.add(OutboxEvent(
+        event_type="evolve-to-adr",
+        aggregate_type="idea",
+        aggregate_id=idea_id,
+        payload={
+            "adr_number": i.adr_number,
+            "title": i.title,
+            "adr_status": i.adr_status.value,
+            "madr_context": i.madr_context,
+            "madr_decision": i.madr_decision,
+            "madr_consequences": i.madr_consequences,
+            "madr_alternatives": i.madr_alternatives,
+        },
+    ))
+
+    # 记录 IdeaHistory
+    db.add(IdeaHistory(
+        idea_id=idea_id,
+        kind="status",
+        actor="user",
+        content=f"{old_type} -> {i.idea_type.value}",
+        reasoning=body.get("reason", ""),
+        extra={"from": old_type, "to": i.idea_type.value, "source": "evolve_to_adr"},
+    ))
+
+    event = emit_event(db, type="idea_evolved_to_adr", entity="idea", entity_id=idea_id,
+                       payload={"old_type": old_type, "new_type": i.idea_type.value})
+
+    db.add(i)
+    db.commit()
+    db.refresh(i)
+    broadcast_for_event(event)
+
+    return _idea_json(i)
+
+
+@router.post("/{idea_id}/adr-action")
+def adr_action(idea_id: str, body: dict, db: Session = Depends(get_session)):
+    """
+    ADR 状态操作：accept/reject/deprecate/supersede
+    """
+    i = db.get(Idea, idea_id, with_for_update=True)
+    if not i:
+        raise HTTPException(404, "idea not found")
+    
+    if i.idea_type != IdeaType.ADR:
+        raise HTTPException(422, "idea is not an ADR")
+    
+    action = body.get("action", "").strip()
+    if not action:
+        raise HTTPException(422, "action is required")
+    
+    old_adr_status = i.adr_status
+    
+    # 根据 action 校验当前状态
+    if action == "accept":
+        if i.adr_status != IdeaStatus.PROPOSED:
+            raise HTTPException(422, f"can only accept from 'proposed', current: {i.adr_status.value}")
+        i.adr_status = IdeaStatus.ACCEPTED
+        i.status = IdeaStatus.ACCEPTED
+        
+    elif action == "reject":
+        if i.adr_status != IdeaStatus.PROPOSED:
+            raise HTTPException(422, f"can only reject from 'proposed', current: {i.adr_status.value}")
+        i.adr_status = IdeaStatus.REJECTED
+        i.status = IdeaStatus.REJECTED
+        
+    elif action == "deprecate":
+        if i.adr_status != IdeaStatus.ACCEPTED:
+            raise HTTPException(422, f"can only deprecate from 'accepted', current: {i.adr_status.value}")
+        i.adr_status = IdeaStatus.DEPRECATED
+        i.status = IdeaStatus.DEPRECATED
+        
+    elif action == "supersede":
+        if i.adr_status != IdeaStatus.ACCEPTED:
+            raise HTTPException(422, f"can only supersede from 'accepted', current: {i.adr_status.value}")
+        
+        replacement_id = body.get("replacement_id", "").strip()
+        if not replacement_id:
+            raise HTTPException(422, "replacement_id is required for supersede")
+        
+        replacement = db.get(Idea, replacement_id)
+        if not replacement:
+            raise HTTPException(404, f"replacement idea not found: {replacement_id}")
+        if replacement.idea_type != IdeaType.ADR:
+            raise HTTPException(422, "replacement must be an ADR")
+        if replacement.adr_status != IdeaStatus.ACCEPTED:
+            raise HTTPException(422, "replacement must be in 'accepted' status")
+        if replacement.id == idea_id:
+            raise HTTPException(422, "cannot supersede itself")
+        
+        i.adr_status = IdeaStatus.SUPERSEDED
+        i.status = IdeaStatus.SUPERSEDED
+        i.superseded_by = replacement_id
+        
+    else:
+        raise HTTPException(400, f"invalid action: {action}")
+    
+    # 更新版本
+    i.version += 1
+    i.updated_at = _now()
+
+    # 记录变更历史
+    diff = {"adr_status": {"old": old_adr_status.value, "new": i.adr_status.value}}
+    if action == "supersede":
+        diff["superseded_by"] = {"old": None, "new": i.superseded_by}
+
+    db.add(IdeaChange(
+        idea_id=idea_id,
+        version=i.version,
+        diff=diff,
+        reason=body.get("reason", ""),
+        change_type=ChangeType.ADR_ACTION,
+    ))
+
+    # 写入 OutboxEvent（供异步 Git Sync Worker 消费）
+    event_payload = {
+        "adr_number": i.adr_number,
+        "title": i.title,
+        "action": action,
+        "adr_status": i.adr_status.value,
+    }
+    if action == "supersede":
+        replacement = db.get(Idea, i.superseded_by)
+        event_payload["superseded_by"] = i.superseded_by
+        event_payload["superseded_by_number"] = replacement.adr_number if replacement else None
+    db.add(OutboxEvent(
+        event_type=action,
+        aggregate_type="idea",
+        aggregate_id=idea_id,
+        payload=event_payload,
+    ))
+
+    # 记录 IdeaHistory
+    db.add(IdeaHistory(
+        idea_id=idea_id,
+        kind="status",
+        actor="user",
+        content=f"{old_adr_status.value} -> {i.adr_status.value}",
+        reasoning=body.get("reason", ""),
+        extra={"action": action, "from": old_adr_status.value, "to": i.adr_status.value},
+    ))
+
+    event = emit_event(db, type="idea_adr_action", entity="idea", entity_id=idea_id,
+                       payload={"action": action, "adr_status": i.adr_status.value})
+
+    db.add(i)
+    db.commit()
+    db.refresh(i)
+    broadcast_for_event(event)
+    
+    return _idea_json(i)

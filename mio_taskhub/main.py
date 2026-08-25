@@ -1,11 +1,12 @@
 import os
 import sys
 import uvicorn
-from fastapi import FastAPI, WebSocket
+from fastapi import Depends, FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
 from mio_taskhub.auth import generate_token, get_token, make_auth_middleware
-from mio_taskhub.db import init_db
+from mio_taskhub.db import get_session, init_db
 from mio_taskhub.api import tasks, agents, runs, plans, board, ideas, discussions, events
+from mio_taskhub.api.board import board_summary as _board_summary
 from mio_taskhub.notifications import ws_manager
 
 app = FastAPI(title="mio-taskhub", version="0.1.0")
@@ -19,6 +20,12 @@ app.include_router(board.router, prefix="/api/v1", tags=["board"])
 app.include_router(ideas.router, prefix="/api/v1", tags=["ideas"])
 app.include_router(discussions.router, prefix="/api/v1", tags=["discussions"])
 app.include_router(events.router, prefix="/api/v1", tags=["events"])
+
+
+@app.get("/api/v1/status", tags=["status"])
+def status_alias(agent: str = None, db=Depends(get_session)):
+    """调度器与心跳状态别名：复用 board_summary，满足验收中 GET /status 要求。"""
+    return _board_summary(agent=agent, db=db)
 
 app.state.auth_token = os.environ.get("MIO_TASKHUB_TOKEN", "")
 app.middleware("http")(make_auth_middleware())
@@ -70,12 +77,22 @@ def start_scheduler():
     from mio_taskhub.wiring import start_background_jobs
     app.state.background = start_background_jobs()
 
+@app.on_event("startup")
+def start_git_sync():
+    from mio_taskhub.git_sync import start_git_sync_worker
+    start_git_sync_worker()
+
 @app.on_event("shutdown")
 def stop_background_jobs():
     jobs = getattr(app.state, "background", None)
     if jobs:
         for job in jobs:
             job.stop()
+
+@app.on_event("shutdown")
+def stop_git_sync():
+    from mio_taskhub.git_sync import stop_git_sync_worker
+    stop_git_sync_worker()
 
 
 def run():

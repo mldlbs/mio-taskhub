@@ -9,6 +9,19 @@ const IDEA_META = {
   broken_down:{ label: '已拆解', tone: 'ok' },
   archived:   { label: '已归档', tone: 'dim' },
   cancelled:  { label: '已取消', tone: 'danger' },
+  // ADR 状态
+  proposed:   { label: 'ADR 提案', tone: 'live' },
+  accepted:   { label: 'ADR 已接受', tone: 'ok' },
+  rejected:   { label: 'ADR 被拒绝', tone: 'dim' },
+  deprecated: { label: 'ADR 已废弃', tone: 'dim' },
+  superseded: { label: 'ADR 被取代', tone: 'dim' },
+}
+const ADR_STATUS_META = {
+  proposed:   { label: '提议中', tone: 'live' },
+  accepted:   { label: '已接受', tone: 'ok' },
+  rejected:   { label: '已拒绝', tone: 'dim' },
+  deprecated: { label: '已废弃', tone: 'dim' },
+  superseded: { label: '已取代', tone: 'dim' },
 }
 const NEXT_STATUS = { new: 'fermenting', fermenting: 'formed', formed: 'broken_down' }
 const ROLE_LABEL = { user: '你', agent: 'agent', ask: 'agent 提问' }
@@ -28,6 +41,12 @@ export default function IdeasView({ ideas, onReload }) {
   const [editing, setEditing] = useState(false)
   const [editForm, setEditForm] = useState({ title: '', description: '', reason: '' })
   const [hist, setHist] = useState(null)
+  // ADR 相关状态
+  const [showEvolveModal, setShowEvolveModal] = useState(false)
+  const [adrForm, setAdrForm] = useState({ madr_context: '', madr_decision: '', madr_consequences: '', reason: '' })
+  const [showAdrAction, setShowAdrAction] = useState(false)
+  const [adrAction, setAdrAction] = useState({ action: '', reason: '', replacement_id: '' })
+  const [adrList, setAdrList] = useState([])
 
   const fail = useCallback((e) => setErr(e.message || '操作失败'), [])
 
@@ -130,6 +149,47 @@ export default function IdeasView({ ideas, onReload }) {
     } catch (e) { fail(e) }
   }
 
+  // ADR 演化为 ADR
+  const evolveToAdr = async () => {
+    if (!detail) return
+    try {
+      await api.evolveToAdr(detail.id, {
+        madr_context: adrForm.madr_context,
+        madr_decision: adrForm.madr_decision,
+        madr_consequences: adrForm.madr_consequences,
+        reason: adrForm.reason,
+      })
+      setShowEvolveModal(false)
+      setAdrForm({ madr_context: '', madr_decision: '', madr_consequences: '', reason: '' })
+      await reloadDetail()
+      onReload()
+    } catch (e) { fail(e) }
+  }
+
+  // ADR 状态操作
+  const executeAdrAction = async () => {
+    if (!detail || !adrAction.action) return
+    try {
+      const body = { action: adrAction.action, reason: adrAction.reason }
+      if (adrAction.action === 'supersede') {
+        body.replacement_id = adrAction.replacement_id
+      }
+      await api.adrAction(detail.id, body)
+      setShowAdrAction(false)
+      setAdrAction({ action: '', reason: '', replacement_id: '' })
+      await reloadDetail()
+      onReload()
+    } catch (e) { fail(e) }
+  }
+
+  // 加载 ADR 列表用于取代选择
+  const loadAdrList = async () => {
+    try {
+      const res = await api.listIdeas({ idea_type: 'adr', adr_status: 'accepted' })
+      setAdrList(res.ideas || [])
+    } catch (e) { /* 静默 */ }
+  }
+
   useEffect(() => {
     if (!detail) return
     const t = setInterval(reloadDetail, 5000)
@@ -223,10 +283,36 @@ export default function IdeasView({ ideas, onReload }) {
                 {next && nextMeta && (
                   <button className="btn" onClick={() => advance(next)}>→ 推进为「{nextMeta.label}」</button>
                 )}
-                {detail.status === 'formed' && (
+                {detail.status === 'formed' && detail.idea_type === 'idea' && (
+                  <button className="btn btn--accent" onClick={() => setShowEvolveModal(true)}>
+                    → 演化为 ADR
+                  </button>
+                )}
+                {detail.status === 'formed' && detail.idea_type === 'idea' && (
                   <button className="btn btn--accent" onClick={() => setBreaking(b => !b)}>
                     {breaking ? '取消拆解' : '→ 拆解为任务'}
                   </button>
+                )}
+                {/* ADR 状态操作按钮 */}
+                {detail.idea_type === 'adr' && detail.adr_status === 'proposed' && (
+                  <>
+                    <button className="btn btn--ok" onClick={() => { setAdrAction({ action: 'accept', reason: '' }); setShowAdrAction(true) }}>
+                      接受
+                    </button>
+                    <button className="btn btn--danger" onClick={() => { setAdrAction({ action: 'reject', reason: '' }); setShowAdrAction(true) }}>
+                      拒绝
+                    </button>
+                  </>
+                )}
+                {detail.idea_type === 'adr' && detail.adr_status === 'accepted' && (
+                  <>
+                    <button className="btn btn--warning" onClick={() => { setAdrAction({ action: 'deprecate', reason: '' }); setShowAdrAction(true) }}>
+                      废弃
+                    </button>
+                    <button className="btn btn--accent" onClick={() => { setAdrAction({ action: 'supersede', reason: '', replacement_id: '' }); loadAdrList(); setShowAdrAction(true) }}>
+                      取代
+                    </button>
+                  </>
                 )}
                 {(detail.status === 'new' || detail.status === 'fermenting' || detail.status === 'formed') && (
                   <button className="btn btn--ghost" onClick={() => advance('archived')}>归档</button>
@@ -236,6 +322,42 @@ export default function IdeasView({ ideas, onReload }) {
                   setEditing(true)
                 }}>编辑</button>
               </div>
+
+              {/* ADR 信息展示 */}
+              {detail.idea_type === 'adr' && (
+                <div className="idea-detail__adr">
+                  <div className="idea-detail__adr-head">
+                    <span>ADR 信息</span>
+                    <span className={`badge badge--${(ADR_STATUS_META[detail.adr_status] || ADR_STATUS_META.proposed).tone}`}>
+                      {(ADR_STATUS_META[detail.adr_status] || ADR_STATUS_META.proposed).label}
+                    </span>
+                  </div>
+                  {detail.madr_context && (
+                    <div className="adr-section">
+                      <h4>背景</h4>
+                      <p>{detail.madr_context}</p>
+                    </div>
+                  )}
+                  {detail.madr_decision && (
+                    <div className="adr-section">
+                      <h4>决策</h4>
+                      <p>{detail.madr_decision}</p>
+                    </div>
+                  )}
+                  {detail.madr_consequences && (
+                    <div className="adr-section">
+                      <h4>后果</h4>
+                      <p>{detail.madr_consequences}</p>
+                    </div>
+                  )}
+                  {detail.superseded_by && (
+                    <div className="adr-section">
+                      <h4>被取代</h4>
+                      <p>被 {detail.superseded_by} 取代</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="idea-detail__disc">
                 <div className="idea-detail__disc-head">
@@ -343,6 +465,55 @@ export default function IdeasView({ ideas, onReload }) {
                     <button className="btn btn--ghost" onClick={() => setEditing(false)}>取消</button>
                     <button className="btn btn--primary" onClick={submitEdit}
                             disabled={!editForm.title.trim()}>保存</button>
+                  </div>
+                </div>
+              )}
+
+              {/* 演化为 ADR 模态框 */}
+              {showEvolveModal && (
+                <div className="idea-detail__edit">
+                  <div className="idea-detail__disc-head"><span>演化为 ADR</span></div>
+                  <textarea className="inp" rows={3} placeholder="背景/上下文" value={adrForm.madr_context}
+                            onChange={e => setAdrForm({ ...adrForm, madr_context: e.target.value })} />
+                  <textarea className="inp" rows={3} placeholder="决策内容" value={adrForm.madr_decision}
+                            onChange={e => setAdrForm({ ...adrForm, madr_decision: e.target.value })} />
+                  <textarea className="inp" rows={3} placeholder="后果（正面/负面）" value={adrForm.madr_consequences}
+                            onChange={e => setAdrForm({ ...adrForm, madr_consequences: e.target.value })} />
+                  <input className="inp" placeholder="演化原因" value={adrForm.reason}
+                         onChange={e => setAdrForm({ ...adrForm, reason: e.target.value })} />
+                  <div className="break-actions">
+                    <button className="btn btn--ghost" onClick={() => setShowEvolveModal(false)}>取消</button>
+                    <button className="btn btn--primary" onClick={evolveToAdr}>确认演化</button>
+                  </div>
+                </div>
+              )}
+
+              {/* ADR 状态操作模态框 */}
+              {showAdrAction && (
+                <div className="idea-detail__edit">
+                  <div className="idea-detail__disc-head">
+                    <span>
+                      {adrAction.action === 'accept' && '接受 ADR'}
+                      {adrAction.action === 'reject' && '拒绝 ADR'}
+                      {adrAction.action === 'deprecate' && '废弃 ADR'}
+                      {adrAction.action === 'supersede' && '取代 ADR'}
+                    </span>
+                  </div>
+                  {adrAction.action === 'supersede' && (
+                    <select className="inp" value={adrAction.replacement_id}
+                            onChange={e => setAdrAction({ ...adrAction, replacement_id: e.target.value })}>
+                      <option value="">选择新的 ADR</option>
+                      {adrList.filter(a => a.id !== detail?.id).map(a => (
+                        <option key={a.id} value={a.id}>{a.title} ({a.id})</option>
+                      ))}
+                    </select>
+                  )}
+                  <input className="inp" placeholder="原因" value={adrAction.reason}
+                         onChange={e => setAdrAction({ ...adrAction, reason: e.target.value })} />
+                  <div className="break-actions">
+                    <button className="btn btn--ghost" onClick={() => setShowAdrAction(false)}>取消</button>
+                    <button className="btn btn--primary" onClick={executeAdrAction}
+                            disabled={adrAction.action === 'supersede' && !adrAction.replacement_id}>确认</button>
                   </div>
                 </div>
               )}

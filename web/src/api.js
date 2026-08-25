@@ -19,6 +19,11 @@ export const api = {
   advanceStage: (id, body) => req('POST', `/tasks/${id}/stage`, body),
   moveToStage: (id, body) => req('POST', `/tasks/${id}/stage/move`, body),
   getTask: (id) => req('GET', `/tasks/${id}`),
+  getTaskDoc: (id, kind) => req('GET', `/tasks/${id}/doc?kind=${kind}`),
+  getTaskDocuments: (id) => req('GET', `/tasks/${id}/documents`),
+  getTaskFile: (id, path) => req('GET', `/tasks/${id}/file?path=${encodeURIComponent(path)}`),
+  getTaskGraph: (id) => req('GET', `/tasks/${id}/graph`),
+  getFullGraph: () => req('GET', '/tasks/graph'),
   createTask: (t) => req('POST', '/tasks', t),
   updateTask: (id, body) => req('PATCH', `/tasks/${id}`, body),
   addSubtask: (id, body) => req('POST', `/tasks/${id}/subtasks`, body),
@@ -26,6 +31,7 @@ export const api = {
   addDiscussion: (id, body) => req('POST', `/tasks/${id}/discussions`, body),
   claim: (agent) => req('POST', `/tasks/claim?agent=${encodeURIComponent(agent)}`),
   cancelTask: (id) => req('DELETE', `/tasks/${id}`),
+  retryTask: (id) => req('POST', `/tasks/${id}/retry`, {}),
   heartbeat: (rid, body) => req('POST', `/runs/${rid}/heartbeat`, body),
   result: (rid, body) => req('POST', `/runs/${rid}/result`, body),
   nightPlan: (start, end) => req('GET', `/plans/night?start=${start}&end=${end}`),
@@ -42,4 +48,9 @@ export const api = {
   breakdownIdea: (id, body) => req('POST', `/ideas/${id}/breakdown`, body),
   ideaHistory: (id, page = 1, pageSize = 20) =>
     req('GET', `/ideas/${id}/history?page=${page}&page_size=${pageSize}`),
+  // ADR API
+  evolveToAdr: (id, body) => req('POST', `/ideas/${id}/evolve-to-adr`, body),
+  adrAction: (id, body) => req('POST', `/ideas/${id}/adr-action`, body),
+  boardSummary: (agent) => req('GET', '/board/summary' + (agent ? `?agent=${encodeURIComponent(agent)}` : '')),
+  status: (agent) => req('GET', '/status' + (agent ? `?agent=${encodeURIComponent(agent)}` : '')),
 }

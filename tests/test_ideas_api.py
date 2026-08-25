@@ -1,6 +1,7 @@
 import asyncio
 import httpx
 import pytest
+from sqlmodel import Session
 from mio_taskhub.main import app
 
 
@@ -259,3 +260,312 @@ def test_idea_history_pagination():
         d3 = (await c.get(f"/api/v1/ideas/{iid}", params={"include_changes": "false"})).json()
         assert "changes" not in d3
     _with_client(k)
+
+
+# ==================== ADR 测试 ====================
+
+def test_adr_evolve_to_adr():
+    """测试 Idea 演化为 ADR"""
+    async def k(c):
+        # 创建 Idea 并推进到 formed
+        r = await c.post("/api/v1/ideas", json={"title": "ADR测试", "project": "test"})
+        iid = r.json()["id"]
+        await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "fermenting"})
+        await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "formed"})
+        
+        # 演化为 ADR
+        r = await c.post(f"/api/v1/ideas/{iid}/evolve-to-adr", json={
+            "madr_context": "测试背景",
+            "madr_decision": "测试决策",
+            "madr_consequences": "测试后果",
+            "madr_alternatives": [{"name": "方案A", "pros": "优点", "cons": "缺点"}],
+            "reason": "测试演化"
+        })
+        assert r.status_code == 200
+        data = r.json()
+        assert data["idea_type"] == "adr"
+        assert data["adr_status"] == "proposed"
+        assert data["madr_context"] == "测试背景"
+        assert data["madr_decision"] == "测试决策"
+        assert data["version"] == 2
+    _with_client(k)
+
+
+def test_adr_evolve_already_adr():
+    """测试已演化的 ADR 不能重复演化"""
+    async def k(c):
+        r = await c.post("/api/v1/ideas", json={"title": "ADR测试"})
+        iid = r.json()["id"]
+        await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "fermenting"})
+        await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "formed"})
+        
+        # 第一次演化
+        await c.post(f"/api/v1/ideas/{iid}/evolve-to-adr", json={})
+        # 第二次演化应失败
+        r = await c.post(f"/api/v1/ideas/{iid}/evolve-to-adr", json={})
+        assert r.status_code == 409
+    _with_client(k)
+
+
+def test_adr_evolve_wrong_status():
+    """测试非 formed 状态不能演化"""
+    async def k(c):
+        r = await c.post("/api/v1/ideas", json={"title": "ADR测试"})
+        iid = r.json()["id"]
+        # new 状态不能演化
+        r = await c.post(f"/api/v1/ideas/{iid}/evolve-to-adr", json={})
+        assert r.status_code == 422
+    _with_client(k)
+
+
+def test_adr_action_accept():
+    """测试 accept 操作"""
+    async def k(c):
+        r = await c.post("/api/v1/ideas", json={"title": "ADR测试"})
+        iid = r.json()["id"]
+        await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "fermenting"})
+        await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "formed"})
+        await c.post(f"/api/v1/ideas/{iid}/evolve-to-adr", json={})
+        
+        r = await c.post(f"/api/v1/ideas/{iid}/adr-action", json={
+            "action": "accept",
+            "reason": "方案可行"
+        })
+        assert r.status_code == 200
+        assert r.json()["adr_status"] == "accepted"
+    _with_client(k)
+
+
+def test_adr_action_reject():
+    """测试 reject 操作"""
+    async def k(c):
+        r = await c.post("/api/v1/ideas", json={"title": "ADR测试"})
+        iid = r.json()["id"]
+        await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "fermenting"})
+        await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "formed"})
+        await c.post(f"/api/v1/ideas/{iid}/evolve-to-adr", json={})
+        
+        r = await c.post(f"/api/v1/ideas/{iid}/adr-action", json={
+            "action": "reject",
+            "reason": "方案不可行"
+        })
+        assert r.status_code == 200
+        assert r.json()["adr_status"] == "rejected"
+    _with_client(k)
+
+
+def test_adr_action_deprecate():
+    """测试 deprecate 操作"""
+    async def k(c):
+        r = await c.post("/api/v1/ideas", json={"title": "ADR测试"})
+        iid = r.json()["id"]
+        await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "fermenting"})
+        await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "formed"})
+        await c.post(f"/api/v1/ideas/{iid}/evolve-to-adr", json={})
+        await c.post(f"/api/v1/ideas/{iid}/adr-action", json={"action": "accept"})
+        
+        r = await c.post(f"/api/v1/ideas/{iid}/adr-action", json={
+            "action": "deprecate",
+            "reason": "已过时"
+        })
+        assert r.status_code == 200
+        assert r.json()["adr_status"] == "deprecated"
+    _with_client(k)
+
+
+def test_adr_action_supersede():
+    """测试 supersede 操作"""
+    async def k(c):
+        # 创建两个 ADR
+        r1 = await c.post("/api/v1/ideas", json={"title": "旧ADR"})
+        old_id = r1.json()["id"]
+        await c.post(f"/api/v1/ideas/{old_id}/status", json={"status": "fermenting"})
+        await c.post(f"/api/v1/ideas/{old_id}/status", json={"status": "formed"})
+        await c.post(f"/api/v1/ideas/{old_id}/evolve-to-adr", json={})
+        await c.post(f"/api/v1/ideas/{old_id}/adr-action", json={"action": "accept"})
+        
+        r2 = await c.post("/api/v1/ideas", json={"title": "新ADR"})
+        new_id = r2.json()["id"]
+        await c.post(f"/api/v1/ideas/{new_id}/status", json={"status": "fermenting"})
+        await c.post(f"/api/v1/ideas/{new_id}/status", json={"status": "formed"})
+        await c.post(f"/api/v1/ideas/{new_id}/evolve-to-adr", json={})
+        await c.post(f"/api/v1/ideas/{new_id}/adr-action", json={"action": "accept"})
+        
+        # 旧 ADR 被新 ADR 取代
+        r = await c.post(f"/api/v1/ideas/{old_id}/adr-action", json={
+            "action": "supersede",
+            "replacement_id": new_id,
+            "reason": "新方案更优"
+        })
+        assert r.status_code == 200
+        assert r.json()["adr_status"] == "superseded"
+        assert r.json()["superseded_by"] == new_id
+    _with_client(k)
+
+
+def test_adr_action_wrong_status():
+    """测试错误状态下的操作"""
+    async def k(c):
+        r = await c.post("/api/v1/ideas", json={"title": "ADR测试"})
+        iid = r.json()["id"]
+        await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "fermenting"})
+        await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "formed"})
+        await c.post(f"/api/v1/ideas/{iid}/evolve-to-adr", json={})
+        
+        # proposed 状态不能 deprecate
+        r = await c.post(f"/api/v1/ideas/{iid}/adr-action", json={"action": "deprecate"})
+        assert r.status_code == 422
+    _with_client(k)
+
+
+def test_adr_list_filter():
+    """测试 ADR 列表筛选"""
+    async def k(c):
+        # 创建普通 idea
+        await c.post("/api/v1/ideas", json={"title": "普通想法"})
+
+        # 创建 ADR
+        r = await c.post("/api/v1/ideas", json={"title": "ADR", "project": "test"})
+        iid = r.json()["id"]
+        await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "fermenting"})
+        await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "formed"})
+        await c.post(f"/api/v1/ideas/{iid}/evolve-to-adr", json={})
+
+        # 按 idea_type 筛选
+        r = await c.get("/api/v1/ideas", params={"idea_type": "adr"})
+        assert r.status_code == 200
+        assert r.json()["count"] == 1
+        assert r.json()["ideas"][0]["idea_type"] == "adr"
+
+        # 按 adr_status 筛选
+        r = await c.get("/api/v1/ideas", params={"adr_status": "proposed"})
+        assert r.status_code == 200
+        assert r.json()["count"] == 1
+    _with_client(k)
+
+
+def test_adr_number_auto_increment():
+    """测试 ADR 序号自增"""
+    async def k(c):
+        r1 = await c.post("/api/v1/ideas", json={"title": "ADR-1"})
+        iid1 = r1.json()["id"]
+        await c.post(f"/api/v1/ideas/{iid1}/status", json={"status": "fermenting"})
+        await c.post(f"/api/v1/ideas/{iid1}/status", json={"status": "formed"})
+        r1 = await c.post(f"/api/v1/ideas/{iid1}/evolve-to-adr", json={})
+        assert r1.json()["adr_number"] == 1
+
+        r2 = await c.post("/api/v1/ideas", json={"title": "ADR-2"})
+        iid2 = r2.json()["id"]
+        await c.post(f"/api/v1/ideas/{iid2}/status", json={"status": "fermenting"})
+        await c.post(f"/api/v1/ideas/{iid2}/status", json={"status": "formed"})
+        r2 = await c.post(f"/api/v1/ideas/{iid2}/evolve-to-adr", json={})
+        assert r2.json()["adr_number"] == 2
+    _with_client(k)
+
+
+def test_outbox_event_created_on_evolve():
+    """测试演化时创建 OutboxEvent"""
+    from sqlmodel import select
+    from mio_taskhub.models import OutboxEvent, OutboxStatus
+    from mio_taskhub.db import engine
+
+    async def k(c):
+        r = await c.post("/api/v1/ideas", json={"title": "Outbox测试"})
+        iid = r.json()["id"]
+        await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "fermenting"})
+        await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "formed"})
+        await c.post(f"/api/v1/ideas/{iid}/evolve-to-adr", json={
+            "madr_context": "test context",
+            "madr_decision": "test decision",
+        })
+
+        with Session(engine) as db:
+            events = db.exec(
+                select(OutboxEvent).where(OutboxEvent.aggregate_id == iid)
+            ).all()
+            assert len(events) == 1
+            assert events[0].event_type == "evolve-to-adr"
+            assert events[0].status == OutboxStatus.PENDING
+            assert events[0].payload["adr_number"] == 1
+    _with_client(k)
+
+
+def test_outbox_event_created_on_adr_action():
+    """测试 ADR 操作时创建 OutboxEvent"""
+    from sqlmodel import select
+    from mio_taskhub.models import OutboxEvent, OutboxStatus
+    from mio_taskhub.db import engine
+
+    async def k(c):
+        r = await c.post("/api/v1/ideas", json={"title": "Outbox测试"})
+        iid = r.json()["id"]
+        await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "fermenting"})
+        await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "formed"})
+        await c.post(f"/api/v1/ideas/{iid}/evolve-to-adr", json={})
+
+        await c.post(f"/api/v1/ideas/{iid}/adr-action", json={"action": "accept"})
+
+        with Session(engine) as db:
+            events = db.exec(
+                select(OutboxEvent)
+                .where(OutboxEvent.aggregate_id == iid)
+                .where(OutboxEvent.event_type == "accept")
+            ).all()
+            assert len(events) == 1
+            assert events[0].payload["adr_status"] == "accepted"
+    _with_client(k)
+
+
+def test_git_sync_render_adr_markdown():
+    """测试 ADR Markdown 渲染"""
+    from mio_taskhub.git_sync import _render_adr_markdown
+    from mio_taskhub.models import Idea, IdeaType, IdeaStatus
+    from datetime import datetime
+
+    idea = Idea(
+        id="test-123",
+        title="Test ADR",
+        idea_type=IdeaType.ADR,
+        adr_number=1,
+        adr_status=IdeaStatus.ACCEPTED,
+        version=1,
+        madr_context="Test context",
+        madr_decision="Test decision",
+        madr_consequences="Test consequences",
+        madr_alternatives=[{"title": "Alt 1", "description": "Description 1"}],
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
+
+    md = _render_adr_markdown(idea)
+    assert "# ADR-001: Test ADR" in md
+    assert "ACCEPTED" in md
+    assert "Test context" in md
+    assert "Test decision" in md
+    assert "Alt 1" in md
+
+
+def test_git_sync_render_readme():
+    """测试 README 索引渲染"""
+    from mio_taskhub.git_sync import _render_readme
+    from mio_taskhub.models import Idea, IdeaType, IdeaStatus
+    from datetime import datetime
+
+    adrs = [
+        Idea(
+            id="test-1", title="ADR One", idea_type=IdeaType.ADR,
+            adr_number=1, adr_status=IdeaStatus.ACCEPTED,
+            updated_at=datetime.now(),
+        ),
+        Idea(
+            id="test-2", title="ADR Two", idea_type=IdeaType.ADR,
+            adr_number=2, adr_status=IdeaStatus.PROPOSED,
+            updated_at=datetime.now(),
+        ),
+    ]
+
+    md = _render_readme(adrs)
+    assert "ADR-001" in md
+    assert "ADR-002" in md
+    assert "ADR One" in md
+    assert "ADR Two" in md
