@@ -20,6 +20,7 @@ class NightPlan:
     window_end: str
     items: List[PlanItem] = field(default_factory=list)
     has_overflow: bool = False
+    max_parallel: int = 1
 
 def _time_to_minutes(t: time) -> int:
     return t.hour * 60 + t.minute
@@ -101,18 +102,48 @@ def generate_night_plan(
         end_mins += 24 * 60
     window_min = end_mins - start_mins
 
-    cursor = start_mins
+    # 资源感知排期：同 agent 串行，不同 agent 可并行；依赖跨组需等待
+    resource_cursor: Dict[str, int] = {}   # agent -> 下一个可用时刻
+    end_time_of: Dict[str, int] = {}       # task_id -> 结束时刻（供依赖查询）
+
     for t in sorted_tasks:
+        agent = (t.get("target_agent_type") or "").strip() or "__default__"
         dur = t.get("est_duration_min", 30)
-        end_cursor = cursor + dur
+        est = resource_cursor.get(agent, start_mins)
+        for d in _deps_of(t):
+            if d in end_time_of:
+                est = max(est, end_time_of[d] + buffer_min)
+        end_cursor = est + dur
         if end_cursor - start_mins > window_min:
             plan.has_overflow = True
         plan.items.append(PlanItem(
             task_id=t["id"],
             title=t.get("title", ""),
             est_duration_min=dur,
-            scheduled_start=_minutes_to_str(cursor),
+            scheduled_start=_minutes_to_str(est),
             scheduled_end=_minutes_to_str(end_cursor),
         ))
-        cursor = end_cursor + buffer_min
+        resource_cursor[agent] = end_cursor + buffer_min
+        end_time_of[t["id"]] = end_cursor
+
+    # 峰值并行度：扫描所有起止事件
+    events = []
+    for i in plan.items:
+        s = _time_to_minutes(_parse_hm_str(i.scheduled_start))
+        e = _time_to_minutes(_parse_hm_str(i.scheduled_end))
+        if e <= s:
+            e += 24 * 60
+        events.append((s, 1))
+        events.append((e, -1))
+    events.sort(key=lambda x: (x[0], x[1]))
+    cur = peak = 0
+    for _, delta in events:
+        cur += delta
+        peak = max(peak, cur)
+    plan.max_parallel = max(peak, 1)
     return plan
+
+
+def _parse_hm_str(s: str) -> time:
+    h, m = s.split(":")
+    return time(int(h), int(m))

@@ -726,6 +726,7 @@ input, textarea, select { font-family: inherit; }
 .np-row__fill--p1 { background: rgba(233, 237, 242, 0.06); border: 1px solid var(--line-strong); }
 .np-row__fill--p0 { background: var(--card); border: 1px solid var(--line); }
 .np-row__time { font-family: var(--font-mono); font-size: 9px; color: var(--ink-faint); white-space: nowrap; }
+.np-row__agent { flex: none; margin-left: auto; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.04em; color: var(--ink-faint); background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Legend */
 .np__legend { display: flex; gap: 14px; flex-wrap: wrap; }

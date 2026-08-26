@@ -43,6 +43,7 @@ export default function PlanView({ onSchedule }) {
           id: t.task_id ?? t.id,
           start: off < 0 ? off + 1440 : off,
           dur: Math.min(WINDOW_MIN, Math.max(5, t.est_duration_min ?? 30)),
+          agent: t.agent_type || '',
         }
       })
       const lastEnd = items.length ? Math.min(WINDOW_MIN, Math.max(...items.map((i) => i.start + i.dur))) : 0
@@ -52,6 +53,7 @@ export default function PlanView({ onSchedule }) {
         total: items.length,
         filled: lastEnd,
         overflow: data.has_overflow ? '有' : 0,
+        parallel: data.max_parallel || 1,
         project: selectedProject,
       })
       onSchedule && onSchedule({ items, fitted: items.length, total: items.length, filled: lastEnd, overflow: data.has_overflow ? '有' : 0 })
@@ -70,7 +72,8 @@ export default function PlanView({ onSchedule }) {
         <div>
           <h2>夜间计划 <span className="np__accent">NIGHT SHIFT</span></h2>
           <p className="np__sub">
-            {DEFAULT_START} – {DEFAULT_END} · 按优先级排入窗口
+            {DEFAULT_START} – {DEFAULT_END} · 同 agent 串行 / 跨 agent 并行
+            {plan?.parallel > 1 && <span> · 峰值并行 {plan.parallel}</span>}
             {plan?.project && <span> · <b style={{ color: 'var(--accent)' }}>{plan.project}</b></span>}
           </p>
         </div>
@@ -152,6 +155,7 @@ export default function PlanView({ onSchedule }) {
                     <div className="np-row__label">
                       <span className={`np-row__prio np-row__prio--p${p.p}`}>{p.label}</span>
                       <span className="np-row__title" title={t.title}>{t.title}</span>
+                      {t.agent && <span className="np-row__agent">{t.agent}</span>}
                     </div>
                     <div className="np-row__bar">
                       <div
