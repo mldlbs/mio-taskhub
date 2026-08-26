@@ -5,7 +5,7 @@ from fastapi import Depends, FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
 from mio_taskhub.auth import generate_token, get_token, make_auth_middleware
 from mio_taskhub.db import get_session, init_db
-from mio_taskhub.api import tasks, agents, runs, plans, board, ideas, discussions, events
+from mio_taskhub.api import tasks, agents, runs, plans, board, ideas, discussions, events, nightrun
 from mio_taskhub.api.board import board_summary as _board_summary
 from mio_taskhub.notifications import ws_manager
 
@@ -20,6 +20,7 @@ app.include_router(board.router, prefix="/api/v1", tags=["board"])
 app.include_router(ideas.router, prefix="/api/v1", tags=["ideas"])
 app.include_router(discussions.router, prefix="/api/v1", tags=["discussions"])
 app.include_router(events.router, prefix="/api/v1", tags=["events"])
+app.include_router(nightrun.router, prefix="/api/v1", tags=["nightrun"])
 
 
 @app.get("/api/v1/status", tags=["status"])
@@ -82,6 +83,11 @@ def start_git_sync():
     from mio_taskhub.git_sync import start_git_sync_worker
     start_git_sync_worker()
 
+@app.on_event("startup")
+def start_night_runner():
+    from mio_taskhub.night_runner import start_night_runner
+    start_night_runner()
+
 @app.on_event("shutdown")
 def stop_background_jobs():
     jobs = getattr(app.state, "background", None)
@@ -93,6 +99,11 @@ def stop_background_jobs():
 def stop_git_sync():
     from mio_taskhub.git_sync import stop_git_sync_worker
     stop_git_sync_worker()
+
+@app.on_event("shutdown")
+def stop_night_runner():
+    from mio_taskhub.night_runner import stop_night_runner
+    stop_night_runner()
 
 
 def run():

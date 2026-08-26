@@ -26,10 +26,24 @@ export default function PlanView({ onSchedule }) {
   const [error, setError] = useState(null)
   const [projects, setProjects] = useState([])
   const [selectedProject, setSelectedProject] = useState('')
+  const [nrEnabled, setNrEnabled] = useState(false)
+  const [nrBusy, setNrBusy] = useState(false)
 
   useEffect(() => {
     api.listProjects().then(setProjects).catch(() => {})
+    api.nrConfig().then(c => setNrEnabled(!!c.enabled)).catch(() => {})
   }, [])
+
+  const toggleNightRun = async () => {
+    setNrBusy(true)
+    const next = !nrEnabled
+    try {
+      await api.nrSetEnabled(next)
+      if (!next) await api.nrStop().catch(() => {})
+      setNrEnabled(next)
+    } catch { /* 静默 */ }
+    finally { setNrBusy(false) }
+  }
 
   const generate = async () => {
     setLoading(true)
@@ -88,6 +102,14 @@ export default function PlanView({ onSchedule }) {
               <option key={p} value={p}>{p}</option>
             ))}
           </select>
+          <button
+            className={`btn ${nrEnabled ? 'btn--ok' : 'btn--ghost'} np__nr-toggle`}
+            onClick={toggleNightRun}
+            disabled={nrBusy}
+            title={nrEnabled ? '夜班执行中：窗口内自动拉起已配置的 agent' : '开启后按夜间计划窗口自动执行 agent'}
+          >
+            {nrEnabled ? '● 夜班执行中' : '○ 夜班自动执行'}
+          </button>
           <button className="btn btn--accent" onClick={generate} disabled={loading}>
             {loading ? '生成中…' : '⟳ 生成排期'}
           </button>

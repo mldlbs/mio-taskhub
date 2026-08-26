@@ -40,6 +40,9 @@ export const api = {
     return req('GET', url);
   },
   listProjects: () => req('GET', '/plans/projects'),
+  nrConfig: () => req('GET', '/nightrun/config'),
+  nrSetEnabled: (enabled) => req('PUT', '/nightrun/config', { enabled }),
+  nrStop: () => req('POST', '/nightrun/stop', {}),
   listIdeas: (params) => req('GET', '/ideas' + (params ? '?' + new URLSearchParams(params).toString() : '')),
   getIdea: (id, params) => req('GET', `/ideas/${id}` + (params ? '?' + new URLSearchParams(params).toString() : '')),
   createIdea: (body) => req('POST', '/ideas', body),

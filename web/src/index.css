@@ -678,6 +678,7 @@ input, textarea, select { font-family: inherit; }
 .np__actions { display: flex; align-items: center; gap: 10px; flex: none; }
 .np__project-select { padding: 7px 12px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 8px; color: var(--ink); font-family: var(--font-mono); font-size: 12px; cursor: pointer; min-width: 140px; }
 .np__project-select:focus { outline: none; border-color: var(--accent); }
+.np__nr-toggle { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; white-space: nowrap; }
 .np__empty { display: flex; flex-direction: column; gap: 10px; align-items: center; padding: 60px 40px; text-align: center; border: 1px dashed var(--line-strong); border-radius: var(--radius); font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; color: var(--ink-faint); }
 .np__empty svg { opacity: 0.45; }
 
