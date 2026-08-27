@@ -34,6 +34,8 @@ def _migrate_stage_column(target_engine=None):
                 conn.execute(text("ALTER TABLE task ADD COLUMN idea_id VARCHAR NOT NULL DEFAULT ''"))
             if "task_kind" not in cols:
                 conn.execute(text("ALTER TABLE task ADD COLUMN task_kind VARCHAR NOT NULL DEFAULT 'NORMAL'"))
+            if "fallback_after" not in cols:
+                conn.execute(text("ALTER TABLE task ADD COLUMN fallback_after INTEGER"))
             if "depends_on" in cols:
                 # depends_on 归一化（旧 VARCHAR 单值 → JSON 数组文本）
                 from mio_taskhub.status import normalize_depends

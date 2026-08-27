@@ -429,6 +429,7 @@ async def taskhub_create_task(
     title: str = Field(description="任务标题", min_length=1, max_length=200),
     description: str = Field(default="", description="任务详细描述", max_length=4000),
     target_agent_type: Optional[str] = Field(default=None, description="指定可执行的 agent 类型，为空表示任意"),
+    fallback_after: Optional[int] = Field(default=None, description="从 created_at 起算的秒数，超过后允许非目标 agent 领取"),
     priority: int = Field(default=0, description="优先级 0-3，越大越优先", ge=0, le=3),
     est_duration_min: int = Field(default=30, description="预估耗时（分钟）", ge=1, le=1440),
     depends_on: Optional[list] = Field(default=None, description="前置任务 id 列表（依赖全部完成后才放行），如 [\"task1\", \"task2\"]"),
@@ -448,6 +449,7 @@ async def taskhub_create_task(
         title: 标题
         description: 详细描述
         target_agent_type: 指定执行者类型，为空表示任意
+        fallback_after: 从 created_at 起算的秒数，超过后允许非目标 agent 领取
         priority: 0-3 优先级
         est_duration_min: 预估耗时分钟数
         depends_on: 前置任务 id 列表（依赖全部完成后才放行）
@@ -467,6 +469,7 @@ async def taskhub_create_task(
         "title": title,
         "description": description,
         "target_agent_type": target_agent_type,
+        "fallback_after": fallback_after,
         "priority": priority,
         "est_duration_min": est_duration_min,
         "depends_on": depends_on,
@@ -499,6 +502,7 @@ async def taskhub_update_task(
     files: Optional[list] = Field(default=None, description="文件路径列表"),
     deliverables: Optional[list] = Field(default=None, description="产出物路径列表"),
     depends_on: Optional[list] = Field(default=None, description="前置任务 id 列表（替换现有依赖）"),
+    fallback_after: Optional[int] = Field(default=None, description="从 created_at 起算的秒数，超过后允许非目标 agent 领取"),
 ) -> str:
     """更新任务细节字段。仅传需要修改的字段。
     Args:
@@ -511,6 +515,7 @@ async def taskhub_update_task(
         "title": title, "description": description, "acceptance_criteria": acceptance_criteria,
         "due_at": due_at, "labels": labels, "project": project, "workspace": workspace,
         "files": files, "deliverables": deliverables, "depends_on": depends_on,
+        "fallback_after": fallback_after,
     }.items() if v is not None}
     data = await _request("PATCH", f"/tasks/{task_id}", body=body)
     return _fmt(data)

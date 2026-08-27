@@ -94,6 +94,7 @@ class Task(SQLModel, table=True):
     title: str
     description: str = ""
     target_agent_type: Optional[str] = None
+    fallback_after: Optional[int] = None  # 从 created_at 起算的秒数，超过后允许非目标 agent 领取
     priority: int = 0
     schedule_type: str = "once"
     run_at: Optional[datetime] = None

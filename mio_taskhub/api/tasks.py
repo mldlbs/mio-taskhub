@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlmodel import Session, select
-from sqlalchemy import case
+from sqlalchemy import case, Integer
+from sqlalchemy import func
 from mio_taskhub.db import get_session
 from mio_taskhub.models import (
     Task, TaskState, TaskStage, Run, RunState, Subtask, SubtaskStatus, GitRef, RefType, HistoryEvent,
@@ -75,6 +76,7 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         title=body.get("title", ""),
         description=body.get("description", ""),
         target_agent_type=body.get("target_agent_type"),
+        fallback_after=body.get("fallback_after"),
         priority=body.get("priority", 0),
         schedule_type=body.get("schedule_type", "once"),
         run_at=run_at,
@@ -105,6 +107,7 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         "id": t.id, "title": t.title, "state": t.state.value,
         "priority": t.priority, "created_at": t.created_at.isoformat(),
         "depends_on": task_deps(t), "idea_id": t.idea_id,
+        "fallback_after": t.fallback_after,
     }
 
 @router.get("", response_model=list)
@@ -130,6 +133,7 @@ def list_tasks(state: str = None, agent_type: str = None, stage: str = None,
     return [
         {"id": r.id, "title": r.title, "state": r.state.value, "stage": r.stage.value,
          "priority": r.priority, "target_agent_type": r.target_agent_type,
+         "fallback_after": r.fallback_after,
          "depends_on": task_deps(r), "idea_id": r.idea_id,
          "est_duration_min": r.est_duration_min,
          "project": r.project, "workspace": r.workspace}
@@ -182,6 +186,7 @@ def _task_detail(t: Task, db: Session) -> dict:
         "spec_path": t.spec_path,
         "plan_path": t.plan_path,
         "review_result": t.review_result,
+        "fallback_after": t.fallback_after,
         "subtasks": [{"id": s.id, "order": s.order, "title": s.title, "status": s.status.value} for s in subtasks],
         "gitrefs": [{"id": g.id, "ref_type": g.ref_type.value, "value": g.value, "note": g.note} for g in gitrefs],
         "history": [{"id": h.id, "type": h.type, "payload": h.payload, "at": h.at.isoformat()} for h in history],
@@ -478,7 +483,7 @@ def update_task(task_id: str, body: dict, db: Session = Depends(get_session)):
     editable = ["title", "description", "priority", "est_duration_min", "max_retries",
                 "acceptance_criteria", "due_at", "labels", "project", "workspace",
                 "spec_path", "plan_path", "files", "deliverables",
-                "target_agent_type", "depends_on"]
+                "target_agent_type", "fallback_after", "depends_on"]
     for k in editable:
         if k in body:
             v = body[k]
@@ -731,6 +736,19 @@ def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
             "plan_path": t.plan_path, "review_result": t.review_result,
             "state": t.state.value}
 
+def _should_fallback(task, agent_type):
+    """从 created_at 起算，超过 fallback_after 秒后降为通用任务。"""
+    if not task.target_agent_type or not agent_type:
+        return False
+    if task.target_agent_type == agent_type:
+        return False
+    if task.fallback_after is None:
+        return False
+    if task.created_at is None:
+        return False
+    elapsed = (_now() - task.created_at).total_seconds()
+    return elapsed >= task.fallback_after
+
 def _claim_for(agent: str, db: Session, agent_type: Optional[str] = None, task_id: Optional[str] = None):
     """原子领取：返回该 agent 的 Run 或 None。
 
@@ -763,16 +781,28 @@ def _claim_for(agent: str, db: Session, agent_type: Optional[str] = None, task_i
         candidate = task
     else:
         q = select(Task).where(Task.state == TaskState.QUEUED, Task.stage == TaskStage.READY)
-        # 关联度排序：类型匹配 > 无人认领 > 他人专属（仍可被领，只是排后面）
+        # 关联度排序：类型匹配 > 无人认领/fallback已到期 > 他人专属
         if agent_type:
+            fallback_ready = (
+                Task.fallback_after.is_not(None)
+                & Task.created_at.is_not(None)
+                & (
+                    func.cast(func.strftime("%s", "now"), Integer)
+                    >= (
+                        func.cast(func.strftime("%s", Task.created_at), Integer)
+                        + Task.fallback_after
+                    )
+                )
+            )
             relevance = case(
                 (Task.target_agent_type == agent_type, 0),
-                (Task.target_agent_type == None, 1),
+                (Task.target_agent_type.is_(None), 1),
+                (fallback_ready, 1),
                 else_=2,
             )
         else:
             relevance = case(
-                (Task.target_agent_type == None, 0),
+                (Task.target_agent_type.is_(None), 0),
                 else_=1,
             )
         rows = db.exec(q.order_by(relevance, Task.priority.desc(), Task.created_at.asc())).all()
