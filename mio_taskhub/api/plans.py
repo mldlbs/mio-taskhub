@@ -42,6 +42,8 @@ def night_plan(start: str = Query("22:00"), end: str = Query("07:00"),
             "id": t.id, "title": t.title, "est_duration_min": t.est_duration_min,
             "priority": t.priority, "depends_on": normalize_depends(t.depends_on),
             "target_agent_type": t.target_agent_type,
+            "fallback_after": t.fallback_after,
+            "created_at": t.created_at.isoformat() if t.created_at else None,
         })
     plan = generate_night_plan(pool, window_start=_parse_hm(start, time(22, 0)),
                                window_end=_parse_hm(end, time(7, 0)))
@@ -55,7 +57,9 @@ def night_plan(start: str = Query("22:00"), end: str = Query("07:00"),
             {"task_id": i.task_id, "title": i.title, "est_duration_min": i.est_duration_min,
              "scheduled_start": i.scheduled_start, "scheduled_end": i.scheduled_end,
              "project": next((t.get("project", "") for t in pool if t["id"] == i.task_id), ""),
-             "agent_type": (pool_by_id.get(i.task_id) or {}).get("target_agent_type")}
+             "agent_type": (pool_by_id.get(i.task_id) or {}).get("target_agent_type"),
+             "fallback_after": (pool_by_id.get(i.task_id) or {}).get("fallback_after"),
+             "created_at": (pool_by_id.get(i.task_id) or {}).get("created_at")}
             for i in plan.items
         ],
     }

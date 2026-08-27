@@ -728,6 +728,9 @@ input, textarea, select { font-family: inherit; }
 .np-row__fill--p0 { background: var(--card); border: 1px solid var(--line); }
 .np-row__time { font-family: var(--font-mono); font-size: 9px; color: var(--ink-faint); white-space: nowrap; }
 .np-row__agent { flex: none; margin-left: auto; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.04em; color: var(--ink-faint); background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np-row__fb { flex: none; margin-left: 4px; font-size: 10px; cursor: help; }
+.np-row__fb--open { animation: fb-pulse 2s ease-in-out infinite; }
+@keyframes fb-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 
 /* Legend */
 .np__legend { display: flex; gap: 14px; flex-wrap: wrap; }

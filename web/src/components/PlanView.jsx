@@ -178,6 +178,16 @@ export default function PlanView({ onSchedule }) {
                       <span className={`np-row__prio np-row__prio--p${p.p}`}>{p.label}</span>
                       <span className="np-row__title" title={t.title}>{t.title}</span>
                       {t.agent && <span className="np-row__agent">{t.agent}</span>}
+                      {t.fallback_after != null && t.agent && (() => {
+                        const elapsed = t.created_at ? (Date.now() - new Date(t.created_at).getTime()) / 1000 : 0
+                        const expired = elapsed >= t.fallback_after
+                        return (
+                          <span className={`np-row__fb ${expired ? 'np-row__fb--open' : ''}`}
+                                title={expired ? `已过 fallback 窗口 (${Math.floor(elapsed/3600)}h ≥ ${Math.floor(t.fallback_after/3600)}h)` : `fallback 等待中 (${Math.floor(elapsed/60)}m / ${Math.floor(t.fallback_after/60)}m)`}>
+                            {expired ? '🔓' : '⏰'}
+                          </span>
+                        )
+                      })()}
                     </div>
                     <div className="np-row__bar">
                       <div
