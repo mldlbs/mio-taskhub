@@ -1,4 +1,3 @@
-from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime, timezone
@@ -88,6 +87,38 @@ class AgentStatus(str, enum.Enum):
     OFFLINE = "offline"
     BUSY = "busy"
     IDLE = "idle"
+
+class TaskTemplate(SQLModel, table=True):
+    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    title: str = Field(index=True)
+    description: str = ""
+    author: str = ""
+    category: str = ""
+    priority: int = 0
+    est_duration_min: int = 30
+    est_cost_min: int = 60
+    target_agent_type: Optional[str] = None
+    acceptance_criteria: str = ""
+    files_template: list = Field(default_factory=list, sa_column=Column(JSON))
+    deliverables_template: list = Field(default_factory=list, sa_column=Column(JSON))
+    stages: list = Field(default_factory=list, sa_column=Column(JSON))
+    dependencies: list = Field(default_factory=list, sa_column=Column(JSON))
+    labels: list = Field(default_factory=list, sa_column=Column(JSON))
+    is_public: bool = True
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
+    version: int = 1
+    tags: list = Field(default_factory=list, sa_column=Column(JSON))
+
+class TaskTemplateVersion(SQLModel, table=True):
+    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    template_id: str = Field(index=True)
+    version: int = Field(default=1, index=True)
+    content: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    changes: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    created_by: str = ""
+    created_at: datetime = Field(default_factory=_now)
+    description: str = ""
 
 class Task(SQLModel, table=True):
     id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
@@ -223,8 +254,10 @@ class IdeaStatus(str, enum.Enum):
 
     @classmethod
     def can_advance(cls, src: "IdeaStatus", dst: "IdeaStatus") -> bool:
-        if dst == cls.ARCHIVED or dst == cls.CANCELLED:
-            return src != cls.ARCHIVED and src != cls.CANCELLED and src != cls.BROKEN_DOWN
+        if dst == cls.CANCELLED:
+            return src not in (cls.ARCHIVED, cls.CANCELLED)
+        if dst == cls.ARCHIVED:
+            return src not in (cls.ARCHIVED, cls.CANCELLED, cls.BROKEN_DOWN)
         # breakdown 可从任意非终态直接推进
         if dst == cls.BROKEN_DOWN:
             return src not in (cls.ARCHIVED, cls.CANCELLED, cls.BROKEN_DOWN)

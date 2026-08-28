@@ -6,6 +6,13 @@ const VIEWS = [
       <rect x="19" y="4" width="2" height="7" rx="1" />
     </svg>
   )},
+  { id: 'stage', label: '阶段', icon: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="5" width="5" height="14" rx="1.5" />
+      <path d="M10 12h4M14 9l3 3-3 3" />
+      <rect x="16" y="5" width="5" height="14" rx="1.5" />
+    </svg>
+  )},
   { id: 'list', label: '列表', icon: (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
       <path d="M4 6h16M4 12h16M4 18h10" />
@@ -43,6 +50,12 @@ const VIEWS = [
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 18h6M10 21h4" />
       <path d="M12 3a6 6 0 0 0-4 10.5c.8.7 1 1.4 1 2.5h6c0-1.1.2-1.8 1-2.5A6 6 0 0 0 12 3Z" />
+    </svg>
+  )},
+  { id: 'templates', label: '模板', icon: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 9h18M9 3v18" />
     </svg>
   )},
 ]

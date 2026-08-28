@@ -36,7 +36,7 @@ export default function IdeasView({ ideas, onReload }) {
   const [msgDraft, setMsgDraft] = useState({})
   const [err, setErr] = useState(null)
   const [breaking, setBreaking] = useState(false)
-  const [breakRows, setBreakRows] = useState([{ ref: 't1', title: '', deps: '' }])
+  const [breakRows, setBreakRows] = useState([{ ref: 't1', title: '', deps: '', desc: '', acceptance_criteria: '' }])
   const [submitting, setSubmitting] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -53,6 +53,7 @@ export default function IdeasView({ ideas, onReload }) {
   // ADR 文档查看
   const [adrMd, setAdrMd] = useState(null)
   const [mdLoading, setMdLoading] = useState(false)
+  const [suggesting, setSuggesting] = useState(false)
 
   const fail = useCallback((e) => setErr(e.message || '操作失败'), [])
 
@@ -91,6 +92,27 @@ export default function IdeasView({ ideas, onReload }) {
     catch (e) { fail(e) }
   }
 
+  const handleSuggest = async () => {
+    if (!detail) return
+    setSuggesting(true)
+    try {
+      const res = await api.suggestTasks(detail.id, {})
+      if (res.suggestions && res.suggestions.length > 0) {
+        setBreakRows(res.suggestions.map(s => ({
+          ref: s.ref,
+          title: s.title,
+          deps: (s.depends_on || []).join(', '),
+          desc: s.description || '',
+          acceptance_criteria: s.acceptance_criteria || '',
+        })))
+        setBreaking(true)
+      } else {
+        setErr(res.message || '未能从描述中提取任务草案，请补充描述或开启讨论后再试')
+      }
+    } catch (e) { fail(e) }
+    finally { setSuggesting(false) }
+  }
+
   const newDiscussion = async () => {
     const topic = discTopic.trim()
     if (!topic || !detail) return
@@ -120,7 +142,7 @@ export default function IdeasView({ ideas, onReload }) {
   }
 
   const addBreakRow = () =>
-    setBreakRows(r => [...r, { ref: `t${r.length + 1}`, title: '', deps: '' }])
+    setBreakRows(r => [...r, { ref: `t${r.length + 1}`, title: '', deps: '', desc: '', acceptance_criteria: '' }])
 
   const submitBreakdown = async () => {
     if (submitting) return
@@ -130,12 +152,14 @@ export default function IdeasView({ ideas, onReload }) {
     const tasks = rows.map(r => ({
       title: r.title.trim(),
       ref: r.ref || undefined,
+      description: r.desc || '',
+      acceptance_criteria: r.acceptance_criteria || '',
       depends_on: r.deps.split(',').map(s => s.trim()).filter(Boolean),
     }))
     try {
       await api.breakdownIdea(detail.id, { tasks })
       setBreaking(false)
-      setBreakRows([{ ref: 't1', title: '', deps: '' }])
+      setBreakRows([{ ref: 't1', title: '', deps: '', desc: '', acceptance_criteria: '' }])
       await reloadDetail()
       onReload()
     } catch (e) { fail(e) }
@@ -331,6 +355,11 @@ export default function IdeasView({ ideas, onReload }) {
                 {detail.status === 'formed' && detail.idea_type === 'idea' && (
                   <button className="btn btn--accent" onClick={() => setBreaking(b => !b)}>
                     {breaking ? '取消拆解' : '→ 拆解为任务'}
+                  </button>
+                )}
+                {detail.status === 'formed' && detail.idea_type === 'idea' && (
+                  <button className="btn btn--accent" onClick={handleSuggest} disabled={suggesting}>
+                    {suggesting ? '拆解中…' : '智能拆解'}
                   </button>
                 )}
                 {/* ADR 状态操作按钮 */}

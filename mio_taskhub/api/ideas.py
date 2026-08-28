@@ -1,3 +1,4 @@
+import re
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
@@ -401,7 +402,9 @@ def breakdown_idea(idea_id: str, body: dict, db: Session = Depends(get_session))
     if not i:
         raise HTTPException(404, "idea not found")
     if i.status == IdeaStatus.BROKEN_DOWN:
-        raise HTTPException(409, "already broken down")
+        existing = db.exec(select(Task).where(Task.idea_id == idea_id)).all()
+        if existing and not body.get("force"):
+            raise HTTPException(409, f"already broken down ({len(existing)} tasks exist); pass force=true to add more")
     items = body.get("tasks", [])
     if not items:
         raise HTTPException(422, "tasks is required")
@@ -450,7 +453,8 @@ def breakdown_idea(idea_id: str, body: dict, db: Session = Depends(get_session))
         cyc = detect_cycle(graph)
         if cyc:
             raise HTTPException(422, f"cyclic dependency: {' → '.join(cyc)}")
-        transition_idea_status(i, IdeaStatus.BROKEN_DOWN, db, actor="user", source="breakdown")
+        if i.status != IdeaStatus.BROKEN_DOWN:
+            transition_idea_status(i, IdeaStatus.BROKEN_DOWN, db, actor="user", source="breakdown")
         idea_event = emit_event(db, type="idea_broken_down", entity="idea", entity_id=idea_id,
                                 payload={"action": "broken_down",
                                          "task_ids": [t.id for t in created]})
@@ -471,6 +475,135 @@ def breakdown_idea(idea_id: str, body: dict, db: Session = Depends(get_session))
         "tasks": [{"id": t.id, "title": t.title, "ref": it.get("ref", ""),
                    "depends_on": task_deps(t)}
                   for it, t in zip(items, created)],
+    }
+
+
+@router.post("/{idea_id}/suggest-tasks")
+def suggest_tasks(idea_id: str, body: dict = None, db: Session = Depends(get_session)):
+    """从想法的描述、讨论结论、变更记录中自动提取任务草案。"""
+    body = body or {}
+    i = db.get(Idea, idea_id)
+    if not i:
+        raise HTTPException(404, "idea not found")
+
+    max_tasks = min(body.get("max_tasks", 10), 20)
+    context_hint = (body.get("context") or "").strip()
+
+    # --- 收集来源数据 ---
+    desc = (i.description or "").strip()
+    discussions = db.exec(
+        select(Discussion).where(Discussion.idea_id == idea_id)
+    ).all()
+    conclusions = []
+    for d in discussions:
+        if d.conclusions:
+            conclusions.append(d.conclusions.strip())
+    changes = db.exec(
+        select(IdeaChange).where(IdeaChange.idea_id == idea_id).order_by(IdeaChange.created_at)
+    ).all()
+
+    # --- 从描述中拆段落 ---
+    def _split_desc(text: str) -> list[str]:
+        """按空行或列表项拆分描述为独立段落。"""
+        blocks = re.split(r'\n\s*\n|\n(?=-\s)', text)
+        result = []
+        for b in blocks:
+            b = b.strip()
+            if len(b) > 8:  # 忽略过短段落
+                result.append(b)
+        return result
+
+    blocks = _split_desc(desc)
+    if not blocks and desc:
+        blocks = [desc]
+
+    # --- 从讨论结论中提取补充任务 ---
+    conclusion_tasks = []
+    for c in conclusions:
+        # 按句号/分号拆分结论，每条可能是一个独立任务
+        for seg in re.split(r'[。；;]\s*', c):
+            seg = seg.strip()
+            if len(seg) > 8:
+                conclusion_tasks.append(seg)
+
+    # --- 从变更记录中提取需求变化 ---
+    change_tasks = []
+    for ch in changes:
+        if ch.diff:
+            for field_name, change_desc in ch.diff.items():
+                if isinstance(change_desc, str) and len(change_desc) > 5:
+                    change_tasks.append(f"处理 {field_name} 变更：{change_desc}")
+
+    # --- 合并所有来源生成草案 ---
+    suggestions = []
+    ref_counter = 0
+
+    def _add_suggestion(title: str, description: str, source: str, reasoning: str):
+        nonlocal ref_counter
+        if len(suggestions) >= max_tasks:
+            return
+        ref_counter += 1
+        # 估算工时：短文30m，中等60m，长文120m
+        est = 30 if len(title) + len(description) < 80 else (60 if len(title) + len(description) < 200 else 120)
+        # 从描述中提取验收标准
+        ac_lines = []
+        for line in description.split('\n'):
+            if any(kw in line for kw in ['需要', '必须', '验证', '确认', '检查', '验收', '应该']):
+                ac_lines.append(line.strip().lstrip('- '))
+        suggestions.append({
+            "ref": f"t{ref_counter}",
+            "title": title,
+            "description": description,
+            "depends_on": [],
+            "est_duration_min": est,
+            "acceptance_criteria": "; ".join(ac_lines) if ac_lines else "",
+            "reasoning": reasoning,
+            "source": source,
+        })
+
+    # 来源1：描述段落（主任务）
+    for block in blocks:
+        # 取第一行作为标题（去掉 markdown 标记）
+        first_line = re.sub(r'^[#\-*>\s]+', '', block.split('\n')[0]).strip()
+        if first_line and len(first_line) > 3:
+            title = first_line[:80]
+            _add_suggestion(title, block, "description", f"从描述段落提取")
+
+    # 来源2：讨论结论
+    for ct in conclusion_tasks:
+        title = re.sub(r'^[#\-*>\s]+', '', ct.split('\n')[0]).strip()[:80]
+        _add_suggestion(title, ct, "discussion", "从讨论结论提取")
+
+    # 来源3：变更跟踪
+    for ct in change_tasks:
+        title = ct[:80]
+        _add_suggestion(title, ct, "change", "从变更记录提取")
+
+    # 如果都没提取到，返回空建议
+    if not suggestions:
+        return {
+            "suggestions": [],
+            "source_context": desc[:500] if desc else "",
+            "message": "描述过于简短，无法自动拆解。建议先补充描述或开启讨论后再试。",
+        }
+
+    # 线性依赖链：t1 → t2 → t3（除非有并行标记）
+    for idx in range(1, len(suggestions)):
+        suggestions[idx]["depends_on"] = [suggestions[idx - 1]["ref"]]
+
+    # 来源摘要
+    source_context_parts = []
+    if desc:
+        source_context_parts.append(f"描述: {desc[:200]}")
+    if conclusions:
+        source_context_parts.append(f"讨论结论({len(conclusions)}条): {'; '.join(c[:80] for c in conclusions[:3])}")
+    if changes:
+        source_context_parts.append(f"变更记录({len(changes)}条)")
+
+    return {
+        "suggestions": suggestions,
+        "source_context": "\n".join(source_context_parts),
+        "message": f"从 {len(blocks)} 个描述段落 + {len(conclusions)} 条讨论结论 + {len(changes)} 条变更记录中提取了 {len(suggestions)} 个任务草案",
     }
 
 

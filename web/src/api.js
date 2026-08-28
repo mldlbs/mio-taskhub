@@ -54,6 +54,7 @@ export const api = {
   replyDiscussion: (id, body) => req('POST', `/discussions/${id}/messages`, body),
   closeDiscussion: (id, body) => req('POST', `/discussions/${id}/close`, body),
   breakdownIdea: (id, body) => req('POST', `/ideas/${id}/breakdown`, body),
+  suggestTasks: (id, body) => req('POST', `/ideas/${id}/suggest-tasks`, body),
   ideaHistory: (id, page = 1, pageSize = 20) =>
     req('GET', `/ideas/${id}/history?page=${page}&page_size=${pageSize}`),
   // ADR API
@@ -62,4 +63,12 @@ export const api = {
   adrMarkdown: (id) => req('GET', `/ideas/${id}/adr-md`),
   boardSummary: (agent) => req('GET', '/board/summary' + (agent ? `?agent=${encodeURIComponent(agent)}` : '')),
   status: (agent) => req('GET', '/status' + (agent ? `?agent=${encodeURIComponent(agent)}` : '')),
+  // Templates
+  listTemplates: (params) => req('GET', '/tasks/templates' + (params ? '?' + new URLSearchParams(params).toString() : '')),
+  getTemplate: (id) => req('GET', `/tasks/templates/${id}`),
+  createTemplate: (body) => req('POST', '/tasks/templates', body),
+  updateTemplate: (id, body) => req('PATCH', `/tasks/templates/${id}`, body),
+  deleteTemplate: (id) => req('DELETE', `/tasks/templates/${id}`),
+  createTemplateFromTask: (taskId, body) => req('POST', `/tasks/templates/from-task/${taskId}`, body),
+  createTaskFromTemplate: (tplId, body) => req('POST', `/tasks/from-template/${tplId}`, body),
 }

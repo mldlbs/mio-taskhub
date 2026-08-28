@@ -22,9 +22,12 @@ hiddenimports = [
 all_hiddenimports = (
     hiddenimports
     + ["httpx", "mcp", "mcp.server.fastmcp", "pydantic",
-       "webview", "clr", "pythonnet", "pystray", "PIL", "PIL.Image"]
+       "webview", "clr", "pythonnet", "pystray", "PIL", "PIL.Image",
+       "PIL._imaging", "PIL._imagingft"]
     + collect_submodules("mcp")
     + collect_submodules("webview")
+    + collect_submodules("pystray")
+    + collect_submodules("PIL")
 )
 
 excludes = [

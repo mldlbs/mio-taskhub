@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { PRIORITY } from '../constants'
+import { api } from '../api'
 
 const EMPTY = {
   title: '', description: '', priority: 0, est_duration_min: 30, target_agent_type: '',
@@ -10,6 +11,39 @@ const EMPTY = {
 export default function CreateModal({ onClose, onCreate }) {
   const [form, setForm] = useState(EMPTY)
   const [busy, setBusy] = useState(false)
+  const [templates, setTemplates] = useState([])
+  const [showTpl, setShowTpl] = useState(false)
+  const [tplLoading, setTplLoading] = useState(false)
+  const [tplFilter, setTplFilter] = useState('')
+
+  useEffect(() => {
+    if (showTpl) {
+      setTplLoading(true)
+      api.listTemplates().then(d => { setTemplates(d); setTplLoading(false) }).catch(() => setTplLoading(false))
+    }
+  }, [showTpl])
+
+  const applyTemplate = (tpl) => {
+    setForm({
+      title: tpl.title || '',
+      description: tpl.description || '',
+      priority: tpl.priority || 0,
+      est_duration_min: tpl.est_duration_min || 30,
+      target_agent_type: tpl.target_agent_type || '',
+      acceptance_criteria: tpl.acceptance_criteria || '',
+      due_at: '',
+      labels: (tpl.labels || []).join(', '),
+      project: '',
+      workspace: '',
+      files: (tpl.files_template || []).join(', '),
+      deliverables: (tpl.deliverables_template || []).join(', '),
+    })
+    setShowTpl(false)
+  }
+
+  const filtered = tplFilter
+    ? templates.filter(t => t.title.includes(tplFilter) || t.category.includes(tplFilter) || (t.tags || []).some(x => x.includes(tplFilter)))
+    : templates
 
   const submit = async (e) => {
     e.preventDefault()
@@ -44,6 +78,42 @@ export default function CreateModal({ onClose, onCreate }) {
         </div>
 
         <form onSubmit={submit}>
+          <div className="tpl-bar">
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => setShowTpl(s => !s)}>
+              📋 从模板创建
+            </button>
+            {form.title && (
+              <span className="tpl-hint">已填写表单（手动）</span>
+            )}
+          </div>
+
+          {showTpl && (
+            <div className="tpl-panel">
+              <input
+                className="tpl-search"
+                placeholder="搜索模板…"
+                value={tplFilter}
+                onChange={e => setTplFilter(e.target.value)}
+                autoFocus
+              />
+              {tplLoading ? (
+                <div className="tpl-loading">加载中…</div>
+              ) : filtered.length === 0 ? (
+                <div className="tpl-empty">暂无模板，可从任务创建</div>
+              ) : (
+                <ul className="tpl-list">
+                  {filtered.map(t => (
+                    <li key={t.id} className="tpl-item" onClick={() => applyTemplate(t)}>
+                      <span className="tpl-item__title">{t.title}</span>
+                      {t.category && <span className="tpl-item__cat">{t.category}</span>}
+                      {t.target_agent_type && <span className="tpl-item__agent">{t.target_agent_type}</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
           <div className="field">
             <label className="field__label">任务标题 <b>*</b></label>
             <input

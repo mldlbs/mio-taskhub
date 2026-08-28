@@ -14,18 +14,25 @@ export default function ListView({ tasks, onCancel, onOpen }) {
   const [q, setQ] = useState('')
   const [sort, setSort] = useState('priority')
   const [stateF, setStateF] = useState('all')
+  const [agentF, setAgentF] = useState('all')
+
+  const agentTypes = useMemo(() => {
+    const set = new Set(tasks.map(t => t.target_agent_type).filter(Boolean))
+    return ['all', ...Array.from(set).sort()]
+  }, [tasks])
 
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase()
     return tasks
       .filter(t => stateF === 'all' || t.state === stateF)
+      .filter(t => agentF === 'all' || (t.target_agent_type || '') === agentF)
       .filter(t => !needle ||
         String(t.title).toLowerCase().includes(needle) ||
         String(t.id || '').toLowerCase().includes(needle) ||
         String(t.target_agent_type || '').toLowerCase().includes(needle) ||
         String(t.state || '').includes(needle))
       .sort(SORTS[sort])
-  }, [tasks, q, sort, stateF])
+  }, [tasks, q, sort, stateF, agentF])
 
   const schedulable = (s) => s === 'queued' || s === 'claimed' || s === 'retrying'
 
@@ -61,6 +68,12 @@ export default function ListView({ tasks, onCancel, onOpen }) {
           ))}
         </div>
 
+        <select className="toolbar__select" value={agentF} onChange={e => setAgentF(e.target.value)} aria-label="按 Agent 筛选">
+          {agentTypes.map(a => (
+            <option key={a} value={a}>{a === 'all' ? '全部 Agent' : a}</option>
+          ))}
+        </select>
+
         <span className="toolbar__count">{rows.length} / {tasks.length}</span>
       </div>
 
@@ -71,7 +84,6 @@ export default function ListView({ tasks, onCancel, onOpen }) {
             <th>任务</th>
             <th>状态</th>
             <th>优先级</th>
-            <th>Agent</th>
             <th>时长</th>
             <th>排期</th>
             <th>创建</th>
@@ -94,7 +106,6 @@ export default function ListView({ tasks, onCancel, onOpen }) {
                 <td>
                   <span className={`chip${p.p >= 3 ? ' chip--p3' : ''}${p.p === 2 ? ' chip--p2' : ''}`}>{p.label}</span>
                 </td>
-                <td className="cell-mono">{t.target_agent_type || '任意'}</td>
                 <td className="cell-mono">{fmtDur(t.est_duration_min)}</td>
                 <td className="cell-mono">{t.schedule_type === 'cron' ? t.cron_expr || 'cron' : t.run_at ? fmtDate(t.run_at) : '—'}</td>
                 <td className="cell-mono">{fmtDate(t.created_at)}</td>

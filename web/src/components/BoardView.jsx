@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { LANES, fmtDur } from '../constants'
+import { LANES, STAGES, fmtDur } from '../constants'
 import TaskCard from './TaskCard'
 
-export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, focus }) {
+export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, focus, groupBy = 'state' }) {
   const [dragging, setDragging] = useState(null)
-  const [overPos, setOverPos] = useState(null) // { lane, index }
+  const [overPos, setOverPos] = useState(null)
   const [flashId, setFlashId] = useState(null)
   const laneRefs = useRef({})
+
+  const lanes = groupBy === 'stage' ? STAGES : LANES
+  const groupField = groupBy === 'stage' ? 'stage' : 'state'
 
   useEffect(() => {
     if (!focus) return
@@ -17,12 +20,17 @@ export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, fo
     return () => clearTimeout(t)
   }, [focus])
 
-  const byLane = Object.fromEntries(LANES.map(l => [
+  const byLane = Object.fromEntries(lanes.map(l => [
     l.id,
-    [...tasks.filter(t => t.state === l.id)].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0)),
+    [...tasks.filter(t => (t[groupField] || '') === l.id)].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0)),
   ]))
 
   const laneTotal = (id) => byLane[id].reduce((s, t) => s + (t.est_duration_min || 0), 0)
+  const totalTasks = tasks.length
+  const totalDur = tasks.reduce((s, t) => s + (t.est_duration_min || 0), 0)
+  const doneLane = groupBy === 'stage' ? 'done' : 'completed'
+  const doneCount = (byLane[doneLane] || []).length
+  const progress = totalTasks ? Math.round((doneCount / totalTasks) * 100) : 0
 
   const clearDrag = () => { setDragging(null); setOverPos(null) }
 
@@ -45,7 +53,16 @@ export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, fo
 
   return (
     <div className="pipeline">
-      {LANES.map(lane => {
+      <div className="board-stats" role="status" aria-label="看板统计">
+        <span className="board-stats__total">{totalTasks} 任务</span>
+        <span className="board-stats__dur">· {fmtDur(totalDur)}</span>
+        <span className="board-stats__progress">完成 {doneCount}/{totalTasks} ({progress}%)</span>
+        <span className="board-stats__bar" aria-hidden="true">
+          <span className="board-stats__fill" style={{ width: `${progress}%` }} />
+        </span>
+      </div>
+
+      {lanes.map(lane => {
         const items = byLane[lane.id]
         const total = laneTotal(lane.id)
         const slot = dragging && overPos && overPos.lane === lane.id ? overPos.index : null

@@ -10,6 +10,7 @@ import TopoView from './components/TopoView'
 import GanttView from './components/GanttView'
 import EmbedView from './components/EmbedView'
 import IdeasView from './components/IdeasView'
+import TemplatesView from './components/TemplatesView'
 import CreateModal from './components/CreateModal'
 import TaskDetail from './components/TaskDetail'
 import DocPanel from './components/DocPanel'
@@ -165,6 +166,18 @@ export default function App() {
     setDetail(prev => prev && prev.id === taskId ? { ...prev, state: newState } : prev)
   }, [])
 
+  const moveTaskStage = useCallback(async (taskId, newStage) => {
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, stage: newStage } : t))
+    setDetail(prev => prev && prev.id === taskId ? { ...prev, stage: newStage } : prev)
+    try {
+      await api.moveToStage(taskId, { target_stage: newStage })
+      loadTasks()
+    } catch (e) {
+      setError('移动阶段失败: ' + (e.message || '阶段不合法'))
+      loadTasks()
+    }
+  }, [loadTasks])
+
   const closeDetail = useCallback(() => setDetail(null), [])
 
   const openTask = useCallback(async (t) => {
@@ -244,6 +257,9 @@ export default function App() {
             {view === 'board' && (
               <BoardView tasks={filteredTasks} onMove={moveTask} onCancel={cancelTask} onOpen={openTask} loading={loading} focus={focus} />
             )}
+            {view === 'stage' && (
+              <BoardView tasks={filteredTasks} groupBy="stage" onMove={moveTaskStage} onCancel={cancelTask} onOpen={openTask} loading={loading} focus={focus} />
+            )}
             {view === 'list' && (
               <ListView tasks={filteredTasks} onCancel={cancelTask} onOpen={openTask} />
             )}
@@ -262,6 +278,9 @@ export default function App() {
             )}
             {view === 'ideas' && (
               <IdeasView ideas={filteredIdeas} onReload={loadIdeas} />
+            )}
+            {view === 'templates' && (
+              <TemplatesView />
             )}
           </div>
         </main>

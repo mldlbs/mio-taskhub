@@ -9,6 +9,20 @@ export const LANES = [
 
 export const STATE_META = Object.fromEntries(LANES.map(l => [l.id, l]))
 
+// 开发阶段看板泳道（拖拽改阶段用）
+export const STAGES = [
+  { id: 'brainstorming', label: '头脑风暴', en: 'BRAINSTORM', tone: 'dim' },
+  { id: 'design',        label: '设计',     en: 'DESIGN',      tone: 'dim' },
+  { id: 'planning',      label: '计划',     en: 'PLANNING',    tone: 'dim' },
+  { id: 'ready',         label: '就绪',     en: 'READY',       tone: 'live' },
+  { id: 'implementing',  label: '实现中',   en: 'IMPLEMENTING', tone: 'live' },
+  { id: 'review',        label: '评审',     en: 'REVIEW',      tone: 'warn' },
+  { id: 'done',          label: '完成',     en: 'DONE',        tone: 'ok' },
+  { id: 'cancelled',     label: '已取消',   en: 'CANCELLED',   tone: 'danger' },
+]
+
+export const STAGE_META = Object.fromEntries(STAGES.map(l => [l.id, l]))
+
 export const PRIORITY = [
   { p: 0, label: 'P0', text: '低' },
   { p: 1, label: 'P1', text: '中' },

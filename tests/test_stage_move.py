@@ -25,23 +25,30 @@ def test_move_backwards():
     assert r.json()["stage"] == "brainstorming"
 
 
-def test_move_to_done_requires_review_result():
+def test_move_to_done_lenient_review_result():
+    # 拖拽轻量路径：done 缺 review_result 时自动补默认结论并置 completed
     t = _mk("move3", stage="review")
     r = client.post(f"/api/v1/tasks/{t['id']}/stage/move", json={"target_stage": "done"})
-    assert r.status_code == 422
-    r2 = client.post(f"/api/v1/tasks/{t['id']}/stage/move",
+    assert r.status_code == 200
+    assert r.json()["state"] == "completed"
+    # 显式提供 review_result 时也接受
+    t2 = _mk("move3b", stage="review")
+    r2 = client.post(f"/api/v1/tasks/{t2['id']}/stage/move",
                      json={"target_stage": "done", "review_result": "ok"})
     assert r2.status_code == 200
-    assert r2.json()["state"] == "completed"
+    assert r2.json()["review_result"] == "ok"
 
 
-def test_move_to_design_requires_spec_path():
+def test_move_to_design_lenient_spec_path():
+    # 拖拽轻量路径：design 缺 spec_path 时仅置阶段，不强制 422
     t = _mk("move4", stage="brainstorming")
     r = client.post(f"/api/v1/tasks/{t['id']}/stage/move", json={"target_stage": "design"})
-    assert r.status_code == 422
+    assert r.status_code == 200
+    assert r.json()["stage"] == "design"
     r2 = client.post(f"/api/v1/tasks/{t['id']}/stage/move",
                      json={"target_stage": "design", "spec_path": "docs/x.md"})
     assert r2.status_code == 200
+    assert r2.json()["spec_path"] == "docs/x.md"
 
 
 def test_move_terminal_stage_blocked():
@@ -65,13 +72,16 @@ def test_move_404():
     assert r.status_code == 404
 
 
-def test_move_to_planning_requires_plan_path():
+def test_move_to_planning_lenient_plan_path():
+    # 拖拽轻量路径：planning 缺 plan_path 时仅置阶段，不强制 422
     t = _mk("movep", stage="brainstorming")
     r = client.post(f"/api/v1/tasks/{t['id']}/stage/move", json={"target_stage": "planning"})
-    assert r.status_code == 422
+    assert r.status_code == 200
+    assert r.json()["stage"] == "planning"
     r2 = client.post(f"/api/v1/tasks/{t['id']}/stage/move",
                      json={"target_stage": "planning", "plan_path": "docs/p.md"})
     assert r2.status_code == 200
+    assert r2.json()["plan_path"] == "docs/p.md"
 
 
 def test_move_to_cancelled_sets_state():
