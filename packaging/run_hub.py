@@ -125,12 +125,20 @@ _ERROR_ALREADY_EXISTS = 183
 
 
 def _single_hub_instance():
-    """命名互斥锁：确保只有一个 hub 实例（避免重复启动出现多托盘）。"""
+    """命名互斥锁：确保只有一个 hub 实例（避免重复启动出现多托盘）。
+
+    读取 GetLastError 必须用 WinDLL(use_last_error=True) + ctypes.get_last_error()；
+    原实现跨两次 FFI 调用读 kernel32.GetLastError()，错误码会被 ctypes 内部调用覆盖，
+    漏判 ALREADY_EXISTS → 多 hub 并发 → 端口冲突 → 无限重启僵尸进程（2026-08-29 实测）。
+    """
     try:
-        kernel32 = ctypes.windll.kernel32
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         handle = kernel32.CreateMutexW(None, False, _HUB_LOCK)
-        if handle and kernel32.GetLastError() == _ERROR_ALREADY_EXISTS:
-            return None
+        if not handle:
+            return 0  # 创建失败：保持旧行为放行（_release_hub_lock 对 0 自动跳过）
+        if ctypes.get_last_error() == _ERROR_ALREADY_EXISTS:
+            kernel32.CloseHandle(handle)
+            return None  # 已有 hub 实例
         return handle
     except Exception:
         return "unknown"
@@ -203,7 +211,12 @@ def main():
         # 已有 hub 在运行，静默退出（避免出现第二个托盘图标）
         return
 
-    if _port_in_use("127.0.0.1", port) and not _probe_service(url):
+    if _port_in_use("127.0.0.1", port):
+        if _probe_service(url):
+            # 端口上是健康的本服务——互斥锁漏判兜底：已有 hub 在跑，静默退出
+            _log(f"port {port} served by healthy hub -> duplicate launch, exit")
+            _release_hub_lock(lock)
+            return
         # 端口被占用但服务无响应——大概率是残留进程占着端口，清理后接管
         _log(f"port {port} busy, no healthy service -> reclaim")
         if not _reclaim_port(port):
@@ -212,6 +225,7 @@ def main():
                 f"端口 {port} 已被其他程序占用且无法自动接管。\n\n"
                 f"请关闭占用该端口的程序后重试。",
             )
+            _release_hub_lock(lock)
             return
         import time as _time
 
@@ -228,6 +242,12 @@ def main():
             try:
                 server.run()
                 break  # 正常退出（托盘「退出」设 should_exit）
+            except (SystemExit, KeyboardInterrupt):
+                # uvicorn 端口占用等启动失败会抛 SystemExit(3)：重启只会无限循环
+                # 制造僵尸实例（runtime.log 实测 "crashed, restart in 2s: SystemExit(3)"），
+                # 改为直接退出走 finally 清理
+                _log("hub exit (SystemExit/KeyboardInterrupt), no restart")
+                break
             except BaseException as e:
                 _log(f"hub crashed, restart in 2s: {e!r}")
                 import time as _time

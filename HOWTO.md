@@ -112,3 +112,48 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1
 - 前端改动后由 build.ps1 自动先 `cd web && npm run build` 再打包（Web UI 从 `web/dist` 打包进 exe）
 - 排除重型依赖（torch/pandas/scipy 等）见 spec 的 excludes，防止体积膨胀到 GB 级
 - 打包要求 Windows 64 位；Mac/Linux 用户需在对应系统重打
+
+## mio-intelligence 创意想法 → taskhub 同步
+
+mio-intelligence 的 `mio.idea.generate` 工具会把生成的创意想法存到 `~/.mio-intelligence/ideas.jsonl`。
+这些想法可以通过两种方式同步到 mio-taskhub 的 Idea 系统：
+
+### 方式一：Agent 实时同步（推荐）
+
+Agent 在对话中生成想法后，立即调用 `taskhub_add_idea` 推送到 taskhub：
+
+```
+1. 调用 mio.idea.generate(goal="...", context="...", numIdeas=3)
+2. 对返回的每个 idea，调用 taskhub_add_idea(title=..., description=..., labels=["mio-intelligence", "strategy:SCAMPER"])
+3. 后续可在 taskhub 中发酵、讨论、拆解为任务
+```
+
+### 方式二：批量同步脚本
+
+```bash
+# 预览待同步的想法
+python scripts/ideas_sync.py --dry-run
+
+# 执行同步
+python scripts/ideas_sync.py
+
+# 指定项目
+python scripts/ideas_sync.py --project my-project
+```
+
+脚本会：
+- 扫描 `~/.mio-intelligence/ideas.jsonl`
+- 按 title 去重（已存在的跳过）
+- 调用 taskhub REST API `POST /ideas` 创建 Idea（status=new）
+- 记录同步状态到 `~/.mio-intelligence/idea_sync_state.json` 避免重复
+
+### 数据映射
+
+| ideas.jsonl 字段 | taskhub Idea 字段 | 说明 |
+|---|---|---|
+| `title` | `title` | 直接映射 |
+| `description` | `description` | 直接映射 |
+| `provenance.strategy` | `labels` | 追加 `strategy:SCAMPER` 等标签 |
+| `goal` | `description` 前缀 | 追加到描述开头 |
+| — | `status` | 固定 `new` |
+| — | `labels` | 追加 `mio-intelligence`, `auto-generated` |

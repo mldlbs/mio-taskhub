@@ -64,15 +64,20 @@ def _single_instance():
     """命名互斥锁：确保只有一个小面板窗口。
 
     已存在实例时激活已有窗口（显示并置前）并返回 None，调用方应退出。
+    注意：读取 GetLastError 必须用 WinDLL(use_last_error=True) + ctypes.get_last_error()，
+    跨两次 FFI 调用读 kernel32.GetLastError() 会漏判 ALREADY_EXISTS（与 run_hub 同源的坑）。
     """
     try:
-        kernel32 = ctypes.windll.kernel32
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         handle = kernel32.CreateMutexW(None, False, _SINGLE_INSTANCE_LOCK)
-        if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
+        if not handle:
+            return 0  # 创建失败：保持旧行为放行
+        if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
             hwnd = ctypes.windll.user32.FindWindowW(None, WINDOW_TITLE)
             if hwnd:
                 ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
                 ctypes.windll.user32.SetForegroundWindow(hwnd)
+            kernel32.CloseHandle(handle)
             return None
         return handle
     except Exception:

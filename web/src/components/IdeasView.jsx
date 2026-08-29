@@ -1,7 +1,53 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { marked } from 'marked'
 import { api } from '../api'
 import { fmtAgo, fmtDate } from '../constants'
+
+// 解析 mio.idea.generate 生成的 description，提取结构化字段
+function parseIdeaDescription(desc = '') {
+  const result = { goal: '', strategy: '', context: '', constraints: [], relatedMemory: [], raw: desc }
+  if (!desc) return result
+  
+  // 提取 Goal
+  const goalMatch = desc.match(/Goal:\s*([\s\S]*?)(?=\n\nStrategy:|$)/)
+  if (goalMatch) result.goal = goalMatch[1].trim()
+  
+  // 提取 Strategy
+  const strategyMatch = desc.match(/Strategy:\s*([^\n]+)/)
+  if (strategyMatch) result.strategy = strategyMatch[1].trim()
+  
+  // 提取 Context
+  const contextMatch = desc.match(/Context:\s*([\s\S]*?)(?=\n\nConstraints:|$)/)
+  if (contextMatch) result.context = contextMatch[1].trim()
+  
+  // 提取 Constraints
+  const constraintsMatch = desc.match(/Constraints:\s*([\s\S]*?)(?=\n\nStrategy prompt:|$)/)
+  if (constraintsMatch) {
+    const lines = constraintsMatch[1].trim().split('\n')
+    result.constraints = lines.map(l => l.replace(/^-\s*/, '').trim()).filter(Boolean)
+  }
+  
+  // 提取 Related Mio memory
+  const memoryMatch = desc.match(/Related Mio memory:\s*([\s\S]*?)(?=\n\nContext:|$)/)
+  if (memoryMatch) {
+    const lines = memoryMatch[1].trim().split('\n')
+    result.relatedMemory = lines
+      .map(l => l.replace(/^-\s*\[.*?\]\s*/, '').trim())
+      .filter(Boolean)
+  }
+  
+  return result
+}
+
+const STRATEGY_ICON = {
+  'SCAMPER': '🔀',
+  'Analogy': '🔗',
+  'First-Principles': '🧱',
+  'Morphological': '📐',
+  'Brainwriting': '✍️',
+  'Six Hats': '🎩',
+  'default': '💡'
+}
 
 const IDEA_META = {
   new:        { label: '记录中', tone: 'dim' },
@@ -335,7 +381,62 @@ export default function IdeasView({ ideas, onReload }) {
               {detail.last_reviewed_at && (
                 <div className="idea-card__project">上次评审：{fmtDate(detail.last_reviewed_at)}</div>
               )}
-              <p className="idea-detail__desc">{detail.description || '（暂无描述）'}</p>
+              <div className="idea-detail__desc">
+                {(() => {
+                  const parsed = parseIdeaDescription(detail.description)
+                  const isMioIdea = detail.labels?.includes('mio-intelligence')
+                  if (!isMioIdea || (!parsed.goal && !parsed.strategy && !parsed.context)) {
+                    return <p>{detail.description || '（暂无描述）'}</p>
+                  }
+                  return (
+                    <div className="mio-idea-struct">
+                      <div className="mio-idea__meta">
+                        <span className="mio-idea__source">🧠 mio-intelligence 生成</span>
+                        {parsed.strategy && (
+                          <span className="mio-idea__strategy">
+                            {STRATEGY_ICON[parsed.strategy] || STRATEGY_ICON.default} {parsed.strategy}
+                          </span>
+                        )}
+                        {detail.labels?.map(l => (
+                          <span key={l} className="mio-idea__label">{l}</span>
+                        ))}
+                      </div>
+                      {parsed.goal && (
+                        <div className="mio-idea__field">
+                          <span className="mio-idea__field-label">目标</span>
+                          <p className="mio-idea__field-value">{parsed.goal}</p>
+                        </div>
+                      )}
+                      {parsed.context && (
+                        <div className="mio-idea__field">
+                          <span className="mio-idea__field-label">背景</span>
+                          <p className="mio-idea__field-value">{parsed.context}</p>
+                        </div>
+                      )}
+                      {parsed.constraints.length > 0 && (
+                        <div className="mio-idea__field">
+                          <span className="mio-idea__field-label">约束</span>
+                          <ul className="mio-idea__constraints">
+                            {parsed.constraints.map((c, i) => (
+                              <li key={i}>{c}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {parsed.relatedMemory.length > 0 && (
+                        <details className="mio-idea__field mio-idea__memories">
+                          <summary>🧩 关联记忆 ({parsed.relatedMemory.length})</summary>
+                          <ul>
+                            {parsed.relatedMemory.map((m, i) => (
+                              <li key={i} className="mono">{m}</li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
+                    </div>
+                  )
+                })()}
+              </div>
 
               <div className="idea-detail__history">
                 <button className="btn btn--ghost" onClick={() => setShowHistory(s => !s)}>
