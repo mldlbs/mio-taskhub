@@ -11,6 +11,7 @@ import GanttView from './components/GanttView'
 import EmbedView from './components/EmbedView'
 import IdeasView from './components/IdeasView'
 import TemplatesView from './components/TemplatesView'
+import WorkflowView from './components/WorkflowView'
 import CreateModal from './components/CreateModal'
 import TaskDetail from './components/TaskDetail'
 import DocPanel from './components/DocPanel'
@@ -27,7 +28,11 @@ export default function App() {
   const [tasks, setTasks] = useState([])
   const [ideas, setIdeas] = useState([])
   const [view, setViewState] = useState(() => {
-    try { return localStorage.getItem(VIEW_KEY) || 'board' } catch { return 'board' }
+    try {
+      const v = localStorage.getItem(VIEW_KEY) || 'workflow'
+      // 旧版视图（board/stage/flow）统一合并为 workflow
+      return ['board', 'stage', 'flow'].includes(v) ? 'workflow' : v
+    } catch { return 'workflow' }
   })
   const [contrast, setContrast] = useState(() => {
     try { return localStorage.getItem(CONTRAST_KEY) === 'high' } catch { return false }
@@ -207,7 +212,7 @@ export default function App() {
   }, [detail, refreshDetail])
 
   const focusLane = useCallback((id) => {
-    setView('board')
+    setView('workflow')
     setFocus({ id, t: Date.now() })
   }, [setView])
 
@@ -254,21 +259,23 @@ export default function App() {
 
         <main className="viewport">
           <div className="view-fade" key={view}>
-            {view === 'board' && (
-              <BoardView tasks={filteredTasks} onMove={moveTask} onCancel={cancelTask} onOpen={openTask} loading={loading} focus={focus} />
-            )}
-            {view === 'stage' && (
-              <BoardView tasks={filteredTasks} groupBy="stage" onMove={moveTaskStage} onCancel={cancelTask} onOpen={openTask} loading={loading} focus={focus} />
+            {view === 'workflow' && (
+              <WorkflowView
+                tasks={filteredTasks}
+                onMoveState={moveTask}
+                onMoveStage={moveTaskStage}
+                onCancel={cancelTask}
+                onOpen={openTask}
+                onAdvance={advanceStage}
+                loading={loading}
+                focus={focus}
+              />
             )}
             {view === 'list' && (
               <ListView tasks={filteredTasks} onCancel={cancelTask} onOpen={openTask} />
             )}
             {view === 'plan' && (
               <PlanView tasks={filteredTasks} />
-            )}
-            {view === 'flow' && (
-              <FlowView tasks={filteredTasks} onOpen={openTask} onCancel={cancelTask}
-                        onAdvance={advanceStage} onMoveToStage={moveToStage} />
             )}
             {view === 'topo' && (
               <TopoView tasks={filteredTasks} onOpen={openTask} />

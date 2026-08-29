@@ -44,6 +44,8 @@ export default function IdeasView({ ideas, onReload }) {
   const [hist, setHist] = useState(null)
   // 列表类型过滤：all / idea / adr
   const [typeFilter, setTypeFilter] = useState('all')
+  // 是否显示已取消的想法
+  const [showCancelled, setShowCancelled] = useState(false)
   // ADR 相关状态
   const [showEvolveModal, setShowEvolveModal] = useState(false)
   const [adrForm, setAdrForm] = useState({ madr_context: '', madr_decision: '', madr_consequences: '', reason: '' })
@@ -241,7 +243,9 @@ export default function IdeasView({ ideas, onReload }) {
   const nextMeta = next ? IDEA_META[next] : null
 
   const filtered = typeFilter === 'all' ? ideas : ideas.filter(i => i.idea_type === typeFilter)
+  const visible = showCancelled ? filtered : filtered.filter(i => i.status !== 'cancelled')
   const adrCount = ideas.filter(i => i.idea_type === 'adr').length
+  const cancelledCount = ideas.filter(i => i.status === 'cancelled').length
 
   return (
     <div className="ideas">
@@ -265,6 +269,14 @@ export default function IdeasView({ ideas, onReload }) {
         ))}
       </div>
 
+      {cancelledCount > 0 && (
+        <div className="ideas__cancel-toggle">
+          <button className="btn btn--ghost btn--sm" onClick={() => setShowCancelled(s => !s)}>
+            {showCancelled ? '▾ 隐藏已取消' : `▸ 显示已取消（${cancelledCount}）`}
+          </button>
+        </div>
+      )}
+
       {creating && (
         <div className="ideas__create">
           <input className="inp" placeholder="标题（一句话想法）" value={form.title}
@@ -281,8 +293,8 @@ export default function IdeasView({ ideas, onReload }) {
 
       <div className="ideas__cols">
         <div className="ideas__list">
-          {filtered.length === 0 && <div className="ideas__empty">{typeFilter === 'adr' ? '还没有 ADR。把想法推进到「已成形」后可演化为 ADR。' : '还没有想法。点右上角「记个想法」，随手把需求、点子、改进记下来。'}</div>}
-          {filtered.map(i => {
+          {visible.length === 0 && <div className="ideas__empty">{typeFilter === 'adr' ? '还没有 ADR。把想法推进到「已成形」后可演化为 ADR。' : '还没有想法。点右上角「记个想法」，随手把需求、点子、改进记下来。'}</div>}
+          {visible.map(i => {
             const isAdr = i.idea_type === 'adr'
             const m = isAdr
               ? (ADR_STATUS_META[i.adr_status] || ADR_STATUS_META.proposed)

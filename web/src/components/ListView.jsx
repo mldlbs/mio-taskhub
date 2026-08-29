@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useCallback } from 'react'
 import { prio, STATE_META, LANES, fmtDur, fmtDate } from '../constants'
 
 const tone = (s) => STATE_META[s]?.tone || 'dim'
@@ -10,11 +10,19 @@ const SORTS = {
   title:    (a, b) => String(a.title).localeCompare(String(b.title)),
 }
 
+const SORT_LABEL = {
+  priority: '优先级',
+  created: '创建时间',
+  duration: '时长',
+  title: '标题',
+}
+
 export default function ListView({ tasks, onCancel, onOpen }) {
   const [q, setQ] = useState('')
   const [sort, setSort] = useState('priority')
   const [stateF, setStateF] = useState('all')
   const [agentF, setAgentF] = useState('all')
+  const [confirmCancel, setConfirmCancel] = useState(null)
 
   const agentTypes = useMemo(() => {
     const set = new Set(tasks.map(t => t.target_agent_type).filter(Boolean))
@@ -36,8 +44,19 @@ export default function ListView({ tasks, onCancel, onOpen }) {
 
   const schedulable = (s) => s === 'queued' || s === 'claimed' || s === 'retrying'
 
+  const handleCancel = useCallback((id) => {
+    setConfirmCancel(id)
+  }, [])
+
+  const confirmCancelTask = useCallback(() => {
+    if (confirmCancel && onCancel) {
+      onCancel(confirmCancel)
+    }
+    setConfirmCancel(null)
+  }, [confirmCancel, onCancel])
+
   return (
-    <div>
+    <div className="list-view">
       <div className="toolbar">
         <div className="toolbar__search">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -50,86 +69,131 @@ export default function ListView({ tasks, onCancel, onOpen }) {
             placeholder="搜索标题 / ID / Agent / 状态…"
             aria-label="搜索任务"
           />
-        </div>
-
-        <select className="toolbar__select" value={sort} onChange={e => setSort(e.target.value)} aria-label="排序方式">
-          <option value="priority">按优先级</option>
-          <option value="created">按创建时间</option>
-          <option value="duration">按时长</option>
-          <option value="title">按标题</option>
-        </select>
-
-        <div className="state-filters" role="group" aria-label="按状态筛选">
-          <button className={stateF === 'all' ? 'is-on' : ''} onClick={() => setStateF('all')}>ALL</button>
-          {LANES.map(l => (
-            <button key={l.id} className={stateF === l.id ? 'is-on' : ''} onClick={() => setStateF(stateF === l.id ? 'all' : l.id)}>
-              {l.en}
+          {q && (
+            <button className="toolbar__search-clear" onClick={() => setQ('')} aria-label="清除搜索">
+              ×
             </button>
-          ))}
+          )}
         </div>
 
-        <select className="toolbar__select" value={agentF} onChange={e => setAgentF(e.target.value)} aria-label="按 Agent 筛选">
-          {agentTypes.map(a => (
-            <option key={a} value={a}>{a === 'all' ? '全部 Agent' : a}</option>
-          ))}
-        </select>
+        <div className="toolbar__group">
+          <label className="toolbar__label">排序</label>
+          <select className="toolbar__select" value={sort} onChange={e => setSort(e.target.value)} aria-label="排序方式">
+            {Object.entries(SORT_LABEL).map(([k, v]) => (
+              <option key={k} value={k}>{v}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="toolbar__group">
+          <label className="toolbar__label">状态</label>
+          <div className="state-filters" role="group" aria-label="按状态筛选">
+            <button className={stateF === 'all' ? 'is-on' : ''} onClick={() => setStateF('all')}>全部</button>
+            {LANES.map(l => (
+              <button key={l.id} className={stateF === l.id ? 'is-on' : ''} onClick={() => setStateF(stateF === l.id ? 'all' : l.id)}>
+                {l.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="toolbar__group">
+          <label className="toolbar__label">Agent</label>
+          <select className="toolbar__select" value={agentF} onChange={e => setAgentF(e.target.value)} aria-label="按 Agent 筛选">
+            {agentTypes.map(a => (
+              <option key={a} value={a}>{a === 'all' ? '全部' : a}</option>
+            ))}
+          </select>
+        </div>
 
         <span className="toolbar__count">{rows.length} / {tasks.length}</span>
       </div>
 
-      <table className="ledger">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>任务</th>
-            <th>状态</th>
-            <th>优先级</th>
-            <th>时长</th>
-            <th>排期</th>
-            <th>创建</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((t, i) => {
-            const p = prio(t.priority)
-            const st = tone(t.state)
-            return (
-              <tr key={t.id} style={{ '--i': i }} onClick={() => onOpen && onOpen(t)}>
-                <td className="cell-mono cell-id">{t.id}</td>
-                <td className="cell-title" style={{ maxWidth: 340 }}>{t.title}</td>
-                <td>
-                  <span className={`state-chip${st === 'live' ? ' is-live' : ''}${st === 'warn' ? ' is-warn' : ''}${st === 'danger' ? ' is-danger' : ''}`}>
-                    <i />{t.state}
-                  </span>
-                </td>
-                <td>
-                  <span className={`chip${p.p >= 3 ? ' chip--p3' : ''}${p.p === 2 ? ' chip--p2' : ''}`}>{p.label}</span>
-                </td>
-                <td className="cell-mono">{fmtDur(t.est_duration_min)}</td>
-                <td className="cell-mono">{t.schedule_type === 'cron' ? t.cron_expr || 'cron' : t.run_at ? fmtDate(t.run_at) : '—'}</td>
-                <td className="cell-mono">{fmtDate(t.created_at)}</td>
-                <td style={{ textAlign: 'right' }} onClick={e => e.stopPropagation()}>
-                  {schedulable(t.state) && (
-                    <button className="btn btn--ghost" style={{ padding: '4px 10px', fontSize: 11 }}
-                      onClick={() => onCancel && onCancel(t.id)}>
-                      取消
-                    </button>
-                  )}
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
+      <div className="table-wrap">
+        <table className="ledger">
+          <colgroup>
+            <col className="col-id" />
+            <col className="col-title" />
+            <col className="col-state" />
+            <col className="col-priority" />
+            <col className="col-duration" />
+            <col className="col-schedule" />
+            <col className="col-created" />
+            <col className="col-action" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>任务</th>
+              <th>状态</th>
+              <th>优先级</th>
+              <th>时长</th>
+              <th>排期</th>
+              <th>创建</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((t, i) => {
+              const p = prio(t.priority)
+              const st = tone(t.state)
+              return (
+                <tr key={t.id} style={{ '--i': i }} onClick={() => onOpen && onOpen(t)} className="ledger__row">
+                  <td className="cell-mono cell-id" title={t.id}>{t.id}</td>
+                  <td className="cell-title" title={t.title}>{t.title}</td>
+                  <td>
+                    <span className={`state-chip${st === 'live' ? ' is-live' : ''}${st === 'warn' ? ' is-warn' : ''}${st === 'danger' ? ' is-danger' : ''}`}>
+                      <i />{t.state}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={`chip${p.p >= 3 ? ' chip--p3' : ''}${p.p === 2 ? ' chip--p2' : ''}`}>{p.label}</span>
+                  </td>
+                  <td className="cell-mono">{fmtDur(t.est_duration_min)}</td>
+                  <td className="cell-mono cell-schedule">{t.schedule_type === 'cron' ? t.cron_expr || 'cron' : t.run_at ? fmtDate(t.run_at) : '—'}</td>
+                  <td className="cell-mono">{fmtDate(t.created_at)}</td>
+                  <td className="cell-action" onClick={e => e.stopPropagation()}>
+                    {schedulable(t.state) && (
+                      <button className="btn btn--ghost btn--sm" onClick={() => handleCancel(t.id)}>
+                        取消
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
 
       {rows.length === 0 && (
-        <div className="plan__empty" style={{ marginTop: 16 }}>
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+        <div className="list-view__empty">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
             <circle cx="11" cy="11" r="7" />
             <path d="M21 21l-4.3-4.3" />
           </svg>
-          没有匹配的任务
+          <p>没有匹配的任务</p>
+          <button className="btn btn--ghost btn--sm" onClick={() => { setQ(''); setStateF('all'); setAgentF('all') }}>
+            清除筛选
+          </button>
+        </div>
+      )}
+
+      {confirmCancel && (
+        <div className="overlay" onClick={() => setConfirmCancel(null)}>
+          <div className="modal modal--sm" role="dialog" aria-modal="true" aria-label="确认取消" onClick={e => e.stopPropagation()}>
+            <div className="modal__head">
+              <h3>确认取消任务</h3>
+              <button className="modal__close" onClick={() => setConfirmCancel(null)} aria-label="关闭">×</button>
+            </div>
+            <div className="modal__body">
+              <p>确定要取消任务 <code>{confirmCancel}</code> 吗？此操作不可撤销。</p>
+            </div>
+            <div className="modal__foot">
+              <button className="btn btn--ghost" onClick={() => setConfirmCancel(null)}>返回</button>
+              <button className="btn btn--danger" onClick={confirmCancelTask}>确认取消</button>
+            </div>
+          </div>
         </div>
       )}
     </div>

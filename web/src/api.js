@@ -39,6 +39,7 @@ export const api = {
     if (project) url += `&project=${encodeURIComponent(project)}`;
     return req('GET', url);
   },
+  nightPlanSaved: () => req('GET', '/plans/night/saved'),
   listProjects: () => req('GET', '/plans/projects'),
   nrConfig: () => req('GET', '/nightrun/config'),
   nrSetEnabled: (enabled) => req('PUT', '/nightrun/config', { enabled }),
@@ -71,4 +72,6 @@ export const api = {
   deleteTemplate: (id) => req('DELETE', `/tasks/templates/${id}`),
   createTemplateFromTask: (taskId, body) => req('POST', `/tasks/templates/from-task/${taskId}`, body),
   createTaskFromTemplate: (tplId, body) => req('POST', `/tasks/from-template/${tplId}`, body),
+  listTemplateVersions: (tplId) => req('GET', `/tasks/templates/${tplId}/versions`),
+  restoreTemplateVersion: (tplId, version) => req('POST', `/tasks/templates/${tplId}/restore/${version}`, {}),
 }

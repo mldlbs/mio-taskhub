@@ -28,6 +28,8 @@ export default function PlanView({ onSchedule }) {
   const [selectedProject, setSelectedProject] = useState('')
   const [nrEnabled, setNrEnabled] = useState(false)
   const [nrBusy, setNrBusy] = useState(false)
+  const [savedAt, setSavedAt] = useState(null)
+  const [loadBusy, setLoadBusy] = useState(false)
 
   useEffect(() => {
     api.listProjects().then(setProjects).catch(() => {})
@@ -45,36 +47,54 @@ export default function PlanView({ onSchedule }) {
     finally { setNrBusy(false) }
   }
 
+  const _render = (data) => {
+    const items = (data.items ?? []).map((t) => {
+      const off = hm2min(t.scheduled_start) - WINDOW_START_MIN
+      return {
+        ...t,
+        id: t.task_id ?? t.id,
+        start: off < 0 ? off + 1440 : off,
+        dur: Math.min(WINDOW_MIN, Math.max(5, t.est_duration_min ?? 30)),
+        agent: t.agent_type || '',
+      }
+    })
+    const lastEnd = items.length ? Math.min(WINDOW_MIN, Math.max(...items.map((i) => i.start + i.dur))) : 0
+    setPlan({
+      items,
+      fitted: items.length,
+      total: items.length,
+      filled: lastEnd,
+      overflow: data.has_overflow ? '⚠' : 0,
+      parallel: data.max_parallel || 1,
+      project: data.project,
+    })
+    setSavedAt(data.generated_at || null)
+    onSchedule && onSchedule({ items, fitted: items.length, total: items.length, filled: lastEnd, overflow: data.has_overflow ? '⚠' : 0 })
+  }
+
   const generate = async () => {
     setLoading(true)
     setError(null)
     try {
       const data = await api.nightPlan(DEFAULT_START, DEFAULT_END, selectedProject || null)
-      const items = (data.items ?? []).map((t) => {
-        const off = hm2min(t.scheduled_start) - WINDOW_START_MIN
-        return {
-          ...t,
-          id: t.task_id ?? t.id,
-          start: off < 0 ? off + 1440 : off,
-          dur: Math.min(WINDOW_MIN, Math.max(5, t.est_duration_min ?? 30)),
-          agent: t.agent_type || '',
-        }
-      })
-      const lastEnd = items.length ? Math.min(WINDOW_MIN, Math.max(...items.map((i) => i.start + i.dur))) : 0
-      setPlan({
-        items,
-        fitted: items.length,
-        total: items.length,
-        filled: lastEnd,
-        overflow: data.has_overflow ? '有' : 0,
-        parallel: data.max_parallel || 1,
-        project: selectedProject,
-      })
-      onSchedule && onSchedule({ items, fitted: items.length, total: items.length, filled: lastEnd, overflow: data.has_overflow ? '有' : 0 })
+      _render(data)
     } catch {
-      setError('排期接口调用失败，请稍后重试')
+      setError('夜间计划接口调用失败，请稍后重试')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadSaved = async () => {
+    setLoadBusy(true)
+    setError(null)
+    try {
+      const data = await api.nightPlanSaved()
+      _render(data)
+    } catch (e) {
+      setError('未找到已落盘的计划：' + (e.message || '404'))
+    } finally {
+      setLoadBusy(false)
     }
   }
 
@@ -111,8 +131,16 @@ export default function PlanView({ onSchedule }) {
             {nrEnabled ? '● 夜班执行中' : '○ 夜班自动执行'}
           </button>
           <button className="btn btn--accent" onClick={generate} disabled={loading}>
-            {loading ? '生成中…' : '⟳ 生成排期'}
+            {loading ? '生成中…' : '⟳ 生成计划'}
           </button>
+          <button className="btn btn--ghost" onClick={loadSaved} disabled={loadBusy} title="读取最近一次落盘的计划">
+            {loadBusy ? '加载中…' : '⤓ 上次计划'}
+          </button>
+          {savedAt && (
+            <span className="np__saved" title="已落盘到 ~/.mio_taskhub/night_plans/latest.json">
+              ✓ 已落盘 {new Date(savedAt).toLocaleTimeString('zh-CN')}
+            </span>
+          )}
         </div>
       </div>
 

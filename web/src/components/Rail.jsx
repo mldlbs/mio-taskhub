@@ -1,16 +1,9 @@
 const VIEWS = [
-  { id: 'board', label: '看板', icon: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+  { id: 'workflow', label: '工作流', icon: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="4" width="6" height="16" rx="1.5" />
       <rect x="11" y="4" width="6" height="10" rx="1.5" />
       <rect x="19" y="4" width="2" height="7" rx="1" />
-    </svg>
-  )},
-  { id: 'stage', label: '阶段', icon: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="5" width="5" height="14" rx="1.5" />
-      <path d="M10 12h4M14 9l3 3-3 3" />
-      <rect x="16" y="5" width="5" height="14" rx="1.5" />
     </svg>
   )},
   { id: 'list', label: '列表', icon: (
@@ -22,13 +15,6 @@ const VIEWS = [
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
       <circle cx="12" cy="12" r="8.5" />
       <path d="M12 7.5V12l3 2" />
-    </svg>
-  )},
-  { id: 'flow', label: '流程', icon: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="4" width="18" height="5" rx="1.5" />
-      <rect x="3" y="15" width="18" height="5" rx="1.5" />
-      <path d="M9 9v6M15 9v6" />
     </svg>
   )},
   { id: 'topo', label: '拓扑', icon: (

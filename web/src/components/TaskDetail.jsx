@@ -33,6 +33,9 @@ function payloadText(p) {
 
 export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onToggleSubtask, onAdvance, onOpenDocs, onOpenTask, onRetry }) {
   const closeRef = useRef(null)
+  const [saveAsTpl, setSaveAsTpl] = useState(null) // { title, category }
+  const [saveBusy, setSaveBusy] = useState(false)
+  const [saveErr, setSaveErr] = useState(null)
 
   useEffect(() => {
     closeRef.current?.focus()
@@ -319,7 +322,29 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
               onClick={() => { onCancel(task.id); onClose() }}
             >取消任务</button>
           )}
+          <button className="btn btn--ghost" onClick={() => setSaveAsTpl({ title: `模板：${task.title}`, category: '' })}>另存为模板</button>
         </footer>
+
+        {saveAsTpl && (
+          <div className="drawer__savetpl">
+            {saveErr && <div className="errorbar" role="alert"><span>▲</span><span>{saveErr}</span><button onClick={() => setSaveErr(null)} aria-label="关闭">×</button></div>}
+            <h4>另存为模板</h4>
+            <div className="field"><label className="field__label">模板标题 <b>*</b></label><input value={saveAsTpl.title} onChange={e => setSaveAsTpl({ ...saveAsTpl, title: e.target.value })} placeholder="模板标题" /></div>
+            <div className="field"><label className="field__label">分类</label><input value={saveAsTpl.category} onChange={e => setSaveAsTpl({ ...saveAsTpl, category: e.target.value })} placeholder="data, backend" /></div>
+            <div className="modal__foot">
+              <button type="button" className="btn btn--ghost" onClick={() => { setSaveAsTpl(null); setSaveErr(null) }}>取消</button>
+              <button type="button" className="btn btn--accent" disabled={saveBusy} onClick={async () => {
+                if (!saveAsTpl.title.trim()) return
+                setSaveBusy(true); setSaveErr(null)
+                try {
+                  await api.createTemplateFromTask(task.id, { title: saveAsTpl.title.trim(), category: saveAsTpl.category.trim() })
+                  setSaveAsTpl(null)
+                } catch (e) { setSaveErr(e.message) }
+                setSaveBusy(false)
+              }}>{saveBusy ? '保存中…' : '保存模板'}</button>
+            </div>
+          </div>
+        )}
       </aside>
     </div>
   )

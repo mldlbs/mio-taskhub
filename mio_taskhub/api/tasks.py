@@ -426,6 +426,68 @@ def delete_template(tpl_id: str, db: Session = Depends(get_session)):
     return {"ok": True}
 
 
+@router.get("/templates/{tpl_id}/versions")
+def list_template_versions(tpl_id: str, db: Session = Depends(get_session)):
+    t = db.get(TaskTemplate, tpl_id)
+    if not t:
+        raise HTTPException(404, "template not found")
+    vers = db.exec(
+        select(TaskTemplateVersion)
+        .where(TaskTemplateVersion.template_id == tpl_id)
+        .order_by(TaskTemplateVersion.version.desc())
+    ).all()
+    return [
+        {
+            "id": v.id, "version": v.version, "created_at": v.created_at.isoformat(),
+            "created_by": v.created_by, "description": v.description,
+            "changes": v.changes,
+        }
+        for v in vers
+    ]
+
+
+@router.post("/templates/{tpl_id}/restore/{version}", response_model=dict)
+def restore_template_version(tpl_id: str, version: int, db: Session = Depends(get_session)):
+    t = db.get(TaskTemplate, tpl_id)
+    if not t:
+        raise HTTPException(404, "template not found")
+    v = db.exec(
+        select(TaskTemplateVersion)
+        .where(TaskTemplateVersion.template_id == tpl_id, TaskTemplateVersion.version == version)
+    ).first()
+    if not v:
+        raise HTTPException(404, "version not found")
+    content = v.content or {}
+    # 回滚字段到模板
+    for key in ("title", "description", "author", "category", "acceptance_criteria",
+                "target_agent_type", "is_public"):
+        if key in content:
+            setattr(t, key, content[key])
+    for key in ("priority", "est_duration_min", "est_cost_min"):
+        if key in content:
+            setattr(t, key, content[key])
+    for key in ("files_template", "deliverables_template", "stages", "dependencies",
+                "labels", "tags"):
+        if key in content:
+            setattr(t, key, content[key])
+    t.updated_at = _now()
+    t.version += 1
+    new_ver = TaskTemplateVersion(
+        id=str(uuid.uuid4())[:8],
+        template_id=t.id,
+        version=t.version,
+        content=_template_json(t),
+        changes={"restored_from": version},
+        created_by=content.get("created_by", ""),
+        description=f"restored from v{version}",
+    )
+    db.add(new_ver)
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    return _template_json(t)
+
+
 @router.post("/templates/from-task/{task_id}", response_model=dict)
 def create_template_from_task(task_id: str, body: dict, db: Session = Depends(get_session)):
     t = db.get(Task, task_id)

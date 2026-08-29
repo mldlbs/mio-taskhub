@@ -138,6 +138,10 @@ def _migrate_stage_column(target_engine=None):
 def init_db():
     SQLModel.metadata.create_all(engine)
     _migrate_stage_column()
+    # 首次运行播种常用模板（表为空时才插入，幂等）
+    from mio_taskhub.seed import seed_common_templates
+    with Session(engine) as s:
+        seed_common_templates(s)
 
 def get_session() -> Generator[Session, None, None]:
     with Session(engine) as session:
