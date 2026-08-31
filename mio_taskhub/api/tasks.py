@@ -1065,9 +1065,49 @@ def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
     _apply_stage_requirements(t, dst, body, strict=False)
     from_stage = src.value
     t.stage = dst
+    # M1: 尝试走状态机记录 TaskEvent + 设时间戳
+    from mio_taskhub.transitions import apply_transition, _orm_to_status_stage
+    from mio_taskhub.status import State as M1State, Stage as M1Stage, ActorType as M1Actor
+    from mio_taskhub.status import IllegalTransition as M1Illegal
+    m1_events = []
+    try:
+        cur_s = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
+        cur_st = src  # 旧 stage (已赋值新 stage，用原值)
+        from_st = _orm_to_status_stage(cur_st) if cur_st != TaskStage.CANCELLED else M1Stage.BRAINSTORMING
+        # 目标 stage 对应的 M1 stage
+        to_st = _orm_to_status_stage(dst) if dst != TaskStage.CANCELLED else M1Stage.BRAINSTORMING
+        if dst == TaskStage.DONE:
+            # (claimed, X) → (completed, review) → (completed, done)
+            if cur_s == TaskState.CLAIMED:
+                _, e1 = apply_transition(t, M1State.COMPLETED, from_st,
+                                         M1Actor.USER, "api:move_to_stage",
+                                         reason="move→done")
+                if e1: m1_events.append(e1)
+            _, e2 = apply_transition(t, M1State.COMPLETED, M1Stage.DONE,
+                                     M1Actor.SYSTEM, "auto:finalize",
+                                     reason="move→done: finalize")
+            if e2: m1_events.append(e2)
+        elif dst == TaskStage.CANCELLED:
+            _, e = apply_transition(t, M1State.CANCELLED, from_st,
+                                    M1Actor.USER, "api:move_to_stage",
+                                    reason="move→cancelled")
+            if e: m1_events.append(e)
+        else:
+            # 自由拖拽：尝试 stage-only（T17 from queued, T11 from claimed）
+            orm_state_map = {TaskState.BLOCKED_FAILED: M1State.QUEUED}
+            s = orm_state_map.get(cur_s, M1State(cur_s.value))
+            actor = M1Actor.USER if cur_s == TaskState.QUEUED else M1Actor.SYSTEM
+            actor_id = "api:move_to_stage" if cur_s == TaskState.QUEUED else "auto:move"
+            _, e = apply_transition(t, s, to_st, actor, actor_id,
+                                    reason=f"move {from_stage}→{dst.value}")
+            if e: m1_events.append(e)
+    except M1Illegal:
+        pass  # 自由拖拽不强制 M1 校验，记录 legacy event 即可
     event = emit_event(db, type="task_moved", entity="task", entity_id=t.id,
                        payload={"from": from_stage, "to": dst.value})
     db.add(t)
+    for ev in m1_events:
+        db.add(ev)
     db.commit()
     db.refresh(t)
     broadcast_for_event(event)
@@ -1170,6 +1210,9 @@ def _claim_for(agent: str, db: Session, agent_type: Optional[str] = None, task_i
         return None  # 已被并发领取，跳过
     task = db.get(Task, candidate.id)
     db.refresh(task)  # 确保 state/attempt 与 DB 同步
+    # M1: 原子 claim 成功后补记 TaskEvent + 时间戳
+    from mio_taskhub.transitions import record_post_claim
+    claim_event = record_post_claim(task, agent)
     task.attempt += 1
     task.stage = TaskStage.IMPLEMENTING
     run = Run(
@@ -1181,6 +1224,9 @@ def _claim_for(agent: str, db: Session, agent_type: Optional[str] = None, task_i
         started_at=_now(),
         last_heartbeat=_now(),
     )
+    db.add(task)
+    if claim_event:
+        db.add(claim_event)
     db.add(run)
     return run
 

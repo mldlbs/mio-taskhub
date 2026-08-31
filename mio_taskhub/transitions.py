@@ -102,3 +102,32 @@ def apply_transition(
         created_at=now,
     )
     return t, event
+
+
+def record_post_claim(task: Task, actor_id: str) -> Optional[TaskEvent]:
+    """原子 claim 成功后补记 T1 TaskEvent + 设置 claimed_at / last_transition_at。
+
+    调用时机：_claim_for 的 UPDATE ... WHERE state=queued 成功后，
+    任务已被设为 CLAIMED，此处只记录事件和时间戳（不改 state/stage）。
+    返回 TaskEvent 供调用方 add+commit。
+    """
+    from_state = _orm_to_status_state(task.state)
+    from_stage = _orm_to_status_stage(task.stage)
+    if from_state != State.CLAIMED:
+        return None
+    now = datetime.now(timezone.utc)
+    if task.claimed_at is None:
+        task.claimed_at = now
+    task.last_transition_at = now
+    return TaskEvent(
+        task_id=task.id,
+        event_type="claimed",
+        from_state=State.QUEUED.value,
+        from_stage=from_stage.value,
+        to_state=State.CLAIMED.value,
+        to_stage=Stage.IMPLEMENTING.value,
+        actor_type=ActorType.AGENT.value,
+        actor_id=actor_id or "",
+        reason="atomic claim",
+        created_at=now,
+    )

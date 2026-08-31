@@ -7,6 +7,7 @@ from mio_taskhub.models import Task, TaskState, TaskStage, TaskEvent
 from mio_taskhub.status import State, Stage, ActorType, IllegalTransition
 from mio_taskhub.transitions import (
     apply_transition,
+    record_post_claim,
     _orm_to_status_state, _orm_to_status_stage,
 )
 
@@ -146,3 +147,35 @@ class TestEventPersistence:
         assert evs[1].event_type == "stage_changed"
         assert evs[1].to_stage == "implementing"
         assert evs[1].actor_type == "agent"
+
+
+class TestRecordPostClaim:
+    def test_records_claim_event_after_atomic_update(self):
+        """原子 claim 后 record_post_claim 补记 T1 事件。"""
+        t = _mk("pc1", TaskState.CLAIMED, TaskStage.READY)
+        t.claimed_at = None
+        ev = record_post_claim(t, "agent-y")
+        assert ev is not None
+        assert ev.event_type == "claimed"
+        assert ev.from_state == "queued"
+        assert ev.to_state == "claimed"
+        assert ev.to_stage == "implementing"
+        assert ev.actor_type == "agent"
+        assert ev.actor_id == "agent-y"
+        assert t.claimed_at is not None
+        assert t.last_transition_at is not None
+
+    def test_returns_none_if_not_claimed(self):
+        """非 CLAIMED 状态返回 None。"""
+        t = _mk("pc2", TaskState.QUEUED, TaskStage.READY)
+        ev = record_post_claim(t, "agent-z")
+        assert ev is None
+
+    def test_preserves_existing_claimed_at(self):
+        """不覆盖已有的 claimed_at。"""
+        from datetime import datetime, timezone
+        t = _mk("pc3", TaskState.CLAIMED, TaskStage.READY)
+        old = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        t.claimed_at = old
+        record_post_claim(t, "agent")
+        assert t.claimed_at == old
