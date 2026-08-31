@@ -32,6 +32,40 @@ export const PRIORITY = [
 
 export const prio = (p) => PRIORITY[Math.min(3, Math.max(0, p ?? 0))]
 
+export const COMPOSITE_LABELS = {
+  'queued,brainstorming':    { label: '待认领 · 需求理解', tone: 'dim' },
+  'queued,design':           { label: '待认领 · 设计', tone: 'dim' },
+  'queued,planning':         { label: '待认领 · 计划', tone: 'dim' },
+  'queued,ready':            { label: '待认领', tone: 'dim' },
+  'queued,implementing':     { label: '返工重排', tone: 'warn' },
+  'claimed,brainstorming':   { label: '需求理解中', tone: 'dim' },
+  'claimed,design':          { label: '设计中', tone: 'dim' },
+  'claimed,planning':        { label: '计划中', tone: 'dim' },
+  'claimed,ready':           { label: '就绪 · 待执行', tone: 'live' },
+  'claimed,implementing':    { label: '已认领 · 实现', tone: 'live' },
+  'claimed,review':          { label: '评审中', tone: 'warn' },
+  'running,implementing':    { label: '执行中', tone: 'live' },
+  'retrying,implementing':   { label: '重试中', tone: 'warn' },
+  'completed,implementing':  { label: '实现完成 · 待评审', tone: 'ok-soft' },
+  'completed,review':        { label: '评审通过 · 待归并', tone: 'ok-soft' },
+  'completed,done':          { label: '已完成', tone: 'ok' },
+  'failed,brainstorming':    { label: '失败 · 需求理解', tone: 'danger' },
+  'failed,design':           { label: '失败 · 设计', tone: 'danger' },
+  'failed,planning':         { label: '失败 · 计划', tone: 'danger' },
+  'failed,implementing':     { label: '失败 · 实现', tone: 'danger' },
+  'failed,review':           { label: '失败 · 评审不通过', tone: 'danger' },
+  'cancelled,brainstorming': { label: '已取消', tone: 'muted' },
+  'cancelled,design':        { label: '已取消', tone: 'muted' },
+  'cancelled,planning':      { label: '已取消', tone: 'muted' },
+  'cancelled,ready':         { label: '已取消', tone: 'muted' },
+  'cancelled,implementing':  { label: '已取消', tone: 'muted' },
+  'cancelled,review':        { label: '已取消', tone: 'muted' },
+}
+
+export const compositeLabel = (state, stage) => {
+  return COMPOSITE_LABELS[`${state},${stage}`] || { label: `${state}·${stage}`, tone: 'dim' }
+}
+
 export const fmtDur = (min) => {
   if (min == null) return '—'
   if (min < 60) return `${min}m`

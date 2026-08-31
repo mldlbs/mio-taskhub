@@ -873,7 +873,21 @@ def cancel_task(task_id: str, db: Session = Depends(get_session)):
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404)
-    t.state = TaskState.CANCELLED
+    # M1: 走状态机校验 + 写 TaskEvent + 设时间戳
+    from mio_taskhub.transitions import apply_transition
+    from mio_taskhub.status import State, Stage, ActorType, IllegalTransition
+    current_stage = t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
+    try:
+        _, m1_event = apply_transition(
+            t, State.CANCELLED, Stage(current_stage.value),
+            ActorType.USER, "api:cancel_task",
+            reason="用户取消",
+        )
+        db.add(m1_event)
+    except IllegalTransition:
+        # 终态（completed, done）不允许再 cancel — 显式拒绝
+        raise HTTPException(409, f"task {task_id} 不可取消（终态）")
+    # 保留旧事件广播（向后兼容）
     event = emit_event(db, type="task_cancelled", entity="task", entity_id=task_id)
     db.add(t)
     db.commit()
@@ -899,9 +913,20 @@ def retry_task(task_id: str, body: dict = None, db: Session = Depends(get_sessio
     if t.attempt >= t.max_retries:
         t.attempt = 0
         t.retry_count = 0
-    t.state = TaskState.QUEUED
-    t.stage = TaskStage.READY
     t.retry_at = None
+    # M1: 走状态机 T16 manual_retry → (QUEUED, READY)
+    from mio_taskhub.transitions import apply_transition
+    from mio_taskhub.status import State, Stage, ActorType, IllegalTransition
+    current_stage = t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
+    try:
+        _, m1_event = apply_transition(
+            t, State.QUEUED, Stage.READY,
+            ActorType.USER, "api:retry_task",
+            reason=f"manual_retry from {orig_state}",
+        )
+        db.add(m1_event)
+    except IllegalTransition as e:
+        raise HTTPException(409, f"retry 非法: {e}")
     event = emit_event(db, type="task_retry_manual", entity="task", entity_id=t.id,
                        payload={"from_state": orig_state, "attempt": t.attempt, "max_retries": t.max_retries})
     db.add(t)
@@ -963,9 +988,53 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
             raise HTTPException(422, "design stage requires at least one discussion record")
     _apply_stage_requirements(t, dst, body)
     t.stage = dst
+    # M1: 走状态机记录 TaskEvent + 设时间戳
+    from mio_taskhub.transitions import apply_transition
+    from mio_taskhub.status import State, Stage as M1Stage, ActorType, IllegalTransition as M1Illegal
+    m1_events = []
+    try:
+        cur_s = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
+        cur_st = t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
+        from_st = M1Stage(cur_st.value if cur_st != TaskStage.CANCELLED else "brainstorming")
+        if dst == TaskStage.DONE:
+            # M1: (claimed, review) → (completed, review) → (completed, done)
+            if cur_s == TaskState.CLAIMED:
+                _, e1 = apply_transition(
+                    t, State.COMPLETED, from_st,
+                    ActorType.USER, "api:advance_stage",
+                    reason="advance→done: review pass",
+                )
+                if e1: m1_events.append(e1)
+            _, e2 = apply_transition(
+                t, State.COMPLETED, M1Stage.DONE,
+                ActorType.SYSTEM, "auto:finalize",
+                reason="T6 finalize",
+            )
+            if e2: m1_events.append(e2)
+        elif dst == TaskStage.CANCELLED:
+            _, e = apply_transition(
+                t, State.CANCELLED, from_st,
+                ActorType.USER, "api:advance_stage",
+                reason="advance→cancelled",
+            )
+            if e: m1_events.append(e)
+        else:
+            # T17 (from queued) or T11 (from claimed)：stage-only advance
+            actor = ActorType.USER if cur_s == TaskState.QUEUED else ActorType.SYSTEM
+            actor_id = "api:advance_stage" if cur_s == TaskState.QUEUED else "auto:advance"
+            _, e = apply_transition(
+                t, State(cur_s.value if cur_s != TaskState.BLOCKED_FAILED else "queued"),
+                M1Stage(dst.value), actor, actor_id,
+                reason=f"advance {src.value}→{dst.value}",
+            )
+            if e: m1_events.append(e)
+    except M1Illegal:
+        pass  # 旧 can_advance 已校验，此处 M1 拒绝则跳过事件（兼容）
     event = emit_event(db, type="task_stage", entity="task", entity_id=task_id,
                        payload={"target": dst.value})
     db.add(t)
+    for ev in m1_events:
+        db.add(ev)
     db.commit()
     db.refresh(t)
     broadcast_for_event(event)

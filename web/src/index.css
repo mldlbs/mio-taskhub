@@ -652,6 +652,13 @@ input, textarea, select { font-family: inherit; }
 .chip--id { color: var(--ink-faint); }
 .chip--p3 { border-color: var(--accent-soft); color: var(--accent); background: var(--accent-soft); }
 .chip--p2 { color: var(--warn); border-color: rgba(255, 180, 84, 0.25); }
+.chip--composite { font-size: 0.72rem; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.chip--live { border-color: var(--accent-soft); color: var(--accent); background: var(--accent-soft); }
+.chip--ok { border-color: rgba(34,197,94,0.25); color: rgb(34,197,94); background: rgba(34,197,94,0.08); }
+.chip--ok-soft { border-color: rgba(34,197,94,0.18); color: rgb(120,180,120); background: rgba(34,197,94,0.05); }
+.chip--warn { border-color: rgba(255,180,84,0.25); color: var(--warn); background: rgba(255,180,84,0.06); }
+.chip--danger { border-color: rgba(255,100,100,0.25); color: rgb(255,100,100); background: rgba(255,100,100,0.06); }
+.chip--muted { border-color: rgba(140,140,140,0.15); color: var(--ink-faint); }
 .chip--agent { color: var(--ink-dim); }
 
 .task__foot {

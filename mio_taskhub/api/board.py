@@ -1,9 +1,12 @@
 from datetime import timezone
 from fastapi import APIRouter, Depends, Query
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 from mio_taskhub.db import get_session
-from mio_taskhub.models import Task, TaskStage, TaskState, Run, RunState
-from mio_taskhub.status import is_terminal, task_deps, dependency_satisfied
+from mio_taskhub.models import Task, TaskStage, TaskState, Run, RunState, TaskEvent
+from mio_taskhub.status import (
+    is_terminal, task_deps, dependency_satisfied,
+    State, Stage as M1Stage, LEGAL_COMBOS, is_legal_combo, composite_status, COMPOSITE_LABEL,
+)
 from mio_taskhub.utils import _now
 
 router = APIRouter(prefix="/board", tags=["board"])
@@ -144,4 +147,44 @@ def board_summary(agent: str = Query(None), db: Session = Depends(get_session)):
         "alerts": alerts,
         "recent_done": recent_done,
         "next_steps": next_steps,
+    }
+
+
+@router.get("/overview")
+def stats_overview(db: Session = Depends(get_session)):
+    """返回 M1 统计概览：composite counts、by_state、by_stage、事件分布。"""
+    tasks = db.exec(select(Task)).all()
+
+    # composite counts
+    composite_counts = {}
+    by_state = {s.value: 0 for s in State}
+    by_stage = {s.value: 0 for s in M1Stage}
+    by_stage["cancelled"] = 0
+    for t in tasks:
+        cur_s = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
+        cur_st = t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
+        # ORM→status enum mapping (same as apply_transition)
+        orm_state_map = {TaskState.BLOCKED_FAILED: State.QUEUED}
+        s = orm_state_map.get(cur_s, State(cur_s.value))
+        st_val = cur_st.value if cur_st != TaskStage.CANCELLED else "brainstorming"
+        st = M1Stage(st_val)
+        key = f"{s.value},{st.value}"
+        composite_counts[key] = composite_counts.get(key, 0) + 1
+        by_state[s.value] += 1
+        by_stage[st.value if cur_st != TaskStage.CANCELLED else "cancelled"] += 1
+
+    # task_events 统计
+    all_events = db.exec(select(TaskEvent)).all()
+    events_count = len(all_events)
+    event_by_type = {}
+    for e in all_events:
+        event_by_type[e.event_type] = event_by_type.get(e.event_type, 0) + 1
+
+    return {
+        "composite_counts": composite_counts,
+        "by_state": by_state,
+        "by_stage": by_stage,
+        "task_events_count": events_count,
+        "event_by_type": event_by_type,
+        "total_tasks": len(tasks),
     }

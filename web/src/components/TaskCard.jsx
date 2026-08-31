@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { prio, fmtDur, fmtAgo, fmtDate, LANES, agMono, agColor } from '../constants'
+import { prio, fmtDur, fmtAgo, fmtDate, LANES, agMono, agColor, compositeLabel } from '../constants'
 
 export default function TaskCard({ task, index, onCancel, onDragStart, onOpen, onMove }) {
   const moved = useRef(false)
@@ -71,6 +71,7 @@ export default function TaskCard({ task, index, onCancel, onDragStart, onOpen, o
 
       <div className="task__meta">
         <span className="chip chip--id">{task.id}</span>
+        <span className={`chip chip--composite chip--${compositeLabel(task.state, task.stage || 'ready').tone}`}>{compositeLabel(task.state, task.stage || 'ready').label}</span>
         <span className={`chip${p.p >= 3 ? ' chip--p3' : ''}${p.p === 2 ? ' chip--p2' : ''}`}>{p.label}</span>
         {task.target_agent_type ? (
           <span className="task__agent" title={task.target_agent_type}>

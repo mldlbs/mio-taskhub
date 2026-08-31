@@ -76,6 +76,12 @@ class RefType(str, enum.Enum):
     PR = "pr"
     TAG = "tag"
 
+class ActorType(str, enum.Enum):
+    """M1: 转换执行者类型。"""
+    USER = "user"
+    AGENT = "agent"
+    SYSTEM = "system"
+
 class RunState(str, enum.Enum):
     CLAIMED = "claimed"
     RUNNING = "running"
@@ -151,6 +157,36 @@ class Task(SQLModel, table=True):
     plan_path: str = ""
     review_result: str = ""
     idea_id: str = Field(default="", index=True)   # 拆解来源 idea
+    # M1: 生命周期时间戳 + 计数器
+    claimed_at: Optional[datetime] = None
+    running_started_at: Optional[datetime] = None
+    review_started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    failed_at: Optional[datetime] = None
+    cancelled_at: Optional[datetime] = None
+    last_transition_at: Optional[datetime] = Field(default=None, index=True)
+    block_reason: str = ""
+    bounce_count: int = 0
+    created_at: datetime = Field(default_factory=_now)
+
+class TaskEvent(SQLModel, table=True):
+    """M1: 任务生命周期事件日志（task_events）。
+
+    任务当前状态是 task_events 的最新投影。每一次合法转换追加一行。
+    不可变，只追加，用于 M5 指标（周期/首次成功/介入次数/Review 等待等）。
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    task_id: str = Field(index=True)
+    event_type: str = Field(index=True)  # created/claimed/started/state_changed/stage_changed/completed/bounced/retried/failed/cancelled/reopened
+    from_state: Optional[str] = None
+    from_stage: Optional[str] = None
+    to_state: Optional[str] = None
+    to_stage: Optional[str] = None
+    actor_type: Optional[str] = None  # user/agent/system
+    actor_id: Optional[str] = None
+    reason: str = ""
+    # Python 属性名 event_metadata → DB 列名 metadata（避开 SQLAlchemy Base.metadata 保留字）
+    event_metadata: Optional[dict] = Field(default=None, sa_column=Column("metadata", JSON))
     created_at: datetime = Field(default_factory=_now)
 
 class Agent(SQLModel, table=True):

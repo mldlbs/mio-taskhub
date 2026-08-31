@@ -96,6 +96,29 @@ def _migrate_stage_column(target_engine=None):
                 conn.execute(text("ALTER TABLE task ADD COLUMN retry_at DATETIME"))
             if "retry_count" not in tcols_retry:
                 conn.execute(text("ALTER TABLE task ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0"))
+        # M1: 生命周期时间戳 + 计数器（existing installs）
+        if "task" in tables:
+            tcols_m1 = {c["name"] for c in inspect(conn).get_columns("task")}
+            m1_additions = [
+                ("claimed_at",          "DATETIME"),
+                ("running_started_at",  "DATETIME"),
+                ("review_started_at",   "DATETIME"),
+                ("completed_at",        "DATETIME"),
+                ("failed_at",           "DATETIME"),
+                ("cancelled_at",        "DATETIME"),
+                ("last_transition_at",  "DATETIME"),
+                ("block_reason",        "VARCHAR NOT NULL DEFAULT ''"),
+                ("bounce_count",        "INTEGER NOT NULL DEFAULT 0"),
+            ]
+            for col, typedef in m1_additions:
+                if col not in tcols_m1:
+                    conn.execute(text(f"ALTER TABLE task ADD COLUMN {col} {typedef}"))
+            # M1: 回填 last_transition_at = created_at（仅当 created_at 存在；无 updated_at，最佳兜底）
+            if "created_at" in tcols_m1:
+                conn.execute(text(
+                    "UPDATE task SET last_transition_at = created_at "
+                    "WHERE last_transition_at IS NULL"
+                ))
         # Event table: backfill entity/entity_id from run_id (existing installs).
         if "event" in tables:
             ecols = {c["name"] for c in inspect(conn).get_columns("event")}
