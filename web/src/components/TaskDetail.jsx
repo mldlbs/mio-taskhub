@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { LANES, STATE_META, prio, fmtDur, fmtDate } from '../constants'
+import { LANES, STATE_META, prio, fmtDur, fmtDate, compositeLabel } from '../constants'
 import { api } from '../api'
 import DependencyGraph from './DependencyGraph'
 
@@ -36,6 +36,8 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
   const [saveAsTpl, setSaveAsTpl] = useState(null) // { title, category }
   const [saveBusy, setSaveBusy] = useState(false)
   const [saveErr, setSaveErr] = useState(null)
+  const [events, setEvents] = useState([])
+  const [eventsLoading, setEventsLoading] = useState(false)
 
   useEffect(() => {
     closeRef.current?.focus()
@@ -43,6 +45,12 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
+
+  useEffect(() => {
+    if (!task?.id) return
+    setEventsLoading(true)
+    api.getTaskEvents(task.id, 30).then(r => setEvents(r.events || [])).catch(() => setEvents([])).finally(() => setEventsLoading(false))
+  }, [task?.id])
 
   const STAGES = ['brainstorming','design','planning','ready','implementing','review','done']
   const sidx = STAGES.indexOf(task.stage)
@@ -294,6 +302,37 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
                 </div>
               ))}
             </div>
+          </section>
+        )}
+
+        {events.length > 0 && (
+          <section className="drawer__sec">
+            <h3>状态变更 · {events.length} 条</h3>
+            <div className="event-timeline">
+              {events.map(ev => {
+                const cl = compositeLabel(ev.to_state, ev.to_stage)
+                const actorLabel = ev.actor_type === 'agent' ? ev.actor_id : ev.actor_type === 'user' ? '用户' : '系统'
+                return (
+                  <div key={ev.id} className={`event-row event-row--${cl.tone}`}>
+                    <span className="event-row__dot" aria-hidden="true" />
+                    <div className="event-row__body">
+                      <div className="event-row__head">
+                        <span className={`chip chip--composite chip--${cl.tone}`}>{cl.label}</span>
+                        <span className="event-row__actor mono">{actorLabel}</span>
+                        <span className="event-row__at mono">{fmtDate(ev.created_at)}</span>
+                      </div>
+                      {ev.reason && <div className="event-row__reason">{ev.reason}</div>}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        )}
+        {events.length === 0 && !eventsLoading && (
+          <section className="drawer__sec">
+            <h3>状态变更</h3>
+            <p className="detail-muted">暂无状态变更记录</p>
           </section>
         )}
 

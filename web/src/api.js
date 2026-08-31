@@ -64,6 +64,7 @@ export const api = {
   adrMarkdown: (id) => req('GET', `/ideas/${id}/adr-md`),
   boardSummary: (agent) => req('GET', '/board/summary' + (agent ? `?agent=${encodeURIComponent(agent)}` : '')),
   statsOverview: () => req('GET', '/board/overview'),
+  getTaskEvents: (taskId, limit = 50) => req('GET', `/tasks/${taskId}/events` + (limit ? `?limit=${limit}` : '')),
   status: (agent) => req('GET', '/status' + (agent ? `?agent=${encodeURIComponent(agent)}` : '')),
   // Templates
   listTemplates: (params) => req('GET', '/tasks/templates' + (params ? '?' + new URLSearchParams(params).toString() : '')),

@@ -204,6 +204,38 @@ def _task_detail(t: Task, db: Session) -> dict:
         } for r in runs],
     }
 
+@router.get("/{task_id}/events")
+def get_task_events(task_id: str, limit: int = 50, db: Session = Depends(get_session)):
+    """返回任务的 M1 TaskEvent 时间线（状态变更记录）。"""
+    t = db.get(Task, task_id)
+    if not t:
+        raise HTTPException(404, "task not found")
+    events = db.exec(
+        select(TaskEvent).where(TaskEvent.task_id == task_id)
+        .order_by(TaskEvent.created_at.desc())
+        .limit(limit)
+    ).all()
+    def _fmt(dt):
+        if dt is None: return None
+        if dt.tzinfo is None: dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat()
+    return {
+        "task_id": task_id,
+        "events": [{
+            "id": e.id,
+            "event_type": e.event_type,
+            "from_state": e.from_state,
+            "from_stage": e.from_stage,
+            "to_state": e.to_state,
+            "to_stage": e.to_stage,
+            "actor_type": e.actor_type,
+            "actor_id": e.actor_id,
+            "reason": e.reason,
+            "metadata": e.event_metadata,
+            "created_at": _fmt(e.created_at),
+        } for e in events],
+    }
+
 @router.get("/graph")
 def get_full_graph(db: Session = Depends(get_session)):
     """返回全量依赖图，用于看板 DAG 预览。"""

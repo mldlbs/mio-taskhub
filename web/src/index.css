@@ -1764,6 +1764,22 @@ body { font-size: 15px; }
 .hist-row__content { font-size: 12px; color: var(--ink); }
 .hist-row__more { font-size: 10.5px; color: var(--ink-faint); padding: 4px 0 8px; }
 
+/* --- event-timeline: M1 TaskEvent 时间线 --- */
+.event-timeline { position: relative; padding-left: 18px; margin-top: 6px; }
+.event-timeline::before { content: ''; position: absolute; left: 5px; top: 6px; bottom: 6px; width: 1.5px; background: var(--line); }
+.event-row { position: relative; padding: 6px 0; }
+.event-row__dot { position: absolute; left: -18px; top: 10px; width: 9px; height: 9px; border-radius: 50%; background: var(--line); border: 2px solid var(--panel); }
+.event-row--live .event-row__dot { background: var(--accent); }
+.event-row--ok .event-row__dot, .event-row--ok-soft .event-row__dot { background: rgb(34,197,94); }
+.event-row--warn .event-row__dot { background: var(--warn); }
+.event-row--danger .event-row__dot { background: rgb(255,100,100); }
+.event-row--muted .event-row__dot { background: var(--ink-faint); }
+.event-row__body { font-size: 12px; }
+.event-row__head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.event-row__actor { font-size: 11px; color: var(--ink); }
+.event-row__at { font-size: 10.5px; color: var(--ink-faint); margin-left: auto; }
+.event-row__reason { font-size: 11px; color: var(--ink-faint); margin-top: 2px; }
+
 /* ============================================================
    v6 �?研发流程：Flow 泳道 · 阶段进度�?
    ============================================================ */
