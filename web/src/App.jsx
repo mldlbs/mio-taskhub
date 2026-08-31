@@ -48,6 +48,7 @@ export default function App() {
   const [lastSync, setLastSync] = useState(null)
   const [focus, setFocus] = useState(null) // { id, t }
   const [filter, setFilter] = useState({ project: '', workspace: '' })
+  const [toasts, setToasts] = useState([])
 
   const setView = useCallback((v) => {
     setViewState(v)
@@ -76,6 +77,12 @@ export default function App() {
 
   const refresh = useCallback(() => { setRefreshing(true); loadTasks() }, [loadTasks])
 
+  const addToast = useCallback((msg, type = 'info') => {
+    const id = Date.now() + Math.random()
+    setToasts(prev => [...prev.slice(-4), { id, msg, type }])
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000)
+  }, [])
+
   useEffect(() => {
     loadTasks()
     loadIdeas()
@@ -100,6 +107,21 @@ export default function App() {
       s.onopen = () => { setWs(true); retry = 0 }
       s.onclose = () => { setWs(false); schedule() }
       s.onerror = () => { try { s.close() } catch { /* ignore */ } }
+      s.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data)
+          if (data.type === 'task_update' && data.event) {
+            const ev = data.event
+            const p = ev.payload || {}
+            if (ev.type === 'task.stage_advanced') addToast(`「${ev.entity_id}」 ${p.from||'?'} → ${p.to||'?'}`, 'info')
+            else if (ev.type === 'task.cancelled') addToast(`「${ev.entity_id}」 已取消`, 'warn')
+            else if (ev.type === 'task.completed') addToast(`「${ev.entity_id}」 已完成`, 'ok')
+            else if (ev.type === 'task.failed') addToast(`「${ev.entity_id}」 失败`, 'danger')
+          } else if (data.type === 'idea_update' && data.event) {
+            addToast(`想法更新: ${data.event.entity_id}`, 'info')
+          }
+        } catch { /* ignore parse errors */ }
+      }
     }
 
     connect()
@@ -255,6 +277,14 @@ export default function App() {
             <span>▲</span>
             <span>{error}</span>
             <button onClick={() => setError(null)} aria-label="关闭错误提示">×</button>
+          </div>
+        )}
+
+        {toasts.length > 0 && (
+          <div className="toast-container" aria-live="polite">
+            {toasts.map(t => (
+              <div key={t.id} className={`toast toast--${t.type}`}>{t.msg}</div>
+            ))}
           </div>
         )}
 
