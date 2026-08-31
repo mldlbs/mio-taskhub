@@ -2827,6 +2827,21 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
    color: var(--ink-dim);
    white-space: pre-wrap;
    overflow-wrap: anywhere;
-   max-height: 260px;
-   overflow-y: auto;
- }
+    max-height: 260px;
+    overflow-y: auto;
+  }
+
+  /* --- stats dashboard --- */
+  .stats-view { max-width: 720px; }
+  .stats-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 22px; }
+  .stats-header h2 { margin: 0; font-size: 18px; }
+  .stats-header__total { font-size: 12px; color: var(--ink-faint); }
+  .stats-loading { padding: 40px; text-align: center; color: var(--ink-faint); font-size: 13px; }
+  .stats-section { margin-bottom: 24px; }
+  .stats-section h3 { font-size: 13px; color: var(--ink); margin: 0 0 8px; font-weight: 600; }
+  .stats-bars { display: flex; flex-direction: column; gap: 5px; }
+  .stats-bar { display: flex; align-items: center; gap: 8px; }
+  .stats-bar__label { width: 90px; font-size: 12px; color: var(--ink); text-align: right; flex-shrink: 0; }
+  .stats-bar__track { flex: 1; height: 14px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
+  .stats-bar__fill { height: 100%; border-radius: 3px; transition: width 0.4s var(--ease); min-width: 2px; }
+  .stats-bar__value { width: 36px; font-size: 12px; color: var(--ink-faint); text-align: right; }

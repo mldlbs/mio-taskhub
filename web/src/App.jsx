@@ -12,6 +12,7 @@ import EmbedView from './components/EmbedView'
 import IdeasView from './components/IdeasView'
 import TemplatesView from './components/TemplatesView'
 import WorkflowView from './components/WorkflowView'
+import StatsView from './components/StatsView'
 import CreateModal from './components/CreateModal'
 import TaskDetail from './components/TaskDetail'
 import DocPanel from './components/DocPanel'
@@ -288,6 +289,9 @@ export default function App() {
             )}
             {view === 'templates' && (
               <TemplatesView />
+            )}
+            {view === 'stats' && (
+              <StatsView />
             )}
           </div>
         </main>
