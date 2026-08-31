@@ -135,7 +135,8 @@ class TestLegalCombos:
         assert not is_legal_combo(State.CANCELLED, Stage.DONE)
 
     def test_queued_not_in_review(self):
-        assert not is_legal_combo(State.QUEUED, Stage.REVIEW)
+        # M1: (queued, review) 是合法组合（T5 允许 queued,review → completed,review）
+        assert is_legal_combo(State.QUEUED, Stage.REVIEW)
 
 
 # ---------- M1：is_fully_done（Q1 锁定）----------

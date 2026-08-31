@@ -69,6 +69,9 @@ def apply_transition(
     # 写回 ORM
     task.state = _status_to_orm_state(to_state)
     task.stage = _status_to_orm_stage(to_stage)
+    # cancelled 是终态 state，ORM stage 也要设为 CANCELLED（M1 无 cancelled stage，映射为 brainstorming）
+    if to_state == State.CANCELLED:
+        task.stage = OrmTaskStage.CANCELLED
 
     now = datetime.now(timezone.utc)
     if to_state == State.CLAIMED and task.claimed_at is None:

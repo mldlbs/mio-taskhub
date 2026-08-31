@@ -118,12 +118,14 @@ LEGAL_COMBOS: Set[Tuple[State, Stage]] = {
     (State.QUEUED, Stage.PLANNING),
     (State.QUEUED, Stage.READY),
     (State.QUEUED, Stage.IMPLEMENTING),
+    (State.QUEUED, Stage.REVIEW),
     (State.CLAIMED, Stage.BRAINSTORMING),
     (State.CLAIMED, Stage.DESIGN),
     (State.CLAIMED, Stage.PLANNING),
     (State.CLAIMED, Stage.READY),
     (State.CLAIMED, Stage.IMPLEMENTING),
     (State.CLAIMED, Stage.REVIEW),
+    (State.CLAIMED, Stage.DONE),
     (State.RUNNING, Stage.IMPLEMENTING),
     (State.RETRYING, Stage.IMPLEMENTING),
     (State.COMPLETED, Stage.IMPLEMENTING),
@@ -154,6 +156,24 @@ def is_fully_done(state: State, stage: Stage) -> bool:
 
 def initial_state() -> Tuple[State, Stage]:
     return (State.QUEUED, Stage.BRAINSTORMING)
+
+
+def is_valid_stage_move(state: State, from_stage: Stage, to_stage: Stage) -> bool:
+    """自由拖拽：非终态的 stage 跳转合法（状态不变），但有特殊限制。
+
+    move_to_stage 专用。不改变 state。
+    终态 (completed,done) 不可移动。cancelled 是 state 不是 stage，不在此校验。
+    done 只能从 review 进入（T5+T6），不能跳跃也不能通过 T18 stage-only 到达。
+    """
+    if state == State.CANCELLED:
+        return False
+    if state == State.COMPLETED and from_stage == Stage.DONE:
+        return False
+    # done 的所有限制：只能从 review 经 T5+T6 到达
+    if to_stage == Stage.DONE:
+        return False
+    # 只要 from combo 合法，任意 stage 跳转均可（T18 兜底）
+    return (state, from_stage) in LEGAL_COMBOS
 
 
 # ---------- Transitions ----------
@@ -190,6 +210,8 @@ _EXPLICIT: list = [
     Transition("T4", State.COMPLETED, Stage.IMPLEMENTING, State.COMPLETED, Stage.REVIEW,
                {ActorType.SYSTEM, ActorType.USER}, event_type="stage_changed"),
     Transition("T5", State.CLAIMED, Stage.REVIEW, State.COMPLETED, Stage.REVIEW,
+               {ActorType.USER, ActorType.SYSTEM}, event_type="completed"),
+    Transition("T5", State.QUEUED, Stage.REVIEW, State.COMPLETED, Stage.REVIEW,
                {ActorType.USER, ActorType.SYSTEM}, event_type="completed"),
     Transition("T6", State.COMPLETED, Stage.REVIEW, State.COMPLETED, Stage.DONE,
                {ActorType.SYSTEM, ActorType.USER}, event_type="stage_changed", terminal=True),
@@ -258,6 +280,8 @@ def _gen_reopen() -> list:
     out = []
     for s in (State.CANCELLED, State.FAILED):
         for st in Stage:
+            if st in (Stage.REVIEW, Stage.DONE):
+                continue  # review/done 不可 reopen（done 是终态入口，review 走 T5+T6）
             if (s, st) not in LEGAL_COMBOS or (State.QUEUED, st) not in LEGAL_COMBOS:
                 continue
             out.append(Transition("T15", s, st, State.QUEUED, st,
@@ -287,14 +311,27 @@ class IllegalTransition(Exception):
 
 
 def validate_transition(from_state, from_stage, to_state, to_stage, actor_type):
-    if not is_legal_combo(to_state, to_stage):
-        raise IllegalTransition(
-            from_state, from_stage, to_state, to_stage,
-            f"目标组合非法 ({to_state.value},{to_stage.value})",
-        )
     t = find_transition(from_state, from_stage, to_state, to_stage)
     if t is None:
-        raise IllegalTransition(from_state, from_stage, to_state, to_stage, "未定义的转换")
+        # Fallback: 自由拖拽 stage-only 跳转（同 state、不同 stage、非终态）
+        if (from_state == to_state
+                and from_stage != to_stage
+                and is_valid_stage_move(from_state, from_stage, to_stage)):
+            t = Transition(
+                id="T18_manual_move",
+                from_state=from_state, from_stage=from_stage,
+                to_state=to_state, to_stage=to_stage,
+                allowed_actors={ActorType.USER, ActorType.AGENT, ActorType.SYSTEM},
+                event_type="stage_changed",
+            )
+        else:
+            # 显式校验目标组合
+            if not is_legal_combo(to_state, to_stage):
+                raise IllegalTransition(
+                    from_state, from_stage, to_state, to_stage,
+                    f"目标组合非法 ({to_state.value},{to_stage.value})",
+                )
+            raise IllegalTransition(from_state, from_stage, to_state, to_stage, "未定义的转换")
     if actor_type not in t.allowed_actors:
         raise IllegalTransition(
             from_state, from_stage, to_state, to_stage,
