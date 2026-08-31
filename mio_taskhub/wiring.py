@@ -7,6 +7,9 @@ from mio_taskhub.heartbeat import HeartbeatSweep, RunInfo
 from mio_taskhub.scheduler import Scheduler
 from mio_taskhub.status import is_terminal, dependency_satisfied, task_deps
 from mio_taskhub.events import emit_event, broadcast_for_event
+from mio_taskhub.transitions import apply_transition
+from mio_taskhub.status import State as M1State, Stage as M1Stage, ActorType as M1Actor
+from mio_taskhub.transitions import _orm_to_status_stage
 
 DEFAULT_TIMEOUT_SECONDS = 120
 AGENT_TIMEOUT_SECONDS = 180
@@ -66,8 +69,15 @@ def _requeue_retries():
             rt = t.retry_at
             if rt is None:
                 # 兼容旧数据：无 retry_at 直接重入
-                t.state = TaskState.QUEUED
-                t.stage = TaskStage.READY
+                # M1: T9 retry_requeue（先记录再改写）
+                try:
+                    from_st = _orm_to_status_stage(t.stage)
+                    apply_transition(t, M1State.QUEUED, M1Stage.READY,
+                                     M1Actor.SYSTEM, "scheduler:requeue_retries",
+                                     reason="retry_backoff_elapsed")
+                except Exception:
+                    t.state = TaskState.QUEUED
+                    t.stage = TaskStage.READY
                 t.retry_at = None
                 event = emit_event(db, type="task_retry_requeued", entity="task", entity_id=t.id,
                                    payload={"reason": "retry_backoff_elapsed"})
@@ -78,8 +88,15 @@ def _requeue_retries():
             if rt.tzinfo is None:
                 rt = rt.replace(tzinfo=timezone.utc)
             if rt <= now:
-                t.state = TaskState.QUEUED
-                t.stage = TaskStage.READY
+                # M1: T9 retry_requeue（先记录再改写）
+                try:
+                    from_st = _orm_to_status_stage(t.stage)
+                    apply_transition(t, M1State.QUEUED, M1Stage.READY,
+                                     M1Actor.SYSTEM, "scheduler:requeue_retries",
+                                     reason="retry_backoff_elapsed")
+                except Exception:
+                    t.state = TaskState.QUEUED
+                    t.stage = TaskStage.READY
                 t.retry_at = None
                 event = emit_event(db, type="task_retry_requeued", entity="task", entity_id=t.id,
                                    payload={"reason": "retry_backoff_elapsed", "attempt": t.attempt})
@@ -104,11 +121,22 @@ def _on_timeout(run_id: str, task_id: str):
                 run.exit_code = 1
                 db.add(run)
                 if task:
-                    if task.attempt >= task.max_retries:
-                        task.state = TaskState.FAILED
-                    else:
-                        task.state = TaskState.QUEUED
-                        task.stage = TaskStage.READY
+                    try:
+                        from_st = _orm_to_status_stage(task.stage)
+                        if task.attempt >= task.max_retries:
+                            apply_transition(task, M1State.FAILED, from_st,
+                                             M1Actor.SYSTEM, "scheduler:timeout",
+                                             reason="agent_offline:max_retries_exceeded")
+                        else:
+                            apply_transition(task, M1State.QUEUED, M1Stage.READY,
+                                             M1Actor.SYSTEM, "scheduler:timeout",
+                                             reason="agent_offline:requeue")
+                    except Exception:
+                        if task.attempt >= task.max_retries:
+                            task.state = TaskState.FAILED
+                        else:
+                            task.state = TaskState.QUEUED
+                            task.stage = TaskStage.READY
                     db.add(task)
                 db.commit()
                 return
@@ -119,11 +147,22 @@ def _on_timeout(run_id: str, task_id: str):
             run.exit_code = 1
             db.add(run)
             if task:
-                if task.attempt >= task.max_retries:
-                    task.state = TaskState.FAILED
-                else:
-                    task.state = TaskState.QUEUED
-                    task.stage = TaskStage.READY
+                try:
+                    from_st = _orm_to_status_stage(task.stage)
+                    if task.attempt >= task.max_retries:
+                        apply_transition(task, M1State.FAILED, from_st,
+                                         M1Actor.SYSTEM, "scheduler:timeout",
+                                         reason="heartbeat_timeout:max_retries_exceeded")
+                    else:
+                        apply_transition(task, M1State.QUEUED, M1Stage.READY,
+                                         M1Actor.SYSTEM, "scheduler:timeout",
+                                         reason="heartbeat_timeout:requeue")
+                except Exception:
+                    if task.attempt >= task.max_retries:
+                        task.state = TaskState.FAILED
+                    else:
+                        task.state = TaskState.QUEUED
+                        task.stage = TaskStage.READY
                 db.add(task)
         db.commit()
 
@@ -150,7 +189,14 @@ def _release_dependencies():
                 continue
             prereqs = [db.get(Task, d) for d in deps if d]
             if prereqs and all(p is not None and dependency_satisfied(p) for p in prereqs):
-                t.stage = TaskStage.READY
+                # M1: T17 manual_advance (depsatisfied → ready)
+                try:
+                    from_st = _orm_to_status_stage(t.stage)
+                    apply_transition(t, M1State.QUEUED, M1Stage.READY,
+                                     M1Actor.SYSTEM, "scheduler:release_deps",
+                                     reason="deps_satisfied")
+                except Exception:
+                    t.stage = TaskStage.READY
                 event = emit_event(db, type="task_released", entity="task",
                                    entity_id=t.id, payload={"reason": "deps_met"})
                 db.add(t)
