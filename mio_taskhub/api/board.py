@@ -26,34 +26,33 @@ def _to_utc(dt):
     return dt.astimezone(timezone.utc)
 
 
-@router.get("/summary")
-def board_summary(agent: str = Query(None), db: Session = Depends(get_session)):
-    """返回对话友好看板汇总：各阶段计数、待领取、执行中、告警、最近完成与下一步建议。"""
-    now = _now()
-
-    tasks = db.exec(select(Task)).all()
+def _count_by_stage(tasks):
     counts = {s.value: 0 for s in TaskStage}
     for t in tasks:
         counts[_stage(t.stage)] += 1
+    return counts
 
-    # 待领取队列（ready + 已到 run_at）
+
+def _ready_queue(db, now):
     rows = db.exec(
         select(Task).where(Task.state == TaskState.QUEUED, Task.stage == TaskStage.READY)
         .order_by(Task.priority.desc(), Task.created_at.asc())
     ).all()
-    ready_queue = []
+    queue = []
     for t in rows:
         run_at = _to_utc(t.run_at)
         if t.schedule_type == "once" and run_at and run_at > now:
             continue
-        ready_queue.append({
+        queue.append({
             "id": t.id, "title": t.title, "priority": t.priority,
             "target_agent_type": t.target_agent_type, "project": t.project,
             "due_at": _to_utc(t.due_at).isoformat() if t.due_at else None,
             "created_at": t.created_at.isoformat(),
         })
+    return queue
 
-    # 执行中（agent 过滤）
+
+def _running_tasks(db, agent):
     active = db.exec(
         select(Run).where(Run.state.in_([RunState.CLAIMED, RunState.RUNNING]))
     ).all()
@@ -69,11 +68,14 @@ def board_summary(agent: str = Query(None), db: Session = Depends(get_session)):
             "claimed_by": r.agent_name, "run_id": r.id, "progress": r.progress,
             "heartbeat_at": _to_utc(r.last_heartbeat).isoformat() if r.last_heartbeat else None,
         })
+    return running, active
 
-    # 告警：心跳超时（全量，不受 agent 过滤影响）
+
+def _check_alerts(db, tasks, active, now):
     alerts = []
+    # 心跳超时
     for r in active:
-        t = db.get(Task, r.task_id)
+        t = db.get(Task, r.task_id) if hasattr(r, 'task_id') else None
         if not t:
             continue
         timeout_sec = (t.timeout_min * 60) if t.timeout_min else DEFAULT_TIMEOUT_SECONDS
@@ -83,8 +85,7 @@ def board_summary(agent: str = Query(None), db: Session = Depends(get_session)):
                 "level": "warning",
                 "message": f"任务「{t.title}」心跳超时（{timeout_sec // 60} 分钟未上报），将被重置重领",
             })
-
-    # 告警：超截止时间
+    # 超截止时间
     overdue = [
         t for t in tasks
         if t.due_at and t.state not in (TaskState.COMPLETED, TaskState.CANCELLED)
@@ -93,8 +94,7 @@ def board_summary(agent: str = Query(None), db: Session = Depends(get_session)):
     overdue.sort(key=lambda t: t.due_at)
     for t in overdue[:5]:
         alerts.append({"level": "warning", "message": f"任务「{t.title}」已超截止时间"})
-
-    # 告警：依赖阻塞（前置已 cancelled/failed，不可能放行）
+    # 依赖阻塞
     for t in tasks:
         deps = task_deps(t)
         if not deps:
@@ -110,34 +110,53 @@ def board_summary(agent: str = Query(None), db: Session = Depends(get_session)):
                 "level": "warning",
                 "message": f"任务「{t.title}」（{t.id}）依赖阻塞（前置「{blocked[0].title}」已取消/失败），无法放行",
             })
+    return alerts, overdue
 
-    # 最近完成
+
+def _recent_done(db):
     done_runs = db.exec(
         select(Run).where(Run.state == RunState.FINISHED, Run.finished_at.isnot(None))
     ).all()
     done_runs.sort(key=lambda r: (_to_utc(r.finished_at).timestamp() if r.finished_at else 0), reverse=True)
-    recent_done = []
+    recent = []
     for r in done_runs:
-        if len(recent_done) >= 5:
+        if len(recent) >= 5:
             break
         t = db.get(Task, r.task_id)
         if t and t.state == TaskState.COMPLETED:
-            recent_done.append({
+            recent.append({
                 "id": t.id, "title": t.title,
                 "completed_at": _to_utc(r.finished_at).isoformat() if r.finished_at else None,
             })
+    return recent
 
-    # 下一步建议
-    next_steps = []
+
+def _next_steps(ready_queue, overdue, running):
+    steps = []
     if ready_queue:
         top = max(ready_queue, key=lambda x: x["priority"])
-        next_steps.append(f"有 {len(ready_queue)} 个待领取任务，最高优先级 {top['priority']}：「{top['title']}」")
+        steps.append(f"有 {len(ready_queue)} 个待领取任务，最高优先级 {top['priority']}：「{top['title']}」")
     if overdue:
-        next_steps.append(f"有 {len(overdue)} 个任务超过截止时间未完成，建议优先处理")
+        steps.append(f"有 {len(overdue)} 个任务超过截止时间未完成，建议优先处理")
     if running:
-        next_steps.append(f"有 {len(running)} 个任务执行中，请持续关注心跳")
-    if not next_steps:
-        next_steps.append("当前无待办任务，可创建新任务")
+        steps.append(f"有 {len(running)} 个任务执行中，请持续关注心跳")
+    if not steps:
+        steps.append("当前无待办任务，可创建新任务")
+    return steps
+
+
+@router.get("/summary")
+def board_summary(agent: str = Query(None), db: Session = Depends(get_session)):
+    """返回对话友好看板汇总：各阶段计数、待领取、执行中、告警、最近完成与下一步建议。"""
+    now = _now()
+    tasks = db.exec(select(Task)).all()
+
+    counts = _count_by_stage(tasks)
+    ready_queue = _ready_queue(db, now)
+    running, active = _running_tasks(db, agent)
+    alerts, overdue = _check_alerts(db, tasks, active, now)
+    recent_done = _recent_done(db)
+    next_steps = _next_steps(ready_queue, overdue, running)
 
     return {
         "updated_at": now.isoformat(),

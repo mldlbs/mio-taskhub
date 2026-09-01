@@ -408,59 +408,16 @@ def breakdown_idea(idea_id: str, body: dict, db: Session = Depends(get_session))
     items = body.get("tasks", [])
     if not items:
         raise HTTPException(422, "tasks is required")
-    refs = [(it.get("ref") or "").strip() for it in items]
-    non_empty = [r for r in refs if r]
-    if len(set(non_empty)) != len(non_empty):
-        raise HTTPException(422, "duplicate ref")
+    _validate_refs(items)
     created = []
     try:
-        for it in items:
-            title = (it.get("title") or "").strip()
-            if not title:
-                raise HTTPException(422, "task title is required")
-            stage_val = it.get("stage", "brainstorming")
-            try:
-                stage = TaskStage(stage_val)
-            except ValueError:
-                raise HTTPException(400, f"invalid stage: {stage_val}")
-            t = Task(
-                title=title,
-                description=it.get("description", ""),
-                target_agent_type=it.get("target_agent_type"),
-                priority=it.get("priority", 0),
-                est_duration_min=it.get("est_duration_min", 30),
-                max_retries=it.get("max_retries", 3),
-                acceptance_criteria=it.get("acceptance_criteria", ""),
-                depends_on=normalize_depends(it.get("depends_on")),
-                idea_id=idea_id,
-                stage=stage,
-            )
-            db.add(t)
-            created.append(t)
-        db.flush()  # 获得自增 id 与 ref2id
-        ref2id = {it.get("ref"): t.id for it, t in zip(items, created) if it.get("ref")}
-        # 解析 depends_on：ref → real id；未知 ref/id → 422
-        for it, t in zip(items, created):
-            resolved = []
-            for dep in normalize_depends(it.get("depends_on")):
-                real = ref2id.get(dep, dep)
-                if real not in [x.id for x in created] and db.get(Task, real) is None:
-                    raise HTTPException(422, f"unknown dependency ref: {dep}")
-                resolved.append(real)
-            t.depends_on = resolved
-        # 环检测
-        graph = {t.id: list(t.depends_on or []) for t in created}
-        cyc = detect_cycle(graph)
-        if cyc:
-            raise HTTPException(422, f"cyclic dependency: {' → '.join(cyc)}")
+        created = _create_tasks_from_items(db, items, idea_id)
+        db.flush()
+        _resolve_dependencies(db, items, created)
+        _check_cycles(created)
         if i.status != IdeaStatus.BROKEN_DOWN:
             transition_idea_status(i, IdeaStatus.BROKEN_DOWN, db, actor="user", source="breakdown")
-        idea_event = emit_event(db, type="idea_broken_down", entity="idea", entity_id=idea_id,
-                                payload={"action": "broken_down",
-                                         "task_ids": [t.id for t in created]})
-        task_events = [emit_event(db, type="task_created", entity="task", entity_id=t.id,
-                                  payload={"title": t.title, "stage": t.stage.value})
-                       for t in created]
+        idea_event, task_events = _emit_breakdown_events(db, idea_id, created)
         db.add(i)
         db.commit()
         db.refresh(i)
@@ -478,6 +435,75 @@ def breakdown_idea(idea_id: str, body: dict, db: Session = Depends(get_session))
     }
 
 
+def _validate_refs(items):
+    """校验 ref 唯一性。"""
+    refs = [(it.get("ref") or "").strip() for it in items]
+    non_empty = [r for r in refs if r]
+    if len(set(non_empty)) != len(non_empty):
+        raise HTTPException(422, "duplicate ref")
+
+
+def _create_tasks_from_items(db, items, idea_id):
+    """从 items 创建 Task 对象（未 flush）。"""
+    created = []
+    for it in items:
+        title = (it.get("title") or "").strip()
+        if not title:
+            raise HTTPException(422, "task title is required")
+        stage_val = it.get("stage", "brainstorming")
+        try:
+            stage = TaskStage(stage_val)
+        except ValueError:
+            raise HTTPException(400, f"invalid stage: {stage_val}")
+        t = Task(
+            title=title,
+            description=it.get("description", ""),
+            target_agent_type=it.get("target_agent_type"),
+            priority=it.get("priority", 0),
+            est_duration_min=it.get("est_duration_min", 30),
+            max_retries=it.get("max_retries", 3),
+            acceptance_criteria=it.get("acceptance_criteria", ""),
+            depends_on=normalize_depends(it.get("depends_on")),
+            idea_id=idea_id,
+            stage=stage,
+        )
+        db.add(t)
+        created.append(t)
+    return created
+
+
+def _resolve_dependencies(db, items, created):
+    """解析 depends_on：ref → real id。"""
+    ref2id = {it.get("ref"): t.id for it, t in zip(items, created) if it.get("ref")}
+    for it, t in zip(items, created):
+        resolved = []
+        for dep in normalize_depends(it.get("depends_on")):
+            real = ref2id.get(dep, dep)
+            if real not in [x.id for x in created] and db.get(Task, real) is None:
+                raise HTTPException(422, f"unknown dependency ref: {dep}")
+            resolved.append(real)
+        t.depends_on = resolved
+
+
+def _check_cycles(created):
+    """环检测。"""
+    graph = {t.id: list(t.depends_on or []) for t in created}
+    cyc = detect_cycle(graph)
+    if cyc:
+        raise HTTPException(422, f"cyclic dependency: {' → '.join(cyc)}")
+
+
+def _emit_breakdown_events(db, idea_id, created):
+    """发送 breakdown 事件。"""
+    idea_event = emit_event(db, type="idea_broken_down", entity="idea", entity_id=idea_id,
+                            payload={"action": "broken_down",
+                                     "task_ids": [t.id for t in created]})
+    task_events = [emit_event(db, type="task_created", entity="task", entity_id=t.id,
+                              payload={"title": t.title, "stage": t.stage.value})
+                   for t in created]
+    return idea_event, task_events
+
+
 @router.post("/{idea_id}/suggest-tasks")
 def suggest_tasks(idea_id: str, body: dict = None, db: Session = Depends(get_session)):
     """从想法的描述、讨论结论、变更记录中自动提取任务草案。"""
@@ -489,67 +515,89 @@ def suggest_tasks(idea_id: str, body: dict = None, db: Session = Depends(get_ses
     max_tasks = min(body.get("max_tasks", 10), 20)
     context_hint = (body.get("context") or "").strip()
 
-    # --- 收集来源数据 ---
+    desc, conclusions, changes = _collect_source_data(db, idea_id)
+    blocks = _split_description(desc)
+    conclusion_tasks = _extract_conclusion_tasks(conclusions)
+    change_tasks = _extract_change_tasks(changes)
+    suggestions = _generate_suggestions(blocks, conclusion_tasks, change_tasks, max_tasks)
+
+    if not suggestions:
+        return {
+            "suggestions": [],
+            "source_context": desc[:500] if desc else "",
+            "message": "描述过于简短，无法自动拆解。建议先补充描述或开启讨论后再试。",
+        }
+
+    _link_dependencies(suggestions)
+    source_context = _build_source_context(desc, conclusions, changes, blocks)
+
+    return {
+        "suggestions": suggestions,
+        "source_context": source_context,
+        "message": f"从 {len(blocks)} 个描述段落 + {len(conclusions)} 条讨论结论 + {len(changes)} 条变更记录中提取了 {len(suggestions)} 个任务草案",
+    }
+
+
+def _collect_source_data(db, idea_id):
+    """收集描述、讨论结论、变更记录。"""
+    i = db.get(Idea, idea_id)
     desc = (i.description or "").strip()
     discussions = db.exec(
         select(Discussion).where(Discussion.idea_id == idea_id)
     ).all()
-    conclusions = []
-    for d in discussions:
-        if d.conclusions:
-            conclusions.append(d.conclusions.strip())
+    conclusions = [d.conclusions.strip() for d in discussions if d.conclusions]
     changes = db.exec(
         select(IdeaChange).where(IdeaChange.idea_id == idea_id).order_by(IdeaChange.created_at)
     ).all()
+    return desc, conclusions, changes
 
-    # --- 从描述中拆段落 ---
-    def _split_desc(text: str) -> list[str]:
-        """按空行或列表项拆分描述为独立段落。"""
-        blocks = re.split(r'\n\s*\n|\n(?=-\s)', text)
-        result = []
-        for b in blocks:
-            b = b.strip()
-            if len(b) > 8:  # 忽略过短段落
-                result.append(b)
-        return result
 
-    blocks = _split_desc(desc)
-    if not blocks and desc:
-        blocks = [desc]
+def _split_description(text):
+    """按空行或列表项拆分描述为独立段落。"""
+    blocks = re.split(r'\n\s*\n|\n(?=-\s)', text)
+    result = [b.strip() for b in blocks if len(b.strip()) > 8]
+    return result or ([text] if text else [])
 
-    # --- 从讨论结论中提取补充任务 ---
-    conclusion_tasks = []
+
+def _extract_conclusion_tasks(conclusions):
+    """从讨论结论中提取补充任务。"""
+    tasks = []
     for c in conclusions:
-        # 按句号/分号拆分结论，每条可能是一个独立任务
         for seg in re.split(r'[。；;]\s*', c):
             seg = seg.strip()
             if len(seg) > 8:
-                conclusion_tasks.append(seg)
+                tasks.append(seg)
+    return tasks
 
-    # --- 从变更记录中提取需求变化 ---
-    change_tasks = []
+
+def _extract_change_tasks(changes):
+    """从变更记录中提取需求变化。"""
+    tasks = []
     for ch in changes:
         if ch.diff:
             for field_name, change_desc in ch.diff.items():
                 if isinstance(change_desc, str) and len(change_desc) > 5:
-                    change_tasks.append(f"处理 {field_name} 变更：{change_desc}")
+                    tasks.append(f"处理 {field_name} 变更：{change_desc}")
+    return tasks
 
-    # --- 合并所有来源生成草案 ---
+
+def _generate_suggestions(blocks, conclusion_tasks, change_tasks, max_tasks):
+    """从所有来源合并生成草案。"""
     suggestions = []
     ref_counter = 0
 
-    def _add_suggestion(title: str, description: str, source: str, reasoning: str):
+    def _add(title, description, source, reasoning):
         nonlocal ref_counter
         if len(suggestions) >= max_tasks:
             return
         ref_counter += 1
-        # 估算工时：短文30m，中等60m，长文120m
-        est = 30 if len(title) + len(description) < 80 else (60 if len(title) + len(description) < 200 else 120)
-        # 从描述中提取验收标准
-        ac_lines = []
-        for line in description.split('\n'):
-            if any(kw in line for kw in ['需要', '必须', '验证', '确认', '检查', '验收', '应该']):
-                ac_lines.append(line.strip().lstrip('- '))
+        total_len = len(title) + len(description)
+        est = 30 if total_len < 80 else (60 if total_len < 200 else 120)
+        ac_lines = [
+            line.strip().lstrip('- ')
+            for line in description.split('\n')
+            if any(kw in line for kw in ['需要', '必须', '验证', '确认', '检查', '验收', '应该'])
+        ]
         suggestions.append({
             "ref": f"t{ref_counter}",
             "title": title,
@@ -561,50 +609,37 @@ def suggest_tasks(idea_id: str, body: dict = None, db: Session = Depends(get_ses
             "source": source,
         })
 
-    # 来源1：描述段落（主任务）
     for block in blocks:
-        # 取第一行作为标题（去掉 markdown 标记）
         first_line = re.sub(r'^[#\-*>\s]+', '', block.split('\n')[0]).strip()
         if first_line and len(first_line) > 3:
-            title = first_line[:80]
-            _add_suggestion(title, block, "description", f"从描述段落提取")
+            _add(first_line[:80], block, "description", "从描述段落提取")
 
-    # 来源2：讨论结论
     for ct in conclusion_tasks:
         title = re.sub(r'^[#\-*>\s]+', '', ct.split('\n')[0]).strip()[:80]
-        _add_suggestion(title, ct, "discussion", "从讨论结论提取")
+        _add(title, ct, "discussion", "从讨论结论提取")
 
-    # 来源3：变更跟踪
     for ct in change_tasks:
-        title = ct[:80]
-        _add_suggestion(title, ct, "change", "从变更记录提取")
+        _add(ct[:80], ct, "change", "从变更记录提取")
 
-    # 如果都没提取到，返回空建议
-    if not suggestions:
-        return {
-            "suggestions": [],
-            "source_context": desc[:500] if desc else "",
-            "message": "描述过于简短，无法自动拆解。建议先补充描述或开启讨论后再试。",
-        }
+    return suggestions
 
-    # 线性依赖链：t1 → t2 → t3（除非有并行标记）
+
+def _link_dependencies(suggestions):
+    """线性依赖链：t1 → t2 → t3。"""
     for idx in range(1, len(suggestions)):
         suggestions[idx]["depends_on"] = [suggestions[idx - 1]["ref"]]
 
-    # 来源摘要
-    source_context_parts = []
-    if desc:
-        source_context_parts.append(f"描述: {desc[:200]}")
-    if conclusions:
-        source_context_parts.append(f"讨论结论({len(conclusions)}条): {'; '.join(c[:80] for c in conclusions[:3])}")
-    if changes:
-        source_context_parts.append(f"变更记录({len(changes)}条)")
 
-    return {
-        "suggestions": suggestions,
-        "source_context": "\n".join(source_context_parts),
-        "message": f"从 {len(blocks)} 个描述段落 + {len(conclusions)} 条讨论结论 + {len(changes)} 条变更记录中提取了 {len(suggestions)} 个任务草案",
-    }
+def _build_source_context(desc, conclusions, changes, blocks):
+    """构建来源摘要。"""
+    parts = []
+    if desc:
+        parts.append(f"描述: {desc[:200]}")
+    if conclusions:
+        parts.append(f"讨论结论({len(conclusions)}条): {'; '.join(c[:80] for c in conclusions[:3])}")
+    if changes:
+        parts.append(f"变更记录({len(changes)}条)")
+    return "\n".join(parts)
 
 
 # ==================== ADR API ====================
