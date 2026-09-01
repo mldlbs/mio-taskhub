@@ -1171,65 +1171,82 @@ def _claim_for(agent: str, db: Session, agent_type: Optional[str] = None, task_i
     即同优先级下更相关的任务排前面，但他人专属任务仍可被领到（排最后）。
     agent_type 兜底：手动 claim 不传时回查注册 agent 的 agent_type 用于排序。
     """
-    existing = db.exec(
-        select(Run).where(Run.agent_name == agent, Run.state.in_([RunState.CLAIMED, RunState.RUNNING]))
-    ).first()
+    existing = _find_existing_run(db, agent)
     if existing:
         return existing
 
-    # 回查 agent_type：手动 claim 不传时，用注册信息兜底
     if not agent_type:
-        ag = db.get(Agent, agent)
-        if ag and ag.agent_type:
-            agent_type = ag.agent_type
+        agent_type = _lookup_agent_type(db, agent) or agent_type
 
+    candidate = _pick_candidate_task(db, agent_type, task_id)
+    if not candidate:
+        return None
+    return _atomic_claim(db, agent, candidate)
+
+
+def _find_existing_run(db, agent):
+    """幂等返回：若 agent 已有 claimed/running run，直接返回。"""
+    return db.exec(
+        select(Run).where(Run.agent_name == agent, Run.state.in_([RunState.CLAIMED, RunState.RUNNING]))
+    ).first()
+
+
+def _lookup_agent_type(db, agent):
+    """回查已注册 agent 的 agent_type（claim 时类型守卫兜底）。"""
+    ag = db.get(Agent, agent)
+    return ag.agent_type if ag and ag.agent_type else None
+
+
+def _pick_candidate_task(db, agent_type, task_id):
+    """选候选任务：指定 task_id 时按 id 领取；否则按关联度+优先级+FIFO 找 ready 任务。"""
     if task_id:
         task = db.get(Task, task_id)
         if not task or task.state != TaskState.QUEUED:
             return None
-        # 内部使用：按 id 领取不做类型限制，仅校验未认领
-        candidate = task
-    else:
-        q = select(Task).where(Task.state == TaskState.QUEUED, Task.stage == TaskStage.READY)
-        # 关联度排序：类型匹配 > 无人认领/fallback已到期 > 他人专属
-        if agent_type:
-            fallback_ready = (
-                Task.fallback_after.is_not(None)
-                & Task.created_at.is_not(None)
-                & (
-                    func.cast(func.strftime("%s", "now"), Integer)
-                    >= (
-                        func.cast(func.strftime("%s", Task.created_at), Integer)
-                        + Task.fallback_after
-                    )
+        return task
+    q = select(Task).where(Task.state == TaskState.QUEUED, Task.stage == TaskStage.READY)
+    relevance = _build_relevance(agent_type)
+    rows = db.exec(q.order_by(relevance, Task.priority.desc(), Task.created_at.asc())).all()
+    return _first_ready_row(rows)
+
+
+def _build_relevance(agent_type):
+    """关联度排序：类型匹配 > 无人认领/fallback已到期 > 他人专属。"""
+    if agent_type:
+        fallback_ready = (
+            Task.fallback_after.is_not(None)
+            & Task.created_at.is_not(None)
+            & (
+                func.cast(func.strftime("%s", "now"), Integer)
+                >= (
+                    func.cast(func.strftime("%s", Task.created_at), Integer)
+                    + Task.fallback_after
                 )
             )
-            relevance = case(
-                (Task.target_agent_type == agent_type, 0),
-                (Task.target_agent_type.is_(None), 1),
-                (fallback_ready, 1),
-                else_=2,
-            )
-        else:
-            relevance = case(
-                (Task.target_agent_type.is_(None), 0),
-                else_=1,
-            )
-        rows = db.exec(q.order_by(relevance, Task.priority.desc(), Task.created_at.asc())).all()
-        now = _now()
-        candidate = None
-        for t in rows:
-            if t.schedule_type == "once" and t.run_at:
-                run_at = t.run_at
-                if run_at.tzinfo is None:
-                    run_at = run_at.replace(tzinfo=timezone.utc)
-                if run_at > now:
-                    continue
-            candidate = t
-            break
-    if not candidate:
-        return None
-    # 条件更新抢占（原子）：只有 state 仍是 queued 才算抢到
+        )
+        return case(
+            (Task.target_agent_type == agent_type, 0),
+            (Task.target_agent_type.is_(None), 1),
+            (fallback_ready, 1),
+            else_=2,
+        )
+    return case((Task.target_agent_type.is_(None), 0), else_=1)
+
+
+def _first_ready_row(rows):
+    """取首个未到 run_at 时间的一次性任务。"""
+    now = _now()
+    for t in rows:
+        if t.schedule_type == "once" and t.run_at:
+            run_at = t.run_at if t.run_at.tzinfo else t.run_at.replace(tzinfo=timezone.utc)
+            if run_at > now:
+                continue
+        return t
+    return None
+
+
+def _atomic_claim(db, agent, candidate):
+    """条件更新抢占：仅当 state 仍为 queued 才算抢到。"""
     from sqlalchemy import update as sa_update
     res = db.exec(
         sa_update(Task)
@@ -1238,10 +1255,9 @@ def _claim_for(agent: str, db: Session, agent_type: Optional[str] = None, task_i
     )
     if res.rowcount != 1:
         db.rollback()
-        return None  # 已被并发领取，跳过
+        return None
     task = db.get(Task, candidate.id)
-    db.refresh(task)  # 确保 state/attempt 与 DB 同步
-    # M1: 原子 claim 成功后补记 TaskEvent + 时间戳
+    db.refresh(task)
     from mio_taskhub.transitions import record_post_claim
     claim_event = record_post_claim(task, agent)
     task.attempt += 1
