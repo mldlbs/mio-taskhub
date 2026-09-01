@@ -32,7 +32,12 @@ async def lifespan(app):
     stop_night_runner()
 
 
-app = FastAPI(title="mio-taskhub", version="0.1.0", lifespan=lifespan)
+app = FastAPI(
+    title="mio-taskhub",
+    version="0.1.0",
+    description="Multi-agent R&D dispatch system with state machine, task lifecycle, and real-time notifications.",
+    lifespan=lifespan,
+)
 app.add_middleware(RequestIDMiddleware)
 init_db()
 
@@ -79,12 +84,22 @@ async def websocket_endpoint(ws: WebSocket):
     finally:
         ws_manager.disconnect(ws)
 
-@app.get("/healthz", tags=["health"])
+@app.get(
+    "/healthz",
+    tags=["health"],
+    summary="Liveness probe",
+    description="Returns 200 when the process is alive. Use for k8s liveness probes.",
+)
 def healthz():
     return {"status": "ok"}
 
 
-@app.get("/readyz", tags=["health"])
+@app.get(
+    "/readyz",
+    tags=["health"],
+    summary="Readiness probe",
+    description="Checks SQLite connectivity via SELECT 1. Returns 200 when DB is reachable, 503 with {status:degraded, db:error} otherwise. Use for k8s readiness probes.",
+)
 def readyz():
     from mio_taskhub.db import engine
     from sqlalchemy import text
@@ -106,7 +121,12 @@ def readyz():
 from mio_taskhub.metrics import render_metrics
 
 
-@app.get("/metrics", tags=["metrics"])
+@app.get(
+    "/metrics",
+    tags=["metrics"],
+    summary="Prometheus metrics",
+    description="Returns Prometheus-format text metrics: task counts by state, event counts by type, agent counts by status, and process uptime.",
+)
 def metrics():
     from fastapi import Response as _Resp
     return _Resp(content=render_metrics(), media_type="text/plain; version=0.0.4")
