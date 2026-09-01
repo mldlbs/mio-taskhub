@@ -1,6 +1,6 @@
 """M1 Step 3 测试：apply_transition 状态转换应用器。"""
 import pytest
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from mio_taskhub.db import engine, init_db
 from mio_taskhub.models import Task, TaskState, TaskStage, TaskEvent
@@ -140,7 +140,7 @@ class TestEventPersistence:
         with Session(engine) as s:
             s.add(t); s.add(e1); s.add(e2); s.commit()
         with Session(engine) as s:
-            evs = s.query(TaskEvent).filter(TaskEvent.task_id == "p1").order_by(TaskEvent.id).all()
+            evs = s.exec(select(TaskEvent).where(TaskEvent.task_id == "p1").order_by(TaskEvent.id)).all()
         assert len(evs) == 2
         assert evs[0].event_type == "claimed"
         assert evs[0].to_state == "claimed"
