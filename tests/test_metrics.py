@@ -1,4 +1,6 @@
 """Metrics endpoint tests."""
+from unittest.mock import patch
+
 from fastapi.testclient import TestClient
 from mio_taskhub.main import app
 from mio_taskhub.db import engine
@@ -27,3 +29,16 @@ def test_metrics_counts():
     resp = client.get("/metrics")
     text = resp.text
     assert "taskhub_tasks_total{state=" in text
+
+def test_metrics_db_failure():
+    """metrics should still return valid output even if DB queries fail."""
+    client_local = TestClient(app, raise_server_exceptions=False)
+
+    def fail_exec(*args, **kwargs):
+        raise ConnectionError("DB down")
+
+    with patch.object(Session, 'exec', fail_exec):
+        resp = client_local.get("/metrics")
+        assert resp.status_code == 200
+        text = resp.text
+        assert "taskhub_uptime_seconds" in text

@@ -46,3 +46,19 @@ def test_error_logged_on_500(caplog):
         resp = client.get("/fail")
     assert resp.status_code == 500
     assert any("boom" in r.message for r in caplog.records)
+
+def test_unhandled_exception_logged(caplog):
+    """Unhandled exceptions should be logged with request_id."""
+    app = FastAPI()
+    app.add_middleware(RequestIDMiddleware)
+
+    @app.get("/crash")
+    def handler():
+        raise RuntimeError("unexpected")
+
+    client = TestClient(app, raise_server_exceptions=False)
+    with caplog.at_level(logging.ERROR):
+        resp = client.get("/crash")
+    assert resp.status_code == 500
+    assert any("unexpected" in r.message for r in caplog.records)
+    assert any("request_exception" in r.message for r in caplog.records)
