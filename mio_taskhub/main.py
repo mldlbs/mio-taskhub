@@ -8,7 +8,10 @@ from mio_taskhub.auth import generate_token, get_token, make_auth_middleware
 from mio_taskhub.db import get_session, init_db
 from mio_taskhub.api import tasks, agents, runs, plans, board, ideas, discussions, events, nightrun
 from mio_taskhub.api.board import board_summary as _board_summary
+from mio_taskhub.logging_config import setup_logging
 from mio_taskhub.notifications import ws_manager
+
+setup_logging()
 
 
 @asynccontextmanager
