@@ -103,6 +103,15 @@ def readyz():
     )
 
 
+from mio_taskhub.metrics import render_metrics
+
+
+@app.get("/metrics", tags=["metrics"])
+def metrics():
+    from fastapi import Response as _Resp
+    return _Resp(content=render_metrics(), media_type="text/plain; version=0.0.4")
+
+
 def _web_dir() -> str:
     if getattr(sys, "frozen", False):
         base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
