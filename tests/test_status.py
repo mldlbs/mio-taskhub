@@ -129,7 +129,8 @@ class TestLegalCombos:
         assert is_legal_combo(State.COMPLETED, Stage.DONE)
 
     def test_failed_not_in_ready_or_done(self):
-        assert not is_legal_combo(State.FAILED, Stage.READY)
+        # FAILED at READY is now allowed (task can fail at READY stage, e.g. dependency resolution)
+        assert is_legal_combo(State.FAILED, Stage.READY)
         assert not is_legal_combo(State.FAILED, Stage.DONE)
 
     def test_cancelled_not_in_done(self):
