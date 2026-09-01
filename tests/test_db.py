@@ -1,7 +1,7 @@
 # tests/test_db.py
 from mio_taskhub.db import get_session, init_db, engine
 from mio_taskhub.models import Task, Agent, TaskState, Idea, IdeaHistory, IdeaStatus, TaskKind, IdeaChange
-from sqlmodel import select
+from sqlmodel import select, text
 
 def test_init_db_and_create_task():
     init_db()
@@ -396,6 +396,20 @@ def test_transition_invalid_raises():
         assert len(hist) == 0
     finally:
         s.close()
+
+
+def test_wal_mode_enabled():
+    """PRAGMA journal_mode should be WAL."""
+    with engine.connect() as conn:
+        result = conn.execute(text("PRAGMA journal_mode"))
+        mode = result.scalar()
+        assert mode == "wal", f"Expected WAL, got {mode}"
+
+def test_connection_pool_size():
+    """Engine should be configured with a pool."""
+    from sqlalchemy.pool import StaticPool
+    pool = engine.pool
+    assert isinstance(pool, StaticPool)
 
 
 def test_transition_idea_status_records_history():

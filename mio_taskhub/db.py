@@ -2,7 +2,8 @@
 import os
 from sqlmodel import SQLModel, create_engine, Session
 from typing import Generator
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, text, event
+from sqlalchemy.pool import StaticPool
 
 # Allow overriding the DB path (e.g. tests use a throwaway DB so the
 # production data in ~/.mio_taskhub/taskhub.db is never wiped).
@@ -14,7 +15,20 @@ else:
     DB_PATH = os.path.join(DATA_DIR, "taskhub.db")
     os.makedirs(DATA_DIR, exist_ok=True)
 
-engine = create_engine(f"sqlite:///{DB_PATH}", echo=False)
+engine = create_engine(
+    f"sqlite:///{DB_PATH}",
+    echo=False,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+
+@event.listens_for(engine, "connect")
+def _set_sqlite_pragma(dbapi_conn, connection_record):
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=5000")
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.close()
 
 def _migrate_stage_column(target_engine=None):
     eng = target_engine or engine
