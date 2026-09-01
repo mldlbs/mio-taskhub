@@ -9,6 +9,7 @@ from mio_taskhub.db import get_session, init_db
 from mio_taskhub.api import tasks, agents, runs, plans, board, ideas, discussions, events, nightrun
 from mio_taskhub.api.board import board_summary as _board_summary
 from mio_taskhub.logging_config import setup_logging
+from mio_taskhub.middleware import RequestIDMiddleware
 from mio_taskhub.notifications import ws_manager
 
 setup_logging()
@@ -32,6 +33,7 @@ async def lifespan(app):
 
 
 app = FastAPI(title="mio-taskhub", version="0.1.0", lifespan=lifespan)
+app.add_middleware(RequestIDMiddleware)
 init_db()
 
 app.include_router(tasks.router, prefix="/api/v1", tags=["tasks"])
