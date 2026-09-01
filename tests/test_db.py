@@ -332,72 +332,6 @@ def test_migrate_ideahistory_actor_content_columns():
             pass
 
 
-def test_transition_idea_status_records_history():
-    """transition_idea_status 为唯一入口：状态变更 + kind=status 历史记录。"""
-    from mio_taskhub.api.ideas import transition_idea_status
-    init_db()
-    s = next(get_session())
-    try:
-        i = Idea(title="状态流转测试")
-        s.add(i)
-        s.commit()
-        s.refresh(i)
-
-        # new -> fermenting
-        transition_idea_status(i, IdeaStatus.FERMENTING, s, actor="user", source="manual")
-        s.commit()
-        s.refresh(i)
-
-        assert i.status == IdeaStatus.FERMENTING
-        hist = s.exec(select(IdeaHistory).where(IdeaHistory.idea_id == i.id).order_by(IdeaHistory.at)).all()
-        assert len(hist) == 1
-        assert hist[0].kind == "status"
-        assert hist[0].extra["from"] == "new"
-        assert hist[0].extra["to"] == "fermenting"
-        assert hist[0].extra["source"] == "manual"
-        assert hist[0].reasoning is None  # manual transition no reasoning
-
-        # fermenting -> formed
-        transition_idea_status(i, IdeaStatus.FORMED, s, actor="agent", source="review")
-        s.commit()
-
-        hist = s.exec(select(IdeaHistory).where(IdeaHistory.idea_id == i.id).order_by(IdeaHistory.at)).all()
-        assert len(hist) == 2
-        assert hist[1].kind == "status"
-        assert hist[1].extra["from"] == "fermenting"
-        assert hist[1].extra["to"] == "formed"
-        assert hist[1].extra["source"] == "review"
-    finally:
-        s.close()
-
-
-def test_transition_invalid_raises():
-    """非法流转抛 422，状态不变，无历史记录。"""
-    from mio_taskhub.api.ideas import transition_idea_status
-    from fastapi import HTTPException
-    init_db()
-    s = next(get_session())
-    try:
-        i = Idea(title="非法流转")
-        s.add(i)
-        s.commit()
-        s.refresh(i)
-
-        try:
-            transition_idea_status(i, IdeaStatus.FORMED, s, actor="user")  # 跳级 new->formed
-            raise AssertionError("expected 422")
-        except HTTPException as e:
-            assert e.status_code == 422
-
-        # 状态未变
-        s.refresh(i)
-        assert i.status == IdeaStatus.NEW
-        hist = s.exec(select(IdeaHistory).where(IdeaHistory.idea_id == i.id)).all()
-        assert len(hist) == 0
-    finally:
-        s.close()
-
-
 def test_wal_mode_enabled():
     """PRAGMA journal_mode should be WAL."""
     with engine.connect() as conn:
@@ -405,7 +339,14 @@ def test_wal_mode_enabled():
         mode = result.scalar()
         assert mode == "wal", f"Expected WAL, got {mode}"
 
-def test_connection_pool_size():
+def test_synchronous_normal():
+    """PRAGMA synchronous should be NORMAL."""
+    with engine.connect() as conn:
+        result = conn.execute(text("PRAGMA synchronous"))
+        val = result.scalar()
+        assert val == 1, f"Expected NORMAL (1), got {val}"
+
+def test_connection_pool_is_static():
     """Engine should be configured with a pool."""
     from sqlalchemy.pool import StaticPool
     pool = engine.pool

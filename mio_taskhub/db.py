@@ -7,6 +7,8 @@ from sqlalchemy.pool import StaticPool
 
 # Allow overriding the DB path (e.g. tests use a throwaway DB so the
 # production data in ~/.mio_taskhub/taskhub.db is never wiped).
+BUSY_TIMEOUT_MS = 5000
+
 DB_PATH = os.environ.get("MIO_TASKHUB_DB")
 if DB_PATH:
     os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
@@ -26,7 +28,7 @@ engine = create_engine(
 def _set_sqlite_pragma(dbapi_conn, connection_record):
     cursor = dbapi_conn.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA busy_timeout=5000")
+    cursor.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
     cursor.execute("PRAGMA synchronous=NORMAL")
     cursor.close()
 
