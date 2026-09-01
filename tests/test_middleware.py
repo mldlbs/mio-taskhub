@@ -1,4 +1,6 @@
 """Request ID middleware tests."""
+import logging
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from mio_taskhub.middleware import RequestIDMiddleware
@@ -30,3 +32,17 @@ def test_client_supplied_request_id():
     client = TestClient(app)
     resp = client.get("/test", headers={"X-Request-ID": "my-custom-id"})
     assert resp.headers.get("X-Request-ID") == "my-custom-id"
+
+def test_error_logged_on_500(caplog):
+    app = FastAPI()
+    app.add_middleware(RequestIDMiddleware)
+
+    @app.get("/fail")
+    def handler():
+        raise ValueError("boom")
+
+    client = TestClient(app, raise_server_exceptions=False)
+    with caplog.at_level(logging.ERROR):
+        resp = client.get("/fail")
+    assert resp.status_code == 500
+    assert any("boom" in r.message for r in caplog.records)
