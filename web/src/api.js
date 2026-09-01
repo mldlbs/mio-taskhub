@@ -76,4 +76,28 @@ export const api = {
   createTaskFromTemplate: (tplId, body) => req('POST', `/tasks/from-template/${tplId}`, body),
   listTemplateVersions: (tplId) => req('GET', `/tasks/templates/${tplId}/versions`),
   restoreTemplateVersion: (tplId, version) => req('POST', `/tasks/templates/${tplId}/restore/${version}`, {}),
+  async metrics() {
+    const resp = await fetch('/metrics')
+    if (!resp.ok) throw new Error('metrics failed')
+    const text = await resp.text()
+    const lines = text.split('\n').filter(l => l && !l.startsWith('#'))
+    const result = {}
+    for (const line of lines) {
+      const match = line.match(/^(\w+)\{?([^}]*)\}? ([\d.]+)$/)
+      if (match) {
+        const [, name, labels, value] = match
+        if (labels) {
+          const labelMatch = labels.match(/(\w+)="([^"]+)"/)
+          if (labelMatch) {
+            const [, key, val] = labelMatch
+            if (!result[name]) result[name] = []
+            result[name].push({ label: key, value: val, count: parseFloat(value) })
+          }
+        } else {
+          result[name] = parseFloat(value)
+        }
+      }
+    }
+    return result
+  },
 }

@@ -28,9 +28,11 @@ function Bar({ label, value, max, tone }) {
 export default function StatsView() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [metrics, setMetrics] = useState(null)
 
   useEffect(() => {
     api.statsOverview().then(setData).catch(() => setData(null)).finally(() => setLoading(false))
+    api.metrics().then(setMetrics).catch(() => {})
   }, [])
 
   if (loading) return <div className="stats-loading">加载中…</div>
@@ -90,6 +92,18 @@ export default function StatsView() {
           <div className="stats-bars">
             {Object.entries(event_by_type).sort((a, b) => b[1] - a[1]).map(([type, count]) => (
               <Bar key={type} label={type} value={count} max={maxEvent} tone="dim" />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {metrics && (
+        <section className="stats-section">
+          <h3>系统健康</h3>
+          <div className="stats-bars">
+            <Bar label="运行时间 (s)" value={Math.round(metrics.taskhub_uptime_seconds || 0)} max={86400} tone="live" />
+            {(metrics.taskhub_agents_online || []).map(a => (
+              <Bar key={a.label} label={`Agent: ${a.label}`} value={a.count} max={10} tone={a.label === 'online' ? 'ok' : 'muted'} />
             ))}
           </div>
         </section>
