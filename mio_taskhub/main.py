@@ -1,6 +1,7 @@
 import os
 import sys
 import uvicorn
+from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
 from mio_taskhub.auth import generate_token, get_token, make_auth_middleware
@@ -9,7 +10,25 @@ from mio_taskhub.api import tasks, agents, runs, plans, board, ideas, discussion
 from mio_taskhub.api.board import board_summary as _board_summary
 from mio_taskhub.notifications import ws_manager
 
-app = FastAPI(title="mio-taskhub", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app):
+    from mio_taskhub.wiring import start_background_jobs
+    from mio_taskhub.git_sync import start_git_sync_worker, stop_git_sync_worker
+    from mio_taskhub.night_runner import start_night_runner, stop_night_runner
+    app.state.background = start_background_jobs()
+    start_git_sync_worker()
+    start_night_runner()
+    yield
+    jobs = getattr(app.state, "background", None)
+    if jobs:
+        for job in jobs:
+            job.stop()
+    stop_git_sync_worker()
+    stop_night_runner()
+
+
+app = FastAPI(title="mio-taskhub", version="0.1.0", lifespan=lifespan)
 init_db()
 
 app.include_router(tasks.router, prefix="/api/v1", tags=["tasks"])
@@ -72,38 +91,6 @@ async def no_cache_html(request, call_next):
     if "text/html" in resp.headers.get("content-type", ""):
         resp.headers["Cache-Control"] = "no-store, max-age=0"
     return resp
-
-@app.on_event("startup")
-def start_scheduler():
-    from mio_taskhub.wiring import start_background_jobs
-    app.state.background = start_background_jobs()
-
-@app.on_event("startup")
-def start_git_sync():
-    from mio_taskhub.git_sync import start_git_sync_worker
-    start_git_sync_worker()
-
-@app.on_event("startup")
-def start_night_runner():
-    from mio_taskhub.night_runner import start_night_runner
-    start_night_runner()
-
-@app.on_event("shutdown")
-def stop_background_jobs():
-    jobs = getattr(app.state, "background", None)
-    if jobs:
-        for job in jobs:
-            job.stop()
-
-@app.on_event("shutdown")
-def stop_git_sync():
-    from mio_taskhub.git_sync import stop_git_sync_worker
-    stop_git_sync_worker()
-
-@app.on_event("shutdown")
-def stop_night_runner():
-    from mio_taskhub.night_runner import stop_night_runner
-    stop_night_runner()
 
 
 def run():
