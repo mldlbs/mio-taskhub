@@ -2,7 +2,7 @@ import os
 import sys
 import uvicorn
 from contextlib import asynccontextmanager
-from fastapi import Depends, FastAPI, WebSocket
+from fastapi import Depends, FastAPI, Response, WebSocket
 from fastapi.staticfiles import StaticFiles
 from mio_taskhub.auth import generate_token, get_token, make_auth_middleware
 from mio_taskhub.db import get_session, init_db
@@ -78,6 +78,30 @@ async def websocket_endpoint(ws: WebSocket):
         pass
     finally:
         ws_manager.disconnect(ws)
+
+@app.get("/healthz", tags=["health"])
+def healthz():
+    return {"status": "ok"}
+
+
+@app.get("/readyz", tags=["health"])
+def readyz():
+    from mio_taskhub.db import engine
+    from sqlalchemy import text
+    db_ok = False
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+            db_ok = True
+    except Exception:
+        pass
+    status = "ok" if db_ok else "degraded"
+    return Response(
+        content='{"status":"' + status + '","db":"' + ("ok" if db_ok else "error") + '"}',
+        media_type="application/json",
+        status_code=200 if db_ok else 503,
+    )
+
 
 def _web_dir() -> str:
     if getattr(sys, "frozen", False):
