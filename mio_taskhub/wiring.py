@@ -48,13 +48,18 @@ def _backoff_for(task) -> timedelta:
 
 
 def _handle_retry_or_fail(task, reason: str, db):
-    """指数退避：未超限进入 RETRYING 并设定 retry_at，超限进入 FAILED。"""
+    """指数退避：未超限进入 RETRYING 并设定 retry_at，超限进入 FAILED。通过 apply_transition 记录。"""
+    from_st = _orm_to_status_stage(task.stage)
     if task.max_retries == 0 or task.attempt >= task.max_retries:
-        task.state = TaskState.FAILED
+        apply_transition(task, M1State.FAILED, from_st,
+                         M1Actor.SYSTEM, "scheduler:retry_or_fail",
+                         reason=reason or "max_retries_exceeded")
         task.retry_at = None
         return "failed"
     # 进入重试，设定退避
-    task.state = TaskState.RETRYING
+    apply_transition(task, M1State.RETRYING, from_st,
+                     M1Actor.SYSTEM, "scheduler:retry_or_fail",
+                     reason=reason or "retry_backoff")
     task.retry_count = (task.retry_count or 0) + 1
     task.retry_at = datetime.now(timezone.utc) + _backoff_for(task)
     return "retrying"
@@ -69,15 +74,11 @@ def _requeue_retries():
             rt = t.retry_at
             if rt is None:
                 # 兼容旧数据：无 retry_at 直接重入
-                # M1: T9 retry_requeue（先记录再改写）
-                try:
-                    from_st = _orm_to_status_stage(t.stage)
-                    apply_transition(t, M1State.QUEUED, M1Stage.READY,
-                                     M1Actor.SYSTEM, "scheduler:requeue_retries",
-                                     reason="retry_backoff_elapsed")
-                except Exception:
-                    t.state = TaskState.QUEUED
-                    t.stage = TaskStage.READY
+                # M1: T9 retry_requeue
+                from_st = _orm_to_status_stage(t.stage)
+                apply_transition(t, M1State.QUEUED, M1Stage.READY,
+                                 M1Actor.SYSTEM, "scheduler:requeue_retries",
+                                 reason="retry_backoff_elapsed")
                 t.retry_at = None
                 event = emit_event(db, type="task_retry_requeued", entity="task", entity_id=t.id,
                                    payload={"reason": "retry_backoff_elapsed"})
@@ -88,15 +89,11 @@ def _requeue_retries():
             if rt.tzinfo is None:
                 rt = rt.replace(tzinfo=timezone.utc)
             if rt <= now:
-                # M1: T9 retry_requeue（先记录再改写）
-                try:
-                    from_st = _orm_to_status_stage(t.stage)
-                    apply_transition(t, M1State.QUEUED, M1Stage.READY,
-                                     M1Actor.SYSTEM, "scheduler:requeue_retries",
-                                     reason="retry_backoff_elapsed")
-                except Exception:
-                    t.state = TaskState.QUEUED
-                    t.stage = TaskStage.READY
+                # M1: T9 retry_requeue
+                from_st = _orm_to_status_stage(t.stage)
+                apply_transition(t, M1State.QUEUED, M1Stage.READY,
+                                 M1Actor.SYSTEM, "scheduler:requeue_retries",
+                                 reason="retry_backoff_elapsed")
                 t.retry_at = None
                 event = emit_event(db, type="task_retry_requeued", entity="task", entity_id=t.id,
                                    payload={"reason": "retry_backoff_elapsed", "attempt": t.attempt})
@@ -121,22 +118,15 @@ def _on_timeout(run_id: str, task_id: str):
                 run.exit_code = 1
                 db.add(run)
                 if task:
-                    try:
-                        from_st = _orm_to_status_stage(task.stage)
-                        if task.attempt >= task.max_retries:
-                            apply_transition(task, M1State.FAILED, from_st,
-                                             M1Actor.SYSTEM, "scheduler:timeout",
-                                             reason="agent_offline:max_retries_exceeded")
-                        else:
-                            apply_transition(task, M1State.QUEUED, M1Stage.READY,
-                                             M1Actor.SYSTEM, "scheduler:timeout",
-                                             reason="agent_offline:requeue")
-                    except Exception:
-                        if task.attempt >= task.max_retries:
-                            task.state = TaskState.FAILED
-                        else:
-                            task.state = TaskState.QUEUED
-                            task.stage = TaskStage.READY
+                    from_st = _orm_to_status_stage(task.stage)
+                    if task.attempt >= task.max_retries:
+                        apply_transition(task, M1State.FAILED, from_st,
+                                         M1Actor.SYSTEM, "scheduler:timeout",
+                                         reason="agent_offline:max_retries_exceeded")
+                    else:
+                        apply_transition(task, M1State.QUEUED, M1Stage.READY,
+                                         M1Actor.SYSTEM, "scheduler:timeout",
+                                         reason="agent_offline:requeue")
                     db.add(task)
                 db.commit()
                 return
@@ -147,22 +137,15 @@ def _on_timeout(run_id: str, task_id: str):
             run.exit_code = 1
             db.add(run)
             if task:
-                try:
-                    from_st = _orm_to_status_stage(task.stage)
-                    if task.attempt >= task.max_retries:
-                        apply_transition(task, M1State.FAILED, from_st,
-                                         M1Actor.SYSTEM, "scheduler:timeout",
-                                         reason="heartbeat_timeout:max_retries_exceeded")
-                    else:
-                        apply_transition(task, M1State.QUEUED, M1Stage.READY,
-                                         M1Actor.SYSTEM, "scheduler:timeout",
-                                         reason="heartbeat_timeout:requeue")
-                except Exception:
-                    if task.attempt >= task.max_retries:
-                        task.state = TaskState.FAILED
-                    else:
-                        task.state = TaskState.QUEUED
-                        task.stage = TaskStage.READY
+                from_st = _orm_to_status_stage(task.stage)
+                if task.attempt >= task.max_retries:
+                    apply_transition(task, M1State.FAILED, from_st,
+                                     M1Actor.SYSTEM, "scheduler:timeout",
+                                     reason="heartbeat_timeout:max_retries_exceeded")
+                else:
+                    apply_transition(task, M1State.QUEUED, M1Stage.READY,
+                                     M1Actor.SYSTEM, "scheduler:timeout",
+                                     reason="heartbeat_timeout:requeue")
                 db.add(task)
         db.commit()
 
@@ -190,13 +173,10 @@ def _release_dependencies():
             prereqs = [db.get(Task, d) for d in deps if d]
             if prereqs and all(p is not None and dependency_satisfied(p) for p in prereqs):
                 # M1: T17 manual_advance (depsatisfied → ready)
-                try:
-                    from_st = _orm_to_status_stage(t.stage)
-                    apply_transition(t, M1State.QUEUED, M1Stage.READY,
-                                     M1Actor.SYSTEM, "scheduler:release_deps",
-                                     reason="deps_satisfied")
-                except Exception:
-                    t.stage = TaskStage.READY
+                from_st = _orm_to_status_stage(t.stage)
+                apply_transition(t, M1State.QUEUED, M1Stage.READY,
+                                 M1Actor.SYSTEM, "scheduler:release_deps",
+                                 reason="deps_satisfied")
                 event = emit_event(db, type="task_released", entity="task",
                                    entity_id=t.id, payload={"reason": "deps_met"})
                 db.add(t)

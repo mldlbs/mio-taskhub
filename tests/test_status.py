@@ -112,10 +112,11 @@ class TestLegalCombos:
                 assert not is_legal_combo(State.RUNNING, st), f"running+{st.value} 应非法"
 
     def test_retrying_only_implementing(self):
+        # M1: RETRYING 可在所有非终态 stage（T9 从任意 FAILED stage 退避）
         assert is_legal_combo(State.RETRYING, Stage.IMPLEMENTING)
         for st in Stage:
-            if st != Stage.IMPLEMENTING:
-                assert not is_legal_combo(State.RETRYING, st)
+            if st.value not in ("done", "cancelled"):
+                assert is_legal_combo(State.RETRYING, st)
 
     def test_completed_not_in_pre_impl(self):
         # Q2
