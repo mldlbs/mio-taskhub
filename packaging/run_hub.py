@@ -241,19 +241,21 @@ def main():
             current["server"] = server
             try:
                 server.run()
-                break  # 正常退出（托盘「退出」设 should_exit）
-            except (SystemExit, KeyboardInterrupt):
+                _log("hub run returned normally (should_exit=true or clean exit)")
+                break
+            except (SystemExit, KeyboardInterrupt) as e:
                 # uvicorn 端口占用等启动失败会抛 SystemExit(3)：重启只会无限循环
                 # 制造僵尸实例（runtime.log 实测 "crashed, restart in 2s: SystemExit(3)"），
                 # 改为直接退出走 finally 清理
-                _log("hub exit (SystemExit/KeyboardInterrupt), no restart")
+                _log(f"hub exit (SystemExit/KeyboardInterrupt) type={type(e).__name__} code={getattr(e, 'code', None)}, no restart")
                 break
             except BaseException as e:
-                _log(f"hub crashed, restart in 2s: {e!r}")
+                _log(f"hub crashed, restart in 2s: type={type(e).__name__} e={e!r}")
                 import time as _time
 
                 _time.sleep(2)
                 continue
+            _log("guard loop ended, breaking out")
     finally:
         if tray is not None:
             try:
