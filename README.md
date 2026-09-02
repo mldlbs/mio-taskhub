@@ -18,3 +18,29 @@ Bearer 认证：
 
 API: http://localhost:48620/api/v1/docs
 Web UI: http://localhost:48620/
+
+## Memory Gateway
+
+把 `mio-intelligence` MCP 工具暴露为 taskhub HTTP 端点，让任何 agent 不依赖独立 MCP 配置就能读写记忆。
+
+| 方法 | 路径 | 代理 MCP 工具 |
+|------|------|--------------|
+| GET | `/api/memory/health` | 健康检查 |
+| GET | `/api/memory/query` | `mio_memory_query` |
+| POST | `/api/memory/record` | `mio_memory_record` |
+| POST | `/api/memory/policy/check` | `mio_policy_check` |
+| POST | `/api/memory/observer/ingest` | `mio_observer_ingest` |
+
+所有端点自动复用 taskhub Bearer 认证（`/api/*` 前缀触发中间件）。
+
+配置（环境变量，可选）：
+- `MIO_MEMORY_COMMAND` — MCP server 启动命令，默认 `uv`
+- `MIO_MEMORY_ARGS` — 启动参数（空格分隔），默认 `run mio-intelligence`
+
+错误映射：
+- MCP 不可达 → `503 {error: "memory_unavailable"}`
+- 超时 → `504 {error: "memory_timeout"}`
+- RPC 错误 → `502 {error: "memory_rpc_error"}`
+- 参数错误 → `422`（Pydantic 校验）
+
+实现：纯代理（不持久化），单例进程内 MCP 客户端，5s 超时。详细见 `docs/taskhub/spec-memory-gateway.md`。
