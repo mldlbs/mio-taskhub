@@ -49,6 +49,12 @@ const VIEWS = [
       <path d="M4 20h16M4 20V10M10 20V4M16 20v-6M22 20V8" />
     </svg>
   )},
+  { id: 'memory', label: '记忆', icon: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3a4 4 0 0 0-4 4v1a3 3 0 0 0-2 5.7c.4.5.5 1 .5 1.6V16a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-.7c0-.6.1-1.1.5-1.6A3 3 0 0 0 16 8V7a4 4 0 0 0-4-4Z" />
+      <path d="M9 18h6M10 21h4" />
+    </svg>
+  )},
 ]
 
 export default function Rail({ view, onChange, wsLive, contrast, onToggleContrast }) {

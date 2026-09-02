@@ -66,6 +66,17 @@ export const api = {
   statsOverview: () => req('GET', '/board/overview'),
   getTaskEvents: (taskId, limit = 50) => req('GET', `/tasks/${taskId}/events` + (limit ? `?limit=${limit}` : '')),
   status: (agent) => req('GET', '/status' + (agent ? `?agent=${encodeURIComponent(agent)}` : '')),
+  // Memory Gateway (v3)
+  memoryHealth: async () => {
+    const r = await fetch('/api/memory/health')
+    if (!r.ok) throw new Error(`memory/health HTTP ${r.status}`)
+    return r.json()
+  },
+  memoryEvents: async (limit = 50) => {
+    // /api/v1/events 不支持 entity 过滤，客户端按 type 前缀 memory_ 过滤
+    const r = await req('GET', `/events?limit=${limit}`)
+    return (r.events || []).filter(e => typeof e.type === 'string' && e.type.startsWith('memory_'))
+  },
   // Templates
   listTemplates: (params) => req('GET', '/tasks/templates' + (params ? '?' + new URLSearchParams(params).toString() : '')),
   getTemplate: (id) => req('GET', `/tasks/templates/${id}`),

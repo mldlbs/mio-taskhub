@@ -13,6 +13,7 @@ import IdeasView from './components/IdeasView'
 import TemplatesView from './components/TemplatesView'
 import WorkflowView from './components/WorkflowView'
 import StatsView from './components/StatsView'
+import MemoryView from './components/MemoryView'
 import CreateModal from './components/CreateModal'
 import TaskDetail from './components/TaskDetail'
 import DocPanel from './components/DocPanel'
@@ -49,6 +50,7 @@ export default function App() {
   const [focus, setFocus] = useState(null) // { id, t }
   const [filter, setFilter] = useState({ project: '', workspace: '' })
   const [toasts, setToasts] = useState([])
+  const [memoryEvent, setMemoryEvent] = useState(null)  // 最新 memory 事件 (for MemoryView)
 
   const setView = useCallback((v) => {
     setViewState(v)
@@ -119,6 +121,9 @@ export default function App() {
             else if (ev.type === 'task.failed') addToast(`「${ev.entity_id}」 失败`, 'danger')
           } else if (data.type === 'idea_update' && data.event) {
             addToast(`想法更新: ${data.event.entity_id}`, 'info')
+          } else if (data.type === 'memory_update' && data.event) {
+            // 实时把 memory 事件传给 MemoryView（独立 state 避免全量重渲染）
+            setMemoryEvent(data)
           }
         } catch { /* ignore parse errors */ }
       }
@@ -322,6 +327,9 @@ export default function App() {
             )}
             {view === 'stats' && (
               <StatsView />
+            )}
+            {view === 'memory' && (
+              <MemoryView liveEvent={memoryEvent} />
             )}
           </div>
         </main>
