@@ -49,3 +49,21 @@ Web UI: http://localhost:48620/
 - 参数错误 → `422`（Pydantic 校验）
 
 实现：纯代理（不持久化），单例进程内 MCP 客户端，5s 超时。详细见 `docs/taskhub/spec-memory-gateway.md`。
+
+## Memory Gateway UX 增强（v3）
+
+5 项体验优化：
+
+| 特性 | 行为 |
+|------|------|
+| **MCP 自动重连** | 子进程死亡后下次 call 自动重启，最多 3 次 |
+| **端点限流** | 60 req/min/(ip+endpoint)，超限 429 + Retry-After |
+| **/health 详细** | 返回 proc_alive / respawn_count / last_call_ms / last_error / 5min 计数 |
+| **GZip 压缩** | > 1KB 响应自动 gzip（Content-Encoding）|
+| **错误响应增强** | 503/504/502/429 统一含 `request_id` / `hint` / `docs` |
+
+环境变量：
+- `MIO_MEMORY_MAX_RESPAWN` — 重连次数上限，默认 3
+- `MIO_MEMORY_RATE_LIMIT` — 每分钟每端点请求数，默认 60
+
+详细 `docs/taskhub/spec-memory-gateway-ux.md`。

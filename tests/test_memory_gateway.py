@@ -24,11 +24,18 @@ def _patch_client(monkeypatch):
 
 def test_health_ok(_patch_client):
     _patch_client.is_available.return_value = True
+    _patch_client.health.return_value = {
+        "available": True, "proc_alive": True,
+        "respawn_count": 0, "last_call_ms": None, "last_error": None,
+    }
     r = client.get("/api/memory/health")
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "ok"
-    assert body["mcp_available"] is True
+    # v3: detailed health nested in mcp
+    assert body["mcp"]["proc_alive"] is True
+    assert "respawn_count" in body["mcp"]
+    assert "last_call_ms" in body["mcp"]
 
 
 def test_query_success(_patch_client):

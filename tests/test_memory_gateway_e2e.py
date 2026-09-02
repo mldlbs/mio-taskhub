@@ -113,7 +113,8 @@ def test_e2e_health_check(e2e_client):
     r = e2e_client.get("/api/memory/health")
     assert r.status_code == 200
     body = r.json()
-    assert body["mcp_available"] is True
+    assert body["mcp"]["proc_alive"] is True
+    assert "respawn_count" in body["mcp"]
 
 
 def test_e2e_query_returns_fake_data(e2e_client):

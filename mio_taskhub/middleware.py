@@ -13,6 +13,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         rid = request.headers.get("X-Request-ID") or str(uuid.uuid4())
         token = request_id_var.set(rid)
+        request.state.request_id = rid
         try:
             response = await call_next(request)
             response.headers["X-Request-ID"] = rid

@@ -38,6 +38,10 @@ app = FastAPI(
     description="Multi-agent R&D dispatch system with state machine, task lifecycle, and real-time notifications.",
     lifespan=lifespan,
 )
+# v3 UX: gzip 响应压缩（仅 > 1KB 才有收益）
+# 注意：GZipMiddleware 必须先 add（在最内层），否则会被 BaseHTTPMiddleware 拦截
+from fastapi.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(RequestIDMiddleware)
 init_db()
 
