@@ -151,8 +151,8 @@ def main():
     window = webview.create_window(
         WINDOW_TITLE,
         _hub_url(),
-        width=1080,
-        height=720,
+        width=1920,
+        height=1080,
         min_size=(640, 480),
         resizable=True,
         background_color="#0f1115",
