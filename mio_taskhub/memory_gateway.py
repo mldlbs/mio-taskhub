@@ -28,6 +28,29 @@ class MCPRPCError(RuntimeError):
     """MCP 返回错误响应。"""
 
 
+# 进程内 metrics 计数器（v2 增强，导出到 /metrics）
+_metrics: dict = {"calls_total": {}, "last_error": {}}
+
+
+def record_call(tool: str, outcome: str):
+    """记录一次 MCP 调用结果。outcome ∈ ok/unavailable/timeout/rpc_error。"""
+    key = "{}:{}".format(tool, outcome)
+    _metrics["calls_total"][key] = _metrics["calls_total"].get(key, 0) + 1
+    if outcome != "ok":
+        _metrics["last_error"][tool] = outcome
+
+
+def get_metrics() -> dict:
+    """获取 metrics 快照（用于 /metrics 端点聚合）。"""
+    return dict(_metrics)
+
+
+def reset_metrics():
+    """测试用：清空计数器。"""
+    _metrics["calls_total"].clear()
+    _metrics["last_error"].clear()
+
+
 @dataclass
 class MCPClient:
     command: str

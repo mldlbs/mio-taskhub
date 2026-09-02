@@ -25,6 +25,7 @@
 | POST | `/api/memory/record` | `mio_memory_record` | body: `{kind, context, payload}` → 200/204 |
 | POST | `/api/memory/policy/check` | `mio_policy_check` | body: `{operation, context}` → `{allowed, reason}` |
 | POST | `/api/memory/observer/ingest` | `mio_observer_ingest` | body: `{trace_id, event_type, payload, outcome}` → 200/204 |
+| POST | `/api/memory/experience/reuse` | `mio_experience_reuse` | body: `{sourceAgent, targetAgent, experienceId, reuse, behaviorChanged, outcomeImproved}` → 200/204 |
 
 ### 3.1 MCP 调用方式
 
@@ -55,10 +56,26 @@ args = ["run", "mio-intelligence"]
 - 统一异常处理：MCP 不可达 → 503；超时 → 504；参数错误 → 422
 - 复用 `_verify_bearer`（taskhub 现有）
 
-### 4.3 事件广播
+### 4.3 事件广播（v2）
 
-可选：通过 `emit_event` 把 record/ingest 写到 taskhub event stream（type=`memory_record` / `memory_ingest`），方便看板展示。
-- v1：默认开启（简单），接受 1 行开销
+写操作（`record` / `observer/ingest` / `experience/reuse`）经 taskhub Event 表 + WS 广播：
+- 写一条 `entity=memory` 的 Event
+- WS 消息 `type=memory_update` 推送给所有订阅者
+- 异常静默（不影响主流程）
+
+### 4.4 Metrics 暴露（v2）
+
+`mio_taskhub/memory_gateway.py` 维护进程内计数器：
+- `_metrics["calls_total"]["{tool}:{outcome}"]`：累计调用次数
+- `_metrics["last_error"][tool]`：最近一次错误类型
+
+`/metrics` 端点（v2）输出：
+```
+# HELP taskhub_memory_calls_total Memory gateway call counts
+# TYPE taskhub_memory_calls_total counter
+taskhub_memory_calls_total{tool="mio_memory_query",outcome="ok"} 5
+...
+```
 
 ## 5. 测试
 
@@ -66,16 +83,18 @@ args = ["run", "mio-intelligence"]
 - 集成测试：跳过（依赖 mio-intelligence 进程），改用 mock
 - 端点契约：每个端点至少 1 个 happy + 1 个 error 测试
 
-## 6. 验收（与 task 一致）
+## 6. 验收
 
 1. `GET /api/memory/query` 代理 `mio_memory_query`
-2. `POST /api/memory/record` 代理 `mio_memory_record`
+2. `POST /api/memory/record` 代理 `mio_memory_record`，写事件
 3. `POST /api/memory/policy/check` 代理 `mio_policy_check`
-4. `POST /api/memory/observer/ingest` 代理 `mio_observer_ingest`
-5. Bearer 认证
-6. 单元测试覆盖
-7. WS 广播
-8. README 更新
+4. `POST /api/memory/observer/ingest` 代理 `mio_observer_ingest`，写事件
+5. `POST /api/memory/experience/reuse` 代理 `mio_experience_reuse`，写事件
+6. Bearer 认证
+7. 单元测试覆盖（17+）
+8. WS 广播（memory_update）
+9. /metrics 暴露 memory 子段
+10. README 更新
 
 ## 7. 风险
 

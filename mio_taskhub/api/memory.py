@@ -1,14 +1,17 @@
-"""Memory Gateway API: 4 个端点代理 mio-intelligence MCP 工具。
+"""Memory Gateway API: 6 个端点代理 mio-intelligence MCP 工具。
 
+- GET  /api/memory/health
 - GET  /api/memory/query
 - POST /api/memory/record
 - POST /api/memory/policy/check
 - POST /api/memory/observer/ingest
-- GET  /api/memory/health
+- POST /api/memory/experience/reuse
+
+v2 增强：写操作（record/ingest/experience_reuse）经 taskhub Event 表 + WS 广播；
+metrics 端点暴露调用次数。
 """
 from __future__ import annotations
 
-import json
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -19,7 +22,10 @@ from mio_taskhub.memory_gateway import (
     MCPTimeout,
     MCPRPCError,
     get_client,
+    record_call,
 )
+from mio_taskhub.events import emit_event, broadcast_for_event
+from mio_taskhub.db import get_session
 
 
 router = APIRouter(prefix="/api/memory", tags=["memory-gateway"])
@@ -44,16 +50,47 @@ class IngestRequest(BaseModel):
     outcome: str = Field("success", description="success/failure/aborted")
 
 
-def _call(tool: str, params: dict) -> dict:
-    """统一调用入口，异常映射为 HTTP 状态码。"""
+class ExperienceReuseRequest(BaseModel):
+    sourceAgent: str = Field(..., description="原 agent")
+    targetAgent: str = Field(..., description="新 agent")
+    experienceId: str = Field(..., description="经验 ID（来自 memory.query）")
+    reuse: bool = Field(..., description="是否复用")
+    behaviorChanged: bool = Field(False, description="行为是否变化")
+    outcomeImproved: Optional[bool] = Field(None, description="结果是否改善")
+
+
+def _call(tool: str, params: dict, event_type: str = None, event_entity_id: str = ""):
+    """统一调用入口：异常映射 HTTP 状态码，OK 时记录 metrics 与（可选）WS 广播。
+
+    event_type: 非空时，把工具调用作为 Event 写库 + WS 广播。
+    """
     try:
-        return get_client().call(tool, params)
+        result = get_client().call(tool, params)
+        record_call(tool, "ok")
+        if event_type:
+            _broadcast_event(event_type, event_entity_id, {"tool": tool, "params": params, "result": result})
+        return result
     except MCPUnavailable as e:
+        record_call(tool, "unavailable")
         raise HTTPException(503, detail={"error": "memory_unavailable", "detail": str(e)})
     except MCPTimeout as e:
+        record_call(tool, "timeout")
         raise HTTPException(504, detail={"error": "memory_timeout", "detail": str(e)})
     except MCPRPCError as e:
+        record_call(tool, "rpc_error")
         raise HTTPException(502, detail={"error": "memory_rpc_error", "detail": str(e)})
+
+
+def _broadcast_event(event_type: str, entity_id: str, payload: dict):
+    """写 Event 表 + 广播到 WS。失败静默（不影响主流程）。"""
+    try:
+        with next(get_session()) as db:
+            ev = emit_event(db, type=event_type, entity="memory", entity_id=entity_id, payload=payload)
+            db.commit()
+            db.refresh(ev)
+            broadcast_for_event(ev)
+    except Exception:
+        pass
 
 
 @router.get("/health")
@@ -75,8 +112,9 @@ def query(
 
 @router.post("/record")
 def record(body: RecordRequest):
-    """记录记忆：代理 mio_memory_record。"""
-    _call("mio_memory_record", body.model_dump(exclude_none=True))
+    """记录记忆：代理 mio_memory_record，事件广播。"""
+    _call("mio_memory_record", body.model_dump(exclude_none=True),
+          event_type="memory_record", event_entity_id=body.kind)
     return {"ok": True}
 
 
@@ -88,6 +126,15 @@ def policy_check(body: PolicyRequest):
 
 @router.post("/observer/ingest")
 def observer_ingest(body: IngestRequest):
-    """上报观察事件：代理 mio_observer_ingest。"""
-    _call("mio_observer_ingest", body.model_dump())
+    """上报观察事件：代理 mio_observer_ingest，事件广播。"""
+    _call("mio_observer_ingest", body.model_dump(),
+          event_type="memory_observer_ingest", event_entity_id=body.trace_id)
+    return {"ok": True}
+
+
+@router.post("/experience/reuse")
+def experience_reuse(body: ExperienceReuseRequest):
+    """复用经验：代理 mio_experience_reuse，事件广播。"""
+    _call("mio_experience_reuse", body.model_dump(),
+          event_type="memory_experience_reuse", event_entity_id=body.experienceId)
     return {"ok": True}

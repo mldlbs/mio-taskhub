@@ -17,6 +17,7 @@ MESSAGE_TYPES = {
     "task": "task_update",
     "idea": "idea_update",
     "discussion": "discussion_update",
+    "memory": "memory_update",
 }
 
 

@@ -126,11 +126,21 @@ from mio_taskhub.metrics import render_metrics
     "/metrics",
     tags=["metrics"],
     summary="Prometheus metrics",
-    description="Returns Prometheus-format text metrics: task counts by state, event counts by type, agent counts by status, and process uptime.",
+    description="Returns Prometheus-format text metrics: task counts by state, event counts by type, agent counts by status, memory gateway call counts, and process uptime.",
 )
 def metrics():
     from fastapi import Response as _Resp
-    return _Resp(content=render_metrics(), media_type="text/plain; version=0.0.4")
+    from mio_taskhub.memory_gateway import get_metrics as _mem_metrics
+    body = render_metrics()
+    # v2: append memory gateway metrics
+    mem = _mem_metrics()
+    extra = []
+    for key, count in sorted(mem.get("calls_total", {}).items()):
+        tool, outcome = key.rsplit(":", 1)
+        extra.append('taskhub_memory_calls_total{{tool="{}",outcome="{}"}} {}'.format(tool, outcome, count))
+    if extra:
+        body = body.rstrip("\n") + "\n# HELP taskhub_memory_calls_total Memory gateway call counts\n# TYPE taskhub_memory_calls_total counter\n" + "\n".join(extra) + "\n"
+    return _Resp(content=body, media_type="text/plain; version=0.0.4")
 
 
 def _web_dir() -> str:

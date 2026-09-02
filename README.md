@@ -23,15 +23,20 @@ Web UI: http://localhost:48620/
 
 把 `mio-intelligence` MCP 工具暴露为 taskhub HTTP 端点，让任何 agent 不依赖独立 MCP 配置就能读写记忆。
 
-| 方法 | 路径 | 代理 MCP 工具 |
-|------|------|--------------|
-| GET | `/api/memory/health` | 健康检查 |
-| GET | `/api/memory/query` | `mio_memory_query` |
-| POST | `/api/memory/record` | `mio_memory_record` |
-| POST | `/api/memory/policy/check` | `mio_policy_check` |
-| POST | `/api/memory/observer/ingest` | `mio_observer_ingest` |
+| 方法 | 路径 | 代理 MCP 工具 | 写事件 |
+|------|------|--------------|--------|
+| GET | `/api/memory/health` | 健康检查 | — |
+| GET | `/api/memory/query` | `mio_memory_query` | — |
+| POST | `/api/memory/record` | `mio_memory_record` | ✓ `memory_record` |
+| POST | `/api/memory/policy/check` | `mio_policy_check` | — |
+| POST | `/api/memory/observer/ingest` | `mio_observer_ingest` | ✓ `memory_observer_ingest` |
+| POST | `/api/memory/experience/reuse` | `mio_experience_reuse` | ✓ `memory_experience_reuse` |
 
 所有端点自动复用 taskhub Bearer 认证（`/api/*` 前缀触发中间件）。
+
+**写事件（v2）**：`record` / `observer/ingest` / `experience/reuse` 会写一条 `entity=memory` 的 Event 到 taskhub 事件表，并触发 WS `memory_update` 广播。
+
+**Metrics（v2）**：`GET /metrics` 新增 `taskhub_memory_calls_total{tool,outcome}` 计数器，记录每个工具的调用次数与结果（ok/unavailable/timeout/rpc_error）。
 
 配置（环境变量，可选）：
 - `MIO_MEMORY_COMMAND` — MCP server 启动命令，默认 `uv`
