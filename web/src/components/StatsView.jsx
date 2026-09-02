@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { COMPOSITE_LABELS, LANES, STAGES } from '../constants'
+import { Skeleton } from './Skeleton'
 
 const TONE_COLORS = {
   live: 'var(--accent)',
@@ -35,7 +36,19 @@ export default function StatsView() {
     api.metrics().then(setMetrics).catch(() => {})
   }, [])
 
-  if (loading) return <div className="stats-loading">加载中…</div>
+  if (loading) return (
+    <div className="stats-view">
+      <div className="stats-header">
+        <h2>统计</h2>
+        <span className="stats-header__total">加载中…</span>
+      </div>
+      <div className="stats-bars">
+        <Skeleton variant="box" height="60px" />
+        <Skeleton variant="box" height="60px" />
+        <Skeleton variant="box" height="60px" />
+      </div>
+    </div>
+  )
   if (!data) return <div className="stats-loading">无法加载统计</div>
 
   const { composite_counts, by_state, by_stage, event_by_type, total_tasks, task_events_count } = data

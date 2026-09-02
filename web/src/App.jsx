@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from './api'
 import Rail from './components/Rail'
 import MissionBar from './components/MissionBar'
@@ -17,6 +17,9 @@ import MemoryView from './components/MemoryView'
 import CreateModal from './components/CreateModal'
 import TaskDetail from './components/TaskDetail'
 import DocPanel from './components/DocPanel'
+import ErrorBoundary from './components/ErrorBoundary'
+import ErrorBar from './components/ErrorBar'
+import ConnectionBanner from './components/ConnectionBanner'
 
 const VIEW_KEY = 'mio.view'
 const CONTRAST_KEY = 'mio.contrast'
@@ -40,7 +43,7 @@ export default function App() {
     try { return localStorage.getItem(CONTRAST_KEY) === 'high' } catch { return false }
   })
   const [ws, setWs] = useState(false)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState(null)  // { message, type, retry? }
   const [modal, setModal] = useState(false)
   const [detail, setDetail] = useState(null)
   const [docTask, setDocTask] = useState(null)
@@ -51,6 +54,7 @@ export default function App() {
   const [filter, setFilter] = useState({ project: '', workspace: '' })
   const [toasts, setToasts] = useState([])
   const [memoryEvent, setMemoryEvent] = useState(null)  // 最新 memory 事件 (for MemoryView)
+  const [wsRetryIn, setWsRetryIn] = useState(null)  // WS 重连倒计时（秒）
 
   const setView = useCallback((v) => {
     setViewState(v)
@@ -67,7 +71,7 @@ export default function App() {
   const loadTasks = useCallback(() => {
     api.listTasks()
       .then(data => { setTasks(data); setError(null); setLastSync(new Date()) })
-      .catch(e => setError('加载失败: ' + e.message))
+      .catch(e => setError({ message: '加载失败: ' + e.message, type: 'api', retry: loadTasks }))
       .finally(() => { setLoading(false); setRefreshing(false) })
   }, [])
 
@@ -93,11 +97,32 @@ export default function App() {
     let timer = null
     let retry = 0
     let closed = false
+    let nextRetryAt = null  // timestamp when next retry fires
+    const setNextRetry = () => {
+      if (retry === 0) {
+        nextRetryAt = null
+        return
+      }
+      const delay = Math.min(1000 * 2 ** (retry - 1), 15000)
+      nextRetryAt = Date.now() + delay * 1000
+    }
+    const tick = () => {
+      if (!nextRetryAt) {
+        setWsRetryIn(null)
+        return
+      }
+      const remain = Math.max(0, Math.ceil((nextRetryAt - Date.now()) / 1000))
+      setWsRetryIn(remain)
+    }
+    const tickId = setInterval(tick, 250)
+    tick()
 
     const schedule = () => {
       if (timer) clearTimeout(timer)
       const delay = Math.min(1000 * 2 ** retry, 15000)
       retry += 1
+      setNextRetry()
+      tick()
       timer = setTimeout(connect, delay)
     }
 
@@ -106,7 +131,7 @@ export default function App() {
       let s
       try { s = new WebSocket(`ws://${location.host}/ws`) } catch { schedule(); return }
       socket = s
-      s.onopen = () => { setWs(true); retry = 0 }
+      s.onopen = () => { setWs(true); retry = 0; nextRetryAt = null; setWsRetryIn(null) }
       s.onclose = () => { setWs(false); schedule() }
       s.onerror = () => { try { s.close() } catch { /* ignore */ } }
       s.onmessage = (e) => {
@@ -135,6 +160,7 @@ export default function App() {
       closed = true
       if (timer) clearTimeout(timer)
       clearInterval(interval)
+      clearInterval(tickId)
       if (socket) socket.close()
     }
   }, [loadTasks, loadIdeas])
@@ -277,12 +303,15 @@ export default function App() {
           workspaceOptions={workspaceOptions}
         />
 
+        <ConnectionBanner wsLive={ws} lastSync={lastSync} retryIn={wsRetryIn} />
+
         {error && (
-          <div className="errorbar" role="alert">
-            <span>▲</span>
-            <span>{error}</span>
-            <button onClick={() => setError(null)} aria-label="关闭错误提示">×</button>
-          </div>
+          <ErrorBar
+            message={typeof error === 'string' ? error : error.message}
+            errorType={typeof error === 'object' ? (error.type || 'unknown') : 'unknown'}
+            onRetry={typeof error === 'object' && error.retry ? () => { error.retry(); setError(null) } : null}
+            onDismiss={() => setError(null)}
+          />
         )}
 
         {toasts.length > 0 && (
@@ -295,6 +324,20 @@ export default function App() {
 
         <main className="viewport">
           <div className="view-fade" key={view}>
+            <ErrorBoundary onError={(e) => {
+              console.error('[App ErrorBoundary]', e);
+              try {
+                fetch('/api/memory/observer/ingest', {
+                  method: 'POST', headers: {'Content-Type': 'application/json'},
+                  body: JSON.stringify({
+                    trace_id: 'web-ui-' + Date.now(),
+                    event_type: 'react_render_error',
+                    payload: { name: e?.name, message: e?.message?.slice(0, 200) },
+                    outcome: 'failure',
+                  }),
+                }).catch(() => {});
+              } catch {}
+            }}>
             {view === 'workflow' && (
               <WorkflowView
                 tasks={filteredTasks}
@@ -331,6 +374,7 @@ export default function App() {
             {view === 'memory' && (
               <MemoryView liveEvent={memoryEvent} />
             )}
+            </ErrorBoundary>
           </div>
         </main>
       </div>

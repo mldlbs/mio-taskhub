@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../api'
+import { Skeleton, SkeletonField, SkeletonList } from './Skeleton'
 
 const TONE = {
   ok: 'var(--accent)',
@@ -141,8 +142,8 @@ export default function MemoryView({ liveEvent }) {
       <div className="memory-header">
         <h2>Memory Gateway</h2>
         <div className="memory-header__sub">
-          <StatusDot ok={mcpAlive} />
-          <span>{mcpAlive ? 'MCP alive' : 'MCP down'}</span>
+          {health === null ? <Skeleton variant="circle" width="8px" height="8px" /> : <StatusDot ok={mcpAlive} />}
+          <span>{health === null ? '加载中…' : mcpAlive ? 'MCP alive' : 'MCP down'}</span>
           <button className="memory-btn" onClick={reload} disabled={loading}>
             {loading ? '刷新中…' : '刷新'}
           </button>
@@ -153,20 +154,24 @@ export default function MemoryView({ liveEvent }) {
 
       <section className="memory-section">
         <h3>MCP 客户端</h3>
-        <div className="memory-grid">
-          <HealthField label="available" value={mcp.available === undefined ? '—' : String(mcp.available)} tone={mcpAlive ? 'ok' : 'danger'} />
-          <HealthField label="proc_alive" value={mcp.proc_alive === undefined ? '—' : String(mcp.proc_alive)} tone={mcp.proc_alive ? 'ok' : 'danger'} />
-          <HealthField label="respawn_count" value={mcp.respawn_count ?? 0} tone={mcp.respawn_count > 0 ? 'warn' : 'muted'} />
-          <HealthField label="last_call_ms" value={mcp.last_call_ms ?? '—'} tone="muted" />
-          <HealthField label="last_error" value={mcp.last_error || '—'} tone={mcp.last_error ? 'danger' : 'ok'} />
-          <HealthField label="calls_total_5m" value={mcp.calls_total_5m ?? 0} tone="muted" />
-        </div>
+        {health === null ? <SkeletonField count={6} /> : (
+          <div className="memory-grid">
+            <HealthField label="available" value={mcp.available === undefined ? '—' : String(mcp.available)} tone={mcpAlive ? 'ok' : 'danger'} />
+            <HealthField label="proc_alive" value={mcp.proc_alive === undefined ? '—' : String(mcp.proc_alive)} tone={mcp.proc_alive ? 'ok' : 'danger'} />
+            <HealthField label="respawn_count" value={mcp.respawn_count ?? 0} tone={mcp.respawn_count > 0 ? 'warn' : 'muted'} />
+            <HealthField label="last_call_ms" value={mcp.last_call_ms ?? '—'} tone="muted" />
+            <HealthField label="last_error" value={mcp.last_error || '—'} tone={mcp.last_error ? 'danger' : 'ok'} />
+            <HealthField label="calls_total_5m" value={mcp.calls_total_5m ?? 0} tone="muted" />
+          </div>
+        )}
       </section>
 
       <section className="memory-section">
         <h3>工具调用（taskhub_memory_calls_total）</h3>
         {Object.keys(perTool).length === 0 ? (
-          <div className="memory-empty">暂无调用数据</div>
+          health === null && metrics === null
+            ? <div className="memory-tools"><Skeleton variant="box" height="36px" /><Skeleton variant="box" height="36px" /></div>
+            : <div className="memory-empty">暂无调用数据</div>
         ) : (
           <div className="memory-tools">
             {Object.entries(perTool).map(([tool, stats]) => (
@@ -190,7 +195,9 @@ export default function MemoryView({ liveEvent }) {
           <span className="memory-section__hint mono">WS · {events.length} 条</span>
         </h3>
         {events.length === 0 ? (
-          <div className="memory-empty">尚无 memory_* 事件。可通过 /api/memory/record 等端点写入。</div>
+          health === null
+            ? <SkeletonList count={5} />
+            : <div className="memory-empty">尚无 memory_* 事件。可通过 /api/memory/record 等端点写入。</div>
         ) : (
           <div className="memory-events">
             {events.map(ev => (

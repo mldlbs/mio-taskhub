@@ -2896,3 +2896,36 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
   .memory-event__time { font-size: 10px; color: var(--ink-faint); margin-left: auto; }
   .memory-event__entity { font-size: 11px; color: var(--ink-dim); margin-top: 2px; }
   .memory-event__payload { font-size: 11px; color: var(--ink-faint); margin-top: 2px; word-break: break-all; }
+
+  /* ===== ErrorBar ÔöÇ¿ ===== */
+  .errorbar--network { border-left: 3px solid var(--warn); }
+  .errorbar--api { border-left: 3px solid var(--danger); }
+  .errorbar--user { border-left: 3px solid var(--accent); }
+  .errorbar__icon { font-size: 14px; }
+  .errorbar__msg { flex: 1; }
+  .errorbar__retry { padding: 2px 10px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel-2); color: var(--ink); cursor: pointer; font-size: 11px; }
+  .errorbar__retry:hover { background: var(--card-hover); border-color: var(--line-strong); }
+  .errorbar__close { padding: 0 8px; background: transparent; border: 0; color: var(--ink-faint); cursor: pointer; font-size: 18px; }
+  .errorbar__close:hover { color: var(--ink); }
+
+  /* ===== ConnectionBanner ===== */
+  .conn-banner {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 14px;
+    background: rgba(255,180,60,0.08);
+    border: 1px solid var(--warn);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    color: var(--warn);
+    margin: 0 8px 12px;
+  }
+  .conn-banner__dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--warn);
+    animation: conn-pulse 1.2s ease-in-out infinite;
+  }
+  .conn-banner__sync { margin-left: auto; color: var(--ink-faint); font-size: 11px; }
+  @keyframes conn-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
