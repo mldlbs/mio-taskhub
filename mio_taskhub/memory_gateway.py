@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import threading
 import time
 from collections import deque
@@ -124,9 +125,28 @@ class MCPClient:
 
     @classmethod
     def from_settings(cls) -> "MCPClient":
-        cmd = os.environ.get("MIO_MEMORY_COMMAND", "uv")
-        args_env = os.environ.get("MIO_MEMORY_ARGS", "run mio-intelligence")
+        cmd = os.environ.get("MIO_MEMORY_COMMAND", "")
+        args_env = os.environ.get("MIO_MEMORY_ARGS", "")
         max_respawn = int(os.environ.get("MIO_MEMORY_MAX_RESPAWN", "3"))
+
+        # 自动检测 MCP 命令（环境变量未设置时）
+        if not cmd:
+            known_js = r"D:\node_global\node_modules\mio-agent-runtime\server\mio-intelligence-mcp\index.js"
+            if os.path.isfile(known_js):
+                known_node = r"C:\Users\admin\AppData\Local\hermes\node\node.exe"
+                if os.path.isfile(known_node):
+                    cmd = known_node
+                    args_env = known_js
+                else:
+                    import shutil
+                    node = shutil.which("node")
+                    if node:
+                        cmd = node
+                        args_env = known_js
+            if not cmd:
+                cmd = "uv"
+                args_env = "run mio-intelligence"
+
         return cls(command=cmd, args=args_env.split(), max_respawn=max_respawn)
 
     def health(self) -> dict:
