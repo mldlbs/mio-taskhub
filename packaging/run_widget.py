@@ -45,7 +45,7 @@ def _apply_icon():
         return
     try:
         w = webview.windows[0]
-        hwnd = w.native.Handle
+        hwnd = w.native.Handle.ToInt32()
         hico = ctypes.windll.user32.LoadImageW(None, ICO, IMAGE_ICON, 0, 0, LR_LOADFROMFILE)
         if hico:
             ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hico)
@@ -157,9 +157,6 @@ def main():
         resizable=True,
         background_color="#0f1115",
     )
-
-    # 启动 wv_ 辅助窗口隐藏守护（WebView2 偶尔会闪 helper 窗口）
-    _start_hide_guard()
 
     quit_flag = {"done": False}
 
