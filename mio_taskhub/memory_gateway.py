@@ -226,6 +226,13 @@ class MCPClient:
             if self._proc is not None and self._proc.poll() is None:
                 return
             try:
+                startupinfo = None
+                creationflags = 0
+                if sys.platform == "win32":
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    startupinfo.wShowWindow = 0  # SW_HIDE
+                    creationflags = subprocess.CREATE_NO_WINDOW
                 self._proc = subprocess.Popen(
                     [self.command, *self.args],
                     stdin=subprocess.PIPE,
@@ -233,6 +240,8 @@ class MCPClient:
                     stderr=subprocess.PIPE,
                     text=True,
                     bufsize=1,
+                    startupinfo=startupinfo,
+                    creationflags=creationflags,
                 )
             except (FileNotFoundError, OSError) as e:
                 raise MCPUnavailable(f"failed to start MCP: {e}") from e
