@@ -158,6 +158,9 @@ def main():
         background_color="#0f1115",
     )
 
+    # 启动 wv_ 辅助窗口隐藏守护（WebView2 偶尔会闪 helper 窗口）
+    _start_hide_guard()
+
     quit_flag = {"done": False}
 
     def _on_quit():
@@ -184,6 +187,53 @@ def main():
             tray.stop()
         except Exception:
             pass
+
+
+# 启动时主动隐藏一次 wv_ 辅助窗口（避免初次闪黑框）
+def _hide_webview2_helpers():
+    """隐藏 msedgewebview2.exe 创建的辅助窗口（标题以 wv_ 开头，默认 invisible 但偶尔会闪）。"""
+    try:
+        EnumWindows = ctypes.windll.user32.EnumWindows
+        GetWindowTextW = ctypes.windll.user32.GetWindowTextW
+        GetWindowTextLengthW = ctypes.windll.user32.GetWindowTextLengthW
+        IsWindowVisible = ctypes.windll.user32.IsWindowVisible
+        ShowWindow = ctypes.windll.user32.ShowWindow
+
+        def _cb(hwnd, _lparam):
+            try:
+                length = GetWindowTextLengthW(hwnd)
+                if length <= 0:
+                    return True
+                buf = ctypes.create_unicode_buffer(length + 1)
+                GetWindowTextW(hwnd, buf, length + 1)
+                title = buf.value
+                if title.startswith("wv_") and IsWindowVisible(hwnd):
+                    ShowWindow(hwnd, 0)  # SW_HIDE
+            except Exception:
+                pass
+            return True
+
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+        EnumWindows(WNDENUMPROC(_cb), 0)
+    except Exception:
+        pass
+
+
+# 守护线程：每 3 秒兜底隐藏 wv_ 辅助窗口
+import threading as _threading
+_hide_thread_stop = _threading.Event()
+def _hide_loop():
+    while not _hide_thread_stop.is_set():
+        _hide_webview2_helpers()
+        _hide_thread_stop.wait(3)
+
+# 主线程上下文启动隐藏
+_hide_thread = None
+def _start_hide_guard():
+    global _hide_thread
+    if _hide_thread is None or not _hide_thread.is_alive():
+        _hide_thread = _threading.Thread(target=_hide_loop, daemon=True)
+        _hide_thread.start()
 
 
 if __name__ == "__main__":

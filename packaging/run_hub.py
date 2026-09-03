@@ -105,6 +105,13 @@ def _start_tray(url: str, server_ref: dict):
                 pystray.MenuItem("退出", _quit),
             ),
         )
+        # 防止 display change 导致 pystray 重新注册 tray icon（触发 WS_POPUP 隐藏窗口短暂可见→闪黑框）
+        # 见 pystray._win32.Icon._on_display_change：WM_DISPLAYCHANGE → _hide() + _show()
+        try:
+            import pystray._win32 as _pystray_win32
+            _pystray_win32.Icon._on_display_change = lambda self, w, l: None
+        except Exception:
+            pass
         t = threading.Thread(target=icon.run, daemon=True)
         t.start()
         _log("tray started")
