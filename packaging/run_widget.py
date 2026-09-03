@@ -158,6 +158,9 @@ def main():
         background_color="#0f1115",
     )
 
+    # 隐藏 WebView2 辅助窗口（wv_* 标题，GPU 渲染/DevTools 用，偶尔闪黑框）
+    _start_hide_guard()
+
     quit_flag = {"done": False}
 
     def _on_quit():
