@@ -15,7 +15,7 @@ function HealthField({ label, value, tone = 'muted', mono = true }) {
   return (
     <div className="memory-field">
       <span className="memory-field__label">{label}</span>
-      <span className="memory-field__value" style={{ color: TONE[tone] || TONE.muted }} {...(mono ? {} : {})}>
+      <span className="memory-field__value" style={{ color: TONE[tone] || TONE.muted }}>
         <span style={{ fontFamily: mono ? 'var(--font-mono)' : 'inherit' }}>{display}</span>
       </span>
     </div>
@@ -28,24 +28,12 @@ function StatusDot({ ok }) {
   )
 }
 
-function ToolBar({ name, ok, timeout, rpc, unavailable, total_5m }) {
-  const total = ok + timeout + rpc + unavailable
-  const ok_pct = total > 0 ? (ok / total) * 100 : 0
-  const err_pct = total > 0 ? ((timeout + rpc + unavailable) / total) * 100 : 0
+function ToolBar({ name, count }) {
   return (
     <div className="memory-toolbar">
       <div className="memory-toolbar__head">
         <span className="memory-toolbar__name">{name}</span>
-        <span className="memory-toolbar__total mono">{total}</span>
-      </div>
-      <div className="memory-toolbar__track" title={`ok ${ok} / err ${timeout + rpc + unavailable} / total ${total}`}>
-        <div className="memory-toolbar__ok" style={{ width: `${ok_pct}%` }} />
-        <div className="memory-toolbar__err" style={{ width: `${err_pct}%`, left: `${ok_pct}%` }} />
-      </div>
-      <div className="memory-toolbar__break mono">
-        <span className="ok" style={{ color: 'var(--accent)' }}>{ok}</span>
-        <span className="err" style={{ color: 'var(--danger)' }}>{timeout + rpc + unavailable}</span>
-        <span className="hint">{total_5m > 0 ? `${total_5m}/5m` : ''}</span>
+        <span className="memory-toolbar__total mono">{count}</span>
       </div>
     </div>
   )
@@ -67,6 +55,82 @@ function EventRow({ ev }) {
       {ev.payload && (
         <div className="memory-event__payload mono">
           {ev.payload.tool || ''} {ev.payload.params ? JSON.stringify(ev.payload.params).slice(0, 80) : ''}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function QueryPanel() {
+  const [keyword, setKeyword] = useState('')
+  const [kind, setKind] = useState('')
+  const [results, setResults] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  const doQuery = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams()
+      if (keyword) params.set('keyword', keyword)
+      if (kind) params.set('kind', kind)
+      params.set('limit', '50')
+      const r = await fetch(`/api/memory/query?${params}`)
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      setResults(await r.json())
+    } catch (e) {
+      setResults({ error: e.message })
+    } finally {
+      setLoading(false)
+    }
+  }, [keyword, kind])
+
+  return (
+    <div className="memory-query">
+      <div className="memory-query__bar">
+        <input
+          className="memory-query__input"
+          placeholder="搜索关键词…"
+          value={keyword}
+          onChange={e => setKeyword(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && doQuery()}
+        />
+        <select className="memory-query__select" value={kind} onChange={e => setKind(e.target.value)}>
+          <option value="">全部类型</option>
+          <option value="decision">决策 (decision)</option>
+          <option value="context">上下文 (context)</option>
+          <option value="problem">问题 (problem)</option>
+          <option value="note">笔记 (note)</option>
+          <option value="experience">经验 (experience)</option>
+        </select>
+        <button className="memory-btn" onClick={doQuery} disabled={loading}>
+          {loading ? '查询中…' : '查询'}
+        </button>
+      </div>
+      {results && (
+        <div className="memory-query__results">
+          {results.error ? (
+            <div className="memory-error" role="alert">▲ {results.error}</div>
+          ) : results.total === 0 ? (
+            <div className="memory-empty">无匹配结果</div>
+          ) : (
+            <>
+              <div className="memory-query__count mono">{results.total} 条结果</div>
+              {results.entities.map((ent, i) => (
+                <div key={i} className="memory-entity">
+                  <div className="memory-entity__head">
+                    <span className="memory-entity__name">{ent.name}</span>
+                    <span className="memory-entity__type mono">{ent.entityType}</span>
+                    {ent._score > 0 && <span className="memory-entity__score mono">score:{ent._score}</span>}
+                  </div>
+                  <div className="memory-entity__obs">
+                    {ent.observations.map((obs, j) => (
+                      <div key={j} className="memory-entity__obs-line">{obs}</div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
         </div>
       )}
     </div>
@@ -100,11 +164,10 @@ export default function MemoryView({ liveEvent }) {
 
   useEffect(() => {
     reload()
-    const t = setInterval(reload, 5000)  // 5s 轮询（health/metrics），事件走 WS
+    const t = setInterval(reload, 5000)
     return () => clearInterval(t)
   }, [reload])
 
-  // 实时事件：WS 推过来时插入列表头部
   useEffect(() => {
     if (!liveEvent) return
     const ev = liveEvent.event || liveEvent
@@ -113,37 +176,36 @@ export default function MemoryView({ liveEvent }) {
     }
   }, [liveEvent])
 
-  // 解析 metrics 中的 taskhub_memory_calls_total
-  const callsTotal = metrics && metrics.taskhub_memory_calls_total
+  // 解析 metrics
+  const callsTotal = metrics?.taskhub_memory_calls_total
   const perTool = {}
   if (Array.isArray(callsTotal)) {
     for (const row of callsTotal) {
       const tool = row.label === 'tool' ? row.value : null
       const outcome = row.label === 'outcome' ? row.value : null
       if (tool && outcome) {
-        if (!perTool[tool]) perTool[tool] = { ok: 0, timeout: 0, rpc_error: 0, unavailable: 0, total_5m: 0 }
+        if (!perTool[tool]) perTool[tool] = { ok: 0, error: 0 }
         perTool[tool][outcome] = row.count
       }
     }
   }
-  // 也合并 health.per_tool_5m
   if (health?.mcp?.per_tool_5m) {
     for (const [tool, count] of Object.entries(health.mcp.per_tool_5m)) {
-      if (!perTool[tool]) perTool[tool] = { ok: 0, timeout: 0, rpc_error: 0, unavailable: 0, total_5m: 0 }
-      perTool[tool].total_5m = count
+      if (!perTool[tool]) perTool[tool] = { ok: 0, error: 0 }
+      perTool[tool].ok = count
     }
   }
 
   const mcp = health?.mcp || {}
-  const mcpAlive = mcp.proc_alive === true
+  const storeAlive = mcp.available === true
 
   return (
     <div className="memory-view">
       <div className="memory-header">
-        <h2>Memory Gateway</h2>
+        <h2>Memory Store</h2>
         <div className="memory-header__sub">
-          {health === null ? <Skeleton variant="circle" width="8px" height="8px" /> : <StatusDot ok={mcpAlive} />}
-          <span>{health === null ? '加载中…' : mcpAlive ? 'MCP alive' : 'MCP down'}</span>
+          {health === null ? <Skeleton variant="circle" width="8px" height="8px" /> : <StatusDot ok={storeAlive} />}
+          <span>{health === null ? '加载中…' : `${mcp.store_type || 'jsonl'} · ${mcp.entity_count ?? 0} entities`}</span>
           <button className="memory-btn" onClick={reload} disabled={loading}>
             {loading ? '刷新中…' : '刷新'}
           </button>
@@ -153,41 +215,32 @@ export default function MemoryView({ liveEvent }) {
       {err && <div className="memory-error" role="alert">▲ {err}</div>}
 
       <section className="memory-section">
-        <h3>MCP 客户端</h3>
-        {health === null ? <SkeletonField count={6} /> : (
+        <h3>存储状态</h3>
+        {health === null ? <SkeletonField count={4} /> : (
           <div className="memory-grid">
-            <HealthField label="available" value={mcp.available === undefined ? '—' : String(mcp.available)} tone={mcpAlive ? 'ok' : 'danger'} />
-            <HealthField label="proc_alive" value={mcp.proc_alive === undefined ? '—' : String(mcp.proc_alive)} tone={mcp.proc_alive ? 'ok' : 'danger'} />
-            <HealthField label="respawn_count" value={mcp.respawn_count ?? 0} tone={mcp.respawn_count > 0 ? 'warn' : 'muted'} />
-            <HealthField label="last_call_ms" value={mcp.last_call_ms ?? '—'} tone="muted" />
-            <HealthField label="last_error" value={mcp.last_error || '—'} tone={mcp.last_error ? 'danger' : 'ok'} />
-            <HealthField label="calls_total_5m" value={mcp.calls_total_5m ?? 0} tone="muted" />
+            <HealthField label="store_type" value={mcp.store_type} tone="ok" />
+            <HealthField label="entity_count" value={mcp.entity_count ?? 0} tone="ok" />
+            <HealthField label="relation_count" value={mcp.relation_count ?? 0} tone="ok" />
+            <HealthField label="data_file" value={mcp.data_file || '—'} tone="muted" />
           </div>
         )}
       </section>
 
       <section className="memory-section">
-        <h3>工具调用（taskhub_memory_calls_total）</h3>
-        {Object.keys(perTool).length === 0 ? (
-          health === null && metrics === null
-            ? <div className="memory-tools"><Skeleton variant="box" height="36px" /><Skeleton variant="box" height="36px" /></div>
-            : <div className="memory-empty">暂无调用数据</div>
-        ) : (
+        <h3>查询记忆</h3>
+        <QueryPanel />
+      </section>
+
+      {Object.keys(perTool).length > 0 && (
+        <section className="memory-section">
+          <h3>调用统计</h3>
           <div className="memory-tools">
             {Object.entries(perTool).map(([tool, stats]) => (
-              <ToolBar
-                key={tool}
-                name={tool}
-                ok={stats.ok}
-                timeout={stats.timeout}
-                rpc={stats.rpc_error}
-                unavailable={stats.unavailable}
-                total_5m={stats.total_5m}
-              />
+              <ToolBar key={tool} name={tool} count={stats.ok + stats.error} />
             ))}
           </div>
-        )}
-      </section>
+        </section>
+      )}
 
       <section className="memory-section">
         <h3>

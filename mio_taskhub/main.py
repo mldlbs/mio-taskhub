@@ -134,16 +134,17 @@ from mio_taskhub.metrics import render_metrics
 )
 def metrics():
     from fastapi import Response as _Resp
-    from mio_taskhub.memory_gateway import get_metrics as _mem_metrics
+    from mio_taskhub.memory_store import get_metrics as _mem_metrics
     body = render_metrics()
-    # v2: append memory gateway metrics
+    # v2: append memory store metrics
     mem = _mem_metrics()
     extra = []
-    for key, count in sorted(mem.get("calls_total", {}).items()):
-        tool, outcome = key.rsplit(":", 1)
-        extra.append('taskhub_memory_calls_total{{tool="{}",outcome="{}"}} {}'.format(tool, outcome, count))
+    for tool, count in sorted(mem.get("calls_5m", {}).items()):
+        extra.append('taskhub_memory_calls_total{{tool="{}",outcome="ok"}} {}'.format(tool, count))
+    for tool, outcome in sorted(mem.get("last_error", {}).items()):
+        extra.append('taskhub_memory_calls_total{{tool="{}",outcome="{}"}} 1'.format(tool, outcome))
     if extra:
-        body = body.rstrip("\n") + "\n# HELP taskhub_memory_calls_total Memory gateway call counts\n# TYPE taskhub_memory_calls_total counter\n" + "\n".join(extra) + "\n"
+        body = body.rstrip("\n") + "\n# HELP taskhub_memory_calls_total Memory store call counts\n# TYPE taskhub_memory_calls_total counter\n" + "\n".join(extra) + "\n"
     return _Resp(content=body, media_type="text/plain; version=0.0.4")
 
 

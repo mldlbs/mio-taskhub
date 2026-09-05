@@ -2897,7 +2897,39 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
   .memory-event__entity { font-size: 11px; color: var(--ink-dim); margin-top: 2px; }
   .memory-event__payload { font-size: 11px; color: var(--ink-faint); margin-top: 2px; word-break: break-all; }
 
-  /* ===== ErrorBar ÔöÇ¿ ===== */
+  /* ===== Memory Query Panel ===== */
+  .memory-query { display: flex; flex-direction: column; gap: 12px; }
+  .memory-query__bar { display: flex; gap: 8px; align-items: center; }
+  .memory-query__input {
+    flex: 1; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+    background: var(--panel); color: var(--ink); font-size: 12px; font-family: var(--font-mono);
+    outline: none;
+  }
+  .memory-query__input:focus { border-color: var(--accent); }
+  .memory-query__select {
+    padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+    background: var(--panel); color: var(--ink); font-size: 12px; outline: none;
+  }
+  .memory-query__count { font-size: 11px; color: var(--ink-faint); margin-bottom: 4px; }
+  .memory-query__results { display: flex; flex-direction: column; gap: 6px; }
+  .memory-entity {
+    padding: 10px 14px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius-sm); font-size: 12px;
+  }
+  .memory-entity__head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .memory-entity__name { font-weight: 600; color: var(--ink); }
+  .memory-entity__type {
+    font-size: 10px; padding: 1px 6px; background: var(--bg-2); border-radius: 3px;
+    color: var(--ink-dim); font-family: var(--font-mono);
+  }
+  .memory-entity__score { font-size: 10px; color: var(--ink-faint); margin-left: auto; }
+  .memory-entity__obs { display: flex; flex-direction: column; gap: 2px; }
+  .memory-entity__obs-line {
+    font-size: 11px; color: var(--ink-dim); font-family: var(--font-mono);
+    padding-left: 8px; border-left: 2px solid var(--line);
+  }
+
+  /* ===== ErrorBar ï¿½ï¿½Ç¿ ===== */
   .errorbar--network { border-left: 3px solid var(--warn); }
   .errorbar--api { border-left: 3px solid var(--danger); }
   .errorbar--user { border-left: 3px solid var(--accent); }
