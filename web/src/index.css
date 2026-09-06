@@ -1,4 +1,4 @@
-/* ============================================================
+﻿/* ============================================================
    MIO·HUB �?Mono-Electric design system
    Monochrome graphite canvas · one electric-lime "live" signal
    Display: Unbounded · Body: Sora · Data: JetBrains Mono
@@ -2968,9 +2968,9 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
     background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
     display: flex; align-items: flex-start; justify-content: center;
     padding-top: 15vh;
-    animation: cmd fadeIn 0.12s ease;
+    animation: cmdFadeIn 0.12s ease;
   }
-  @keyframes cmd fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes cmdFadeIn { from { opacity: 0; } to { opacity: 1; } }
   .cmd-palette {
     width: 520px; max-width: 90vw;
     background: var(--panel); border: 1px solid var(--line-strong);

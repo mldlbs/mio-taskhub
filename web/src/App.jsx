@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { api, ApiError } from './api'
+import { api } from './api'
 import Rail from './components/Rail'
 import MissionBar from './components/MissionBar'
 import BoardView from './components/BoardView'
@@ -20,6 +20,7 @@ import DocPanel from './components/DocPanel'
 import ErrorBoundary from './components/ErrorBoundary'
 import ErrorBar from './components/ErrorBar'
 import ConnectionBanner from './components/ConnectionBanner'
+
 import CommandPalette from './components/CommandPalette'
 
 const VIEW_KEY = 'mio.view'
@@ -44,7 +45,7 @@ export default function App() {
     try { return localStorage.getItem(CONTRAST_KEY) === 'high' } catch { return false }
   })
   const [ws, setWs] = useState(false)
-  const [error, setError] = useState(null)  // { message, type, retry?, error?: ApiError }
+  const [error, setError] = useState(null)  // { message, type, retry? }
   const [modal, setModal] = useState(false)
   const [detail, setDetail] = useState(null)
   const [docTask, setDocTask] = useState(null)
@@ -55,8 +56,8 @@ export default function App() {
   const [filter, setFilter] = useState({ project: '', workspace: '' })
   const [toasts, setToasts] = useState([])
   const [memoryEvent, setMemoryEvent] = useState(null)  // 最新 memory 事件 (for MemoryView)
-  const [wsRetryIn, setWsRetryIn] = useState(null)  // WS 重连倒计时（秒）
-  const [cmdOpen, setCmdOpen] = useState(false)  // Command Palette
+  const [wsRetryIn, setWsRetryIn] = useState(null)
+  const [cmdOpen, setCmdOpen] = useState(false)  // WS 重连倒计时（秒）
 
   const setView = useCallback((v) => {
     setViewState(v)
@@ -73,7 +74,7 @@ export default function App() {
   const loadTasks = useCallback(() => {
     api.listTasks()
       .then(data => { setTasks(data); setError(null); setLastSync(new Date()) })
-      .catch(e => setError({ message: '加载失败: ' + e.message, type: 'api', retry: loadTasks, error: e }))
+      .catch(e => setError({ message: '加载失败: ' + e.message, type: 'api', retry: loadTasks }))
       .finally(() => { setLoading(false); setRefreshing(false) })
   }, [])
 
@@ -167,55 +168,6 @@ export default function App() {
     }
   }, [loadTasks, loadIdeas])
 
-  // 键盘快捷键
-  useEffect(() => {
-    const VIEW_IDS = ['workflow', 'list', 'plan', 'topo', 'gantt', 'ideas', 'templates', 'stats', 'memory']
-    const handler = (e) => {
-      // Command Palette: Ctrl+K / Cmd+K
-      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-        e.preventDefault()
-        setCmdOpen(v => !v)
-        return
-      }
-      // 数字键 1-9 切视图
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-        const num = parseInt(e.key)
-        if (num >= 1 && num <= 9) {
-          const tag = e.target.tagName
-          if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-          e.preventDefault()
-          setView(VIEW_IDS[num - 1])
-          return
-        }
-        // N: 新建任务
-        if (e.key === 'n' || e.key === 'N') {
-          const tag = e.target.tagName
-          if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-          e.preventDefault()
-          setModal(true)
-          return
-        }
-        // /: 聚焦搜索 (打开 Command Palette)
-        if (e.key === '/') {
-          const tag = e.target.tagName
-          if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-          e.preventDefault()
-          setCmdOpen(true)
-          return
-        }
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [setView])
-
-  const handleCmdNavigate = useCallback((viewId, taskId) => {
-    setView(viewId)
-    if (taskId) {
-      openTask({ id: taskId })
-    }
-  }, [setView, openTask])
-
   const createTask = async (payload) => {
     try {
       await api.createTask(payload)
@@ -300,6 +252,49 @@ export default function App() {
     }
   }, [])
 
+  // 键盘快捷键（必须在 openTask 定义之后）
+  useEffect(() => {
+    const VIEW_IDS = ['workflow', 'list', 'plan', 'topo', 'gantt', 'ideas', 'templates', 'stats', 'memory']
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault()
+        setCmdOpen(v => !v)
+        return
+      }
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        const num = parseInt(e.key)
+        if (num >= 1 && num <= 9) {
+          const tag = e.target.tagName
+          if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+          e.preventDefault()
+          setView(VIEW_IDS[num - 1])
+          return
+        }
+        if (e.key === 'n' || e.key === 'N') {
+          const tag = e.target.tagName
+          if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+          e.preventDefault()
+          setModal(true)
+          return
+        }
+        if (e.key === '/') {
+          const tag = e.target.tagName
+          if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+          e.preventDefault()
+          setCmdOpen(true)
+          return
+        }
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [setView])
+
+  const handleCmdNavigate = useCallback((viewId, taskId) => {
+    setView(viewId)
+    if (taskId) openTask({ id: taskId })
+  }, [setView, openTask])
+
   const refreshDetail = useCallback(async () => {
     if (detail) {
       try { setDetail(await api.getTask(detail.id)) } catch (e) { /* 静默刷新失败 */ }
@@ -360,7 +355,6 @@ export default function App() {
           <ErrorBar
             message={typeof error === 'string' ? error : error.message}
             errorType={typeof error === 'object' ? (error.type || 'unknown') : 'unknown'}
-            error={typeof error === 'object' ? error.error : null}
             onRetry={typeof error === 'object' && error.retry ? () => { error.retry(); setError(null) } : null}
             onDismiss={() => setError(null)}
           />

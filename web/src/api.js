@@ -1,6 +1,5 @@
 const BASE = '/api/v1'
 
-// 用户友好错误消息映射
 const ERROR_MESSAGES = {
   400: '请求参数有误，请检查后重试',
   401: '未授权，请登录后重试',
@@ -23,7 +22,6 @@ export class ApiError extends Error {
     this.detail = detail
     this.url = url
     this.userMessage = ERROR_MESSAGES[status] || `请求失败 (${status})`
-    // 提取后端 hint
     if (detail && typeof detail === 'object') {
       if (detail.hint) this.hint = detail.hint
       if (detail.error) this.error_code = detail.error
@@ -90,6 +88,7 @@ export const api = {
   suggestTasks: (id, body) => req('POST', `/ideas/${id}/suggest-tasks`, body),
   ideaHistory: (id, page = 1, pageSize = 20) =>
     req('GET', `/ideas/${id}/history?page=${page}&page_size=${pageSize}`),
+  // ADR API
   evolveToAdr: (id, body) => req('POST', `/ideas/${id}/evolve-to-adr`, body),
   adrAction: (id, body) => req('POST', `/ideas/${id}/adr-action`, body),
   adrMarkdown: (id) => req('GET', `/ideas/${id}/adr-md`),
@@ -97,16 +96,18 @@ export const api = {
   statsOverview: () => req('GET', '/board/overview'),
   getTaskEvents: (taskId, limit = 50) => req('GET', `/tasks/${taskId}/events` + (limit ? `?limit=${limit}` : '')),
   status: (agent) => req('GET', '/status' + (agent ? `?agent=${encodeURIComponent(agent)}` : '')),
+  // Memory Gateway (v3)
   memoryHealth: async () => {
     const r = await fetch('/api/memory/health')
-    const data = await r.json().catch(() => ({}))
-    if (!r.ok) throw new ApiError(data.detail || `HTTP ${r.status}`, r.status, data, '/api/memory/health')
-    return data
+    if (!r.ok) throw new Error(`memory/health HTTP ${r.status}`)
+    return r.json()
   },
   memoryEvents: async (limit = 50) => {
+    // /api/v1/events 不支持 entity 过滤，客户端按 type 前缀 memory_ 过滤
     const r = await req('GET', `/events?limit=${limit}`)
     return (r.events || []).filter(e => typeof e.type === 'string' && e.type.startsWith('memory_'))
   },
+  // Templates
   listTemplates: (params) => req('GET', '/tasks/templates' + (params ? '?' + new URLSearchParams(params).toString() : '')),
   getTemplate: (id) => req('GET', `/tasks/templates/${id}`),
   createTemplate: (body) => req('POST', '/tasks/templates', body),
@@ -118,7 +119,7 @@ export const api = {
   restoreTemplateVersion: (tplId, version) => req('POST', `/tasks/templates/${tplId}/restore/${version}`, {}),
   async metrics() {
     const resp = await fetch('/metrics')
-    if (!resp.ok) throw new ApiError('metrics failed', resp.status, null, '/metrics')
+    if (!resp.ok) throw new Error('metrics failed')
     const text = await resp.text()
     const lines = text.split('\n').filter(l => l && !l.startsWith('#'))
     const result = {}
