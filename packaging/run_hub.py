@@ -4,6 +4,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 import traceback
 import webbrowser
 
@@ -52,6 +53,56 @@ def _res_icon() -> str:
 ICO = _res_icon()
 
 
+_WIDGET_TITLE = "MIO·HUB"
+
+
+def _resize_edge_window():
+    """启动后将 Edge 窗口强制设为 1920×1080，置于屏幕右上角。"""
+    import ctypes.wintypes
+    time.sleep(3)
+    user32 = ctypes.windll.user32
+
+    def _find_hwnd():
+        # 按类名 Chrome_WidgetWin_1 查找 Edge 窗口
+        found = []
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+        def _cb(hwnd, _):
+            buf = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(hwnd, buf, 256)
+            if buf.value == "Chrome_WidgetWin_1":
+                length = user32.GetWindowTextLengthW(hwnd)
+                if length > 0:
+                    tbuf = ctypes.create_unicode_buffer(length + 1)
+                    user32.GetWindowTextW(hwnd, tbuf, length + 1)
+                    if "MIO" in tbuf.value and "HUB" in tbuf.value:
+                        found.append(hwnd)
+                        return False
+            return True
+        user32.EnumWindows(WNDENUMPROC(_cb), 0)
+        return found[0] if found else None
+
+    hwnd = _find_hwnd()
+    _log(f"tray: _resize_edge_window: hwnd={hwnd}")
+    if not hwnd:
+        return
+
+    # 屏幕尺寸
+    sw = user32.GetSystemMetrics(0)  # SM_CXSCREEN
+    sh = user32.GetSystemMetrics(1)  # SM_CYSCREEN
+    _log(f"tray: _resize_edge_window: screen={sw}x{sh}")
+
+    # 窗口放在右上角，宽1920 高1080
+    x = max(0, sw - 1920)
+    y = 0
+    w, h = 1920, 1080
+
+    SWP_NOZORDER = 0x0004
+    SWP_SHOWWINDOW = 0x0040
+    user32.SetWindowPos(hwnd, 0, x, y, w, h, SWP_NOZORDER | SWP_SHOWWINDOW)
+    user32.ShowWindow(hwnd, 3)  # SW_MAXIMIZE
+    _log(f"tray: _resize_edge_window: done pos=({x},{y}) size={w}x{h}")
+
+
 def _start_tray(url: str, server_ref: dict):
     """系统托盘驻留：打开浮动面板 / 退出服务。
 
@@ -73,7 +124,6 @@ def _start_tray(url: str, server_ref: dict):
 
     def _open_panel(_icon=None, _item=None):
         _log("tray: _open_panel called")
-        # 直接用 Edge --app 打开 hub 页面（不再 spawn widget 中间层）
         edge_paths = [
             os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
             os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
@@ -84,16 +134,20 @@ def _start_tray(url: str, server_ref: dict):
             if os.path.isfile(p):
                 edge_exe = p
                 break
+        _log(f"tray: edge_exe={edge_exe}")
         try:
             if edge_exe:
-                subprocess.Popen(
-                    [edge_exe, f"--app={url}", "--new-window",
-                     "--disable-features=msEdgeTranslate", "--no-first-run", "--disable-gpu"],
-                    creationflags=0x08000000,  # CREATE_NO_WINDOW
-                )
+                cmd = [edge_exe, f"--app={url}", "--new-window",
+                       "--disable-features=msEdgeTranslate", "--no-first-run"]
+                _log(f"tray: launching Edge: {cmd}")
+                proc = subprocess.Popen(cmd)
+                _log(f"tray: Edge launched, pid={proc.pid}")
+                threading.Thread(target=_resize_edge_window, daemon=True).start()
             else:
+                _log("tray: Edge not found, falling back to webbrowser")
                 webbrowser.open(url)
-        except Exception:
+        except Exception as e:
+            _log(f"tray: Edge launch failed: {e!r}")
             webbrowser.open(url)
 
     def _quit(_icon=None, _item=None):
