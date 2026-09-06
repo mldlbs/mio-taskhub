@@ -4,7 +4,6 @@ import socket
 import subprocess
 import sys
 import threading
-import time
 import traceback
 import webbrowser
 
@@ -51,48 +50,6 @@ def _res_icon() -> str:
 
 
 ICO = _res_icon()
-
-
-_WIDGET_TITLE = "MIO·HUB"
-
-
-def _resize_edge_window():
-    """等待 Edge 窗口出现后立即设为 1920×1080，右上角。"""
-    import ctypes.wintypes
-    user32 = ctypes.windll.user32
-    hwnd = None
-    # 轮询最多 10 秒等窗口出现
-    for _ in range(20):
-        time.sleep(0.5)
-        found = []
-        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
-        def _cb(hwnd, _):
-            buf = ctypes.create_unicode_buffer(256)
-            user32.GetClassNameW(hwnd, buf, 256)
-            if buf.value == "Chrome_WidgetWin_1":
-                length = user32.GetWindowTextLengthW(hwnd)
-                if length > 0:
-                    tbuf = ctypes.create_unicode_buffer(length + 1)
-                    user32.GetWindowTextW(hwnd, tbuf, length + 1)
-                    if "MIO" in tbuf.value and "HUB" in tbuf.value:
-                        found.append(hwnd)
-                        return False
-            return True
-        user32.EnumWindows(WNDENUMPROC(_cb), 0)
-        if found:
-            hwnd = found[0]
-            break
-    _log(f"tray: _resize_edge_window: hwnd={hwnd}")
-    if not hwnd:
-        return
-
-    sw = user32.GetSystemMetrics(0)
-    x = max(0, sw - 1920)
-    SWP_NOZORDER = 0x0004
-    SWP_SHOWWINDOW = 0x0040
-    user32.SetWindowPos(hwnd, 0, x, 0, 1920, 1080, SWP_NOZORDER | SWP_SHOWWINDOW)
-    user32.ShowWindow(hwnd, 3)  # SW_MAXIMIZE
-    _log(f"tray: _resize_edge_window: done")
 
 
 def _start_tray(url: str, server_ref: dict):
