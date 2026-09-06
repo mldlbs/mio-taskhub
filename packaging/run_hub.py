@@ -68,17 +68,31 @@ def _start_tray(url: str, server_ref: dict):
         _log(f"tray deps import failed: {e!r}")
         return None
 
+    _tray_lock = threading.Lock()
+    _tray_created = False
+
     def _open_panel(_icon=None, _item=None):
-        # 独立进程启动 widget（Edge --app 模式，无需 webview 事件循环）。
-        # 从 hub 打开的面板不显示自己的托盘（避免出现两个图标）。
+        _log("tray: _open_panel called")
+        # 直接用 Edge --app 打开 hub 页面（不再 spawn widget 中间层）
+        edge_paths = [
+            os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+            os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+            os.path.expandvars(r"%LocalAppData%\Microsoft\Edge\Application\msedge.exe"),
+        ]
+        edge_exe = None
+        for p in edge_paths:
+            if os.path.isfile(p):
+                edge_exe = p
+                break
         try:
-            env = dict(os.environ)
-            env["MIO_TASKHUB_WIDGET_NO_TRAY"] = "1"
-            if getattr(sys, "frozen", False):
-                subprocess.Popen([sys.executable, "widget"], env=env)
+            if edge_exe:
+                subprocess.Popen(
+                    [edge_exe, f"--app={url}", "--new-window",
+                     "--disable-features=msEdgeTranslate", "--no-first-run", "--disable-gpu"],
+                    creationflags=0x08000000,  # CREATE_NO_WINDOW
+                )
             else:
-                script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "run.py")
-                subprocess.Popen([sys.executable, script, "widget"], env=env)
+                webbrowser.open(url)
         except Exception:
             webbrowser.open(url)
 
@@ -92,6 +106,34 @@ def _start_tray(url: str, server_ref: dict):
             srv.should_exit = True
 
     try:
+        # 防止重复创建托盘图标：枚举所有窗口查找同名类
+        import ctypes
+        import ctypes.wintypes
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        found_hwnd = [None]
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+        def _enum_cb(hwnd, _):
+            buf = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(hwnd, buf, 256)
+            if "mio-taskhub" in buf.value and "SystemTrayIcon" in buf.value:
+                # 检查窗口所属进程是否还活着
+                pid = ctypes.wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                proc = kernel32.OpenProcess(0x1000, False, pid.value)  # PROCESS_QUERY_LIMITED_INFORMATION
+                if proc:
+                    kernel32.CloseHandle(proc)
+                    found_hwnd[0] = hwnd
+                    _log(f"tray: found alive icon window hwnd={hwnd} pid={pid.value}")
+                    return False
+                else:
+                    _log(f"tray: found dead icon window hwnd={hwnd} pid={pid.value}, will replace")
+            return True
+        user32.EnumWindows(WNDENUMPROC(_enum_cb), 0)
+        if found_hwnd[0]:
+            _log("tray: existing alive icon found, skip creation")
+            return None
+
         if ICO:
             img = Image.open(ICO)
         else:
@@ -105,13 +147,6 @@ def _start_tray(url: str, server_ref: dict):
                 pystray.MenuItem("退出", _quit),
             ),
         )
-        # 防止 display change 导致 pystray 重新注册 tray icon（触发 WS_POPUP 隐藏窗口短暂可见→闪黑框）
-        # 见 pystray._win32.Icon._on_display_change：WM_DISPLAYCHANGE → _hide() + _show()
-        try:
-            import pystray._win32 as _pystray_win32
-            _pystray_win32.Icon._on_display_change = lambda self, w, l: None
-        except Exception:
-            pass
         t = threading.Thread(target=icon.run, daemon=True)
         t.start()
         _log("tray started")
