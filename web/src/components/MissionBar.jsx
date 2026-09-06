@@ -47,6 +47,9 @@ export default function MissionBar({ tasks, ws, lastSync, refreshing, onRefresh,
           <option value="">项目：全部</option>
           {projectOptions.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
+        {filter?.project && (
+          <button className="filter-clear" onClick={() => onFilterChange({ ...filter, project: '' })} title="清除项目筛选">✕</button>
+        )}
         <select
           className="fsel"
           value={filter?.workspace || ''}
@@ -56,6 +59,9 @@ export default function MissionBar({ tasks, ws, lastSync, refreshing, onRefresh,
           <option value="">工作区：全部</option>
           {workspaceOptions.map(w => <option key={w} value={w}>{w}</option>)}
         </select>
+        {filter?.workspace && (
+          <button className="filter-clear" onClick={() => onFilterChange({ ...filter, workspace: '' })} title="清除工作区筛选">✕</button>
+        )}
       </div>
 
       <div className="mission__right">
@@ -125,6 +131,7 @@ export default function MissionBar({ tasks, ws, lastSync, refreshing, onRefresh,
         <button
           className="btn btn--accent mag"
           onClick={onOpenModal}
+          title="新建任务 (N)"
           onMouseMove={e => {
             const r = e.currentTarget.getBoundingClientRect()
             e.currentTarget.style.setProperty('--mx', ((e.clientX - r.left) / r.width - 0.5) * 2)
@@ -134,7 +141,7 @@ export default function MissionBar({ tasks, ws, lastSync, refreshing, onRefresh,
             e.currentTarget.style.removeProperty('--mx')
             e.currentTarget.style.removeProperty('--my')
           }}
-        >＋ 新建任务</button>
+        >＋ 新建任务 <kbd style={{fontSize:'10px',opacity:0.6,marginLeft:'4px'}}>N</kbd></button>
       </div>
 
     </header>

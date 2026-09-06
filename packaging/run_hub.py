@@ -69,7 +69,7 @@ def _start_tray(url: str, server_ref: dict):
         return None
 
     def _open_panel(_icon=None, _item=None):
-        # 独立进程启动 widget（webview 事件循环需在各自进程的主线程）。
+        # 独立进程启动 widget（Edge --app 模式，无需 webview 事件循环）。
         # 从 hub 打开的面板不显示自己的托盘（避免出现两个图标）。
         try:
             env = dict(os.environ)

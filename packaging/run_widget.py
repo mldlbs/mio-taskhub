@@ -1,23 +1,26 @@
 # mio-taskhub floating task center panel (置顶浮动任务中心)
 # Run: python packaging/run_widget.py
+# 策略：用 Edge --app 模式打开任务中心，稳定可靠不依赖 pywebview
 import ctypes
 import os
 import socket
+import subprocess
 import sys
 import threading
-
-import webview
+import time
 
 PORT = int(os.environ.get("MIO_TASKHUB_PORT", "48620"))
 
+ERROR_ALREADY_EXISTS = 183
+_SINGLE_INSTANCE_LOCK = "mio-taskhub-widget-instance"
+WINDOW_TITLE = "MIO-TASKHUB · 任务中心"
+
 
 def _hub_url() -> str:
-    """每次启动带时间戳，强制 WebView2 绕过 index.html 缓存。"""
-    return f"http://127.0.0.1:{PORT}/?_={int(__import__('time').time())}"
+    return f"http://127.0.0.1:{PORT}/?_={int(time.time())}"
 
 
 def _res_icon() -> str:
-    """解析 icon 路径：打包后取 _MEIPASS 内的资源，源码模式取 web/public。"""
     if getattr(sys, "frozen", False):
         base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
         cand = os.path.join(base, "web", "public", "icon.ico")
@@ -28,31 +31,6 @@ def _res_icon() -> str:
 
 ICO = _res_icon()
 
-WM_SETICON = 0x0080
-IMAGE_ICON = 1
-LR_LOADFROMFILE = 0x0010
-ICON_SMALL = 0
-ICON_BIG = 1
-
-ERROR_ALREADY_EXISTS = 183
-_SINGLE_INSTANCE_LOCK = "mio-taskhub-widget-instance"
-WINDOW_TITLE = "MIO-TASKHUB · 任务中心"
-
-
-def _apply_icon():
-    """给窗口标题栏设置自定义图标（Windows）。"""
-    if not ICO:
-        return
-    try:
-        w = webview.windows[0]
-        hwnd = w.native.Handle.ToInt32()
-        hico = ctypes.windll.user32.LoadImageW(None, ICO, IMAGE_ICON, 0, 0, LR_LOADFROMFILE)
-        if hico:
-            ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hico)
-            ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, hico)
-    except Exception:
-        pass
-
 
 def _hub_alive() -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -61,22 +39,12 @@ def _hub_alive() -> bool:
 
 
 def _single_instance():
-    """命名互斥锁：确保只有一个小面板窗口。
-
-    已存在实例时激活已有窗口（显示并置前）并返回 None，调用方应退出。
-    注意：读取 GetLastError 必须用 WinDLL(use_last_error=True) + ctypes.get_last_error()，
-    跨两次 FFI 调用读 kernel32.GetLastError() 会漏判 ALREADY_EXISTS（与 run_hub 同源的坑）。
-    """
     try:
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         handle = kernel32.CreateMutexW(None, False, _SINGLE_INSTANCE_LOCK)
         if not handle:
-            return 0  # 创建失败：保持旧行为放行
+            return 0
         if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
-            hwnd = ctypes.windll.user32.FindWindowW(None, WINDOW_TITLE)
-            if hwnd:
-                ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-                ctypes.windll.user32.SetForegroundWindow(hwnd)
             kernel32.CloseHandle(handle)
             return None
         return handle
@@ -84,25 +52,41 @@ def _single_instance():
         return None
 
 
-def _start_tray(window, on_quit):
-    """在独立线程启动系统托盘图标。返回 Icon 对象。
+def _open_browser(url: str):
+    """用 Edge --app 模式打开，无地址栏，像原生窗口。降级到默认浏览器。"""
+    edge_paths = [
+        os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+        os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+        os.path.expandvars(r"%LocalAppData%\Microsoft\Edge\Application\msedge.exe"),
+    ]
+    edge_exe = None
+    for p in edge_paths:
+        if os.path.isfile(p):
+            edge_exe = p
+            break
 
-    - 单击/菜单「显示面板」→ window.show()
-    - 菜单「退出」→ on_quit()（停托盘 + 销毁窗口）
-    降级：pystray/PIL 不可用时不驻留托盘（保持现状行为）。
-    """
+    if edge_exe:
+        # --app 模式：无地址栏，独立窗口
+        # --new-window：新窗口
+        subprocess.Popen(
+            [edge_exe, f"--app={url}", "--new-window"],
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
+        )
+    else:
+        # 降级：用系统默认浏览器
+        os.startfile(url)
+
+
+def _start_tray(on_open, on_quit):
+    """系统托盘图标。"""
     try:
         import pystray
         from PIL import Image
     except Exception:
         return None
 
-    def _show(_icon=None, _item=None):
-        try:
-            window.show()
-            window.reload()
-        except Exception:
-            pass
+    def _open(_icon=None, _item=None):
+        on_open()
 
     def _quit(_icon=None, _item=None):
         try:
@@ -119,9 +103,9 @@ def _start_tray(window, on_quit):
         icon = pystray.Icon(
             "mio-taskhub",
             img,
-            "MIO-TASKHUB · 任务中心",
+            WINDOW_TITLE,
             menu=pystray.Menu(
-                pystray.MenuItem("显示面板", _show, default=True),
+                pystray.MenuItem("打开任务中心", _open, default=True),
                 pystray.MenuItem("退出", _quit),
             ),
         )
@@ -134,7 +118,7 @@ def _start_tray(window, on_quit):
 
 def main():
     if _single_instance() is None:
-        return  # 已有面板在运行，已激活它
+        return
 
     if not _hub_alive():
         try:
@@ -148,93 +132,27 @@ def main():
             pass
         return
 
-    window = webview.create_window(
-        WINDOW_TITLE,
-        _hub_url(),
-        width=1920,
-        height=1080,
-        min_size=(640, 480),
-        resizable=True,
-        background_color="#0f1115",
+    url = _hub_url()
+    _open_browser(url)
+
+    # 托盘：hub 已在运行时显示独立托盘（hub 托盘也已存在，这里仅管 widget）
+    tray = _start_tray(
+        on_open=lambda: _open_browser(_hub_url()),
+        on_quit=lambda: None,
     )
 
-    # 隐藏 WebView2 辅助窗口（wv_* 标题，GPU 渲染/DevTools 用，偶尔闪黑框）
-    _start_hide_guard()
-
-    quit_flag = {"done": False}
-
-    def _on_quit():
-        quit_flag["done"] = True
-        try:
-            window.destroy()
-        except Exception:
-            pass
-
-    # 拦截关窗：隐藏到托盘而非退出（若托盘可用）。
-    # 从 hub 托盘打开的面板（NO_TRAY=1）不显示独立托盘，关窗直接退出。
-    # hub 已在运行时也不显示独立托盘（避免出现两个图标）。
-    no_tray = os.environ.get("MIO_TASKHUB_WIDGET_NO_TRAY") == "1" or _hub_alive()
-    tray = _start_tray(window, _on_quit) if not no_tray else None
-    if tray is not None:
-        def _on_closing():
-            window.hide()
-            return False  # 取消关闭
-        window.events.closing += _on_closing
-
-    webview.start(func=_apply_icon)
-    # webview.start 返回（窗口被 destroy 或进程退出）——若托盘还在则停止
-    if tray is not None:
-        try:
-            tray.stop()
-        except Exception:
-            pass
-
-
-# 启动时主动隐藏一次 wv_ 辅助窗口（避免初次闪黑框）
-def _hide_webview2_helpers():
-    """隐藏 msedgewebview2.exe 创建的辅助窗口（标题以 wv_ 开头，默认 invisible 但偶尔会闪）。"""
+    # 阻塞：等待 hub 关闭或用户退出
     try:
-        EnumWindows = ctypes.windll.user32.EnumWindows
-        GetWindowTextW = ctypes.windll.user32.GetWindowTextW
-        GetWindowTextLengthW = ctypes.windll.user32.GetWindowTextLengthW
-        IsWindowVisible = ctypes.windll.user32.IsWindowVisible
-        ShowWindow = ctypes.windll.user32.ShowWindow
-
-        def _cb(hwnd, _lparam):
+        while _hub_alive():
+            time.sleep(5)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if tray is not None:
             try:
-                length = GetWindowTextLengthW(hwnd)
-                if length <= 0:
-                    return True
-                buf = ctypes.create_unicode_buffer(length + 1)
-                GetWindowTextW(hwnd, buf, length + 1)
-                title = buf.value
-                if title.startswith("wv_") and IsWindowVisible(hwnd):
-                    ShowWindow(hwnd, 0)  # SW_HIDE
+                tray.stop()
             except Exception:
                 pass
-            return True
-
-        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
-        EnumWindows(WNDENUMPROC(_cb), 0)
-    except Exception:
-        pass
-
-
-# 守护线程：每 3 秒兜底隐藏 wv_ 辅助窗口
-import threading as _threading
-_hide_thread_stop = _threading.Event()
-def _hide_loop():
-    while not _hide_thread_stop.is_set():
-        _hide_webview2_helpers()
-        _hide_thread_stop.wait(3)
-
-# 主线程上下文启动隐藏
-_hide_thread = None
-def _start_hide_guard():
-    global _hide_thread
-    if _hide_thread is None or not _hide_thread.is_alive():
-        _hide_thread = _threading.Thread(target=_hide_loop, daemon=True)
-        _hide_thread.start()
 
 
 if __name__ == "__main__":
