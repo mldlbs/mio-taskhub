@@ -57,13 +57,13 @@ _WIDGET_TITLE = "MIO·HUB"
 
 
 def _resize_edge_window():
-    """启动后将 Edge 窗口强制设为 1920×1080，置于屏幕右上角。"""
+    """等待 Edge 窗口出现后立即设为 1920×1080，右上角。"""
     import ctypes.wintypes
-    time.sleep(3)
     user32 = ctypes.windll.user32
-
-    def _find_hwnd():
-        # 按类名 Chrome_WidgetWin_1 查找 Edge 窗口
+    hwnd = None
+    # 轮询最多 10 秒等窗口出现
+    for _ in range(20):
+        time.sleep(0.5)
         found = []
         WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
         def _cb(hwnd, _):
@@ -79,28 +79,20 @@ def _resize_edge_window():
                         return False
             return True
         user32.EnumWindows(WNDENUMPROC(_cb), 0)
-        return found[0] if found else None
-
-    hwnd = _find_hwnd()
+        if found:
+            hwnd = found[0]
+            break
     _log(f"tray: _resize_edge_window: hwnd={hwnd}")
     if not hwnd:
         return
 
-    # 屏幕尺寸
-    sw = user32.GetSystemMetrics(0)  # SM_CXSCREEN
-    sh = user32.GetSystemMetrics(1)  # SM_CYSCREEN
-    _log(f"tray: _resize_edge_window: screen={sw}x{sh}")
-
-    # 窗口放在右上角，宽1920 高1080
+    sw = user32.GetSystemMetrics(0)
     x = max(0, sw - 1920)
-    y = 0
-    w, h = 1920, 1080
-
     SWP_NOZORDER = 0x0004
     SWP_SHOWWINDOW = 0x0040
-    user32.SetWindowPos(hwnd, 0, x, y, w, h, SWP_NOZORDER | SWP_SHOWWINDOW)
+    user32.SetWindowPos(hwnd, 0, x, 0, 1920, 1080, SWP_NOZORDER | SWP_SHOWWINDOW)
     user32.ShowWindow(hwnd, 3)  # SW_MAXIMIZE
-    _log(f"tray: _resize_edge_window: done pos=({x},{y}) size={w}x{h}")
+    _log(f"tray: _resize_edge_window: done")
 
 
 def _start_tray(url: str, server_ref: dict):
@@ -137,12 +129,15 @@ def _start_tray(url: str, server_ref: dict):
         _log(f"tray: edge_exe={edge_exe}")
         try:
             if edge_exe:
+                # 计算窗口位置：右上角
+                sw = ctypes.windll.user32.GetSystemMetrics(0)
+                x = max(0, sw - 1920)
                 cmd = [edge_exe, f"--app={url}", "--new-window",
+                       f"--window-position={x},0", "--window-size=1920,1080",
                        "--disable-features=msEdgeTranslate", "--no-first-run"]
                 _log(f"tray: launching Edge: {cmd}")
                 proc = subprocess.Popen(cmd)
                 _log(f"tray: Edge launched, pid={proc.pid}")
-                threading.Thread(target=_resize_edge_window, daemon=True).start()
             else:
                 _log("tray: Edge not found, falling back to webbrowser")
                 webbrowser.open(url)
