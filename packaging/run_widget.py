@@ -52,6 +52,39 @@ def _single_instance():
         return None
 
 
+def _resize_edge_window():
+    """启动后强制将 Edge 窗口调整为 1920×1080 并置顶。"""
+    time.sleep(2)
+    hwnd = ctypes.windll.user32.FindWindowW(None, WINDOW_TITLE)
+    if not hwnd:
+        # Edge --app 模式标题可能不完全匹配，遍历查找
+        EnumWindows = ctypes.windll.user32.EnumWindows
+        GetWindowTextW = ctypes.windll.user32.GetWindowTextW
+        GetWindowTextLengthW = ctypes.windll.user32.GetWindowTextLengthW
+        found = []
+
+        def _cb(hwnd, _lparam):
+            length = GetWindowTextLengthW(hwnd)
+            if length <= 0:
+                return True
+            buf = ctypes.create_unicode_buffer(length + 1)
+            GetWindowTextW(hwnd, buf, length + 1)
+            if "MIO" in buf.value and "HUB" in buf.value:
+                found.append(hwnd)
+            return True
+
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+        EnumWindows(WNDENUMPROC(_cb), 0)
+        if found:
+            hwnd = found[0]
+
+    if hwnd:
+        SWP_NOZORDER = 0x0004
+        SWP_SHOWWINDOW = 0x0040
+        ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, 1920, 1080, SWP_NOZORDER | SWP_SHOWWINDOW)
+        ctypes.windll.user32.ShowWindow(hwnd, 3)  # SW_MAXIMIZE
+
+
 def _open_browser(url: str):
     """用 Edge 打开任务中心。降级到默认浏览器。"""
     edge_paths = [
@@ -77,6 +110,8 @@ def _open_browser(url: str):
             ],
             creationflags=0x08000000,  # CREATE_NO_WINDOW
         )
+        # 异步调整窗口大小
+        threading.Thread(target=_resize_edge_window, daemon=True).start()
     else:
         os.startfile(url)
 
