@@ -92,7 +92,7 @@ def _start_tray(url: str, server_ref: dict):
                        f"--window-position={x},0", "--window-size=1920,1080",
                        "--no-first-run"]
                 _log(f"tray: launching Edge: {cmd}")
-                subprocess.Popen(cmd, creationflags=0x08000000)
+                subprocess.Popen(cmd)
             else:
                 _log("tray: Edge not found, falling back to webbrowser")
                 webbrowser.open(url)
