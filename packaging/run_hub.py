@@ -99,12 +99,6 @@ def _start_tray(url: str, server_ref: dict):
         except Exception as e:
             _log(f"tray: Edge launch failed: {e!r}")
             webbrowser.open(url)
-        except Exception as e:
-            _log(f"tray: Edge launch failed: {e!r}")
-            webbrowser.open(url)
-        except Exception as e:
-            _log(f"tray: Edge launch failed: {e!r}")
-            webbrowser.open(url)
 
     def _quit(_icon=None, _item=None):
         try:
