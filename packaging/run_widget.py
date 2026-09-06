@@ -53,7 +53,7 @@ def _single_instance():
 
 
 def _open_browser(url: str):
-    """用 Edge --app 模式打开，无地址栏，像原生窗口。降级到默认浏览器。"""
+    """用 Edge 打开任务中心。降级到默认浏览器。"""
     edge_paths = [
         os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
         os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
@@ -66,14 +66,18 @@ def _open_browser(url: str):
             break
 
     if edge_exe:
-        # --app 模式：无地址栏，独立窗口
-        # --new-window：新窗口
         subprocess.Popen(
-            [edge_exe, f"--app={url}", "--new-window"],
+            [
+                edge_exe,
+                f"--app={url}",
+                "--new-window",
+                "--disable-features=msEdgeTranslate",
+                "--no-first-run",
+                "--disable-gpu",
+            ],
             creationflags=0x08000000,  # CREATE_NO_WINDOW
         )
     else:
-        # 降级：用系统默认浏览器
         os.startfile(url)
 
 
@@ -101,7 +105,7 @@ def _start_tray(on_open, on_quit):
         else:
             img = Image.new("RGB", (32, 32), (61, 220, 151))
         icon = pystray.Icon(
-            "mio-taskhub",
+            "mio-taskhub-widget",
             img,
             WINDOW_TITLE,
             menu=pystray.Menu(
@@ -135,13 +139,14 @@ def main():
     url = _hub_url()
     _open_browser(url)
 
-    # 托盘：hub 已在运行时显示独立托盘（hub 托盘也已存在，这里仅管 widget）
+    # hub 已在运行时不显示 widget 自己的托盘（避免两个图标）
+    no_tray = os.environ.get("MIO_TASKHUB_WIDGET_NO_TRAY") == "1" or _hub_alive()
     tray = _start_tray(
         on_open=lambda: _open_browser(_hub_url()),
         on_quit=lambda: None,
-    )
+    ) if not no_tray else None
 
-    # 阻塞：等待 hub 关闭或用户退出
+    # 阻塞：等待 hub 关闭
     try:
         while _hub_alive():
             time.sleep(5)
