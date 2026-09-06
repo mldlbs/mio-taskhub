@@ -86,18 +86,22 @@ def _start_tray(url: str, server_ref: dict):
         _log(f"tray: edge_exe={edge_exe}")
         try:
             if edge_exe:
-                # 计算窗口位置：右上角
                 sw = ctypes.windll.user32.GetSystemMetrics(0)
                 x = max(0, sw - 1920)
                 cmd = [edge_exe, f"--app={url}", "--new-window",
                        f"--window-position={x},0", "--window-size=1920,1080",
-                       "--disable-features=msEdgeTranslate", "--no-first-run"]
+                       "--no-first-run"]
                 _log(f"tray: launching Edge: {cmd}")
-                proc = subprocess.Popen(cmd)
-                _log(f"tray: Edge launched, pid={proc.pid}")
+                subprocess.Popen(cmd, creationflags=0x08000000)
             else:
                 _log("tray: Edge not found, falling back to webbrowser")
                 webbrowser.open(url)
+        except Exception as e:
+            _log(f"tray: Edge launch failed: {e!r}")
+            webbrowser.open(url)
+        except Exception as e:
+            _log(f"tray: Edge launch failed: {e!r}")
+            webbrowser.open(url)
         except Exception as e:
             _log(f"tray: Edge launch failed: {e!r}")
             webbrowser.open(url)
