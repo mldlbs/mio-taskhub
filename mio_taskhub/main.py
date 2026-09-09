@@ -34,6 +34,9 @@ async def lifespan(app):
     stop_git_sync_worker()
     stop_night_runner()
     stop_cron_engine()
+    # Gracefully close DB connections
+    from mio_taskhub.db import engine
+    engine.dispose()
 
 
 app = FastAPI(
