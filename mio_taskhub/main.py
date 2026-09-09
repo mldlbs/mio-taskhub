@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, Response, WebSocket
 from fastapi.staticfiles import StaticFiles
 from mio_taskhub.auth import generate_token, get_token, make_auth_middleware
 from mio_taskhub.db import get_session, init_db
-from mio_taskhub.api import tasks, agents, runs, plans, board, ideas, discussions, events, nightrun, memory, scheduled_jobs, task_documents
+from mio_taskhub.api import tasks, templates, agents, runs, plans, board, ideas, discussions, events, nightrun, memory, scheduled_jobs, task_documents
 from mio_taskhub.api import ideas_enhanced
 from mio_taskhub.api.board import board_summary as _board_summary
 from mio_taskhub.logging_config import setup_logging
@@ -49,6 +49,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(RequestIDMiddleware)
 init_db()
 
+app.include_router(templates.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(tasks.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(task_documents.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(agents.router, prefix="/api/v1", tags=["agents"])
