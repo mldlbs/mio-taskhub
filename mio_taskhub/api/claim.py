@@ -1,10 +1,10 @@
-import uuid
 from typing import Optional
 from datetime import timezone
 from sqlmodel import Session, select
 from sqlalchemy import case, Integer, func
 from sqlalchemy import update as sa_update
-from mio_taskhub.models import Task, TaskState, TaskStage, Run, RunState, Agent
+from mio_taskhub.models import Task, TaskState, TaskStage, Agent
+from mio_taskhub.api.runs import find_existing_run, create_run
 from mio_taskhub.utils import _now
 
 
@@ -44,13 +44,6 @@ def claim_for(agent: str, db: Session, agent_type: Optional[str] = None, task_id
     if not candidate:
         return None
     return atomic_claim(db, agent, candidate)
-
-
-def find_existing_run(db, agent):
-    """幂等返回：若 agent 已有 claimed/running run，直接返回。"""
-    return db.exec(
-        select(Run).where(Run.agent_name == agent, Run.state.in_([RunState.CLAIMED, RunState.RUNNING]))
-    ).first()
 
 
 def lookup_agent_type(db, agent):
@@ -123,17 +116,8 @@ def atomic_claim(db, agent, candidate):
     claim_event = record_post_claim(task, agent)
     task.attempt += 1
     task.stage = TaskStage.IMPLEMENTING
-    run = Run(
-        id=str(uuid.uuid4())[:8],
-        task_id=task.id,
-        agent_name=agent,
-        state=RunState.CLAIMED,
-        attempt=task.attempt,
-        started_at=_now(),
-        last_heartbeat=_now(),
-    )
+    run = create_run(db, agent, task)
     db.add(task)
     if claim_event:
         db.add(claim_event)
-    db.add(run)
     return run

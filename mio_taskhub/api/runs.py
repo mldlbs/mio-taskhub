@@ -5,10 +5,36 @@ from mio_taskhub.db import get_session
 from mio_taskhub.models import Run, RunState, Task, TaskState, TaskStage
 from mio_taskhub.utils import _now
 from mio_taskhub.events import emit_event, broadcast_for_event
-from mio_taskhub.transitions import apply_transition
+from mio_taskhub.transitions import apply_transition, _orm_to_status_stage
 from mio_taskhub.status import State, Stage, ActorType, IllegalTransition as M1Illegal
 
 router = APIRouter(prefix="/runs", tags=["runs"])
+
+
+# ── Run lifecycle ──────────────────────────────────────────────────────
+
+def find_existing_run(db, agent):
+    """Idempotent: return existing claimed/running run for agent, or None."""
+    return db.exec(
+        select(Run).where(Run.agent_name == agent, Run.state.in_([RunState.CLAIMED, RunState.RUNNING]))
+    ).first()
+
+
+def create_run(db, agent, task):
+    """Create a new Run for the claimed task. Returns the Run object."""
+    import uuid as _uuid
+    run = Run(
+        id=str(_uuid.uuid4())[:8],
+        task_id=task.id,
+        agent_name=agent,
+        state=RunState.CLAIMED,
+        attempt=task.attempt,
+        started_at=_now(),
+        last_heartbeat=_now(),
+    )
+    db.add(run)
+    return run
+
 
 # 指数退避基数（秒），可按需调整；失败后等待 2^attempt * BASE 秒后重入队列
 BASE_RETRY_SECONDS = 2.0
@@ -30,8 +56,7 @@ def _retry_at_for(task) -> timedelta:
 def _safe_transition(task, to_state, to_stage, actor_type, actor_id, reason="", metadata=None):
     """走 M1 状态机；非法时返回 (None, None) 不抛（保持旧行为兼容）。"""
     try:
-        cur = task.stage if isinstance(task.stage, TaskStage) else TaskStage(task.stage)
-        from_stage = Stage(cur.value if cur != TaskStage.CANCELLED else "brainstorming")
+        from_stage = _orm_to_status_stage(task.stage)
         _, ev = apply_transition(
             task, to_state, to_stage,
             actor_type, actor_id, reason=reason, metadata=metadata,
