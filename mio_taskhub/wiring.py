@@ -1,7 +1,7 @@
 from datetime import datetime, timezone, timedelta
 from sqlmodel import Session, select
 from mio_taskhub.db import engine
-from mio_taskhub.api.tasks import _claim_for
+from mio_taskhub.api.claim import claim_for as _claim_for
 from mio_taskhub.models import Agent, AgentStatus, Run, RunState, Task, TaskStage, TaskState
 from mio_taskhub.heartbeat import HeartbeatSweep, RunInfo
 from mio_taskhub.scheduler import Scheduler

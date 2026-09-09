@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 from mio_taskhub.main import app
 from mio_taskhub.db import engine
 from mio_taskhub.models import Task, Agent, Run, TaskState, TaskStage
-from mio_taskhub.api.tasks import _claim_for, _should_fallback
+from mio_taskhub.api.claim import claim_for as _claim_for, should_fallback as _should_fallback
 
 client = TestClient(app)
 
