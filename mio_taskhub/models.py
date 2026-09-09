@@ -1,12 +1,10 @@
 import enum
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 from sqlalchemy import Column, JSON
 from sqlmodel import SQLModel, Field
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
+from mio_taskhub.utils import _now
 
 def _uuid() -> str:
     return str(uuid.uuid4())[:8]
@@ -31,7 +29,6 @@ class TaskState(str, enum.Enum):
             cls.COMPLETED:   set(),
             cls.FAILED:      {cls.RETRYING},
             cls.CANCELLED:   set(),
-            cls.BLOCKED_FAILED: {cls.RETRYING, cls.CANCELLED},
         }
         return dst in valid.get(src, set())
 
@@ -43,7 +40,8 @@ class TaskStage(str, enum.Enum):
     IMPLEMENTING = "implementing"
     REVIEW = "review"
     DONE = "done"
-    CANCELLED = "cancelled"
+    CANCELLED = "cancelled"   # 持久化专用：apply_transition 在 to_state=CANCELLED 时写入；
+                              # 读取时 _orm_to_status_stage 映射为 BRAINSTORMING（status.py 无 cancelled stage）
 
     @classmethod
     def can_advance(cls, src: "TaskStage", dst: "TaskStage") -> bool:
@@ -187,6 +185,19 @@ class TaskEvent(SQLModel, table=True):
     reason: str = ""
     # Python 属性名 event_metadata → DB 列名 metadata（避开 SQLAlchemy Base.metadata 保留字）
     event_metadata: Optional[dict] = Field(default=None, sa_column=Column("metadata", JSON))
+    created_at: datetime = Field(default_factory=_now)
+
+class TaskReview(SQLModel, table=True):
+    """任务审阅记录（task_reviews）。每次审阅追加一行，不可变。"""
+    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    task_id: str = Field(index=True)
+    decision: str = Field(index=True)  # approve / reject / comment
+    checklist: Optional[dict] = Field(default=None, sa_column=Column(JSON))  # {"功能完整": true, "代码质量": false, ...}
+    summary: str = ""                  # 审阅摘要
+    comments: str = ""                 # 详细批注/意见
+    artifacts: list = Field(default_factory=list, sa_column=Column(JSON))  # 关联文档路径
+    reviewer: str = ""                 # 审阅人 (agent name / user / system)
+    review_duration_sec: Optional[int] = None  # 从 review_started_at 到本次审阅的秒数
     created_at: datetime = Field(default_factory=_now)
 
 class Agent(SQLModel, table=True):
@@ -375,6 +386,42 @@ class IdeaHistory(SQLModel, table=True):
     extra: dict = Field(default_factory=dict, sa_column=Column(JSON))  # 结构化上下文
     at: datetime = Field(default_factory=_now, index=True)
 
+
+class ScheduledJobActionType(str, enum.Enum):
+    CREATE_TASK = "create_task"
+    WEBHOOK = "webhook"
+
+class ScheduledJobStatus(str, enum.Enum):
+    OK = "ok"
+    ERROR = "error"
+
+class ScheduledJob(SQLModel, table=True):
+    """独立定时任务：cron 表达式 + 动作（创建任务 / Webhook）。"""
+    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    name: str = Field(index=True)
+    cron_expr: str  # 5-field cron: 分 时 日 月 周
+    next_run_at: Optional[datetime] = Field(default=None, index=True)
+    action_type: ScheduledJobActionType = ScheduledJobActionType.CREATE_TASK
+    action_config: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    enabled: bool = True
+    max_retries: int = 3
+    timeout_seconds: int = 30
+    last_run_at: Optional[datetime] = None
+    last_status: Optional[ScheduledJobStatus] = None
+    last_error: Optional[str] = None
+    run_count: int = 0
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
+
+class ScheduledJobExecution(SQLModel, table=True):
+    """定时任务执行日志。"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    job_id: str = Field(index=True)
+    started_at: datetime = Field(default_factory=_now)
+    finished_at: Optional[datetime] = None
+    status: str = "ok"  # ok | error
+    result: Optional[str] = None
+    error: Optional[str] = None
 
 class OutboxStatus(str, enum.Enum):
     PENDING = "pending"
