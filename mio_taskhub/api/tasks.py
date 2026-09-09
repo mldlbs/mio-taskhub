@@ -11,61 +11,19 @@ from sqlalchemy import func
 from mio_taskhub.db import get_session
 from mio_taskhub.models import (
     Task, TaskState, TaskStage, Run, RunState, Subtask, SubtaskStatus, GitRef, RefType, HistoryEvent,
-    Discussion, DiscussionMessage, Agent, TaskTemplate, TaskTemplateVersion,
+    Discussion, DiscussionMessage, Agent, TaskTemplate, TaskTemplateVersion, TaskReview,
 )
 from mio_taskhub.utils import _now
 from mio_taskhub.status import normalize_depends, task_deps
 from mio_taskhub.events import emit_event, broadcast_for_event
-from mio_taskhub.planner import detect_cycle
+from mio_taskhub.api.task_helpers import parse_dt, parse_enum, check_cycle, validate_depends
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
-def _parse_dt(value, name: str):
-    if not isinstance(value, str):
-        return value
-    try:
-        dt = datetime.fromisoformat(value)
-    except ValueError:
-        raise HTTPException(400, f"invalid {name}: {value}")
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)  # naive → treat as UTC
-    else:
-        dt = dt.astimezone(timezone.utc)       # any offset → normalize to UTC
-    return dt
-
-def _parse_enum(enum_cls, value, default=None):
-    if value is None and default is not None:
-        return default
-    try:
-        return enum_cls(value)
-    except ValueError:
-        raise HTTPException(400, f"invalid value: {value}, expected one of {[e.value for e in enum_cls]}")
-
-def _graph_with(task, db) -> dict:
-    """构建 {id: [dep_ids]} 依赖图（含给定 task 的新值）。"""
-    graph = {}
-    for t in db.exec(select(Task)).all():
-        graph[t.id] = task_deps(t)
-    graph[task.id] = task_deps(task)
-    return graph
-
-def _check_cycle(task, db):
-    cyc = detect_cycle(_graph_with(task, db))
-    if cyc:
-        raise HTTPException(422, f"cyclic dependency: {' → '.join(cyc)}")
-
-def _validate_depends(task, db):
-    """校验 depends_on：缺失任务、自依赖。缺失优先于环检测，错误信息清晰。"""
-    for dep in task_deps(task):
-        if dep == task.id:
-            raise HTTPException(422, f"cannot depend on itself: {dep}")
-        if db.get(Task, dep) is None:
-            raise HTTPException(422, f"dependency not found: {dep}")
-
 @router.post("", response_model=dict)
 def create_task(body: dict, db: Session = Depends(get_session)):
-    due_at = _parse_dt(body.get("due_at"), "due_at")
-    run_at = _parse_dt(body.get("run_at"), "run_at")
+    due_at = parse_dt(body.get("due_at"), "due_at")
+    run_at = parse_dt(body.get("run_at"), "run_at")
     stage_val = body.get("stage", "brainstorming")
     try:
         stage = TaskStage(stage_val)
@@ -95,8 +53,8 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         plan_path=(body.get("plan_path") or "").strip() or None,
         stage=stage,
     )
-    _validate_depends(t, db)
-    _check_cycle(t, db)                       # 成环则抛 422（未 commit，自动回滚）
+    validate_depends(t, db)
+    check_cycle(t, db)                       # 成环则抛 422（未 commit，自动回滚）
     db.add(t)
     event = emit_event(db, type="task_created", entity="task", entity_id=t.id,
                        payload={"title": t.title, "stage": t.stage.value})
@@ -559,7 +517,7 @@ def create_task_from_template(tpl_id: str, body: dict, db: Session = Depends(get
     tpl = db.get(TaskTemplate, tpl_id)
     if not tpl:
         raise HTTPException(404, "template not found")
-    due_at = _parse_dt(body.get("due_at"), "due_at")
+    due_at = parse_dt(body.get("due_at"), "due_at")
     stage_val = body.get("stage", tpl.stages[0] if tpl.stages else "brainstorming")
     try:
         stage = TaskStage(stage_val)
@@ -583,8 +541,8 @@ def create_task_from_template(tpl_id: str, body: dict, db: Session = Depends(get
         deliverables=body.get("deliverables", tpl.deliverables_template),
         stage=stage,
     )
-    _validate_depends(t, db)
-    _check_cycle(t, db)
+    validate_depends(t, db)
+    check_cycle(t, db)
     db.add(t)
     event = emit_event(db, type="task_created", entity="task", entity_id=t.id,
                        payload={"title": t.title, "stage": t.stage.value, "from_template": tpl_id})
@@ -652,24 +610,35 @@ def _read_content(p):
 
 
 def discover_task_docs(workspace: str):
-    """扫描 workspace 下的 spec/plan 文档，返回候选列表（source=discovered）。"""
+    """扫描 workspace 下的相关文档，返回候选列表（source=discovered）。"""
     import os
     if not workspace or not os.path.isdir(workspace):
         return []
     SKIP = {'node_modules', 'dist', 'build', '.venv', '.git', '.workbuddy',
             '.memory-backup', '__pycache__', '.idea', '.vscode'}
+    DOC_PATTERNS = {
+        'spec':    ['spec'],
+        'plan':    ['plan'],
+        'requirement': ['requirement', 'req', '需求'],
+        'test':    ['test-plan', 'test_plan', 'testing'],
+        'architecture': ['architecture', 'arch', 'design-doc'],
+        'readme':  ['readme'],
+        'changelog': ['changelog', 'changes', 'release-notes'],
+        'api':     ['api-doc', 'api_spec', 'openapi'],
+    }
     out = []
     for root, dirs, files in os.walk(workspace):
         dirs[:] = [d for d in dirs if d not in SKIP]
         for f in files:
-            if not f.lower().endswith('.md'):
-                continue
             low = f.lower()
-            if 'spec' in low:
-                kind = 'spec'
-            elif 'plan' in low:
-                kind = 'plan'
-            else:
+            if not low.endswith('.md'):
+                continue
+            kind = None
+            for k, keywords in DOC_PATTERNS.items():
+                if any(kw in low for kw in keywords):
+                    kind = k
+                    break
+            if kind is None:
                 continue
             full = os.path.join(root, f)
             rel = os.path.relpath(full, workspace).replace(os.sep, '/')
@@ -785,11 +754,11 @@ def update_task(task_id: str, body: dict, db: Session = Depends(get_session)):
         if k in body:
             v = body[k]
             if k == "due_at":
-                v = _parse_dt(v, "due_at")
+                v = parse_dt(v, "due_at")
             if k == "depends_on":
                 t.depends_on = normalize_depends(v)
-                _validate_depends(t, db)
-                _check_cycle(t, db)
+                validate_depends(t, db)
+                check_cycle(t, db)
             else:
                 setattr(t, k, v)
     db.add(t)
@@ -805,7 +774,7 @@ def add_subtask(task_id: str, body: dict, db: Session = Depends(get_session)):
     if not t:
         raise HTTPException(404, "task not found")
     st = Subtask(task_id=task_id, order=body.get("order", 0),
-                 title=body.get("title", ""), status=_parse_enum(SubtaskStatus, body.get("status"), "pending"))
+                 title=body.get("title", ""), status=parse_enum(SubtaskStatus, body.get("status"), "pending"))
     event = emit_event(db, type="task_subtask_added", entity="task", entity_id=task_id,
                        payload={"subtask_id": st.id, "title": st.title})
     db.add(st); db.commit(); db.refresh(st)
@@ -820,7 +789,7 @@ def update_subtask(task_id: str, sid: str, body: dict, db: Session = Depends(get
         raise HTTPException(404, "subtask not found")
     if "title" in body: st.title = body["title"]
     if "order" in body: st.order = body["order"]
-    if "status" in body: st.status = _parse_enum(SubtaskStatus, body["status"])
+    if "status" in body: st.status = parse_enum(SubtaskStatus, body["status"])
     event = emit_event(db, type="task_subtask_updated", entity="task", entity_id=task_id,
                        payload={"subtask_id": st.id, "status": st.status.value})
     db.add(st); db.commit(); db.refresh(st)
@@ -833,7 +802,7 @@ def add_gitref(task_id: str, body: dict, db: Session = Depends(get_session)):
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404, "task not found")
-    g = GitRef(task_id=task_id, ref_type=_parse_enum(RefType, body.get("ref_type"), "branch"),
+    g = GitRef(task_id=task_id, ref_type=parse_enum(RefType, body.get("ref_type"), "branch"),
                value=body.get("value", ""), note=body.get("note", ""))
     event = emit_event(db, type="task_gitref_added", entity="task", entity_id=task_id,
                        payload={"gitref_id": g.id, "ref_type": g.ref_type.value})
@@ -1018,12 +987,12 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
             raise HTTPException(422, "design stage requires at least one discussion record")
     _apply_stage_requirements(t, dst, body)
     # M1: 走状态机记录 TaskEvent + 设时间戳（不预设 t.stage，由 apply_transition 写入）
-    from mio_taskhub.transitions import apply_transition
+    from mio_taskhub.transitions import apply_transition, _orm_to_status_state, _orm_to_status_stage
     from mio_taskhub.status import State, Stage as M1Stage, ActorType, IllegalTransition as M1Illegal
     m1_events = []
     try:
         cur_s = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
-        from_st = M1Stage(src.value if src != TaskStage.CANCELLED else "brainstorming")
+        from_st = _orm_to_status_stage(src)
         if dst == TaskStage.DONE:
             # 先确保 state=COMPLETED（T5: queued/claimed,review → completed,review）
             if cur_s in (TaskState.CLAIMED, TaskState.QUEUED):
@@ -1052,7 +1021,7 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
             actor = ActorType.USER if cur_s == TaskState.QUEUED else ActorType.SYSTEM
             actor_id = "api:advance_stage" if cur_s == TaskState.QUEUED else "auto:advance"
             _, e = apply_transition(
-                t, State(cur_s.value if cur_s != TaskState.BLOCKED_FAILED else "queued"),
+                t, _orm_to_status_state(cur_s),
                 M1Stage(dst.value), actor, actor_id,
                 reason=f"advance {src.value}→{dst.value}",
             )
@@ -1101,17 +1070,16 @@ def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
                 "plan_path": t.plan_path, "review_result": t.review_result,
                 "state": t.state.value}
     # M1: 全部走状态机（含 T18 自由拖拽）
-    from mio_taskhub.transitions import apply_transition, _orm_to_status_stage
+    from mio_taskhub.transitions import apply_transition, _orm_to_status_state, _orm_to_status_stage
     from mio_taskhub.status import State as M1State, Stage as M1Stage, ActorType as M1Actor
     m1_events = []
     cur_s = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
-    orm_state_map = {TaskState.BLOCKED_FAILED: M1State.QUEUED}
-    cur_m1 = orm_state_map.get(cur_s, M1State(cur_s.value))
-    to_st = _orm_to_status_stage(dst) if dst != TaskStage.CANCELLED else M1Stage.BRAINSTORMING
+    cur_m1 = _orm_to_status_state(cur_s)
+    to_st = _orm_to_status_stage(dst)
     if dst == TaskStage.DONE:
         # 先确保 state=COMPLETED（T5: queued/claimed,review → completed,review）
         if cur_s in (TaskState.CLAIMED, TaskState.QUEUED):
-            from_st_done = _orm_to_status_stage(src) if src != TaskStage.CANCELLED else M1Stage.BRAINSTORMING
+            from_st_done = _orm_to_status_stage(src)
             _, e1 = apply_transition(t, M1State.COMPLETED, from_st_done,
                                      M1Actor.USER, "api:move_to_stage",
                                      reason="move→done")
@@ -1122,7 +1090,7 @@ def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
                                  reason="move→done: finalize")
         if e2: m1_events.append(e2)
     elif dst == TaskStage.CANCELLED:
-        from_st = _orm_to_status_stage(src) if src != TaskStage.CANCELLED else M1Stage.BRAINSTORMING
+        from_st = _orm_to_status_stage(src)
         _, e = apply_transition(t, M1State.CANCELLED, from_st,
                                 M1Actor.USER, "api:move_to_stage",
                                 reason="move→cancelled")
@@ -1317,3 +1285,105 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
     broadcast_for_event(event)
     return {"id": run.id, "task_id": run.task_id, "state": run.state.value,
             "agent_name": run.agent_name, "attempt": run.attempt}
+
+
+# ── Review endpoints ──────────────────────────────────────────────────
+
+@router.get("/reviews/queue")
+def review_queue(db: Session = Depends(get_session)):
+    """返回处于 review 阶段的任务列表 + 审阅统计。"""
+    tasks = db.exec(
+        select(Task).where(Task.stage == TaskStage.REVIEW).order_by(Task.created_at)
+    ).all()
+    items = []
+    for t in tasks:
+        wait_sec = None
+        if t.review_started_at:
+            started = t.review_started_at
+            now = _now()
+            # 统一时区：naive 补 UTC
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            if now.tzinfo is None:
+                now = now.replace(tzinfo=timezone.utc)
+            delta = (now - started).total_seconds()
+            wait_sec = int(delta)
+        items.append({
+            "id": t.id, "title": t.title, "priority": t.priority,
+            "state": t.state.value, "stage": t.stage.value,
+            "target_agent_type": t.target_agent_type,
+            "project": t.project, "workspace": t.workspace,
+            "review_started_at": t.review_started_at.isoformat() if t.review_started_at else None,
+            "wait_seconds": wait_sec,
+            "review_result": t.review_result,
+            "attempt": t.attempt,
+        })
+    return {"tasks": items, "count": len(items)}
+
+
+@router.get("/{task_id}/reviews")
+def list_reviews(task_id: str, db: Session = Depends(get_session)):
+    """返回任务的审阅历史记录。"""
+    t = db.get(Task, task_id)
+    if not t:
+        raise HTTPException(404, "task not found")
+    reviews = db.exec(
+        select(TaskReview).where(TaskReview.task_id == task_id).order_by(TaskReview.created_at)
+    ).all()
+    return [
+        {
+            "id": r.id, "task_id": r.task_id, "decision": r.decision,
+            "checklist": r.checklist, "summary": r.summary, "comments": r.comments,
+            "artifacts": r.artifacts, "reviewer": r.reviewer,
+            "review_duration_sec": r.review_duration_sec,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in reviews
+    ]
+
+
+@router.post("/{task_id}/reviews")
+def submit_review(task_id: str, body: dict, db: Session = Depends(get_session)):
+    """提交审阅记录。decision: approve / reject / comment。"""
+    t = db.get(Task, task_id)
+    if not t:
+        raise HTTPException(404, "task not found")
+    decision = body.get("decision", "comment")
+    if decision not in ("approve", "reject", "comment"):
+        raise HTTPException(422, "decision must be approve, reject, or comment")
+    # 计算审阅时长
+    duration_sec = None
+    if t.review_started_at:
+        started = t.review_started_at
+        now = _now()
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        duration_sec = int((now - started).total_seconds())
+    review = TaskReview(
+        task_id=task_id,
+        decision=decision,
+        checklist=body.get("checklist"),
+        summary=body.get("summary", ""),
+        comments=body.get("comments", ""),
+        artifacts=body.get("artifacts", []),
+        reviewer=body.get("reviewer", ""),
+        review_duration_sec=duration_sec,
+    )
+    db.add(review)
+    # 如果是 approve，自动推进到 done 并记录 review_result
+    if decision == "approve":
+        summary = body.get("summary", "")
+        if summary:
+            t.review_result = summary
+        db.add(t)
+    event = emit_event(db, type="review_submitted", entity="task", entity_id=task_id,
+                       payload={"decision": decision, "reviewer": review.reviewer,
+                                "summary": summary if decision == "approve" else ""})
+    db.commit()
+    broadcast_for_event(event)
+    return {
+        "id": review.id, "decision": decision,
+        "review_duration_sec": duration_sec,
+    }
