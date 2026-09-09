@@ -3,10 +3,11 @@ from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session, select, func
 from mio_taskhub.db import get_session
 from mio_taskhub.models import Task, TaskStage, TaskState, Run, RunState, TaskEvent
-from mio_taskhub.status import (
-    is_terminal, task_deps, dependency_satisfied,
-    State, Stage as M1Stage, LEGAL_COMBOS, is_legal_combo, composite_status, COMPOSITE_LABEL,
+from mio_taskhub.state_machine import (
+    is_terminal, State, Stage as M1Stage, LEGAL_COMBOS, is_legal_combo,
 )
+from mio_taskhub.dependency import task_deps, dependency_satisfied
+from mio_taskhub.composite import composite_status, COMPOSITE_LABEL
 from mio_taskhub.utils import _now
 
 router = APIRouter(prefix="/board", tags=["board"])

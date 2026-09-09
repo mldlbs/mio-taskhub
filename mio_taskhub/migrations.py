@@ -46,7 +46,7 @@ def _migrate_task(conn):
     if "fallback_after" not in cols:
         conn.execute(text("ALTER TABLE task ADD COLUMN fallback_after INTEGER"))
     if "depends_on" in cols:
-        from mio_taskhub.status import normalize_depends
+        from mio_taskhub.dependency import normalize_depends
         import json as _json
         dep_rows = conn.execute(text("SELECT id, depends_on FROM task")).fetchall()
         for _id, _val in dep_rows:

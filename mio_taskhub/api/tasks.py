@@ -10,7 +10,7 @@ from mio_taskhub.models import (
     Discussion, DiscussionMessage, Agent,
 )
 from mio_taskhub.utils import _now
-from mio_taskhub.status import normalize_depends, task_deps
+from mio_taskhub.dependency import normalize_depends, task_deps
 from mio_taskhub.events import emit_event
 from mio_taskhub.api.task_helpers import parse_dt, parse_enum, check_cycle, validate_depends
 from mio_taskhub.planner import detect_cycle
@@ -425,7 +425,7 @@ def cancel_task(task_id: str, db: Session = Depends(get_session)):
         raise HTTPException(404)
     # M1: 走状态机校验 + 写 TaskEvent + 设时间戳
     from mio_taskhub.transitions import apply_transition
-    from mio_taskhub.status import State, Stage, ActorType, IllegalTransition
+    from mio_taskhub.state_machine import State, Stage, ActorType, IllegalTransition
     current_stage = t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
     try:
         _, m1_event = apply_transition(
@@ -465,7 +465,7 @@ def retry_task(task_id: str, body: dict = None, db: Session = Depends(get_sessio
     t.retry_at = None
     # M1: 走状态机 T16 manual_retry → (QUEUED, READY)
     from mio_taskhub.transitions import apply_transition
-    from mio_taskhub.status import State, Stage, ActorType, IllegalTransition
+    from mio_taskhub.state_machine import State, Stage, ActorType, IllegalTransition
     current_stage = t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
     try:
         _, m1_event = apply_transition(
@@ -534,7 +534,7 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
     _apply_stage_requirements(t, dst, body)
     # M1: 走状态机记录 TaskEvent + 设时间戳（不预设 t.stage，由 apply_transition 写入）
     from mio_taskhub.transitions import apply_transition, _orm_to_status_state, _orm_to_status_stage
-    from mio_taskhub.status import State, Stage as M1Stage, ActorType, IllegalTransition as M1Illegal
+    from mio_taskhub.state_machine import State, Stage as M1Stage, ActorType, IllegalTransition as M1Illegal
     m1_events = []
     try:
         cur_s = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
@@ -616,7 +616,7 @@ def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
                 "state": t.state.value}
     # M1: 全部走状态机（含 T18 自由拖拽）
     from mio_taskhub.transitions import apply_transition, _orm_to_status_state, _orm_to_status_stage
-    from mio_taskhub.status import State as M1State, Stage as M1Stage, ActorType as M1Actor
+    from mio_taskhub.state_machine import State as M1State, Stage as M1Stage, ActorType as M1Actor
     m1_events = []
     cur_s = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
     cur_m1 = _orm_to_status_state(cur_s)

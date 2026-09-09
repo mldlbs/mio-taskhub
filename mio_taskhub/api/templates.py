@@ -5,9 +5,8 @@ from sqlmodel import Session, select
 from mio_taskhub.db import get_session
 from mio_taskhub.models import Task, TaskStage, TaskTemplate, TaskTemplateVersion
 from mio_taskhub.utils import _now
-from mio_taskhub.status import normalize_depends
+from mio_taskhub.dependency import normalize_depends, task_deps
 from mio_taskhub.events import emit_event
-from mio_taskhub.status import task_deps
 from mio_taskhub.api.task_helpers import parse_dt, validate_depends, check_cycle
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])

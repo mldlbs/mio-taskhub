@@ -6,7 +6,7 @@ from mio_taskhub.models import Run, RunState, Task, TaskState, TaskStage
 from mio_taskhub.utils import _now
 from mio_taskhub.events import emit_event
 from mio_taskhub.transitions import apply_transition, _orm_to_status_stage
-from mio_taskhub.status import State, Stage, ActorType, IllegalTransition as M1Illegal
+from mio_taskhub.state_machine import State, Stage, ActorType, IllegalTransition as M1Illegal
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 

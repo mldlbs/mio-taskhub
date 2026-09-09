@@ -4,7 +4,7 @@ from datetime import time
 from dataclasses import dataclass, field
 from typing import List, Dict
 from collections import deque
-from mio_taskhub.status import normalize_depends
+from mio_taskhub.dependency import normalize_depends
 
 @dataclass
 class PlanItem:

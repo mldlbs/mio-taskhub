@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlmodel import select
 from mio_taskhub.models import Task
-from mio_taskhub.status import task_deps
+from mio_taskhub.dependency import task_deps
 from mio_taskhub.planner import detect_cycle
 
 

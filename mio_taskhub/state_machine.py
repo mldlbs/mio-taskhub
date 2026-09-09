@@ -1,13 +1,13 @@
-# mio_taskhub/status.py
-"""统一的任务状态判据（终态 / 依赖满足），供 DAG、Board、Scheduler、Planner、前端联动使用。"""
+# mio_taskhub/state_machine.py
+"""核心状态机（枚举、转换、合法性校验）。"""
 from __future__ import annotations
-import json
-import logging
-from typing import Any
+from dataclasses import dataclass
+from enum import Enum
+from typing import Set, Tuple
 
-logger = logging.getLogger("mio_taskhub.status")
-
-# state 维度上的终态集合（stage=done/cancelled 也视为终态，见 is_terminal）
+# ---------------------------------------------------------------------------
+# Enums
+# ---------------------------------------------------------------------------
 TERMINAL_STATES = {"completed", "cancelled", "failed", "blocked_failed"}
 
 
@@ -22,67 +22,6 @@ def is_terminal(task) -> bool:
     s = task.state.value if hasattr(task.state, "value") else task.state
     st = _stage_str(task.stage)
     return s in TERMINAL_STATES or st in ("done", "cancelled")
-
-
-def dependency_satisfied(task) -> bool:
-    """作为前置依赖时是否算满足：state=completed 或 stage=done。"""
-    s = task.state.value if hasattr(task.state, "value") else task.state
-    return s == "completed" or _stage_str(task.stage) == "done"
-
-
-def normalize_depends(value: Any) -> list:
-    """把 depends_on 的任意旧值/新值归一化为列表。
-
-    - None / 空白字符串 → []
-    - 非 JSON 单值字符串（旧库 VARCHAR 列）→ [value]
-    - 合法 JSON 数组字符串 → 解析为列表
-    - 非法 JSON → [] + warning（不阻塞）
-    - 已是 list → 原样（清掉空白项）
-    """
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return [x for x in value if x]
-    if isinstance(value, str):
-        s = value.strip()
-        if not s:
-            return []
-        if s.startswith("[") or s.startswith("{"):
-            try:
-                arr = json.loads(s)
-                return [x for x in arr if x] if isinstance(arr, list) else []
-            except ValueError:
-                logger.warning("depends_on 非法 JSON，已置空: %r", value)
-                return []
-        return [s]
-    return []
-
-
-def task_deps(task) -> list:
-    """读取任务依赖列表（兼容旧字符串/None/列表）。"""
-    return normalize_depends(getattr(task, "depends_on", None))
-
-
-# =============================================================================
-# M1 状态机（追加于 b4d0712 的依赖/终态工具之上）
-# 锁定原则（Phase-2 M1，2026-08-29 拍板）：
-#  1. state = 运行时生命周期；stage = 研发阶段。
-#  2. state=completed != 任务最终完成。
-#  3. 完成终态 = state=completed AND stage=done  → 见 is_fully_done()
-#  4. brainstorming / design / planning 不启用 completed（推进是原子动作）。
-#  5. 每次合法转换必须记录 actor（actor_type + actor_id）。
-#  6. 每次合法转换必须追加 task_events。
-#  7. bounce_count 是汇总字段，bounce 原因以 task_events 为准。
-#  8. 系统动作必须使用显式 system actor。
-#  9. 所有状态组合和转换必须经过合法性校验。
-#
-# 与上方 is_terminal 的语义区别（共存，不冲突）：
-#   is_terminal    = 调度终态（不再被重派：cancelled/failed/done），DAG/Scheduler 用
-#   is_fully_done  = 完成终态（Q1 锁定：completed AND done），统计/通知/最终完成时间用
-# =============================================================================
-from dataclasses import dataclass
-from enum import Enum
-from typing import Optional, Set, Tuple
 
 
 class State(str, Enum):
@@ -378,67 +317,3 @@ def validate_transition(from_state, from_stage, to_state, to_stage, actor_type):
             f"actor_type={actor_type.value} 无权执行 {t.id}",
         )
     return t
-
-
-# ---------- Composite status (前后端共享映射表) ----------
-COMPOSITE_LABEL: dict = {
-    (State.QUEUED, Stage.BRAINSTORMING): ("待认领 · 需求理解", "neutral"),
-    (State.QUEUED, Stage.DESIGN): ("待认领 · 设计", "neutral"),
-    (State.QUEUED, Stage.PLANNING): ("待认领 · 计划", "neutral"),
-    (State.QUEUED, Stage.READY): ("待认领", "neutral"),
-    (State.QUEUED, Stage.IMPLEMENTING): ("返工重排", "warn"),
-    (State.CLAIMED, Stage.BRAINSTORMING): ("需求理解中", "neutral"),
-    (State.CLAIMED, Stage.DESIGN): ("设计中", "neutral"),
-    (State.CLAIMED, Stage.PLANNING): ("计划中", "neutral"),
-    (State.CLAIMED, Stage.READY): ("就绪 · 待执行", "neutral"),
-    (State.CLAIMED, Stage.IMPLEMENTING): ("已认领 · 实现", "neutral"),
-    (State.CLAIMED, Stage.REVIEW): ("评审中", "neutral"),
-    (State.RUNNING, Stage.IMPLEMENTING): ("执行中", "live"),
-    (State.RETRYING, Stage.IMPLEMENTING): ("重试中", "warn"),
-    (State.COMPLETED, Stage.IMPLEMENTING): ("实现完成 · 待评审", "ok-soft"),
-    (State.COMPLETED, Stage.REVIEW): ("评审通过 · 待归并", "ok-soft"),
-    (State.COMPLETED, Stage.DONE): ("已完成", "ok"),
-    (State.FAILED, Stage.BRAINSTORMING): ("失败 · 需求理解", "danger"),
-    (State.FAILED, Stage.DESIGN): ("失败 · 设计", "danger"),
-    (State.FAILED, Stage.PLANNING): ("失败 · 计划", "danger"),
-    (State.FAILED, Stage.IMPLEMENTING): ("失败 · 实现", "danger"),
-    (State.FAILED, Stage.REVIEW): ("失败 · 评审不通过", "danger"),
-    (State.CANCELLED, Stage.BRAINSTORMING): ("已取消", "muted"),
-    (State.CANCELLED, Stage.DESIGN): ("已取消", "muted"),
-    (State.CANCELLED, Stage.PLANNING): ("已取消", "muted"),
-    (State.CANCELLED, Stage.READY): ("已取消", "muted"),
-    (State.CANCELLED, Stage.IMPLEMENTING): ("已取消", "muted"),
-    (State.CANCELLED, Stage.REVIEW): ("已取消", "muted"),
-}
-
-
-def composite_status(state, stage, block_reason=None):
-    terminal = is_fully_done(state, stage)
-    if state == State.QUEUED and block_reason:
-        short = (block_reason[:24] + "…") if len(block_reason) > 24 else block_reason
-        return {"label": f"等待 · {short}", "tone": "warn", "is_terminal": terminal}
-    lt = COMPOSITE_LABEL.get((state, stage))
-    if lt is None:
-        return {"label": "未知", "tone": "muted", "is_terminal": terminal}
-    label, tone = lt
-    return {"label": label, "tone": tone, "is_terminal": terminal}
-
-
-def export_mapping_json():
-    """供前端复制的单一映射表（state/stage/actor 枚举、合法组合、综合状态、终态规则）。"""
-    return {
-        "states": [s.value for s in State],
-        "stages": [s.value for s in Stage],
-        "actor_types": [a.value for a in ActorType],
-        "legal_combos": [
-            {"state": s.value, "stage": st.value}
-            for s, st in sorted(LEGAL_COMBOS, key=lambda x: (x[0].value, x[1].value))
-        ],
-        "composite": {
-            f"{s.value}|{st.value}": {"label": label, "tone": tone}
-            for (s, st), (label, tone) in COMPOSITE_LABEL.items()
-        },
-        "is_fully_done_check": "state==completed AND stage==done",
-        "is_terminal_check_legacy": "scheduling-terminal (cancelled/failed/done) — see is_terminal()",
-        "transition_count": len(TRANSITIONS),
-    }

@@ -8,7 +8,7 @@ from mio_taskhub.models import (Idea, IdeaChange, IdeaStatus, IdeaType, Task, Ta
                                 Discussion, DiscussionMessage, TaskState, IdeaHistory, ChangeType,
                                 OutboxEvent, OutboxStatus)
 from mio_taskhub.utils import _now
-from mio_taskhub.status import normalize_depends, task_deps
+from mio_taskhub.dependency import normalize_depends, task_deps
 from mio_taskhub.planner import detect_cycle
 from mio_taskhub.events import emit_event
 

@@ -31,7 +31,7 @@ from sqlalchemy import inspect, text
 # ---------- helpers ----------
 def _legal_combo_strings() -> set:
     """把 status.LEGAL_COMBOS 转为 (state_str, stage_str) 集合（小写）。"""
-    from mio_taskhub.status import LEGAL_COMBOS, State, Stage
+    from mio_taskhub.state_machine import LEGAL_COMBOS, State, Stage
     return {(s.value, st.value) for s, st in LEGAL_COMBOS}
 
 
