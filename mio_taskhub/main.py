@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, Response, WebSocket
 from fastapi.staticfiles import StaticFiles
 from mio_taskhub.auth import generate_token, get_token, make_auth_middleware
 from mio_taskhub.db import get_session, init_db
-from mio_taskhub.api import tasks, agents, runs, plans, board, ideas, discussions, events, nightrun, memory
+from mio_taskhub.api import tasks, agents, runs, plans, board, ideas, discussions, events, nightrun, memory, scheduled_jobs, task_documents
 from mio_taskhub.api import ideas_enhanced
 from mio_taskhub.api.board import board_summary as _board_summary
 from mio_taskhub.logging_config import setup_logging
@@ -21,9 +21,11 @@ async def lifespan(app):
     from mio_taskhub.wiring import start_background_jobs
     from mio_taskhub.git_sync import start_git_sync_worker, stop_git_sync_worker
     from mio_taskhub.night_runner import start_night_runner, stop_night_runner
+    from mio_taskhub.cron_engine import start_cron_engine, stop_cron_engine
     app.state.background = start_background_jobs()
     start_git_sync_worker()
     start_night_runner()
+    cron_engine = start_cron_engine()
     yield
     jobs = getattr(app.state, "background", None)
     if jobs:
@@ -31,6 +33,7 @@ async def lifespan(app):
             job.stop()
     stop_git_sync_worker()
     stop_night_runner()
+    stop_cron_engine()
 
 
 app = FastAPI(
@@ -47,6 +50,7 @@ app.add_middleware(RequestIDMiddleware)
 init_db()
 
 app.include_router(tasks.router, prefix="/api/v1", tags=["tasks"])
+app.include_router(task_documents.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(agents.router, prefix="/api/v1", tags=["agents"])
 app.include_router(runs.router, prefix="/api/v1", tags=["runs"])
 app.include_router(plans.router, prefix="/api/v1", tags=["plans"])
@@ -56,6 +60,7 @@ app.include_router(ideas_enhanced.router, prefix="/api/v1", tags=["ideas-enhance
 app.include_router(discussions.router, prefix="/api/v1", tags=["discussions"])
 app.include_router(events.router, prefix="/api/v1", tags=["events"])
 app.include_router(nightrun.router, prefix="/api/v1", tags=["nightrun"])
+app.include_router(scheduled_jobs.router, prefix="/api/v1", tags=["scheduled-jobs"])
 app.include_router(memory.router, tags=["memory-gateway"])
 
 
