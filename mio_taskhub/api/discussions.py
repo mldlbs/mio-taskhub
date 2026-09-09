@@ -3,7 +3,7 @@ from sqlmodel import Session, select
 from mio_taskhub.db import get_session
 from mio_taskhub.models import Discussion, DiscussionMessage, Idea, Task, IdeaHistory
 from mio_taskhub.utils import _now
-from mio_taskhub.events import emit_event, broadcast_for_event
+from mio_taskhub.events import emit_event
 
 router = APIRouter(prefix="/discussions", tags=["discussions"])
 
@@ -50,7 +50,6 @@ def create_discussion(body: dict, db: Session = Depends(get_session)):
                        entity_id=d.id, payload={"idea_id": idea_id, "task_id": task_id})
     db.commit()
     db.refresh(d)
-    broadcast_for_event(event)
     return _disc_full(d, db)
 
 
@@ -91,7 +90,6 @@ def add_message(discussion_id: str, body: dict, db: Session = Depends(get_sessio
                        entity_id=discussion_id, payload={"role": body.get("role", "user")})
     db.commit()
     db.refresh(m)
-    broadcast_for_event(event)
     return _msg_json(m)
 
 
@@ -117,5 +115,4 @@ def close_discussion(discussion_id: str, body: dict, db: Session = Depends(get_s
     event = emit_event(db, type="discussion_closed", entity="discussion",
                        entity_id=discussion_id, payload={"conclusions": d.conclusions})
     db.add(d); db.commit(); db.refresh(d)
-    broadcast_for_event(event)
     return _disc_full(d, db)

@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from mio_taskhub import memory_store as store
-from mio_taskhub.events import emit_event, broadcast_for_event
+from mio_taskhub.events import emit_event
 from mio_taskhub.db import get_session
 
 
@@ -87,7 +87,6 @@ def _broadcast_event(event_type: str, entity_id: str, payload: dict):
                             entity_id=entity_id, payload=payload)
             db.commit()
             db.refresh(ev)
-            broadcast_for_event(ev)
     except Exception:
         pass
 

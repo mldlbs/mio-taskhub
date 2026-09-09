@@ -1,5 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from sqlmodel import Session, select
 
+from mio_taskhub.db import get_session
+from mio_taskhub.models import Task, TaskState
 from mio_taskhub import night_runner as nr
 from mio_taskhub.night_runner import load_config, save_config
 
@@ -11,6 +14,44 @@ def get_config():
     cfg = load_config()
     runner = nr.get_runner()
     return {**cfg, "status": runner.status() if runner else {"running_agents": {}}}
+
+
+@router.get("/full-config")
+def get_full_config():
+    """Returns full config (agents list) + status + window info."""
+    cfg = load_config()
+    runner = nr.get_runner()
+    status = runner.status() if runner else {}
+    return {
+        **cfg,
+        "status": status,
+        "in_window": status.get("in_window", False),
+        "window_display": status.get("window", f'{cfg["window_start"]}-{cfg["window_end"]}'),
+    }
+
+
+@router.get("/cron-tasks")
+def get_cron_tasks(db: Session = Depends(get_session)):
+    """List all tasks that have a cron_expr or future run_at."""
+    tasks = db.exec(
+        select(Task).where(
+            (Task.cron_expr != None) | (Task.run_at != None)
+        ).order_by(Task.priority.desc(), Task.created_at)
+    ).all()
+    return [
+        {
+            "id": t.id,
+            "title": t.title,
+            "cron_expr": t.cron_expr,
+            "run_at": t.run_at.isoformat() if t.run_at else None,
+            "state": t.state.value,
+            "priority": t.priority,
+            "target_agent_type": t.target_agent_type,
+            "workspace": t.workspace,
+            "project": t.project,
+        }
+        for t in tasks
+    ]
 
 
 @router.put("/config")

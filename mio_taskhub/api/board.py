@@ -172,6 +172,8 @@ def board_summary(agent: str = Query(None), db: Session = Depends(get_session)):
 @router.get("/overview")
 def stats_overview(db: Session = Depends(get_session)):
     """返回 M1 统计概览：composite counts、by_state、by_stage、事件分布。"""
+    from mio_taskhub.transitions import _orm_to_status_state, _orm_to_status_stage
+
     tasks = db.exec(select(Task)).all()
 
     # composite counts
@@ -182,15 +184,12 @@ def stats_overview(db: Session = Depends(get_session)):
     for t in tasks:
         cur_s = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
         cur_st = t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
-        # ORM→status enum mapping (same as apply_transition)
-        orm_state_map = {TaskState.BLOCKED_FAILED: State.QUEUED}
-        s = orm_state_map.get(cur_s, State(cur_s.value))
-        st_val = cur_st.value if cur_st != TaskStage.CANCELLED else "brainstorming"
-        st = M1Stage(st_val)
+        s = _orm_to_status_state(cur_s)
+        st = _orm_to_status_stage(cur_st)
         key = f"{s.value},{st.value}"
         composite_counts[key] = composite_counts.get(key, 0) + 1
         by_state[s.value] += 1
-        by_stage[st.value if cur_st != TaskStage.CANCELLED else "cancelled"] += 1
+        by_stage["cancelled" if cur_st == TaskStage.CANCELLED else st.value] += 1
 
     # task_events 统计
     all_events = db.exec(select(TaskEvent)).all()

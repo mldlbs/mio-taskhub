@@ -6,7 +6,7 @@ from mio_taskhub.db import get_session
 from mio_taskhub.models import Task, TaskStage, TaskTemplate, TaskTemplateVersion
 from mio_taskhub.utils import _now
 from mio_taskhub.status import normalize_depends
-from mio_taskhub.events import emit_event, broadcast_for_event
+from mio_taskhub.events import emit_event
 from mio_taskhub.status import task_deps
 from mio_taskhub.api.task_helpers import parse_dt, validate_depends, check_cycle
 
@@ -265,7 +265,6 @@ def create_task_from_template(tpl_id: str, body: dict, db: Session = Depends(get
                        payload={"title": t.title, "stage": t.stage.value, "from_template": tpl_id})
     db.commit()
     db.refresh(t)
-    broadcast_for_event(event)
     return {
         "id": t.id, "title": t.title, "state": t.state.value,
         "priority": t.priority, "created_at": t.created_at.isoformat(),

@@ -10,7 +10,7 @@ from mio_taskhub.models import (Idea, IdeaChange, IdeaStatus, IdeaType, Task, Ta
 from mio_taskhub.utils import _now
 from mio_taskhub.status import normalize_depends, task_deps
 from mio_taskhub.planner import detect_cycle
-from mio_taskhub.events import emit_event, broadcast_for_event
+from mio_taskhub.events import emit_event
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
 
@@ -94,7 +94,6 @@ def create_idea(body: dict, db: Session = Depends(get_session)):
                        payload={"title": i.title})
     db.commit()
     db.refresh(i)
-    broadcast_for_event(event)
     return _idea_json(i)
 
 
@@ -167,13 +166,11 @@ def update_idea(idea_id: str, body: dict, db: Session = Depends(get_session)):
         db.add(i)
         db.commit()          # 先提交 idea 本体与历史（版本一致性）
         db.refresh(i)
-        broadcast_for_event(event)
         if versioning == "full" and track_change:
             track_ev = _upsert_change_tracking_task(i, diff, db,
                                                     reason=body.get("change_reason", ""))
             if track_ev:
                 db.commit()
-                broadcast_for_event(track_ev)
         return _idea_json(i)
     # 无 diff：仅更新 updated_at 并 emit（保持既有行为，不递增版本）
     i.updated_at = _now()
@@ -182,7 +179,6 @@ def update_idea(idea_id: str, body: dict, db: Session = Depends(get_session)):
     db.add(i)
     db.commit()
     db.refresh(i)
-    broadcast_for_event(event)
     return _idea_json(i)
 
 
@@ -424,9 +420,6 @@ def breakdown_idea(idea_id: str, body: dict, db: Session = Depends(get_session))
     except HTTPException:
         db.rollback()
         raise
-    broadcast_for_event(idea_event)
-    for ev in task_events:
-        broadcast_for_event(ev)
     return {
         "idea": _idea_json(db.get(Idea, idea_id)),
         "tasks": [{"id": t.id, "title": t.title, "ref": it.get("ref", ""),
@@ -674,7 +667,6 @@ def evolve_to_adr(idea_id: str, body: dict, db: Session = Depends(get_session)):
     db.add(i)
     db.commit()
     db.refresh(i)
-    broadcast_for_event(event)
     return _idea_json(i)
 
 
@@ -738,7 +730,6 @@ def adr_action(idea_id: str, body: dict, db: Session = Depends(get_session)):
     db.add(i)
     db.commit()
     db.refresh(i)
-    broadcast_for_event(event)
     return _idea_json(i)
 
 

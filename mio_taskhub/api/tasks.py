@@ -11,7 +11,7 @@ from mio_taskhub.models import (
 )
 from mio_taskhub.utils import _now
 from mio_taskhub.status import normalize_depends, task_deps
-from mio_taskhub.events import emit_event, broadcast_for_event
+from mio_taskhub.events import emit_event
 from mio_taskhub.api.task_helpers import parse_dt, parse_enum, check_cycle, validate_depends
 from mio_taskhub.planner import detect_cycle
 
@@ -57,7 +57,6 @@ def create_task(body: dict, db: Session = Depends(get_session)):
                        payload={"title": t.title, "stage": t.stage.value})
     db.commit()
     db.refresh(t)
-    broadcast_for_event(event)
     return {
         "id": t.id, "title": t.title, "state": t.state.value,
         "priority": t.priority, "created_at": t.created_at.isoformat(),
@@ -321,7 +320,6 @@ def update_task(task_id: str, body: dict, db: Session = Depends(get_session)):
     event = emit_event(db, type="task_updated", entity="task", entity_id=t.id)
     db.commit()
     db.refresh(t)
-    broadcast_for_event(event)
     return _task_detail(t, db)
 
 @router.post("/{task_id}/subtasks")
@@ -334,7 +332,6 @@ def add_subtask(task_id: str, body: dict, db: Session = Depends(get_session)):
     event = emit_event(db, type="task_subtask_added", entity="task", entity_id=task_id,
                        payload={"subtask_id": st.id, "title": st.title})
     db.add(st); db.commit(); db.refresh(st)
-    broadcast_for_event(event)
     return {"id": st.id, "task_id": st.task_id, "order": st.order,
             "title": st.title, "status": st.status.value}
 
@@ -349,7 +346,6 @@ def update_subtask(task_id: str, sid: str, body: dict, db: Session = Depends(get
     event = emit_event(db, type="task_subtask_updated", entity="task", entity_id=task_id,
                        payload={"subtask_id": st.id, "status": st.status.value})
     db.add(st); db.commit(); db.refresh(st)
-    broadcast_for_event(event)
     return {"id": st.id, "task_id": st.task_id, "order": st.order,
             "title": st.title, "status": st.status.value}
 
@@ -363,7 +359,6 @@ def add_gitref(task_id: str, body: dict, db: Session = Depends(get_session)):
     event = emit_event(db, type="task_gitref_added", entity="task", entity_id=task_id,
                        payload={"gitref_id": g.id, "ref_type": g.ref_type.value})
     db.add(g); db.commit(); db.refresh(g)
-    broadcast_for_event(event)
     return {"id": g.id, "task_id": g.task_id, "ref_type": g.ref_type.value,
             "value": g.value, "note": g.note}
 
@@ -378,7 +373,6 @@ def add_history(task_id: str, body: dict, db: Session = Depends(get_session)):
     event = emit_event(db, type="task_history_added", entity="task", entity_id=task_id,
                        payload={"type": h.type})
     db.add(h); db.commit(); db.refresh(h)
-    broadcast_for_event(event)
     return {"id": h.id, "task_id": h.task_id, "type": h.type,
             "payload": h.payload, "at": h.at.isoformat()}
 
@@ -400,7 +394,6 @@ def add_discussion(task_id: str, body: dict, db: Session = Depends(get_session))
     event = emit_event(db, type="discussion_created", entity="discussion", entity_id=d.id,
                        payload={"task_id": task_id})
     db.commit()
-    broadcast_for_event(event)
     return {"id": d.id, "task_id": d.task_id, "topic": d.topic, "agent": d.agent,
             "status": d.status, "summary": d.summary, "conclusions": d.conclusions,
             "stage": d.stage, "started_at": d.started_at.isoformat(),
@@ -448,7 +441,6 @@ def cancel_task(task_id: str, db: Session = Depends(get_session)):
     event = emit_event(db, type="task_cancelled", entity="task", entity_id=task_id)
     db.add(t)
     db.commit()
-    broadcast_for_event(event)
     return {"ok": True, "state": "cancelled"}
 
 
@@ -492,8 +484,6 @@ def retry_task(task_id: str, body: dict = None, db: Session = Depends(get_sessio
     requeued = emit_event(db, type="task_retry_requeued", entity="task", entity_id=t.id,
                           payload={"reason": "manual_retry", "attempt": t.attempt, "from": orig_state})
     db.commit()
-    broadcast_for_event(event)
-    broadcast_for_event(requeued)
     return {"id": t.id, "state": t.state.value, "stage": t.stage.value,
             "attempt": t.attempt, "max_retries": t.max_retries, "retry_at": None}
 
@@ -591,7 +581,6 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
         db.add(ev)
     db.commit()
     db.refresh(t)
-    broadcast_for_event(event)
     return {"id": t.id, "stage": t.stage.value, "spec_path": t.spec_path,
             "plan_path": t.plan_path, "review_result": t.review_result,
             "state": t.state.value}
@@ -665,7 +654,6 @@ def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
         db.add(ev)
     db.commit()
     db.refresh(t)
-    broadcast_for_event(event)
     return {"id": t.id, "stage": t.stage.value, "spec_path": t.spec_path,
             "plan_path": t.plan_path, "review_result": t.review_result,
             "state": t.state.value}
@@ -707,7 +695,6 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
     db.add(task)
     db.commit()
     db.refresh(run)
-    broadcast_for_event(event)
     return {"id": run.id, "task_id": run.task_id, "state": run.state.value,
             "agent_name": run.agent_name, "attempt": run.attempt}
 

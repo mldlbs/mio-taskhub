@@ -38,14 +38,14 @@ def test_broadcast_task_event_publishes():
 
 
 def test_create_task_calls_broadcast(monkeypatch):
-    import mio_taskhub.api.tasks as tasks_mod
+    import mio_taskhub.events as events_mod
 
     calls = []
 
     def _spy(event):
         calls.append(event.entity_id)
 
-    monkeypatch.setattr(tasks_mod, "broadcast_for_event", _spy)
+    monkeypatch.setattr(events_mod, "broadcast_for_event", _spy)
     client = TestClient(app)
     r = client.post("/api/v1/tasks", json={"title": "WS broadcast"})
     assert r.status_code == 200

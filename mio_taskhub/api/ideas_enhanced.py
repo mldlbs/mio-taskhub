@@ -10,7 +10,7 @@ from mio_taskhub.db import get_session
 from mio_taskhub.models import Idea, IdeaStatus, IdeaType, IdeaHistory, Task, TaskState
 from mio_taskhub.idea_templates import DEFAULT_TEMPLATES, IdeaTemplate, get_template_by_id, get_templates_by_category
 from mio_taskhub.utils import _now
-from mio_taskhub.events import emit_event, broadcast_for_event
+from mio_taskhub.events import emit_event
 from mio_taskhub.api.ideas import _idea_json
 
 

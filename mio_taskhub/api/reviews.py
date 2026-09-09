@@ -5,7 +5,7 @@ from sqlmodel import Session, select
 from mio_taskhub.db import get_session
 from mio_taskhub.models import Task, TaskStage, TaskReview
 from mio_taskhub.utils import _now
-from mio_taskhub.events import emit_event, broadcast_for_event
+from mio_taskhub.events import emit_event
 
 router = APIRouter(prefix="/tasks", tags=["reviews"])
 
@@ -100,7 +100,6 @@ def submit_review(task_id: str, body: dict, db: Session = Depends(get_session)):
                        payload={"decision": decision, "reviewer": review.reviewer,
                                 "summary": summary if decision == "approve" else ""})
     db.commit()
-    broadcast_for_event(event)
     return {
         "id": review.id, "decision": decision,
         "review_duration_sec": duration_sec,

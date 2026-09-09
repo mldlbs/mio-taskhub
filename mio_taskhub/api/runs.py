@@ -4,7 +4,7 @@ from sqlmodel import Session, select
 from mio_taskhub.db import get_session
 from mio_taskhub.models import Run, RunState, Task, TaskState, TaskStage
 from mio_taskhub.utils import _now
-from mio_taskhub.events import emit_event, broadcast_for_event
+from mio_taskhub.events import emit_event
 from mio_taskhub.transitions import apply_transition, _orm_to_status_stage
 from mio_taskhub.status import State, Stage, ActorType, IllegalTransition as M1Illegal
 
@@ -96,7 +96,6 @@ def heartbeat(run_id: str, body: dict = None, db: Session = Depends(get_session)
         db.add(m1_event)
     db.commit()
     db.refresh(run)
-    broadcast_for_event(event)
     return {"id": run.id, "state": run.state.value, "progress": run.progress}
 
 
@@ -132,9 +131,6 @@ def submit_result(run_id: str, body: dict, db: Session = Depends(get_session)):
     db.commit()
     db.refresh(run)
     db.refresh(task)
-    broadcast_for_event(event)
-    if extra is not None:
-        broadcast_for_event(extra)
     if task_state == "retrying":
         return {"id": run.id, "state": run.state.value, "result": run.result,
                 "task_state": task_state, "retry_at": task.retry_at.isoformat(),
