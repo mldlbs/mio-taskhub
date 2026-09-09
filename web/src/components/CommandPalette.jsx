@@ -8,6 +8,7 @@ const VIEWS = [
   { id: 'gantt', label: '甘特', icon: '▬' },
   { id: 'ideas', label: '想法', icon: '💡' },
   { id: 'templates', label: '模板', icon: '📋' },
+  { id: 'scheduled', label: '定时任务', icon: '⏱' },
   { id: 'stats', label: '统计', icon: '📊' },
   { id: 'memory', label: '记忆', icon: '🧠' },
 ]

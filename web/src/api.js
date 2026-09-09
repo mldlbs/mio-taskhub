@@ -72,8 +72,16 @@ export const api = {
   nightPlanSaved: () => req('GET', '/plans/night/saved'),
   listProjects: () => req('GET', '/plans/projects'),
   nrConfig: () => req('GET', '/nightrun/config'),
-  nrSetEnabled: (enabled) => req('PUT', '/nightrun/config', { enabled }),
+  nrLoadFull: () => req('GET', '/nightrun/full-config'),
+  nrSaveConfig: (cfg) => req('PUT', '/nightrun/config', cfg),
   nrStop: () => req('POST', '/nightrun/stop', {}),
+  nrSpawnNow: (agents) => req('POST', '/nightrun/spawn-now', agents),
+  nrStatus: () => req('GET', '/nightrun/full-config'),
+  nrCronTasks: () => req('GET', '/nightrun/cron-tasks'),
+  // Reviews
+  reviewQueue: () => req('GET', '/tasks/reviews/queue'),
+  listReviews: (taskId) => req('GET', `/tasks/${taskId}/reviews`),
+  submitReview: (taskId, body) => req('POST', `/tasks/${taskId}/reviews`, body),
   listIdeas: (params) => req('GET', '/ideas' + (params ? '?' + new URLSearchParams(params).toString() : '')),
   getIdea: (id, params) => req('GET', `/ideas/${id}` + (params ? '?' + new URLSearchParams(params).toString() : '')),
   createIdea: (body) => req('POST', '/ideas', body),
@@ -141,4 +149,15 @@ export const api = {
     }
     return result
   },
+  // Scheduled Jobs
+  listScheduledJobs: () => req('GET', '/scheduled-jobs'),
+  getScheduledJob: (id) => req('GET', `/scheduled-jobs/${id}`),
+  createScheduledJob: (body) => req('POST', '/scheduled-jobs', body),
+  updateScheduledJob: (id, body) => req('PATCH', `/scheduled-jobs/${id}`, body),
+  deleteScheduledJob: (id) => req('DELETE', `/scheduled-jobs/${id}`),
+  triggerScheduledJob: (id) => req('POST', `/scheduled-jobs/${id}/trigger`),
+  pauseScheduledJob: (id) => req('POST', `/scheduled-jobs/${id}/pause`),
+  resumeScheduledJob: (id) => req('POST', `/scheduled-jobs/${id}/resume`),
+  listScheduledJobExecutions: (id) => req('GET', `/scheduled-jobs/${id}/executions`),
+  validateCron: (expr) => req('GET', `/scheduled-jobs/validate-cron?expr=${encodeURIComponent(expr)}`),
 }

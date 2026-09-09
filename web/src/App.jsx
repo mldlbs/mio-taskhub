@@ -14,6 +14,7 @@ import TemplatesView from './components/TemplatesView'
 import WorkflowView from './components/WorkflowView'
 import StatsView from './components/StatsView'
 import MemoryView from './components/MemoryView'
+import ScheduledJobsView from './components/ScheduledJobsView'
 import CreateModal from './components/CreateModal'
 import TaskDetail from './components/TaskDetail'
 import DocPanel from './components/DocPanel'
@@ -254,7 +255,7 @@ export default function App() {
 
   // 键盘快捷键（必须在 openTask 定义之后）
   useEffect(() => {
-    const VIEW_IDS = ['workflow', 'list', 'plan', 'topo', 'gantt', 'ideas', 'templates', 'stats', 'memory']
+      const VIEW_IDS = ['workflow', 'list', 'plan', 'topo', 'gantt', 'ideas', 'templates', 'scheduled', 'stats', 'memory']
     const handler = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault()
@@ -413,6 +414,9 @@ export default function App() {
             )}
             {view === 'templates' && (
               <TemplatesView />
+            )}
+            {view === 'scheduled' && (
+              <ScheduledJobsView onNavigateToTask={(id) => { setView('workflow'); openTask({ id }) }} />
             )}
             {view === 'stats' && (
               <StatsView />

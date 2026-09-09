@@ -11,6 +11,18 @@ marked.use({ renderer: { heading(token) { const level = token.depth ?? token.lev
 const fmtSize = (n) => n == null ? '' : n < 1024 ? `${n} B` : n < 1048576 ? `${(n/1024).toFixed(1)} KB` : `${(n/1048576).toFixed(1)} MB`
 const sourceLabel = (s) => s === 'field' ? '字段关联' : '相关'
 
+const KIND_META = {
+  spec:          { label: 'SPEC', group: 'Spec 设计文档', order: 0 },
+  plan:          { label: 'PLAN', group: 'Plan 实现计划', order: 1 },
+  requirement:   { label: '需求', group: 'Requirement 需求文档', order: 2 },
+  test:          { label: '测试', group: 'Test 测试计划', order: 3 },
+  architecture:  { label: '架构', group: 'Architecture 架构文档', order: 4 },
+  api:           { label: 'API', group: 'API 接口文档', order: 5 },
+  readme:        { label: 'README', group: 'README 说明', order: 6 },
+  changelog:     { label: '变更', group: 'Changelog 变更记录', order: 7 },
+}
+const kindMeta = (k) => KIND_META[k] || { label: k.toUpperCase(), group: k, order: 9 }
+
 const RISK_RE = /(风险|隐患|注意|警告|⚠️?|❗|‼|危险|禁止|必须|关键点|坑|caveat|risk|warning|caution|danger|important)/i
 const RISK_TAGS = ['strong', 'em', 'li', 'p', 'blockquote', 'td']
 
@@ -38,10 +50,23 @@ function markRisks(root) {
   return count
 }
 
+function wordCount(text) {
+  if (!text) return 0
+  const ascii = (text.match(/[a-zA-Z0-9]+/g) || []).length
+  const cjk = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/g) || []).length
+  return ascii + cjk
+}
+
+function readingTime(wc) {
+  const min = Math.ceil(wc / 300)
+  return min < 1 ? '< 1 分钟' : `~${min} 分钟`
+}
+
 export default function DocPanel({ task, onClose }) {
   const [docs, setDocs] = useState(null)
   const [selected, setSelected] = useState(null)
   const [html, setHtml] = useState('')
+  const [rawContent, setRawContent] = useState('')
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState(null)
   const [truncated, setTruncated] = useState(false)
@@ -52,22 +77,25 @@ export default function DocPanel({ task, onClose }) {
   const [findQ, setFindQ] = useState('')
   const [findHits, setFindHits] = useState(0)
   const [progress, setProgress] = useState(0)
+  const [lightbox, setLightbox] = useState(null)
   const viewRef = useRef(null)
 
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    const onKey = (e) => { if (e.key === 'Escape') { if (lightbox) setLightbox(null); else onClose() } }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, lightbox])
 
   const select = useCallback((doc) => {
-    setSelected(doc); setLoading(true); setErr(null); setHtml(''); setToc([]); setFindQ(''); setFindHits(0); setProgress(0)
+    setSelected(doc); setLoading(true); setErr(null); setHtml(''); setRawContent(''); setToc([]); setFindQ(''); setFindHits(0); setProgress(0)
     const p = doc.source === 'field'
       ? api.getTaskDoc(task.id, doc.kind)
       : api.getTaskFile(task.id, doc.rel_path)
     p.then(r => {
+        const content = r.content || ''
         setTruncated(!!r.truncated); setMissing(!!r.missing)
-        setHtml(DOMPurify.sanitize(marked.parse(r.content || ''), { ADD_ATTR: ['target'] }))
+        setRawContent(content)
+        setHtml(DOMPurify.sanitize(marked.parse(content), { ADD_ATTR: ['target'] }))
       })
       .catch(e => { setErr(e.stack || e.message); setTruncated(false); setMissing(false) })
       .finally(() => setLoading(false))
@@ -85,7 +113,11 @@ export default function DocPanel({ task, onClose }) {
     if (!root || !html) return
     root.querySelectorAll('pre code').forEach(b => { try { hljs.highlightElement(b) } catch {} })
     root.querySelectorAll('a[href]').forEach(a => { a.target = '_blank'; a.rel = 'noopener noreferrer' })
-    root.querySelectorAll('img').forEach(img => { img.loading = 'lazy'; img.style.maxWidth = '100%'; img.style.height = 'auto' })
+    root.querySelectorAll('img').forEach(img => {
+      img.loading = 'lazy'; img.style.maxWidth = '100%'; img.style.height = 'auto'
+      img.style.cursor = 'zoom-in'
+      img.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); setLightbox(img.src) })
+    })
     root.querySelectorAll('table').forEach(t => { if (!t.parentElement.classList.contains('md-table-wrap')) { const w = document.createElement('div'); w.className = 'md-table-wrap'; t.before(w); w.appendChild(t) } })
     const rc = markRisks(root)
     setRiskCount(rc)
@@ -93,7 +125,6 @@ export default function DocPanel({ task, onClose }) {
     setToc(hs.map((h, i) => { if (!h.id) h.id = 'mdh-' + i; return { id: h.id, text: h.textContent, level: Number(h.tagName[1]) } }))
   }, [html])
 
-  // 全文搜索高亮 + 计数
   useEffect(() => {
     const root = viewRef.current
     if (!root) return
@@ -130,7 +161,6 @@ export default function DocPanel({ task, onClose }) {
     setFindHits(hits)
   }, [findQ, html])
 
-  // 阅读进度
   useEffect(() => {
     const el = viewRef.current
     if (!el) return
@@ -154,15 +184,35 @@ export default function DocPanel({ task, onClose }) {
     marks[next]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
 
+  const printDoc = () => {
+    const content = viewRef.current?.querySelector('.md')?.innerHTML
+    if (!content) return
+    const w = window.open('', '_blank')
+    w.document.write(`<!DOCTYPE html><html><head><title>${selected?.name || '文档'}</title>
+      <style>body{font-family:system-ui,sans-serif;max-width:800px;margin:40px auto;padding:0 20px;line-height:1.7;color:#222}
+      pre{background:#f5f5f5;padding:12px;border-radius:6px;overflow-x:auto}
+      code{font-size:0.9em}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:6px 10px}
+      img{max-width:100%}blockquote{border-left:3px solid #ccc;margin:0;padding-left:16px;color:#555}
+      @media print{body{margin:0}pre{white-space:pre-wrap}}</style></head><body>`)
+    w.document.write(content)
+    w.document.close()
+    w.print()
+  }
+
   const all = docs || []
   const q = query.trim().toLowerCase()
   const filtered = q ? all.filter(d => d.name.toLowerCase().includes(q) || d.rel_path.toLowerCase().includes(q)) : all
-  const withSelectedFirst = (arr) => {
-    const s = selected
-    return [...arr].sort((a, b) => (a === s ? -1 : 0) - (b === s ? -1 : 0))
+
+  // 按 kind 分组
+  const groups = {}
+  for (const d of filtered) {
+    const meta = kindMeta(d.kind)
+    if (!groups[d.kind]) groups[d.kind] = { meta, items: [] }
+    groups[d.kind].items.push(d)
   }
-  const specList = withSelectedFirst(filtered.filter(d => d.kind === 'spec'))
-  const planList = withSelectedFirst(filtered.filter(d => d.kind === 'plan'))
+  const sortedGroups = Object.values(groups).sort((a, b) => a.meta.order - b.meta.order)
+
+  const wc = wordCount(rawContent)
 
   return (
     <div className="overlay docpanel-overlay" onClick={onClose}>
@@ -173,7 +223,10 @@ export default function DocPanel({ task, onClose }) {
             <h2>{task.title}</h2>
             <span className="docpanel__sub">{task.workspace ? `${task.workspace}` : '无工作区'}</span>
           </div>
-          <button className="modal__close" onClick={onClose} aria-label="关闭">×</button>
+          <div className="docpanel__head-actions">
+            {selected && <button className="btn btn--ghost btn--xs" onClick={printDoc} title="打印 / 导出 PDF">🖨 打印</button>}
+            <button className="modal__close" onClick={onClose} aria-label="关闭">×</button>
+          </div>
         </header>
         <div className="docpanel__toolbar">
           <input className="docpanel__search-input" placeholder="搜索文档名 / 路径" value={query} onChange={e => setQuery(e.target.value)} />
@@ -186,32 +239,22 @@ export default function DocPanel({ task, onClose }) {
           <nav className="docpanel__list">
             {docs === null && <p className="detail-muted">加载中…</p>}
             {docs && docs.length === 0 && <p className="detail-muted">该任务无关联文档</p>}
-            {specList.length > 0 && (
-              <div className="docpanel__group">
-                <div className="docpanel__group-title">Spec 设计文档</div>
-                {specList.map(d => (
-                  <button key={d.rel_path} className={`docpanel__item${selected === d ? ' is-active' : ''}`} onClick={() => select(d)}>
-                    <span className={`docpanel__kind docpanel__kind--${d.kind}`}>{d.kind === 'spec' ? 'SPEC' : 'PLAN'}</span>
-                    <span className="docpanel__name">{d.name}</span>
-                    <span className="docpanel__src">{sourceLabel(d.source)}</span>
-                    <span className="docpanel__sub mono">{d.rel_path}{d.size != null ? ` · ${fmtSize(d.size)}` : ''}</span>
-                  </button>
-                ))}
+            {sortedGroups.map(g => (
+              <div key={g.meta.group} className="docpanel__group">
+                <div className="docpanel__group-title">{g.meta.group}</div>
+                {g.items.map(d => {
+                  const km = kindMeta(d.kind)
+                  return (
+                    <button key={d.rel_path} className={`docpanel__item${selected?.rel_path === d.rel_path ? ' is-active' : ''}`} onClick={() => select(d)}>
+                      <span className={`docpanel__kind docpanel__kind--${d.kind}`}>{km.label}</span>
+                      <span className="docpanel__name">{d.name}</span>
+                      <span className="docpanel__src">{sourceLabel(d.source)}</span>
+                      <span className="docpanel__sub mono">{d.rel_path}{d.size != null ? ` · ${fmtSize(d.size)}` : ''}</span>
+                    </button>
+                  )
+                })}
               </div>
-            )}
-            {planList.length > 0 && (
-              <div className="docpanel__group">
-                <div className="docpanel__group-title">Plan 实现计划</div>
-                {planList.map(d => (
-                  <button key={d.rel_path} className={`docpanel__item${selected === d ? ' is-active' : ''}`} onClick={() => select(d)}>
-                    <span className={`docpanel__kind docpanel__kind--${d.kind}`}>{d.kind === 'spec' ? 'SPEC' : 'PLAN'}</span>
-                    <span className="docpanel__name">{d.name}</span>
-                    <span className="docpanel__src">{sourceLabel(d.source)}</span>
-                    <span className="docpanel__sub mono">{d.rel_path}{d.size != null ? ` · ${fmtSize(d.size)}` : ''}</span>
-                  </button>
-                ))}
-              </div>
-            )}
+            ))}
             {docs && docs.length > 0 && filtered.length === 0 && <p className="detail-muted">无匹配「{query}」</p>}
           </nav>
           <aside className="docpanel__toc">
@@ -222,6 +265,12 @@ export default function DocPanel({ task, onClose }) {
             ))}
           </aside>
           <article className={`docpanel__view${progress > 0 ? ' has-progress' : ''}`} ref={viewRef}>
+            {selected && rawContent && (
+              <div className="docpanel__meta-bar">
+                <span>{wc} 字 · {readingTime(wc)}</span>
+                {truncated && <span className="docpanel__meta-warn">内容已截断</span>}
+              </div>
+            )}
             {loading && <div className="docpanel__loading"><span className="spinner" /> 渲染中…</div>}
             {err && <div className="docpanel__notice docpanel__notice--err">{err}</div>}
             {!loading && !err && missing && <div className="docpanel__notice docpanel__notice--warn">文档缺失：{selected && selected.rel_path}</div>}
@@ -234,6 +283,12 @@ export default function DocPanel({ task, onClose }) {
           </article>
         </div>
       </div>
+      {lightbox && (
+        <div className="lightbox-overlay" onClick={() => setLightbox(null)}>
+          <img src={lightbox} alt="preview" className="lightbox-img" />
+          <button className="lightbox-close" onClick={() => setLightbox(null)}>×</button>
+        </div>
+      )}
     </div>
   )
 }

@@ -87,9 +87,12 @@ export default function TaskCard({ task, index, onCancel, onDragStart, onOpen, o
       {(task.labels?.length > 0 || task.due_at || task.project) && (
         <div className="task__badges">
           {task.project && <span className="chip chip--label">{task.project}</span>}
-          {(task.labels || []).slice(0, 3).map(l => (
+          {(task.labels || []).filter(l => !l.startsWith('cron:')).slice(0, 3).map(l => (
             <span key={l} className="chip chip--label">{l}</span>
           ))}
+          {(task.labels || []).some(l => l.startsWith('cron:')) && (
+            <span className="chip chip--cron" title="由定时任务创建">⏱ 定时</span>
+          )}
           {task.due_at && <span className="chip chip--due">⏰ {fmtDate(task.due_at)}</span>}
         </div>
       )}

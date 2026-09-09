@@ -4,7 +4,7 @@ from sqlmodel import Session, select
 
 from mio_taskhub.db import engine, init_db
 from mio_taskhub.models import Task, TaskState, TaskStage, TaskEvent
-from mio_taskhub.status import State, Stage, ActorType, IllegalTransition
+from mio_taskhub.state_machine import State, Stage, ActorType, IllegalTransition
 from mio_taskhub.transitions import (
     apply_transition,
     record_post_claim,

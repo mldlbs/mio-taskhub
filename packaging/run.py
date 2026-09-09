@@ -6,6 +6,12 @@
 import os
 import sys
 
+# PyInstaller 打包后 run_hub.py / run_widget.py 在 sys._MEIPASS 根目录
+if getattr(sys, "frozen", False):
+    _meipass = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    if _meipass not in sys.path:
+        sys.path.insert(0, _meipass)
+
 
 def _stdio():
     """windowed(console=False) 下 stdout/stderr 可能为 None，重绑到文件日志。"""

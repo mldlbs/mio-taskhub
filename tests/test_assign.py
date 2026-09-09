@@ -6,7 +6,7 @@ from mio_taskhub.main import app
 from mio_taskhub.db import engine
 from mio_taskhub.models import Task, Run, RunState, TaskState, TaskStage
 from mio_taskhub.api.claim import claim_for as _claim_for
-import mio_taskhub.wiring as wiring
+import mio_taskhub.background as background
 
 client = TestClient(app)
 
@@ -108,7 +108,7 @@ def test_claim_with_agent_type_skips_future_run_at():
 def test_assign_to_idle_agent():
     _register("idle1", "coder")
     _mk("at", stage="ready", agent_type="coder")
-    wiring._assign_to_idle_agents()
+    background._assign_to_idle_agents()
     with Session(engine) as s:
         task = s.exec(select(Task).where(Task.title == "at")).first()
         assert task.state == TaskState.CLAIMED
@@ -125,7 +125,7 @@ def test_busy_agent_not_assigned():
         _claim_for("busy1", s)
         s.commit()
     _mk("b2", stage="ready", agent_type="coder")
-    wiring._assign_to_idle_agents()
+    background._assign_to_idle_agents()
     with Session(engine) as s:
         t2 = s.exec(select(Task).where(Task.title == "b2")).first()
         assert t2.state == TaskState.QUEUED  # busy agent 不再被分配
@@ -134,7 +134,7 @@ def test_busy_agent_not_assigned():
 def test_task_first_assigns_later_registered_agent():
     _register("late1", "coder")
     _mk("lt", stage="ready", agent_type="coder")
-    wiring._assign_to_idle_agents()
+    background._assign_to_idle_agents()
     with Session(engine) as s:
         task = s.exec(select(Task).where(Task.title == "lt")).first()
         assert task.state == TaskState.CLAIMED
@@ -143,7 +143,7 @@ def test_task_first_assigns_later_registered_agent():
 def test_assign_writes_task_assigned_event():
     _register("ev1", "coder")
     _mk("et", stage="ready", agent_type="coder")
-    wiring._assign_to_idle_agents()
+    background._assign_to_idle_agents()
     ev = client.get("/api/v1/events", params={"after_seq": 0}).json()
     assigned = [e for e in ev["events"] if e["type"] == "task_assigned"]
     assert assigned, "expected task_assigned event"
@@ -154,7 +154,7 @@ def test_one_task_per_agent_per_tick():
     _register("one1", "coder")
     _mk("o1", stage="ready", agent_type="coder")
     _mk("o2", stage="ready", agent_type="coder")
-    wiring._assign_to_idle_agents()
+    background._assign_to_idle_agents()
     with Session(engine) as s:
         t1 = s.exec(select(Task).where(Task.title == "o1")).first()
         t2 = s.exec(select(Task).where(Task.title == "o2")).first()
@@ -166,7 +166,7 @@ def test_assign_respects_priority_order():
     _register("prio1", "coder")
     _mk("low", stage="ready", agent_type="coder", priority=1)
     _mk("high", stage="ready", agent_type="coder", priority=3)
-    wiring._assign_to_idle_agents()
+    background._assign_to_idle_agents()
     with Session(engine) as s:
         high = s.exec(select(Task).where(Task.title == "high")).first()
         low = s.exec(select(Task).where(Task.title == "low")).first()
@@ -179,7 +179,7 @@ def test_any_type_task_not_starved_by_typed_task():
     _register("starve1", "coder")
     _mk("typed", stage="ready", agent_type="Y", priority=3)
     _mk("generic", stage="ready", priority=2)
-    wiring._assign_to_idle_agents()
+    background._assign_to_idle_agents()
     with Session(engine) as s:
         g = s.exec(select(Task).where(Task.title == "generic")).first()
         assert g.state == TaskState.CLAIMED

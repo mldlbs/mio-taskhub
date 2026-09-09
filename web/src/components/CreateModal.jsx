@@ -6,6 +6,9 @@ const EMPTY = {
   title: '', description: '', priority: 0, est_duration_min: 30, target_agent_type: '',
   acceptance_criteria: '', due_at: '', labels: '', project: '', workspace: '',
   files: '', deliverables: '',
+  schedule_type: 'once',
+  cron_expr: '',
+  webhook_url: '', webhook_method: 'POST', webhook_body: '',
 }
 
 export default function CreateModal({ onClose, onCreate }) {
@@ -15,6 +18,8 @@ export default function CreateModal({ onClose, onCreate }) {
   const [showTpl, setShowTpl] = useState(false)
   const [tplLoading, setTplLoading] = useState(false)
   const [tplFilter, setTplFilter] = useState('')
+  const [cronPreview, setCronPreview] = useState([])
+  const [cronError, setCronError] = useState('')
 
   useEffect(() => {
     if (showTpl) {
@@ -22,6 +27,20 @@ export default function CreateModal({ onClose, onCreate }) {
       api.listTemplates().then(d => { setTemplates(d); setTplLoading(false) }).catch(() => setTplLoading(false))
     }
   }, [showTpl])
+
+  useEffect(() => {
+    if (form.schedule_type !== 'cron' || !form.cron_expr.trim()) {
+      setCronPreview([])
+      setCronError('')
+      return
+    }
+    const timer = setTimeout(() => {
+      api.validateCron(form.cron_expr.trim())
+        .then(d => { setCronPreview(d.next_runs || []); setCronError('') })
+        .catch(e => { setCronPreview([]); setCronError(e.userMessage || e.message) })
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [form.cron_expr, form.schedule_type])
 
   const applyTemplate = (tpl) => {
     setForm({
@@ -50,20 +69,46 @@ export default function CreateModal({ onClose, onCreate }) {
     if (!form.title.trim()) return
     setBusy(true)
     try {
-      await onCreate({
-        title: form.title.trim(),
-        description: form.description.trim(),
-        priority: form.priority,
-        est_duration_min: Math.max(5, form.est_duration_min || 30),
-        target_agent_type: form.target_agent_type.trim() || undefined,
-        acceptance_criteria: form.acceptance_criteria.trim(),
-        due_at: form.due_at || null,
-        labels: form.labels ? form.labels.split(',').map(s => s.trim()).filter(Boolean) : [],
-        project: form.project.trim(),
-        workspace: form.workspace.trim(),
-        files: form.files ? form.files.split(',').map(s => s.trim()).filter(Boolean) : [],
-        deliverables: form.deliverables ? form.deliverables.split(',').map(s => s.trim()).filter(Boolean) : [],
-      })
+      if (form.schedule_type === 'cron' && form.cron_expr.trim()) {
+        const isWebhook = form.webhook_url.trim()
+        await api.createScheduledJob({
+          name: form.title.trim(),
+          cron_expr: form.cron_expr.trim(),
+          action_type: isWebhook ? 'webhook' : 'create_task',
+          action_config: isWebhook
+            ? {
+                url: form.webhook_url.trim(),
+                method: form.webhook_method,
+                body: form.webhook_body.trim() ? JSON.parse(form.webhook_body.trim()) : undefined,
+              }
+            : {
+                title: form.title.trim(),
+                description: form.description.trim(),
+                priority: form.priority,
+                target_agent_type: form.target_agent_type.trim() || undefined,
+                labels: form.labels ? form.labels.split(',').map(s => s.trim()).filter(Boolean) : [],
+                project: form.project.trim(),
+                workspace: form.workspace.trim(),
+                stage: 'ready',
+              },
+        })
+        onClose()
+      } else {
+        await onCreate({
+          title: form.title.trim(),
+          description: form.description.trim(),
+          priority: form.priority,
+          est_duration_min: Math.max(5, form.est_duration_min || 30),
+          target_agent_type: form.target_agent_type.trim() || undefined,
+          acceptance_criteria: form.acceptance_criteria.trim(),
+          due_at: form.due_at || null,
+          labels: form.labels ? form.labels.split(',').map(s => s.trim()).filter(Boolean) : [],
+          project: form.project.trim(),
+          workspace: form.workspace.trim(),
+          files: form.files ? form.files.split(',').map(s => s.trim()).filter(Boolean) : [],
+          deliverables: form.deliverables ? form.deliverables.split(',').map(s => s.trim()).filter(Boolean) : [],
+        })
+      }
     } finally {
       setBusy(false)
     }
@@ -133,6 +178,76 @@ export default function CreateModal({ onClose, onCreate }) {
               rows={3}
             />
           </div>
+
+          <div className="field">
+            <label className="field__label">定时任务</label>
+            <div className="sched-row">
+              <button type="button" className={`sched-btn ${form.schedule_type === 'once' ? 'is-on' : ''}`}
+                onClick={() => setForm({ ...form, schedule_type: 'once' })}>单次</button>
+              <button type="button" className={`sched-btn ${form.schedule_type === 'cron' ? 'is-on' : ''}`}
+                onClick={() => setForm({ ...form, schedule_type: 'cron' })}>定时循环</button>
+            </div>
+          </div>
+
+          {form.schedule_type === 'cron' && (
+            <div className="sched-section">
+              <div className="field">
+                <label className="field__label">Cron 表达式 <b>*</b></label>
+                <input
+                  value={form.cron_expr}
+                  onChange={e => setForm({ ...form, cron_expr: e.target.value })}
+                  placeholder="分 时 日 月 周，如 0 9 * * 1-5（工作日 9 点）"
+                  className={cronError ? 'field--error' : ''}
+                />
+                {cronError && <span className="field__err">{cronError}</span>}
+                {cronPreview.length > 0 && (
+                  <div className="cron-preview">
+                    <span className="cron-preview__label">下次执行：</span>
+                    {cronPreview.map((t, i) => (
+                      <span key={i} className="cron-preview__time">
+                        {new Date(t).toLocaleString('zh-CN', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' })}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="field">
+                <label className="field__label">动作类型</label>
+                <div className="sched-row">
+                  <button type="button" className={`sched-btn ${!form.webhook_url ? 'is-on' : ''}`}
+                    onClick={() => setForm({ ...form, webhook_url: '' })}>创建任务</button>
+                  <button type="button" className={`sched-btn ${form.webhook_url ? 'is-on' : ''}`}
+                    onClick={() => setForm({ ...form, webhook_url: form.webhook_url || 'https://' })}>Webhook</button>
+                </div>
+              </div>
+              {form.webhook_url ? (
+                <>
+                  <div className="field">
+                    <label className="field__label">Webhook URL</label>
+                    <input value={form.webhook_url} onChange={e => setForm({ ...form, webhook_url: e.target.value })}
+                      placeholder="https://example.com/hook" />
+                  </div>
+                  <div className="field field--row">
+                    <div>
+                      <label className="field__label">Method</label>
+                      <select value={form.webhook_method} onChange={e => setForm({ ...form, webhook_method: e.target.value })}>
+                        <option value="POST">POST</option>
+                        <option value="PUT">PUT</option>
+                        <option value="GET">GET</option>
+                      </select>
+                    </div>
+                    <div style={{flex:1}}>
+                      <label className="field__label">Body (JSON)</label>
+                      <input value={form.webhook_body} onChange={e => setForm({ ...form, webhook_body: e.target.value })}
+                        placeholder='{"event":"trigger"}' />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <p className="sched-hint">定时自动创建一个「就绪」状态的任务，等待 agent 领取。</p>
+              )}
+            </div>
+          )}
 
           <div className="field field--row">
             <div>

@@ -54,7 +54,7 @@ def test_heartbeat_requires_name():
     assert r.status_code in (400, 422)
 
 
-import mio_taskhub.wiring as wiring
+import mio_taskhub.background as background
 
 
 def _mk_agent(name, status=AgentStatus.ONLINE, hb_age_sec=None):
@@ -74,27 +74,27 @@ def _agent_status(name):
 
 def test_stale_agent_marked_offline():
     _mk_agent("stale1", hb_age_sec=600)  # 10 分钟未心跳
-    wiring._mark_stale_agents()
+    background._mark_stale_agents()
     assert _agent_status("stale1") == AgentStatus.OFFLINE
 
 
 def test_fresh_agent_stays_online():
     _mk_agent("fresh1", hb_age_sec=10)
-    wiring._mark_stale_agents()
+    background._mark_stale_agents()
     assert _agent_status("fresh1") == AgentStatus.ONLINE
 
 
 def test_offline_agent_not_touched():
     _mk_agent("off1", status=AgentStatus.OFFLINE, hb_age_sec=9999)
-    wiring._mark_stale_agents()
+    background._mark_stale_agents()
     assert _agent_status("off1") == AgentStatus.OFFLINE
 
 
 def test_stale_agent_no_longer_assigned():
     _mk_agent("stale2", hb_age_sec=600)
     client.post("/api/v1/tasks", json={"title": "stale-task", "stage": "ready"})
-    wiring._mark_stale_agents()
-    wiring._assign_to_idle_agents()
+    background._mark_stale_agents()
+    background._assign_to_idle_agents()
     with Session(engine) as s:
         from mio_taskhub.models import Task, Run, TaskState
         t = s.exec(select(Task).where(Task.title == "stale-task")).first()
@@ -116,7 +116,7 @@ def test_agent_offline_recycles_run():
         run = s.get(Run, rid)
         run.last_heartbeat = datetime.now(timezone.utc) - timedelta(seconds=200)
         s.add(run); s.commit()
-    wiring._on_timeout(rid, tid)
+    background._on_timeout(rid, tid)
     with Session(engine) as s:
         run = s.get(Run, rid)
         assert run.state == RunState.FINISHED
@@ -127,7 +127,7 @@ def test_agent_offline_recycles_run():
 def test_scheduler_tick_runs_all_three():
     _mk_agent("tick-agent", hb_age_sec=600)  # stale
     client.post("/api/v1/tasks", json={"title": "tick-task", "stage": "ready"})
-    wiring._scheduler_tick()
+    background._scheduler_tick()
     assert _agent_status("tick-agent") == AgentStatus.OFFLINE
 
 
@@ -146,8 +146,8 @@ def test_sweep_recycles_offline_agent_run_despite_large_timeout():
         run.last_heartbeat = datetime.now(timezone.utc) - timedelta(seconds=200)  # 未到 run 超时
         s.add(run); s.commit()
     # 直接跑 sweep（走真实触发路径）
-    sweep = wiring.HeartbeatSweep(get_runs=wiring._get_runs,
-                                  on_timeout=wiring._on_timeout, on_alive=lambda r: None)
+    sweep = background.HeartbeatSweep(get_runs=background._get_runs,
+                                  on_timeout=background._on_timeout, on_alive=lambda r: None)
     sweep._sweep()
     with Session(engine) as s:
         run = s.get(Run, rid)

@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from mio_taskhub.main import app
 from mio_taskhub.db import engine
 from mio_taskhub.models import Task, TaskStage, TaskState
-import mio_taskhub.wiring as wiring
+import mio_taskhub.background as background
 
 client = TestClient(app)
 
@@ -19,7 +19,7 @@ def _mk(title, stage="ready", deps=None, **kw):
 
 
 def _release():
-    wiring._release_dependencies()
+    background._release_dependencies()
 
 
 def _stage(tid):

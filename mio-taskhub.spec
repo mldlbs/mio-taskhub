@@ -23,7 +23,9 @@ all_hiddenimports = (
     hiddenimports
     + ["httpx", "mcp", "mcp.server.fastmcp", "pydantic",
        "pystray", "PIL", "PIL.Image",
-       "PIL._imaging", "PIL._imagingft"]
+       "PIL._imaging", "PIL._imagingft",
+       "croniter", "dateutil", "dateutil.tz",
+       "run_hub", "run_widget"]
     + collect_submodules("mcp")
     + collect_submodules("pystray")
     + collect_submodules("PIL")
@@ -41,11 +43,13 @@ widget_excludes = [x for x in excludes if x != "PIL"]
 
 a_hub = Analysis(
     ["packaging/run.py"],
-    pathex=[SPECPATH],
+    pathex=[SPECPATH, os.path.join(SPECPATH, "packaging")],
     binaries=[],
     datas=[
         (os.path.join(SPECPATH, "web", "dist"), "web/dist"),
         (os.path.join(SPECPATH, "web", "public", "icon.ico"), "web/public"),
+        (os.path.join(SPECPATH, "packaging", "run_hub.py"), "."),
+        (os.path.join(SPECPATH, "packaging", "run_widget.py"), "."),
     ],
     hiddenimports=all_hiddenimports,
     hookspath=[],

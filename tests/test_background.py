@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from mio_taskhub.main import app
 from mio_taskhub.db import engine
 from mio_taskhub.models import Task, Run, TaskState, RunState
-import mio_taskhub.wiring as wiring
+import mio_taskhub.background as background
 
 client = TestClient(app)
 
@@ -27,7 +27,7 @@ def test_timeout_resets_task_to_queued():
         run = s.get(Run, rid)
         run.last_heartbeat = datetime.now(timezone.utc) - timedelta(minutes=10)
         s.add(run); s.commit()
-    wiring._on_timeout(rid, t.id)
+    background._on_timeout(rid, t.id)
     with Session(engine) as s:
         assert s.get(Run, rid).state == RunState.FINISHED
         assert s.get(Task, t.id).state == TaskState.QUEUED
@@ -40,7 +40,7 @@ def test_timeout_respects_max_retries():
         run.attempt = 1  # already tried once
         run.last_heartbeat = datetime.now(timezone.utc) - timedelta(minutes=10)
         s.add(run); s.commit()
-    wiring._on_timeout(rid, t.id)
+    background._on_timeout(rid, t.id)
     with Session(engine) as s:
         assert s.get(Task, t.id).state == TaskState.FAILED
 
@@ -48,7 +48,7 @@ def test_sweep_skips_fresh_run():
     t = _mk_task()
     rid = _claim(t.id)
     timed_out = []
-    sweep = wiring.HeartbeatSweep(get_runs=wiring._get_runs,
+    sweep = background.HeartbeatSweep(get_runs=background._get_runs,
                                   on_timeout=lambda r, tid: timed_out.append(r),
                                   on_alive=lambda r: None)
     sweep._sweep()  # run.last_heartbeat is now, should not timeout
@@ -58,14 +58,14 @@ def test_scheduler_enqueues_due_task():
     with Session(engine) as s:
         t = Task(title="due", run_at=datetime.now(timezone.utc) - timedelta(minutes=1))
         s.add(t); s.commit(); s.refresh(t)
-    due = wiring._get_due_tasks()
+    due = background._get_due_tasks()
     assert any(d["id"] == t.id for d in due)
 
 def test_scheduler_skips_future_task():
     with Session(engine) as s:
         t = Task(title="future", run_at=datetime.now(timezone.utc) + timedelta(hours=1))
         s.add(t); s.commit(); s.refresh(t)
-    due = wiring._get_due_tasks()
+    due = background._get_due_tasks()
     assert not any(d["id"] == t.id for d in due)
 
 def test_per_task_timeout_honored():
@@ -81,7 +81,7 @@ def test_per_task_timeout_honored():
         run = s.get(Run, rid)
         run.last_heartbeat = datetime.now(timezone.utc) - timedelta(seconds=90)
         s.add(run); s.commit()
-    infos = wiring._get_runs()
+    infos = background._get_runs()
     info = next(i for i in infos if i.run_id == rid)
     assert info.timeout_seconds == 60
 
@@ -98,7 +98,7 @@ def test_timeout_reset_makes_task_claimable_again():
         run = s.get(Run, rid)
         run.last_heartbeat = datetime.now(timezone.utc) - timedelta(minutes=10)
         s.add(run); s.commit()
-    wiring._on_timeout(rid, tid)
+    background._on_timeout(rid, tid)
     with Session(engine) as s:
         t2 = s.get(Task, tid)
         assert t2.state == TaskState.QUEUED
@@ -115,7 +115,7 @@ def test_timeout_does_not_clobber_finished_run():
         run.state = RunState.FINISHED
         run.result = "agent completed"
         s.add(run); s.commit()
-    wiring._on_timeout(rid, t.id)  # should be a no-op now
+    background._on_timeout(rid, t.id)  # should be a no-op now
     with Session(engine) as s:
         run = s.get(Run, rid)
         assert run.state == RunState.FINISHED

@@ -41,7 +41,7 @@ setup_logging()
 
 @asynccontextmanager
 async def lifespan(app):
-    from mio_taskhub.wiring import start_background_jobs
+    from .background import start_background_jobs
     from mio_taskhub.git_sync import start_git_sync_worker, stop_git_sync_worker
     from mio_taskhub.night_runner import start_night_runner, stop_night_runner
     from mio_taskhub.cron_engine import start_cron_engine, stop_cron_engine

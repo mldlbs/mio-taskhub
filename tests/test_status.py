@@ -10,17 +10,15 @@
  - 回归：原有 is_terminal / dependency_satisfied / normalize_depends 行为不变
 """
 import pytest
-from mio_taskhub.status import (
-    # 原有（回归）
-    TERMINAL_STATES, is_terminal, dependency_satisfied,
-    normalize_depends, task_deps,
-    # M1 新增
+from mio_taskhub.state_machine import (
+    TERMINAL_STATES, is_terminal,
     State, Stage, ActorType,
     LEGAL_COMBOS, is_legal_combo, is_fully_done, initial_state,
     TRANSITIONS, find_transition,
     validate_transition, IllegalTransition,
-    composite_status, export_mapping_json, COMPOSITE_LABEL,
 )
+from mio_taskhub.dependency import dependency_satisfied, normalize_depends, task_deps
+from mio_taskhub.composite import composite_status, export_mapping_json, COMPOSITE_LABEL
 
 
 # ---------- 回归：原有 API 行为不变 ----------

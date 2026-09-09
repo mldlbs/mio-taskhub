@@ -4,6 +4,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 import traceback
 import webbrowser
 
@@ -15,6 +16,7 @@ DATA_DIR = os.path.join(os.path.expanduser("~"), ".mio_taskhub")
 os.makedirs(DATA_DIR, exist_ok=True)
 LOG = os.path.join(DATA_DIR, "runtime.log")
 CONSOLE_LOG = os.path.join(DATA_DIR, "console.log")
+WINDOW_TITLE = "MIO·HUB — 任务总线"
 
 if sys.stdout is None or sys.stderr is None:
     _f = open(CONSOLE_LOG, "a", encoding="utf-8", buffering=1)
@@ -71,8 +73,45 @@ def _start_tray(url: str, server_ref: dict):
     _tray_lock = threading.Lock()
     _tray_created = False
 
+    _open_pid = [None]  # track the opened Edge window PID
+
+    def _find_edge_window():
+        """查找已打开的 MIO-TASKHUB Edge 窗口，返回 hwnd 或 None"""
+        user32 = ctypes.windll.user32
+        found = []
+        WNDENUMPROC2 = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+        def _cb(hwnd, _):
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length <= 0:
+                return True
+            buf = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buf, length + 1)
+            if "MIO" in buf.value and "HUB" in buf.value:
+                pid = ctypes.wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                found.append((hwnd, pid.value))
+            return True
+        user32.EnumWindows(WNDENUMPROC2(_cb), 0)
+        # 检查进程是否还活着
+        kernel32 = ctypes.windll.kernel32
+        for hwnd, pid in found:
+            proc = kernel32.OpenProcess(0x1000, False, pid)
+            if proc:
+                kernel32.CloseHandle(proc)
+                return hwnd
+        return None
+
     def _open_panel(_icon=None, _item=None):
         _log("tray: _open_panel called")
+        # 如果窗口已打开，尝试前置
+        existing = _find_edge_window()
+        if existing:
+            _log(f"tray: reusing existing window hwnd={existing}")
+            user32 = ctypes.windll.user32
+            user32.SetForegroundWindow(existing)
+            user32.ShowWindow(existing, 9)  # SW_RESTORE
+            return
+
         edge_paths = [
             os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
             os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
@@ -87,12 +126,55 @@ def _start_tray(url: str, server_ref: dict):
         try:
             if edge_exe:
                 sw = ctypes.windll.user32.GetSystemMetrics(0)
-                x = max(0, sw - 1920)
+                sh = ctypes.windll.user32.GetSystemMetrics(1)
+                ww, wh = 1920, 1080
+                x = max(0, (sw - ww) // 2)
+                y = max(0, (sh - wh) // 2)
+                # 用 SW_HIDE 启动 Edge，窗口创建时不可见，调好位置再显示
                 cmd = [edge_exe, f"--app={url}", "--new-window",
-                       f"--window-position={x},0", "--window-size=1920,1080",
+                       f"--window-position={x},{y}", f"--window-size={ww},{wh}",
                        "--no-first-run"]
-                _log(f"tray: launching Edge: {cmd}")
-                subprocess.Popen(cmd)
+                _log(f"tray: launching Edge hidden: {cmd}")
+                si = subprocess.STARTUPINFO()
+                si.dwFlags = subprocess.STARTF_USESHOWWINDOW
+                si.wShowWindow = 0  # SW_HIDE
+                proc = subprocess.Popen(cmd, startupinfo=si)
+                _open_pid[0] = proc.pid
+
+                def _show_later():
+                    user32 = ctypes.windll.user32
+                    hwnd = None
+                    for _ in range(40):
+                        time.sleep(0.15)
+                        hwnd = user32.FindWindowW(None, WINDOW_TITLE)
+                        if hwnd:
+                            break
+                        found = []
+                        def _cb(h, _):
+                            length = user32.GetWindowTextLengthW(h)
+                            if length <= 0:
+                                return True
+                            buf = ctypes.create_unicode_buffer(length + 1)
+                            user32.GetWindowTextW(h, buf, length + 1)
+                            if "MIO" in buf.value and "HUB" in buf.value:
+                                found.append(h)
+                            return True
+                        WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+                        user32.EnumWindows(WNDPROC(_cb), 0)
+                        if found:
+                            hwnd = found[0]
+                            break
+                    if hwnd:
+                        SWP_NOZORDER = 0x0004
+                        SWP_SHOWWINDOW = 0x0040
+                        # 确保位置和大小正确，然后显示
+                        user32.SetWindowPos(hwnd, 0, x, y, ww, wh, SWP_NOZORDER | SWP_SHOWWINDOW)
+                        user32.ShowWindow(hwnd, 5)  # SW_SHOW
+                        _log(f"tray: placed window {ww}x{wh} at ({x},{y})")
+                    else:
+                        _log("tray: could not find Edge window")
+
+                threading.Thread(target=_show_later, daemon=True).start()
             else:
                 _log("tray: Edge not found, falling back to webbrowser")
                 webbrowser.open(url)
@@ -223,7 +305,7 @@ def _reclaim_port(port):
         out = _sp.run(
             ["powershell", "-NoProfile", "-Command",
              f"Get-NetTCPConnection -LocalPort {port} -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, encoding='utf-8', timeout=10,
         )
         pids = [int(x) for x in out.stdout.split() if x.strip().isdigit()]
         for pid in pids:
@@ -232,7 +314,7 @@ def _reclaim_port(port):
             info = _sp.run(
                 ["powershell", "-NoProfile", "-Command",
                  f"(Get-Process -Id {pid} -ErrorAction SilentlyContinue).ProcessName"],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True, text=True, encoding='utf-8', timeout=10,
             )
             name = info.stdout.strip()
             # 只清理 mio-taskhub 相关进程，绝不接管无关程序
