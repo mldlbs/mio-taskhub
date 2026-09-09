@@ -3,7 +3,7 @@ import os
 from sqlmodel import SQLModel, create_engine, Session
 from typing import Generator
 from sqlalchemy import event, text
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import QueuePool
 
 # Allow overriding the DB path (e.g. tests use a throwaway DB so the
 # production data in ~/.mio_taskhub/taskhub.db is never wiped).
@@ -21,7 +21,9 @@ engine = create_engine(
     f"sqlite:///{DB_PATH}",
     echo=False,
     connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
+    poolclass=QueuePool,
+    pool_size=5,
+    max_overflow=10,
 )
 
 @event.listens_for(engine, "connect")

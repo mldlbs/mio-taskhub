@@ -346,11 +346,11 @@ def test_synchronous_normal():
         val = result.scalar()
         assert val == 1, f"Expected NORMAL (1), got {val}"
 
-def test_connection_pool_is_static():
-    """Engine should be configured with a pool."""
-    from sqlalchemy.pool import StaticPool
+def test_connection_pool_is_queue():
+    """Engine should be configured with a QueuePool for concurrent access."""
+    from sqlalchemy.pool import QueuePool
     pool = engine.pool
-    assert isinstance(pool, StaticPool)
+    assert isinstance(pool, QueuePool)
 
 
 def test_transition_idea_status_records_history():
