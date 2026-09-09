@@ -2,7 +2,7 @@ import asyncio
 import json as _json
 from fastapi.testclient import TestClient
 from mio_taskhub.main import app
-from mio_taskhub import notifications
+from mio_taskhub.events import ws_manager
 
 
 def test_ws_connect_and_receive_event():
@@ -23,7 +23,7 @@ def test_broadcast_task_event_publishes():
             sent.append(_json.loads(data))
 
     async def _connect():
-        await notifications.ws_manager.connect(FakeWS())
+        await ws_manager.connect(FakeWS())
 
     asyncio.run(_connect())
     from sqlmodel import Session

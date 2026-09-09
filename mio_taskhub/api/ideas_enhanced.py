@@ -192,12 +192,38 @@ def generate_from_template(request: TemplateGenerateRequest):
     ideas = result.get("ideas", [])
     
     created = 0
+    synced_ids = []
     if request.sync_to_hub:
-        # Sync would require HTTP client - skip for now
-        pass
+        db = next(get_session())
+        try:
+            # Get existing titles for dedup
+            existing = db.exec(select(Idea.title)).all()
+            existing_titles = {t[0].strip().lower() for t in existing}
+            
+            for idea in ideas:
+                title = idea.get("title", "").strip()
+                if not title or title.lower() in existing_titles:
+                    continue
+                strategy = idea.get("provenance", {}).get("strategy", "")
+                new_idea = Idea(
+                    title=title[:200],
+                    description=idea.get("description", ""),
+                    status="new",
+                    labels=["mio-intelligence", "auto-generated"] + ([f"strategy:{strategy}"] if strategy else []),
+                )
+                db.add(new_idea)
+                db.commit()
+                db.refresh(new_idea)
+                existing_titles.add(title.lower())
+                synced_ids.append(new_idea.id)
+                created += 1
+        finally:
+            db.close()
     
     return {
         "generated": len(ideas),
+        "synced": created,
+        "synced_ids": synced_ids,
         "ideas": ideas,
     }
 

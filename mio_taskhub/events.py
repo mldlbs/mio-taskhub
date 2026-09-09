@@ -7,11 +7,37 @@
 from __future__ import annotations
 import asyncio
 import json
-from typing import Optional
+from typing import Optional, Set
+from fastapi import WebSocket
 from sqlmodel import Session
 from sqlalchemy import event
 from mio_taskhub.models import Event
-from mio_taskhub.notifications import ws_manager
+
+
+class WSManager:
+    def __init__(self):
+        self.active: Set[WebSocket] = set()
+
+    async def connect(self, ws: WebSocket):
+        await ws.accept()
+        self.active.add(ws)
+
+    def disconnect(self, ws: WebSocket):
+        self.active.discard(ws)
+
+    async def broadcast(self, message: dict):
+        data = json.dumps(message)
+        dead = set()
+        for ws in list(self.active):
+            try:
+                await ws.send_text(data)
+            except Exception:
+                dead.add(ws)
+        if dead:
+            self.active -= dead
+
+
+ws_manager = WSManager()
 
 # entity → WS 消息 type
 MESSAGE_TYPES = {

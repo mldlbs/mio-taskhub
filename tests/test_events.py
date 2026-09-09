@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 from mio_taskhub.db import engine
 from mio_taskhub.models import Event
 from mio_taskhub.events import emit_event, event_to_dict, broadcast_for_event
-from mio_taskhub.notifications import ws_manager
+from mio_taskhub.events import ws_manager
 
 
 def test_emit_event_returns_object_with_seq():

@@ -24,7 +24,7 @@ from mio_taskhub.status import (
 
 # ---------- ORM ↔ status 枚举映射 ----------
 def _orm_to_status_state(s) -> State:
-    """TaskState → State。BLOCKED_FAILED 视为 QUEUED（迁移约定）。"""
+    """TaskState → State。BLOCKED_FAILED 是遗留值（M1 状态机不产生），映射为 QUEUED。"""
     v = s.value if hasattr(s, "value") else s
     if v == "blocked_failed":
         return State.QUEUED

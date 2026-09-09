@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from sqlmodel import Session, select
 
-from mio_taskhub.models import TaskTemplate, TaskTemplateVersion
+from mio_taskhub.models import TaskTemplate, TaskTemplateVersion, ScheduledJob, ScheduledJobActionType
 
 
 def _utcnow():
@@ -197,4 +197,80 @@ def seed_common_templates(db: Session):
             description="seed common template",
         )
         db.add(ver)
+    db.commit()
+
+
+def seed_idea_generate_job(db: Session):
+    """播种 idea 自动生成定时任务（幂等：已存在则更新 description）。"""
+    from mio_taskhub.cron_engine import compute_next_run, validate_cron
+
+    NEW_DESCRIPTION = (
+        "自动调用 agent-runtime 生成创意想法并同步到 taskhub。\n\n"
+        "## 背景\n"
+        "mio-agent-runtime 提供了 mio.idea.generate MCP 工具，能基于多策略生成创意。\n"
+        "本任务定期调用该工具，将生成的创意同步到 taskhub 的想法库中。\n\n"
+        "## 执行步骤\n\n"
+        "### 1. 调用 idea.generate\n"
+        "使用 bash 执行以下命令（MCP JSON-RPC over stdio）：\n"
+        "```\n"
+        "node D:\\node_global\\node_modules\\mio-agent-runtime\\server\\mio-intelligence-mcp\\index.js\n"
+        "```\n"
+        "发送 JSON：\n"
+        "```json\n"
+        '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mio.idea.generate","arguments":{'
+        '"goal":"如何提升 mio-taskhub 的自动化能力",'
+        '"context":"定期自动生成创意，探索 taskhub 与 agent-runtime 的协同优化方向",'
+        '"constraints":["不引入外部依赖","保持本机单用户","复用现有 MCP 工具","优先利用已有数据"],'
+        '"numIdeas":3'
+        "}}}\n"
+        "```\n\n"
+        "### 2. 解析返回结果\n"
+        "响应中 result.content[0].text 是 JSON 字符串，解析后取 ideas 数组。\n"
+        "每个 idea 包含：title, description, provenance.strategy。\n\n"
+        "### 3. 同步到 taskhub\n"
+        "对每个 idea，调用 taskhub_add_idea：\n"
+        "- title: idea.title（截断到 200 字符）\n"
+        "- description: idea.description\n"
+        "- labels: [\"mio-intelligence\", \"auto-generated\", \"strategy:<provenance.strategy>\"]\n\n"
+        "### 4. 去重\n"
+        "先调用 taskhub_ideas 获取现有想法列表，跳过标题相同的想法。\n\n"
+        "### 5. 提交结果\n"
+        "调用 taskhub_submit_result 汇报：生成了几个想法、各自策略、同步了几个。\n"
+    )
+
+    existing = db.exec(select(ScheduledJob).where(ScheduledJob.name == "idea-generate")).first()
+    if existing:
+        # 更新 description（如果过时）
+        cfg = existing.action_config or {}
+        if cfg.get("description", "") != NEW_DESCRIPTION:
+            cfg["description"] = NEW_DESCRIPTION
+            existing.action_config = cfg
+            existing.updated_at = _utcnow()
+            db.add(existing)
+            db.commit()
+        return
+
+    cron_expr = "0 */4 * * *"  # 每4小时
+    if not validate_cron(cron_expr):
+        return
+
+    job = ScheduledJob(
+        name="idea-generate",
+        cron_expr=cron_expr,
+        next_run_at=compute_next_run(cron_expr),
+        action_type=ScheduledJobActionType.CREATE_TASK,
+        action_config={
+            "title": "[定时] 自动生成创意想法",
+            "description": NEW_DESCRIPTION,
+            "target_agent_type": "cli",
+            "priority": 0,
+            "stage": "ready",
+            "labels": ["auto", "idea-generation"],
+            "max_retries": 2,
+        },
+        enabled=True,
+        max_retries=2,
+        timeout_seconds=120,
+    )
+    db.add(job)
     db.commit()

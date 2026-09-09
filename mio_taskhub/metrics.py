@@ -41,4 +41,24 @@ def render_metrics() -> str:
     except Exception:
         pass
 
+    lines.append("# HELP taskhub_scheduled_jobs_total Scheduled jobs by enabled status")
+    lines.append("# TYPE taskhub_scheduled_jobs_total gauge")
+    try:
+        with Session(engine) as s:
+            rows = s.exec(text("SELECT enabled, COUNT(*) FROM scheduledjob GROUP BY enabled")).all()
+            for enabled, count in rows:
+                lines.append(f'taskhub_scheduled_jobs_total{{enabled="{enabled}"}} {count}')
+    except Exception:
+        pass
+
+    lines.append("# HELP taskhub_scheduled_job_runs_total Total scheduled job executions by status")
+    lines.append("# TYPE taskhub_scheduled_job_runs_total gauge")
+    try:
+        with Session(engine) as s:
+            rows = s.exec(text("SELECT status, COUNT(*) FROM scheduledjobexecution GROUP BY status")).all()
+            for status, count in rows:
+                lines.append(f'taskhub_scheduled_job_runs_total{{status="{status}"}} {count}')
+    except Exception:
+        pass
+
     return "\n".join(lines) + "\n"

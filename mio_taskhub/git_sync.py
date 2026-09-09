@@ -39,6 +39,7 @@ def _run_git(*args: str) -> bool:
             ["git"] + list(args),
             capture_output=True,
             text=True,
+            encoding='utf-8',
             timeout=30,
         )
         if result.returncode != 0:
