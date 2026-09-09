@@ -9,6 +9,7 @@ import asyncio
 import json
 from typing import Optional
 from sqlmodel import Session
+from sqlalchemy import event
 from mio_taskhub.models import Event
 from mio_taskhub.notifications import ws_manager
 
@@ -54,3 +55,32 @@ def broadcast_for_event(event: Event):
         asyncio.run(ws_manager.broadcast({"type": msg_type, "event": event_to_dict(event)}))
     except Exception:
         pass
+
+
+# ── Auto-broadcast on commit ───────────────────────────────────────────
+
+_pending_broadcasts: list = []
+
+
+def _collect_event_for_broadcast(session, flush_context):
+    """SQLAlchemy after_flush hook: collect Event objects for post-commit broadcast."""
+    for obj in session.new:
+        if isinstance(obj, Event):
+            _pending_broadcasts.append(obj)
+
+
+def _broadcast_after_commit(session):
+    """SQLAlchemy after_commit hook: broadcast all collected events."""
+    if not _pending_broadcasts:
+        return
+    events_to_send = list(_pending_broadcasts)
+    _pending_broadcasts.clear()
+    for ev in events_to_send:
+        broadcast_for_event(ev)
+
+
+def install_broadcast_hooks(engine):
+    """Register session hooks for auto-broadcast. Call once at startup."""
+    from sqlalchemy.orm import Session as SASession
+    event.listen(SASession, "after_flush", _collect_event_for_broadcast)
+    event.listen(SASession, "after_commit", _broadcast_after_commit)

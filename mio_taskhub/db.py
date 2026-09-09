@@ -185,3 +185,7 @@ def init_db():
 def get_session() -> Generator[Session, None, None]:
     with Session(engine) as session:
         yield session
+
+# Install auto-broadcast hooks (broadcasts Event objects on successful commit)
+from mio_taskhub.events import install_broadcast_hooks
+install_broadcast_hooks(engine)
