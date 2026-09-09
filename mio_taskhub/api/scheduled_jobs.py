@@ -226,15 +226,3 @@ def list_executions(
         }
         for e in execs
     ]
-
-
-@router.get("/validate-cron")
-def validate_cron_expr(expr: str = Query(...)):
-    """校验 cron 表达式并返回未来 N 次执行时间。"""
-    if not validate_cron(expr):
-        raise HTTPException(422, f"invalid cron expression: {expr}")
-    runs = compute_next_runs(expr, count=5)
-    return {
-        "valid": True,
-        "next_runs": [r.isoformat() for r in runs],
-    }
