@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 import secrets
 from fastapi.responses import JSONResponse
 from mio_taskhub.db import get_session, init_db
-from mio_taskhub.api import tasks, templates, agents, runs, plans, board, ideas, idea_templates, idea_scoring, adr, discussions, events, nightrun, memory, scheduled_jobs, task_documents, reviews
+from mio_taskhub.api import tasks, task_stages, task_graph, task_subtasks, templates, agents, runs, plans, board, ideas, idea_templates, idea_scoring, adr, discussions, events, nightrun, memory, scheduled_jobs, task_documents, reviews
 from mio_taskhub.api.board import board_summary as _board_summary
 from mio_taskhub.logging_config import setup_logging
 from mio_taskhub.middleware import RequestIDMiddleware
@@ -85,6 +85,9 @@ init_db()
 
 app.include_router(templates.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(reviews.router, prefix="/api/v1", tags=["reviews"])
+app.include_router(task_stages.router, prefix="/api/v1", tags=["tasks"])
+app.include_router(task_graph.router, prefix="/api/v1", tags=["tasks"])
+app.include_router(task_subtasks.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(tasks.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(task_documents.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(agents.router, prefix="/api/v1", tags=["agents"])
@@ -97,6 +100,7 @@ app.include_router(idea_scoring.router, prefix="/api/v1", tags=["ideas"])
 app.include_router(adr.router, prefix="/api/v1", tags=["ideas"])
 app.include_router(discussions.router, prefix="/api/v1", tags=["discussions"])
 app.include_router(events.router, prefix="/api/v1", tags=["events"])
+app.include_router(events.task_events_router, prefix="/api/v1", tags=["tasks"])
 app.include_router(nightrun.router, prefix="/api/v1", tags=["nightrun"])
 app.include_router(scheduled_jobs.router, prefix="/api/v1", tags=["scheduled-jobs"])
 app.include_router(memory.router, tags=["memory-gateway"])
