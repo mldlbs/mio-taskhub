@@ -40,7 +40,7 @@ setup_logging()
 
 @asynccontextmanager
 async def lifespan(app):
-    from .background import start_background_jobs
+    from .background import start_background_jobs, _thread_registry, register_thread
     from mio_taskhub.git_sync import start_git_sync_worker, stop_git_sync_worker
     from mio_taskhub.night_runner import start_night_runner, stop_night_runner
     from mio_taskhub.cron_engine import start_cron_engine, stop_cron_engine
@@ -53,18 +53,18 @@ async def lifespan(app):
     from mio_taskhub.db import DB_PATH
     backup = SQLiteBackup(DB_PATH)
     backup.start()
+    register_thread("backup", backup._thread, backup)
     app.state.backup = backup
     yield
     jobs = getattr(app.state, "background", None)
     if jobs:
         for job in jobs:
             job.stop()
+    # Use ThreadRegistry for unified shutdown ordering
+    _thread_registry.stop_all()
     stop_git_sync_worker()
     stop_night_runner()
     stop_cron_engine()
-    backup = getattr(app.state, "backup", None)
-    if backup:
-        backup.stop()
     # Gracefully close DB connections
     from mio_taskhub.db import engine
     engine.dispose()

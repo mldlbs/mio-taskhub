@@ -1,4 +1,5 @@
 from datetime import datetime, timezone, timedelta
+import threading
 from sqlmodel import Session, select
 from mio_taskhub.db import engine
 from mio_taskhub.api.claim import claim_for as _claim_for
@@ -282,8 +283,49 @@ def _get_due_tasks():
 
 
 def _on_enqueue(task_id: str):
-    # task already queued; nothing to change, but touch for completeness
     pass
+
+
+class ThreadRegistry:
+    """统一管理所有后台守护线程的启动与停止。
+
+    按注册顺序启动，按反向顺序停止（保证依赖正确的关闭顺序）。
+    提供健康检查接口。
+    """
+
+    def __init__(self):
+        self._entries: list[tuple[str, threading.Thread, object]] = []
+
+    def register(self, name: str, thread: threading.Thread, obj: object = None):
+        """注册一个守护线程及其停止方法。"""
+        self._entries.append((name, thread, obj))
+
+    def start_all(self):
+        """按注册顺序启动所有线程。"""
+        for name, thread, _ in self._entries:
+            thread.start()
+
+    def stop_all(self):
+        """按反向顺序停止所有线程（保证依赖正确的关闭顺序）。"""
+        for name, thread, obj in reversed(self._entries):
+            if obj is not None and hasattr(obj, "stop"):
+                obj.stop()
+            thread.join(timeout=5)
+
+    def health_check(self) -> dict:
+        """返回所有线程的健康状态。"""
+        result = {}
+        for name, thread, _ in self._entries:
+            result[name] = "alive" if thread.is_alive() else "dead"
+        return result
+
+
+_thread_registry = ThreadRegistry()
+
+
+def register_thread(name: str, thread: threading.Thread, obj: object = None):
+    """注册一个守护线程到全局调度器。"""
+    _thread_registry.register(name, thread, obj)
 
 
 from mio_taskhub.idea_review import IdeaReviewScanner
@@ -296,4 +338,7 @@ def start_background_jobs():
     sweep.start()
     scheduler.start()
     idea_scanner.start()
+    register_thread("heartbeat", sweep._thread, sweep)
+    register_thread("scheduler", scheduler._thread, scheduler)
+    register_thread("idea-review", idea_scanner._thread, idea_scanner)
     return sweep, scheduler, idea_scanner
