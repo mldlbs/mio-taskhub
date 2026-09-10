@@ -8,9 +8,8 @@ from mio_taskhub.scheduler import Scheduler
 from mio_taskhub.state_machine import is_terminal
 from mio_taskhub.dependency import dependency_satisfied, task_deps
 from mio_taskhub.events import emit_event, broadcast_for_event
-from mio_taskhub.transitions import apply_transition
+from mio_taskhub.transitions import apply_transition, _orm_to_status_stage
 from mio_taskhub.state_machine import State as M1State, Stage as M1Stage, ActorType as M1Actor
-from mio_taskhub.transitions import _orm_to_status_stage
 
 DEFAULT_TIMEOUT_SECONDS = 120
 AGENT_TIMEOUT_SECONDS = 180

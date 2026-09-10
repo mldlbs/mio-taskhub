@@ -84,13 +84,13 @@ class TestEnums:
     def test_state_values(self):
         assert {s.value for s in State} == {
             "queued", "claimed", "running", "retrying",
-            "completed", "failed", "cancelled",
+            "completed", "failed", "cancelled", "blocked_failed",
         }
 
     def test_stage_values(self):
         assert {s.value for s in Stage} == {
             "brainstorming", "design", "planning", "ready",
-            "implementing", "review", "done",
+            "implementing", "review", "done", "cancelled",
         }
 
     def test_actor_type_values(self):

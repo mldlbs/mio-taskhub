@@ -1,13 +1,21 @@
 # mio_taskhub/state_machine.py
-"""核心状态机（枚举、转换、合法性校验）。"""
+"""核心状态机（枚举、转换、合法性校验）。
+
+枚举定义在 models.py 中（TaskState / TaskStage / ActorType），
+本模块直接导入并作为状态机逻辑的唯一来源。
+"""
 from __future__ import annotations
 from dataclasses import dataclass
-from enum import Enum
 from typing import Set, Tuple
 
-# ---------------------------------------------------------------------------
-# Enums
-# ---------------------------------------------------------------------------
+from mio_taskhub.models import TaskState as State, TaskStage as Stage, ActorType
+
+# 为兼容旧代码保留别名（State / Stage 已是主名）
+M1State = State
+M1Stage = Stage
+M1Actor = ActorType
+
+# 终态集合（含 ORM 扩展值）
 TERMINAL_STATES = {"completed", "cancelled", "failed", "blocked_failed"}
 
 
@@ -22,32 +30,6 @@ def is_terminal(task) -> bool:
     s = task.state.value if hasattr(task.state, "value") else task.state
     st = _stage_str(task.stage)
     return s in TERMINAL_STATES or st in ("done", "cancelled")
-
-
-class State(str, Enum):
-    QUEUED = "queued"
-    CLAIMED = "claimed"
-    RUNNING = "running"
-    RETRYING = "retrying"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-
-
-class Stage(str, Enum):
-    BRAINSTORMING = "brainstorming"
-    DESIGN = "design"
-    PLANNING = "planning"
-    READY = "ready"
-    IMPLEMENTING = "implementing"
-    REVIEW = "review"
-    DONE = "done"
-
-
-class ActorType(str, Enum):
-    USER = "user"
-    AGENT = "agent"
-    SYSTEM = "system"
 
 
 # ---------- Legal (state, stage) ----------

@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional, Tuple
 
-from mio_taskhub.models import Task, TaskEvent, TaskState as OrmTaskState, TaskStage as OrmTaskStage
+from mio_taskhub.models import Task, TaskEvent, TaskState, TaskStage
 from mio_taskhub.state_machine import (
     State, Stage, ActorType, Transition,
     validate_transition, IllegalTransition,
@@ -24,7 +24,7 @@ from mio_taskhub.state_machine import (
 
 # ---------- ORM ↔ status 枚举映射 ----------
 def _orm_to_status_state(s) -> State:
-    """TaskState → State。BLOCKED_FAILED 是遗留值（M1 状态机不产生），映射为 QUEUED。"""
+    """TaskState → State。BLOCKED_FAILED 是遗留值，映射为 QUEUED。"""
     v = s.value if hasattr(s, "value") else s
     if v == "blocked_failed":
         return State.QUEUED
@@ -37,14 +37,6 @@ def _orm_to_status_stage(st) -> Stage:
     if v == "cancelled":
         return Stage.BRAINSTORMING
     return Stage(v)
-
-
-def _status_to_orm_state(s: State):
-    return OrmTaskState(s.value)
-
-
-def _status_to_orm_stage(s: Stage):
-    return OrmTaskStage(s.value)
 
 
 # ---------- 核心 ----------
@@ -66,12 +58,12 @@ def apply_transition(
 
     t = validate_transition(from_state, from_stage, to_state, to_stage, actor_type)
 
-    # 写回 ORM
-    task.state = _status_to_orm_state(to_state)
-    task.stage = _status_to_orm_stage(to_stage)
-    # cancelled 是终态 state，ORM stage 也要设为 CANCELLED（M1 无 cancelled stage，映射为 brainstorming）
+    # 写回 ORM（State/Stage 现在与 TaskState/TaskStage 相同，直接赋值）
+    task.state = to_state
+    task.stage = to_stage
+    # cancelled 是终态 state，ORM stage 也要设为 CANCELLED
     if to_state == State.CANCELLED:
-        task.stage = OrmTaskStage.CANCELLED
+        task.stage = TaskStage.CANCELLED
 
     now = datetime.now(timezone.utc)
     if to_state == State.CLAIMED and task.claimed_at is None:
