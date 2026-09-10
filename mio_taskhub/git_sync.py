@@ -17,8 +17,8 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from .db import engine
-from .models import OutboxEvent, OutboxStatus, Idea, IdeaType
+from mio_taskhub.db import engine
+from mio_taskhub.models import OutboxEvent, OutboxStatus, Idea, IdeaType
 
 logger = logging.getLogger("git_sync")
 
