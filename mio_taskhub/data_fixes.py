@@ -1,8 +1,8 @@
 """M1 一次性脏数据修复：state/stage 合法化 + 归一化。
 
 调用方式：
-    python -m mio_taskhub.migrate_v1            # 实际修复
-    python -m mio_taskhub.migrate_v1 --dry-run   # 预览不写
+    python -m mio_taskhub.data_fixes            # 实际修复
+    python -m mio_taskhub.data_fixes --dry-run   # 预览不写
 
 规则（与 mio_taskhub.status.LEGAL_COMBOS 对齐）：
   1. state=running   AND stage≠implementing  → state=claimed, stage 保留

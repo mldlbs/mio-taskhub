@@ -4,7 +4,7 @@
  - Task 表新增 8 字段（claimed_at 等 + block_reason + bounce_count）存在
  - TaskEvent 表创建 + 字段映射（event_metadata → metadata 列）
  - init_db 后 last_transition_at 回填为 created_at
- - migrate_v1.fix_state_stage 各规则
+ - data_fixes.fix_state_stage 各规则
  - 幂等：跑两次无副作用
 """
 import pytest
@@ -14,7 +14,7 @@ from sqlmodel import Session
 
 from mio_taskhub.db import engine, init_db
 from mio_taskhub.models import Task, TaskEvent, TaskState, TaskStage, Run, RunState, SQLModel
-from mio_taskhub.migrate_v1 import fix_state_stage, _legal_combo_strings
+from mio_taskhub.data_fixes import fix_state_stage, _legal_combo_strings
 
 
 # ---------- Schema 迁移 ----------
