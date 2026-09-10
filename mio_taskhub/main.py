@@ -48,6 +48,12 @@ async def lifespan(app):
     start_git_sync_worker()
     start_night_runner()
     cron_engine = start_cron_engine()
+    # SQLite auto-backup (hourly snapshots, 31 kept)
+    from mio_taskhub.backup import SQLiteBackup
+    from mio_taskhub.db import DB_PATH
+    backup = SQLiteBackup(DB_PATH)
+    backup.start()
+    app.state.backup = backup
     yield
     jobs = getattr(app.state, "background", None)
     if jobs:
@@ -56,6 +62,9 @@ async def lifespan(app):
     stop_git_sync_worker()
     stop_night_runner()
     stop_cron_engine()
+    backup = getattr(app.state, "backup", None)
+    if backup:
+        backup.stop()
     # Gracefully close DB connections
     from mio_taskhub.db import engine
     engine.dispose()
@@ -142,11 +151,13 @@ def healthz():
     description="Checks SQLite connectivity via SELECT 1. Returns 200 when DB is reachable, 503 with {status:degraded, db:error} otherwise. Use for k8s readiness probes.",
 )
 def readyz():
-    from mio_taskhub.db import check_connection
+    from mio_taskhub.db import check_connection, DB_PATH
+    from mio_taskhub.backup import get_backup_status
     result = check_connection()
     status = "ok" if result["ok"] else "degraded"
+    backup_info = get_backup_status(DB_PATH)
     return Response(
-        content='{"status":"' + status + '","db":"' + ("ok" if result["ok"] else "error") + '"}',
+        content='{"status":"' + status + '","db":"' + ("ok" if result["ok"] else "error") + '","backups":{"count":' + str(backup_info["count"]) + ',"latest":' + ('"' + backup_info["latest"] + '"' if backup_info["latest"] else 'null') + '}}',
         media_type="application/json",
         status_code=200 if result["ok"] else 503,
     )
