@@ -62,89 +62,43 @@ def _fmt(data: dict, pretty: bool = True) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2 if pretty else None)
 
 
-@mcp.tool(
-    name="taskhub_status",
-    title="查看任务中心全局状态",
-    annotations={
-        "readOnlyHint": True,
-        "destructiveHint": False,
+def _tool(name: str, title: str, method: str, path: str, read_only: bool, destructive: bool, desc: str):
+    """返回一个 @mcp.tool() 装饰器，附带 annotations 和描述。"""
+    annotations = {
+        "readOnlyHint": read_only,
+        "destructiveHint": destructive,
         "idempotentHint": True,
         "openWorldHint": False,
-    },
-)
+    }
+    def decorator(func):
+        return mcp.tool(name=name, title=title, annotations=annotations)(func)
+    return decorator
+
+
+@_tool(name="taskhub_status", title="查看任务中心全局状态", method="GET", path="/board/summary", read_only=True, destructive=False, desc="一次获取全局上下文：各阶段任务计数、待领取队列、执行中任务、心跳超时/超期告警、最近完成与下一步建议。")
 async def taskhub_status(
     agent: str = Field(default="", description="当前 agent 名称（可选），传入后 running 只列该 agent 的任务", max_length=64),
 ) -> str:
-    """一次获取全局上下文：各阶段任务计数、待领取队列、执行中任务、心跳超时/超期告警、最近完成与下一步建议。
-
-    对话中用户提到 任务/看板/进度/待办/派活 时优先调用本工具，再把结果渲染成
-    markdown 表格展示给用户，而不是贴原始 JSON。
-
-    Args:
-        agent: 可选，只显示该 agent 的执行中任务
-
-    Returns:
-        JSON: {updated_at, counts, ready_queue, running, alerts, recent_done, next_steps}
-    """
     params = {"agent": agent} if agent else None
-    data = await _request("GET", "/board/summary", params=params)
-    return _fmt(data)
+    return _fmt(await _request("GET", "/board/summary", params=params))
 
 
-@mcp.tool(
-    name="taskhub_register",
-    title="注册 Agent 到任务中心",
-    annotations={
-        "readOnlyHint": False,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": False,
-    },
-)
+@_tool(name="taskhub_register", title="注册 Agent 到任务中心", method="POST", path="/agents/register", read_only=False, destructive=False, desc="将当前 agent 注册到 mio-taskhub，使其在 Web 看板显示为在线。重复注册会刷新在线状态，幂等安全。所有 agent 执行任务前应先注册。")
 async def taskhub_register(
     name: str = Field(description="Agent 名称，如 opencode / claude-code / codex / hermes", min_length=1, max_length=64),
     agent_type: str = Field(default="cli", description="Agent 类型标签", max_length=32),
 ) -> str:
-    """将当前 agent 注册到 mio-taskhub，使其在 Web 看板显示为在线。
-
-    重复注册会刷新在线状态，幂等安全。所有 agent 执行任务前应先注册。
-
-    Args:
-        name: agent 名称（唯一）
-        agent_type: 类型标签，默认 cli
-
-    Returns:
-        JSON: {"name": "opencode", "status": "online"} 或错误信息
-    """
-    data = await _request("POST", "/agents/register", body={"name": name, "agent_type": agent_type})
-    return _fmt(data)
+    return _fmt(await _request("POST", "/agents/register", body={"name": name, "agent_type": agent_type}))
 
 
-@mcp.tool(name="taskhub_agent_heartbeat", title="Agent 心跳保活", annotations={
-    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False,
-})
+@_tool(name="taskhub_agent_heartbeat", title="Agent 心跳保活", method="POST", path="/agents/heartbeat", read_only=False, destructive=False, desc="保持 agent 在线（心跳保活）。空闲时周期性调用（建议约 1 分钟一次），避免超过 180s 被标记离线。未注册的 name 会自动注册（upsert）。")
 async def taskhub_agent_heartbeat(
     name: str = Field(description="当前 agent 名称，需与 register 一致", min_length=1, max_length=64),
 ) -> str:
-    """保持 agent 在线（心跳保活）。
-
-    空闲时周期性调用（建议约 1 分钟一次），避免超过 180s 被标记离线。
-    未注册的 name 会自动注册（upsert）。
-    """
-    data = await _request("POST", "/agents/heartbeat", body={"name": name})
-    return _fmt(data)
+    return _fmt(await _request("POST", "/agents/heartbeat", body={"name": name}))
 
 
-@mcp.tool(
-    name="taskhub_claim",
-    title="领取一个任务",
-    annotations={
-        "readOnlyHint": False,
-        "destructiveHint": False,
-        "idempotentHint": False,
-        "openWorldHint": False,
-    },
-)
+@_tool(name="taskhub_claim", title="领取一个任务", method="POST", path="/tasks/claim", read_only=False, destructive=False, desc="按关联度 + 优先级 + FIFO 领取一个排队任务，或按 task_id 直接认领指定任务，并返回 Run 上下文（含任务详情）。")
 async def taskhub_claim(
     agent: str = Field(description="当前 agent 名称，需先注册", min_length=1, max_length=64),
     agent_type: Optional[str] = Field(default=None, description="若设置，只领取匹配该类型的任务；不传则自动回查注册 agent_type", max_length=32),
@@ -153,31 +107,9 @@ async def taskhub_claim(
     workspace: Optional[str] = Field(default=None, description="工作区根路径", max_length=500),
     files: Optional[str] = Field(default=None, description="逗号分隔的文件路径列表", max_length=2000),
 ) -> str:
-    """按关联度 + 优先级 + FIFO 领取一个排队任务，或按 task_id 直接认领指定任务，并返回 Run 上下文（含任务详情）。
-
-    若该 agent 已有进行中的 run，会返回同一个 run（幂等）。hub 调度器可能已
-    为你自动分配任务（task_assigned 事件），调用本工具会优先返回已分配 run。
-    无可用任务时返回空结果。
-
-    领取排序（内部使用，不硬排斥）：类型匹配 > 无人认领 > 他人专属，但他人
-    专属任务仍可被领到（仅排后面）。agent_type 不传时自动回查注册类型用于排序。
-
-    指定 task_id 时直接认领该任务（无视阶段，仅校验未认领），适合「点名提取」
-    某个尚未进入 ready 的业务任务。
-
-    Args:
-        agent: 当前 agent 名称
-        agent_type: 可选，影响领取排序（类型匹配优先）
-        task_id: 可选，直接认领指定任务
-
-    Returns:
-        JSON: {"id": run_id, "task_id": ..., "task": {...详情...}, "state": "claimed"}
-    """
     query = {"agent": agent}
-    if agent_type:
-        query["agent_type"] = agent_type
-    if task_id:
-        query["task_id"] = task_id
+    if agent_type: query["agent_type"] = agent_type
+    if task_id: query["task_id"] = task_id
     if project: query["project"] = project
     if workspace: query["workspace"] = workspace
     if files: query["files"] = files
@@ -190,210 +122,81 @@ async def taskhub_claim(
     return _fmt({**claim, "task": detail if "error" not in detail else {}})
 
 
-@mcp.tool(
-    name="taskhub_heartbeat",
-    title="发送任务心跳",
-    annotations={
-        "readOnlyHint": False,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": False,
-    },
-)
+@_tool(name="taskhub_heartbeat", title="发送任务心跳", method="POST", path="/runs/{run_id}/heartbeat", read_only=False, destructive=False, desc="更新 run 状态为 running 并上报进度（0-100）。执行任务期间定期调用，避免被判定超时。")
 async def taskhub_heartbeat(
     run_id: str = Field(description="Run 唯一标识（claim 返回的 id）", min_length=1),
     progress: int = Field(default=50, description="进度百分比 0-100", ge=0, le=100),
     checkpoint: Optional[str] = Field(default=None, description="阶段检查点描述", max_length=500),
 ) -> str:
-    """更新 run 状态为 running 并上报进度（0-100）。
-
-    执行任务期间定期调用，避免被判定超时。超时任务会被重置回排队并重试。
-
-    Args:
-        run_id: claim 返回的 run id
-        progress: 进度百分比
-        checkpoint: 可选阶段描述
-
-    Returns:
-        JSON: {"id": ..., "state": "running", "progress": 50}
-    """
     body = {"progress": progress}
-    if checkpoint is not None:
-        body["checkpoint"] = checkpoint
-    data = await _request("POST", f"/runs/{run_id}/heartbeat", body=body)
-    return _fmt(data)
+    if checkpoint is not None: body["checkpoint"] = checkpoint
+    return _fmt(await _request("POST", f"/runs/{run_id}/heartbeat", body=body))
 
 
-@mcp.tool(
-    name="taskhub_submit_result",
-    title="提交任务执行结果",
-    annotations={
-        "readOnlyHint": False,
-        "destructiveHint": False,
-        "idempotentHint": False,
-        "openWorldHint": False,
-    },
-)
+@_tool(name="taskhub_submit_result", title="提交任务执行结果", method="POST", path="/runs/{run_id}/result", read_only=False, destructive=False, desc="提交 run 的最终结果（成功/失败）。成功后任务标记 completed；失败时若未超最大重试次数会进入 retrying 并重新排队，否则标记 failed。")
 async def taskhub_submit_result(
     run_id: str = Field(description="Run 唯一标识（claim 返回的 id）", min_length=1),
     success: bool = Field(default=True, description="是否成功"),
     result: str = Field(default="", description="结果描述 / 产出摘要", max_length=4000),
     exit_code: Optional[int] = Field(default=None, description="退出码（默认 0 成功 / 1 失败）"),
 ) -> str:
-    """提交 run 的最终结果（成功/失败）。
-
-    成功后任务标记 completed；失败时若未超最大重试次数会进入 retrying
-    并重新排队，否则标记 failed。
-
-    Args:
-        run_id: claim 返回的 run id
-        success: 是否成功
-        result: 结果描述 / 产出摘要
-        exit_code: 可选退出码
-
-    Returns:
-        JSON: {"id": ..., "state": "finished", "result": "..."}
-    """
     body = {"success": success, "result": result}
-    if exit_code is not None:
-        body["exit_code"] = exit_code
-    data = await _request("POST", f"/runs/{run_id}/result", body=body)
-    return _fmt(data)
+    if exit_code is not None: body["exit_code"] = exit_code
+    return _fmt(await _request("POST", f"/runs/{run_id}/result", body=body))
 
 
-@mcp.tool(
-    name="taskhub_list_tasks",
-    title="列出任务",
-    annotations={
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": False,
-    },
-)
+@_tool(name="taskhub_list_tasks", title="列出任务", method="GET", path="/tasks", read_only=True, destructive=False, desc="列出任务看板，可按状态 / 目标 agent 类型过滤。用于了解待办、进行中和历史任务。")
 async def taskhub_list_tasks(
     state: Optional[str] = Field(default=None, description="按状态过滤：queued/claimed/running/retrying/completed/failed"),
     agent_type: Optional[str] = Field(default=None, description="只显示匹配该 agent 类型的任务"),
 ) -> str:
-    """列出任务看板，可按状态 / 目标 agent 类型过滤。用于了解待办、进行中和历史任务。
-
-    Args:
-        state: 可选状态过滤
-        agent_type: 可选目标 agent 类型过滤
-
-    Returns:
-        JSON: {"count": N, "tasks": [...]}
-    """
     query = {}
-    if state:
-        query["state"] = state
-    if agent_type:
-        query["agent_type"] = agent_type
+    if state: query["state"] = state
+    if agent_type: query["agent_type"] = agent_type
     data = await _request("GET", "/tasks", params=query)
     if isinstance(data, list):
         return _fmt({"count": len(data), "tasks": data})
     return _fmt(data)
 
 
-@mcp.tool(
-    name="taskhub_get_task",
-    title="查看任务详情",
-    annotations={
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": False,
-    },
-)
+@_tool(name="taskhub_get_task", title="查看任务详情", method="GET", path="/tasks/{task_id}", read_only=True, destructive=False, desc="查看单个任务的完整详情（标题、描述、优先级、依赖、重试次数等）。")
 async def taskhub_get_task(
     task_id: str = Field(description="任务唯一标识", min_length=1),
 ) -> str:
-    """查看单个任务的完整详情（标题、描述、优先级、依赖、重试次数等）。
-
-    Args:
-        task_id: 任务唯一标识
-
-    Returns:
-        JSON: 任务完整字段
-    """
-    data = await _request("GET", f"/tasks/{task_id}")
-    return _fmt(data)
+    return _fmt(await _request("GET", f"/tasks/{task_id}"))
 
 
-@mcp.tool(
-    name="taskhub_read_spec",
-    title="读取任务 spec 设计文档",
-    annotations={
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": False,
-    },
-)
+@_tool(name="taskhub_read_spec", title="读取任务 spec 设计文档", method="GET", path="/tasks/{task_id}/spec", read_only=True, destructive=False, desc="读取任务的 spec（设计文档）内容。任务进入 design 阶段需提供 spec_path。")
 async def taskhub_read_spec(
     task_id: str = Field(description="任务唯一标识", min_length=1),
 ) -> str:
-    """读取任务的 spec（设计文档）内容。
-
-    任务进入 design 阶段需提供 spec_path。本工具读取该文件原文，便于 agent 据此执行实现。
-
-    Args:
-        task_id: 任务唯一标识
-
-    Returns:
-        spec 文件内容（文本）；未设置或文件缺失时给出提示。
-    """
     task = await _request("GET", f"/tasks/{task_id}")
     if "error" in task:
         return _fmt(task)
     spec_path = (task.get("spec_path") or "").strip()
     if not spec_path:
-        return (
-            f"任务 {task_id} 未设置 spec_path（尚未进入 design 阶段或未填写设计文档）。"
-            "可用 taskhub_advance_stage 推进到 design 时提供 spec_path。"
-        )
+        return (f"任务 {task_id} 未设置 spec_path（尚未进入 design 阶段或未填写设计文档）。"
+                "可用 taskhub_advance_stage 推进到 design 时提供 spec_path。")
     return _read_doc(task, spec_path, "spec")
 
 
-@mcp.tool(
-    name="taskhub_read_plan",
-    title="读取任务 plan 实现计划",
-    annotations={
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": False,
-    },
-)
+@_tool(name="taskhub_read_plan", title="读取任务 plan 实现计划", method="GET", path="/tasks/{task_id}/plan", read_only=True, destructive=False, desc="读取任务的 plan（实现计划）内容。任务进入 planning 阶段需提供 plan_path。")
 async def taskhub_read_plan(
     task_id: str = Field(description="任务唯一标识", min_length=1),
 ) -> str:
-    """读取任务的 plan（实现计划）内容。
-
-    任务进入 planning 阶段需提供 plan_path。本工具读取该文件原文，便于 agent 据此排期与执行。
-
-    Args:
-        task_id: 任务唯一标识
-
-    Returns:
-        plan 文件内容（文本）；未设置或文件缺失时给出提示。
-    """
     task = await _request("GET", f"/tasks/{task_id}")
     if "error" in task:
         return _fmt(task)
     plan_path = (task.get("plan_path") or "").strip()
     if not plan_path:
-        return (
-            f"任务 {task_id} 未设置 plan_path（尚未进入 planning 阶段或未填写计划文档）。"
-            "可用 taskhub_advance_stage 推进到 planning 时提供 plan_path。"
-        )
+        return (f"任务 {task_id} 未设置 plan_path（尚未进入 planning 阶段或未填写计划文档）。"
+                "可用 taskhub_advance_stage 推进到 planning 时提供 plan_path。")
     return _read_doc(task, plan_path, "plan")
 
 
 def _read_doc(task: dict, path_str: str, kind: str) -> str:
     """按 spec/plan 路径读取文档内容，处理相对路径与缺失情况。"""
     import pathlib
-
     p = pathlib.Path(path_str)
     if not p.is_absolute():
         base = (task.get("workspace") or "").strip()
@@ -415,16 +218,7 @@ def _read_doc(task: dict, path_str: str, kind: str) -> str:
     return f"# {kind}: {p}\n\n{text}"
 
 
-@mcp.tool(
-    name="taskhub_create_task",
-    title="创建任务",
-    annotations={
-        "readOnlyHint": False,
-        "destructiveHint": False,
-        "idempotentHint": False,
-        "openWorldHint": False,
-    },
-)
+@_tool(name="taskhub_create_task", title="创建任务", method="POST", path="/tasks", read_only=False, destructive=False, desc="向任务中心提交一个新任务，供各 agent 领取执行。")
 async def taskhub_create_task(
     title: str = Field(description="任务标题", min_length=1, max_length=200),
     description: str = Field(default="", description="任务详细描述", max_length=4000),
@@ -443,53 +237,17 @@ async def taskhub_create_task(
     deliverables: Optional[list] = Field(default=None, description="预期产出物路径列表"),
     stage: str = Field(default="brainstorming", description="研发阶段（brainstorming/design/planning/ready/implementing/review/done），ready 才可被领取"),
 ) -> str:
-    """向任务中心提交一个新任务，供各 agent 领取执行。
-
-    Args:
-        title: 标题
-        description: 详细描述
-        target_agent_type: 指定执行者类型，为空表示任意
-        fallback_after: 从 created_at 起算的秒数，超过后允许非目标 agent 领取
-        priority: 0-3 优先级
-        est_duration_min: 预估耗时分钟数
-        depends_on: 前置任务 id 列表（依赖全部完成后才放行）
-        max_retries: 最大重试次数
-        acceptance_criteria: 验收标准 / 完成定义
-        due_at: 截止时间 ISO 格式
-        labels: 自定义状态标签列表
-        project: 关联项目名
-        workspace: 工作区根路径
-        files: 文件路径列表（相对工作区）
-        deliverables: 预期产出物路径列表
-
-    Returns:
-        JSON: {"id":..., "title":..., "state": "queued", ...}
-    """
-    body = {
-        "title": title,
-        "description": description,
-        "target_agent_type": target_agent_type,
-        "fallback_after": fallback_after,
-        "priority": priority,
-        "est_duration_min": est_duration_min,
-        "depends_on": depends_on,
-        "max_retries": max_retries,
-        "acceptance_criteria": acceptance_criteria,
-        "due_at": due_at,
-        "labels": labels,
-        "project": project,
-        "workspace": workspace,
-        "files": files,
-        "deliverables": deliverables,
-        "stage": stage,
-    }
-    data = await _request("POST", "/tasks", body=body)
-    return _fmt(data)
+    body = {k: v for k, v in {
+        "title": title, "description": description, "target_agent_type": target_agent_type,
+        "fallback_after": fallback_after, "priority": priority, "est_duration_min": est_duration_min,
+        "depends_on": depends_on, "max_retries": max_retries, "acceptance_criteria": acceptance_criteria,
+        "due_at": due_at, "labels": labels, "project": project, "workspace": workspace,
+        "files": files, "deliverables": deliverables, "stage": stage,
+    }.items() if v is not None}
+    return _fmt(await _request("POST", "/tasks", body=body))
 
 
-@mcp.tool(name="taskhub_update_task", title="更新任务细节", annotations={
-    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
-})
+@_tool(name="taskhub_update_task", title="更新任务细节", method="PATCH", path="/tasks/{task_id}", read_only=False, destructive=False, desc="更新任务细节字段。仅传需要修改的字段。")
 async def taskhub_update_task(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     title: Optional[str] = Field(default=None, description="标题"),
@@ -504,41 +262,26 @@ async def taskhub_update_task(
     depends_on: Optional[list] = Field(default=None, description="前置任务 id 列表（替换现有依赖）"),
     fallback_after: Optional[int] = Field(default=None, description="从 created_at 起算的秒数，超过后允许非目标 agent 领取"),
 ) -> str:
-    """更新任务细节字段。仅传需要修改的字段。
-    Args:
-        task_id: 任务唯一标识
-        其余字段均为可选，传了才更新
-    Returns:
-        JSON: 更新后的任务完整详情
-    """
     body = {k: v for k, v in {
         "title": title, "description": description, "acceptance_criteria": acceptance_criteria,
         "due_at": due_at, "labels": labels, "project": project, "workspace": workspace,
         "files": files, "deliverables": deliverables, "depends_on": depends_on,
         "fallback_after": fallback_after,
     }.items() if v is not None}
-    data = await _request("PATCH", f"/tasks/{task_id}", body=body)
-    return _fmt(data)
+    return _fmt(await _request("PATCH", f"/tasks/{task_id}", body=body))
 
 
-@mcp.tool(name="taskhub_add_subtask", title="添加子任务", annotations={
-    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
-})
+@_tool(name="taskhub_add_subtask", title="添加子任务", method="POST", path="/tasks/{task_id}/subtasks", read_only=False, destructive=False, desc="为任务添加一个子任务/计划步骤。")
 async def taskhub_add_subtask(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     title: str = Field(description="子任务标题", min_length=1, max_length=200),
     order: int = Field(default=0, description="排序号"),
     status: str = Field(default="pending", description="状态：pending/in_progress/done/blocked"),
 ) -> str:
-    """为任务添加一个子任务/计划步骤。"""
-    data = await _request("POST", f"/tasks/{task_id}/subtasks",
-                          body={"title": title, "order": order, "status": status})
-    return _fmt(data)
+    return _fmt(await _request("POST", f"/tasks/{task_id}/subtasks", body={"title": title, "order": order, "status": status}))
 
 
-@mcp.tool(name="taskhub_update_subtask", title="更新子任务状态", annotations={
-    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
-})
+@_tool(name="taskhub_update_subtask", title="更新子任务状态", method="PATCH", path="/tasks/{task_id}/subtasks/{subtask_id}", read_only=False, destructive=False, desc="更新子任务的标题/排序/状态。")
 async def taskhub_update_subtask(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     subtask_id: str = Field(description="子任务唯一标识", min_length=1),
@@ -546,48 +289,35 @@ async def taskhub_update_subtask(
     title: Optional[str] = Field(default=None, description="标题"),
     order: Optional[int] = Field(default=None, description="排序号"),
 ) -> str:
-    """更新子任务的标题/排序/状态。"""
     body = {k: v for k, v in {"title": title, "order": order, "status": status}.items() if v is not None}
-    data = await _request("PATCH", f"/tasks/{task_id}/subtasks/{subtask_id}", body=body)
-    return _fmt(data)
+    return _fmt(await _request("PATCH", f"/tasks/{task_id}/subtasks/{subtask_id}", body=body))
 
 
-@mcp.tool(name="taskhub_add_gitref", title="关联 Git 引用", annotations={
-    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
-})
+@_tool(name="taskhub_add_gitref", title="关联 Git 引用", method="POST", path="/tasks/{task_id}/gitrefs", read_only=False, destructive=False, desc="为任务关联一个 Git 引用（分支/commit/PR/tag）。")
 async def taskhub_add_gitref(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     ref_type: str = Field(default="branch", description="类型：branch/commit/pr/tag"),
     value: str = Field(description="引用值，如分支名或 commit hash", min_length=1),
     note: str = Field(default="", description="备注"),
 ) -> str:
-    """为任务关联一个 Git 引用（分支/commit/PR/tag）。"""
-    data = await _request("POST", f"/tasks/{task_id}/gitrefs",
-                          body={"ref_type": ref_type, "value": value, "note": note})
-    return _fmt(data)
+    return _fmt(await _request("POST", f"/tasks/{task_id}/gitrefs", body={"ref_type": ref_type, "value": value, "note": note}))
 
 
-@mcp.tool(name="taskhub_add_history", title="追加执行历史", annotations={
-    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
-})
+@_tool(name="taskhub_add_history", title="追加执行历史", method="POST", path="/tasks/{task_id}/history", read_only=False, destructive=False, desc="为任务追加一条执行历史事件。")
 async def taskhub_add_history(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     type: str = Field(description="事件类型：created/claimed/heartbeat/result/discussion/...", max_length=50),
     payload: Optional[str] = Field(default=None, description="JSON 字符串格式的附加数据"),
 ) -> str:
-    """为任务追加一条执行历史事件。"""
     import json as _json
     try:
         p = _json.loads(payload) if payload else None
     except Exception:
         p = {"raw": payload}
-    data = await _request("POST", f"/tasks/{task_id}/history", body={"type": type, "payload": p})
-    return _fmt(data)
+    return _fmt(await _request("POST", f"/tasks/{task_id}/history", body={"type": type, "payload": p}))
 
 
-@mcp.tool(name="taskhub_add_discussion", title="回写讨论结果", annotations={
-    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
-})
+@_tool(name="taskhub_add_discussion", title="回写讨论结果", method="POST", path="/tasks/{task_id}/discussions", read_only=False, destructive=False, desc="agent 将任务拉回独立会话讨论后，回写摘要与结论到任务。")
 async def taskhub_add_discussion(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     topic: str = Field(description="讨论主题", min_length=1, max_length=200),
@@ -597,19 +327,12 @@ async def taskhub_add_discussion(
     stage: str = Field(default="brainstorming", description="讨论发生的研发阶段：brainstorming/design/planning/review/..."),
     messages: Optional[list] = Field(default=None, description="消息列表：[{author, role, content}]"),
 ) -> str:
-    """agent 将任务拉回独立会话讨论后，回写摘要与结论到任务。
-
-    有 conclusions 时讨论标记为 closed。消息列表可选。
-    """
     body = {"topic": topic, "agent": agent, "summary": summary,
             "conclusions": conclusions, "stage": stage, "messages": messages or []}
-    data = await _request("POST", f"/tasks/{task_id}/discussions", body=body)
-    return _fmt(data)
+    return _fmt(await _request("POST", f"/tasks/{task_id}/discussions", body=body))
 
 
-@mcp.tool(name="taskhub_advance_stage", title="推进研发阶段", annotations={
-    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
-})
+@_tool(name="taskhub_advance_stage", title="推进研发阶段", method="POST", path="/tasks/{task_id}/stage", read_only=False, destructive=False, desc="推进任务到下一研发阶段，需带对应产出物。")
 async def taskhub_advance_stage(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     target_stage: str = Field(description="目标阶段：design/planning/ready/review/done/cancelled"),
@@ -617,22 +340,14 @@ async def taskhub_advance_stage(
     plan_path: Optional[str] = Field(default=None, description="计划文档路径（进 planning 必填）"),
     review_result: Optional[str] = Field(default=None, description="审查结论（进 done 必填）"),
 ) -> str:
-    """推进任务到下一研发阶段，需带对应产出物。
-
-    brainstorming→design 需 spec_path 且任务下有讨论记录；
-    design→planning 需 plan_path；review→done 需 review_result。
-    """
     body = {"target_stage": target_stage}
     if spec_path is not None: body["spec_path"] = spec_path
     if plan_path is not None: body["plan_path"] = plan_path
     if review_result is not None: body["review_result"] = review_result
-    data = await _request("POST", f"/tasks/{task_id}/stage", body=body)
-    return _fmt(data)
+    return _fmt(await _request("POST", f"/tasks/{task_id}/stage", body=body))
 
 
-@mcp.tool(name="taskhub_move_to_stage", title="任意移动到目标阶段", annotations={
-    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
-})
+@_tool(name="taskhub_move_to_stage", title="任意移动到目标阶段", method="POST", path="/tasks/{task_id}/stage/move", read_only=False, destructive=False, desc="任意跳转到目标阶段（不要求相邻），保留终态保护与产出物校验。")
 async def taskhub_move_to_stage(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     target_stage: str = Field(description="目标阶段：brainstorming/design/planning/ready/implementing/review/done/cancelled"),
@@ -640,101 +355,46 @@ async def taskhub_move_to_stage(
     plan_path: Optional[str] = Field(default=None, description="计划文档路径（目标为 planning 时必填）"),
     review_result: Optional[str] = Field(default=None, description="审查结论（目标为 done 时必填）"),
 ) -> str:
-    """任意跳转到目标阶段（不要求相邻），保留终态保护与产出物校验。
-
-    与 advance_stage 的区别：advance_stage 只允许相邻推进 + 回溯；
-    move_to_stage 用于拖拽等自由移动场景。
-    """
     body = {"target_stage": target_stage}
     if spec_path is not None: body["spec_path"] = spec_path
     if plan_path is not None: body["plan_path"] = plan_path
     if review_result is not None: body["review_result"] = review_result
-    data = await _request("POST", f"/tasks/{task_id}/stage/move", body=body)
-    return _fmt(data)
+    return _fmt(await _request("POST", f"/tasks/{task_id}/stage/move", body=body))
 
 
-@mcp.tool(
-    name="taskhub_cancel_task",
-    title="取消任务",
-    annotations={
-        "readOnlyHint": False,
-        "destructiveHint": True,
-        "idempotentHint": True,
-        "openWorldHint": False,
-    },
-)
+@_tool(name="taskhub_cancel_task", title="取消任务", method="DELETE", path="/tasks/{task_id}", read_only=False, destructive=True, desc="取消一个排队中的任务（标记为 cancelled）。")
 async def taskhub_cancel_task(
     task_id: str = Field(description="任务唯一标识", min_length=1),
 ) -> str:
-    """取消一个排队中的任务（标记为 cancelled）。
-
-    Args:
-        task_id: 任务唯一标识
-
-    Returns:
-        JSON: {"ok": true, "state": "cancelled"}
-    """
-    data = await _request("DELETE", f"/tasks/{task_id}")
-    return _fmt(data)
+    return _fmt(await _request("DELETE", f"/tasks/{task_id}"))
 
 
-@mcp.tool(
-    name="taskhub_retry_task",
-    title="重试任务",
-    annotations={
-        "readOnlyHint": False,
-        "destructiveHint": False,
-        "idempotentHint": False,
-        "openWorldHint": False,
-    },
-)
+@_tool(name="taskhub_retry_task", title="重试任务", method="POST", path="/tasks/{task_id}/retry", read_only=False, destructive=False, desc="手动重试一个已失败或退避中的任务，立即重入 queued/ready。")
 async def taskhub_retry_task(
     task_id: str = Field(description="任务唯一标识", min_length=1),
 ) -> str:
-    """手动重试一个已失败或退避中的任务，立即重入 queued/ready。
-
-    适用于超限进入 failed 后人工触发，或 retrying 时跳过退避。
-
-    Args:
-        task_id: 任务唯一标识
-
-    Returns:
-        JSON: {"id":..., "state": "queued", ...}
-    """
-    data = await _request("POST", f"/tasks/{task_id}/retry", body={})
-    return _fmt(data)
+    return _fmt(await _request("POST", f"/tasks/{task_id}/retry", body={}))
 
 
-@mcp.tool(name="taskhub_add_idea", title="记录想法/需求", annotations={
-    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
-})
+@_tool(name="taskhub_add_idea", title="记录想法/需求", method="POST", path="/ideas", read_only=False, destructive=False, desc="把用户的一个想法/需求记录下来（状态 new），后续可开会讨论、拆解为任务。")
 async def taskhub_add_idea(
     title: str = Field(description="想法/需求标题", min_length=1, max_length=200),
     description: str = Field(default="", description="详细描述", max_length=4000),
     project: str = Field(default="", description="关联项目名", max_length=200),
     labels: Optional[list] = Field(default=None, description="标签列表"),
 ) -> str:
-    """把用户的一个想法/需求记录下来（状态 new），后续可开会讨论、拆解为任务。"""
-    body = {"title": title, "description": description, "project": project, "labels": labels or []}
-    data = await _request("POST", "/ideas", body=body)
-    return _fmt(data)
+    return _fmt(await _request("POST", "/ideas", body={"title": title, "description": description, "project": project, "labels": labels or []}))
 
 
-@mcp.tool(name="taskhub_ideas", title="查看想法列表", annotations={
-    "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False,
-})
+@_tool(name="taskhub_ideas", title="查看想法列表", method="GET", path="/ideas", read_only=True, destructive=False, desc="列出想法/需求（含状态），供用户随时回顾和管理。")
 async def taskhub_ideas(
     status: Optional[str] = Field(default=None, description="状态过滤：new/fermenting/formed/broken_down/archived/cancelled"),
 ) -> str:
-    """列出想法/需求（含状态），供用户随时回顾和管理。"""
     params = {"status": status} if status else None
-    data = await _request("GET", "/ideas", params=params)
-    return _fmt(data)
+    return _fmt(await _request("GET", "/ideas", params=params))
 
 
-@mcp.tool(name="taskhub_update_idea", title="更新想法/需求", annotations={
-    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
-})
+@_tool(name="taskhub_update_idea", title="更新想法/需求", method="PATCH", path="/ideas/{idea_id}", read_only=False, destructive=False, desc="更新想法内容或推进其状态（发酵/成形/已拆解），体现需求演进过程。")
 async def taskhub_update_idea(
     idea_id: str = Field(description="想法唯一标识", min_length=1),
     title: Optional[str] = Field(default=None, description="标题"),
@@ -744,23 +404,18 @@ async def taskhub_update_idea(
     versioning: Optional[str] = Field(default=None, description="版本策略：full/history_only/none（缺省由后端决定，默认 full）"),
     track_change: Optional[bool] = Field(default=None, description="是否生成/更新变更跟踪任务（缺省由后端决定，默认 true）"),
 ) -> str:
-    """更新想法内容或推进其状态（发酵/成形/已拆解），体现需求演进过程。"""
     if status is not None:
-        data = await _request("POST", f"/ideas/{idea_id}/status", body={"status": status})
-        return _fmt(data)
+        return _fmt(await _request("POST", f"/ideas/{idea_id}/status", body={"status": status}))
     body = {}
     if title is not None: body["title"] = title
     if description is not None: body["description"] = description
     if change_reason is not None: body["change_reason"] = change_reason
     if versioning is not None: body["versioning"] = versioning
     if track_change is not None: body["track_change"] = track_change
-    data = await _request("PATCH", f"/ideas/{idea_id}", body=body)
-    return _fmt(data)
+    return _fmt(await _request("PATCH", f"/ideas/{idea_id}", body=body))
 
 
-@mcp.tool(name="taskhub_open_discussion", title="打开讨论会话", annotations={
-    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
-})
+@_tool(name="taskhub_open_discussion", title="打开讨论会话", method="POST", path="/discussions", read_only=False, destructive=False, desc="针对某个想法或任务开启一个讨论会话，用户与 agent 可双向发消息。")
 async def taskhub_open_discussion(
     topic: str = Field(description="讨论主题", min_length=1, max_length=200),
     idea_id: str = Field(default="", description="绑定想法 id（idea 或 task 至少一个）", max_length=64),
@@ -768,107 +423,72 @@ async def taskhub_open_discussion(
     agent: str = Field(default="", description="发起方 agent 名称", max_length=64),
     stage: str = Field(default="brainstorming", description="研发阶段：brainstorming/design/planning/review/..."),
 ) -> str:
-    """针对某个想法或任务开启一个讨论会话，用户与 agent 可双向发消息。"""
     body = {"topic": topic, "idea_id": idea_id, "task_id": task_id,
             "agent": agent, "stage": stage}
-    data = await _request("POST", "/discussions", body=body)
-    return _fmt(data)
+    return _fmt(await _request("POST", "/discussions", body=body))
 
 
-@mcp.tool(name="taskhub_discussion_messages", title="查看讨论消息", annotations={
-    "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False,
-})
+@_tool(name="taskhub_discussion_messages", title="查看讨论消息", method="GET", path="/discussions", read_only=True, destructive=False, desc="读取讨论内容（含用户提问/agent 回复），用于加入或续接讨论。")
 async def taskhub_discussion_messages(
     discussion_id: Optional[str] = Field(default=None, description="讨论 id（或用 idea_id/task_id 拉取该对象的讨论）", max_length=64),
     idea_id: Optional[str] = Field(default=None, description="按想法查看其全部讨论", max_length=64),
     task_id: Optional[str] = Field(default=None, description="按任务查看其全部讨论", max_length=64),
 ) -> str:
-    """读取讨论内容（含用户提问/agent 回复），用于加入或续接讨论。"""
     if discussion_id:
-        data = await _request("GET", f"/discussions/{discussion_id}")
-        return _fmt(data)
+        return _fmt(await _request("GET", f"/discussions/{discussion_id}"))
     if idea_id:
-        data = await _request("GET", "/discussions", params={"ref_type": "idea", "ref_id": idea_id})
-        return _fmt(data)
+        return _fmt(await _request("GET", "/discussions", params={"ref_type": "idea", "ref_id": idea_id}))
     if task_id:
-        data = await _request("GET", "/discussions", params={"ref_type": "task", "ref_id": task_id})
-        return _fmt(data)
+        return _fmt(await _request("GET", "/discussions", params={"ref_type": "task", "ref_id": task_id}))
     return _fmt({"error": "provide discussion_id or idea_id or task_id"})
 
 
-@mcp.tool(name="taskhub_reply_discussion", title="讨论回消息", annotations={
-    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
-})
+@_tool(name="taskhub_reply_discussion", title="讨论回消息", method="POST", path="/discussions/{discussion_id}/messages", read_only=False, destructive=False, desc="在讨论会话中发一条消息（agent 回复或向用户提问 role=ask）。")
 async def taskhub_reply_discussion(
     discussion_id: str = Field(description="讨论唯一标识", min_length=1),
     content: str = Field(description="消息内容", min_length=1, max_length=4000),
     role: str = Field(default="agent", description="角色：user/agent/ask"),
     author: str = Field(default="", description="发言人", max_length=64),
 ) -> str:
-    """在讨论会话中发一条消息（agent 回复或向用户提问 role=ask）。"""
     body = {"content": content, "role": role, "author": author}
-    data = await _request("POST", f"/discussions/{discussion_id}/messages", body=body)
-    return _fmt(data)
+    return _fmt(await _request("POST", f"/discussions/{discussion_id}/messages", body=body))
 
 
-@mcp.tool(name="taskhub_close_discussion", title="关闭讨论", annotations={
-    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
-})
+@_tool(name="taskhub_close_discussion", title="关闭讨论", method="POST", path="/discussions/{discussion_id}/close", read_only=False, destructive=False, desc="结束讨论并回写结论，供后续拆解任务参考。")
 async def taskhub_close_discussion(
     discussion_id: str = Field(description="讨论唯一标识", min_length=1),
     conclusions: str = Field(description="讨论结论", max_length=4000),
     summary: str = Field(default="", description="讨论摘要"),
 ) -> str:
-    """结束讨论并回写结论，供后续拆解任务参考。"""
     body = {"conclusions": conclusions, "summary": summary}
-    data = await _request("POST", f"/discussions/{discussion_id}/close", body=body)
-    return _fmt(data)
+    return _fmt(await _request("POST", f"/discussions/{discussion_id}/close", body=body))
 
 
-@mcp.tool(name="taskhub_poll_events", title="增量订阅全局事件", annotations={
-    "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False,
-})
+@_tool(name="taskhub_poll_events", title="增量订阅全局事件", method="GET", path="/events", read_only=True, destructive=False, desc="增量订阅全局变更事件（建任务、领取、心跳、完成、阶段推进、想法、讨论等都会产生）。")
 async def taskhub_poll_events(
     seq: int = Field(default=0, ge=0, description="上次消费的 seq；0 表示从头订阅全部（分页取回，每页最多 200 条）"),
 ) -> str:
-    """增量订阅全局变更事件（建任务、领取、心跳、完成、阶段推进、想法、讨论等都会产生）。
-
-    调用后记录返回的 next_seq，下次以其为 seq 即可拿到增量；一次最多返回 200 条，
-    落后较多时需按 next_seq 多次轮询。心跳事件量大，可按需忽略 type=heartbeat。
-    """
     params = {"after_seq": seq}
-    data = await _request("GET", "/events", params=params)
-    return _fmt(data)
+    return _fmt(await _request("GET", "/events", params=params))
 
 
-@mcp.tool(name="taskhub_breakdown_idea", title="把想法拆解为任务集", annotations={
-    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
-})
+@_tool(name="taskhub_breakdown_idea", title="把想法拆解为任务集", method="POST", path="/ideas/{idea_id}/breakdown", read_only=False, destructive=False, desc="把一个已成形想法拆解为多个任务，子任务用 ref 互相引用依赖。")
 async def taskhub_breakdown_idea(
     idea_id: str = Field(description="想法唯一标识", min_length=1),
     tasks: list = Field(description="任务列表，每项含 title/ref/depends_on/priority 等字段"),
 ) -> str:
-    """把一个已成形想法拆解为多个任务，子任务用 ref 互相引用依赖（如 depends_on: [\"t1\"]）。
-
-    成功后想法状态置 broken_down，任务通过 idea_id 关联回该想法。
-    """
     body = {"tasks": tasks}
-    data = await _request("POST", f"/ideas/{idea_id}/breakdown", body=body)
-    return _fmt(data)
+    return _fmt(await _request("POST", f"/ideas/{idea_id}/breakdown", body=body))
 
 
-@mcp.tool(name="taskhub_review_idea", title="获取想法评审上下文", annotations={
-    "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False,
-})
+@_tool(name="taskhub_review_idea", title="获取想法评审上下文", method="GET", path="/ideas/{idea_id}", read_only=True, destructive=False, desc="返回想法详情 + 讨论 + 最近轨迹 + 4 项判定清单，供评审 agent 使用。")
 async def taskhub_review_idea(
     idea_id: str = Field(description="想法唯一标识", min_length=1),
 ) -> str:
-    """返回想法详情 + 讨论 + 最近轨迹 + 4 项判定清单，供评审 agent 使用。"""
     detail = await _request("GET", f"/ideas/{idea_id}")
     if "error" in detail:
         return _fmt(detail)
-    hist = await _request("GET", f"/ideas/{idea_id}/history",
-                          params={"page": 1, "page_size": 20})
+    hist = await _request("GET", f"/ideas/{idea_id}/history", params={"page": 1, "page_size": 20})
     items = hist.get("items", []) if "error" not in hist else []
     return _fmt({
         "idea": detail,
@@ -884,32 +504,23 @@ async def taskhub_review_idea(
     })
 
 
-@mcp.tool(name="taskhub_submit_review", title="提交想法评审结论", annotations={
-    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False,
-})
+@_tool(name="taskhub_submit_review", title="提交想法评审结论", method="POST", path="/ideas/{idea_id}/review", read_only=False, destructive=False, desc="提交评审结论。状态推进 + kind=review 轨迹 + 评审元数据在同一事务内完成。")
 async def taskhub_submit_review(
     idea_id: str = Field(description="想法唯一标识", min_length=1),
     recommend: str = Field(description="评审结论：nothing/ferment/form/archive（hub 只推进当前状态下一档）"),
     reasoning: str = Field(default="", description="评审依据/决策摘要"),
 ) -> str:
-    """提交评审结论。状态推进 + kind=review 轨迹 + 评审元数据在同一事务内完成。"""
     body = {"recommend": recommend, "reasoning": reasoning, "actor": "agent"}
-    data = await _request("POST", f"/ideas/{idea_id}/review", body=body)
-    return _fmt(data)
+    return _fmt(await _request("POST", f"/ideas/{idea_id}/review", body=body))
 
 
-@mcp.tool(name="taskhub_idea_history", title="查询想法完整轨迹", annotations={
-    "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False,
-})
+@_tool(name="taskhub_idea_history", title="查询想法完整轨迹", method="GET", path="/ideas/{idea_id}/history", read_only=True, destructive=False, desc="查询想法的评审/流转/讨论/操作完整轨迹（时间线，新的在前）。")
 async def taskhub_idea_history(
     idea_id: str = Field(description="想法唯一标识", min_length=1),
     page: int = Field(default=1, ge=1, description="页码"),
     page_size: int = Field(default=50, ge=1, le=200, description="每页条数"),
 ) -> str:
-    """查询想法的评审/流转/讨论/操作完整轨迹（时间线，新的在前）。"""
-    data = await _request("GET", f"/ideas/{idea_id}/history",
-                          params={"page": page, "page_size": page_size})
-    return _fmt(data)
+    return _fmt(await _request("GET", f"/ideas/{idea_id}/history", params={"page": page, "page_size": page_size}))
 
 
 def main():
