@@ -523,5 +523,5 @@ External: MCP Server / Git / Webhook
 **打包验证：** `packaging\build.ps1` 已更新为使用 venv Python（`.venv\Scripts\python.exe`），解决系统 Python 3.13 + SQLAlchemy 2.0.52 的 `AssertionError` 兼容性问题。EXE 成功运行 5 秒无报错。
 
 剩余技术债（均为 P3 低优先级）：
-1. OutboxEvent 表无自动清理（P3）
+1. ✅ OutboxEvent 表自动清理（每小时清理超过 30 天的 SYNCED/FAILED 事件）
 2. OpenAPI 文档发布（P3）
