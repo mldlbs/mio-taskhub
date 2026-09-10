@@ -12,7 +12,7 @@ import logging
 import threading
 import time
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlmodel import Session, select
@@ -25,6 +25,8 @@ logger = logging.getLogger("git_sync")
 # 配置：MIO_TASKHUB_ADR_DIR 可覆盖默认落盘目录（默认 CWD 下 docs/adr）
 POLL_INTERVAL = 2  # 秒
 MAX_RETRIES = 3
+CLEANUP_INTERVAL = 3600  # 每小时清理一次
+OUTBOX_RETENTION_DAYS = 30  # 保留 SYNCED/FAILED 事件的天数
 
 
 def _adr_dir() -> Path:
@@ -230,6 +232,24 @@ def sync_pending_events():
             db.commit()
 
 
+def cleanup_old_outbox_events():
+    """清理过期的 OutboxEvent（SYNCED/FAILED 超过保留天数）。"""
+    cutoff = datetime.now() - timedelta(days=OUTBOX_RETENTION_DAYS)
+    with Session(engine) as db:
+        deleted = db.exec(
+            select(OutboxEvent)
+            .where(OutboxEvent.status.in_([OutboxStatus.SYNCED, OutboxStatus.FAILED]))
+            .where(OutboxEvent.processed_at.is_not(None))
+            .where(OutboxEvent.processed_at < cutoff)
+        ).all()
+        count = len(deleted)
+        for event in deleted:
+            db.delete(event)
+        db.commit()
+        if count > 0:
+            logger.info(f"Cleaned up {count} old OutboxEvent(s) (older than {OUTBOX_RETENTION_DAYS}d)")
+
+
 class GitSyncWorker:
     """异步 Git Sync Worker，独立线程运行"""
 
@@ -237,12 +257,14 @@ class GitSyncWorker:
         self.poll_interval = poll_interval
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self._last_cleanup = datetime.now()
 
     def start(self):
         """启动 Worker"""
         if self._thread and self._thread.is_alive():
             return
         self._stop_event.clear()
+        self._last_cleanup = datetime.now()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
         logger.info("Git Sync Worker started")
@@ -258,6 +280,10 @@ class GitSyncWorker:
         while not self._stop_event.is_set():
             try:
                 sync_pending_events()
+                now = datetime.now()
+                if (now - self._last_cleanup).total_seconds() >= CLEANUP_INTERVAL:
+                    cleanup_old_outbox_events()
+                    self._last_cleanup = now
             except Exception as e:
                 logger.error(f"Git Sync Worker error: {e}")
             self._stop_event.wait(self.poll_interval)
