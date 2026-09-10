@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from mio_taskhub import memory_store as store
@@ -53,31 +53,6 @@ class ExperienceReuseRequest(BaseModel):
     outcomeImproved: Optional[bool] = Field(None, description="结果是否改善")
 
 
-# ---------- 限流 ----------
-
-_rate_buckets: dict[str, list[float]] = {}
-_RATE_LIMIT = 60  # req/min
-
-
-def _enforce_rate_limit(request: Request):
-    client_ip = request.client.host if request.client else "unknown"
-    endpoint = request.url.path
-    key = f"{client_ip}|{endpoint}"
-    now = __import__("time").time()
-    bucket = _rate_buckets.setdefault(key, [])
-    # 滑动窗口
-    cutoff = now - 60
-    bucket[:] = [t for t in bucket if t > cutoff]
-    if len(bucket) >= _RATE_LIMIT:
-        retry_after = int(bucket[0] - cutoff) + 1
-        raise HTTPException(
-            status_code=429,
-            detail={"error": "rate_limited", "retry_after_seconds": retry_after},
-            headers={"Retry-After": str(retry_after)},
-        )
-    bucket.append(now)
-
-
 # ---------- 事件广播 ----------
 
 def _broadcast_event(event_type: str, entity_id: str, payload: dict):
@@ -112,14 +87,12 @@ def health():
 
 @router.get("/query")
 def query(
-    request: Request,
     kind: Optional[str] = Query(None, description="decision/context/problem/note"),
     project: Optional[str] = Query(None),
     keyword: Optional[str] = Query(None, description="搜索关键词"),
     limit: int = Query(20, ge=1, le=200),
 ):
     """查询记忆。"""
-    _enforce_rate_limit(request)
     try:
         result = store.query_memories(kind=kind, project=project,
                                       limit=limit, keyword=keyword)
@@ -131,9 +104,8 @@ def query(
 
 
 @router.post("/record")
-def record(body: RecordRequest, request: Request):
+def record(body: RecordRequest):
     """记录记忆。"""
-    _enforce_rate_limit(request)
     try:
         result = store.record_memory(
             kind=body.kind, context=body.context,
@@ -149,9 +121,8 @@ def record(body: RecordRequest, request: Request):
 
 
 @router.post("/policy/check")
-def policy_check(body: PolicyRequest, request: Request):
+def policy_check(body: PolicyRequest):
     """策略检查。"""
-    _enforce_rate_limit(request)
     try:
         result = store.policy_check(body.operation, body.context)
         store.record_call("policy_check", "ok")
@@ -162,9 +133,8 @@ def policy_check(body: PolicyRequest, request: Request):
 
 
 @router.post("/observer/ingest")
-def observer_ingest(body: IngestRequest, request: Request):
+def observer_ingest(body: IngestRequest):
     """观察事件。"""
-    _enforce_rate_limit(request)
     try:
         result = store.observer_ingest(
             body.trace_id, body.event_type, body.payload, body.outcome,
@@ -179,9 +149,8 @@ def observer_ingest(body: IngestRequest, request: Request):
 
 
 @router.post("/experience/reuse")
-def experience_reuse(body: ExperienceReuseRequest, request: Request):
+def experience_reuse(body: ExperienceReuseRequest):
     """经验复用。"""
-    _enforce_rate_limit(request)
     try:
         result = store.experience_reuse(
             body.sourceAgent, body.targetAgent, body.experienceId,

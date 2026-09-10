@@ -22,3 +22,12 @@ def _clean_db():
     SQLModel.metadata.drop_all(engine)
     init_db()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """Clear global rate limiter buckets between tests."""
+    from mio_taskhub.middleware import _rate_buckets
+    _rate_buckets.clear()
+    yield
+    _rate_buckets.clear()
