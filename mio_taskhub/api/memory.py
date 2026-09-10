@@ -20,7 +20,7 @@ from mio_taskhub.events import emit_event
 from mio_taskhub.db import get_session
 
 
-router = APIRouter(prefix="/api/memory", tags=["memory"])
+router = APIRouter(prefix="/api/v1/memory", tags=["memory"])
 
 
 # ---------- Pydantic models ----------
