@@ -348,7 +348,7 @@ External: MCP Server / Git / Webhook
 | `advance_stage` / `move_to_stage` 重复 | 未及时重构 | DRY 违反 | P3 | ✅ 已提取共享逻辑 |
 | 6 个后台线程无协调 | 未设计 | 资源竞争 | P3 | ✅ ThreadRegistry |
 | OutboxEvent 表膨胀 | 无清理 | 数据膨胀 | P3 | ⚠️ 待修复 |
-| `test_two_agents_race` flaky | SQLite 竞态 | 测试可靠性 | P3 | ⚠️ 待修复 |
+| `test_two_agents_race` flaky | SQLite 竞态 | 测试可靠性 | P3 | ✅ 已修复（QueuePool 替代 StaticPool） |
 
 ---
 
@@ -497,7 +497,7 @@ External: MCP Server / Git / Webhook
 
 ## 最终一句话评价
 
-> 当前系统属于**稳定期**阶段，最大的架构优势是**状态机驱动的业务规则不可绕过 + 自动备份 + 全局限流 + tasks.py/ideas.py 拆分 + MCP 工具装饰器重构**，最大的隐患是**OutboxEvent 表无自动清理机制和 `test_two_agents_race` flaky test**。如果继续保持当前方向，最可能在**1-2 年**因为**SQLite 并发瓶颈**需要迁移 PostgreSQL。
+> 当前系统属于**稳定期**阶段，最大的架构优势是**状态机驱动的业务规则不可绕过 + 自动备份 + 全局限流 + tasks.py/ideas.py 拆分 + MCP 工具装饰器重构**，最大的隐患是**OutboxEvent 表无自动清理机制**。如果继续保持当前方向，最可能在**1-2 年**因为**SQLite 并发瓶颈**需要迁移 PostgreSQL。
 
 ---
 
@@ -524,5 +524,4 @@ External: MCP Server / Git / Webhook
 
 剩余技术债（均为 P3 低优先级）：
 1. OutboxEvent 表无自动清理（P3）
-2. `test_two_agents_race` flaky test（P3）
-3. OpenAPI 文档发布（P3）
+2. OpenAPI 文档发布（P3）
