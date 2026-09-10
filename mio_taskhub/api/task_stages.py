@@ -2,9 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from mio_taskhub.db import get_session
-from mio_taskhub.models import Task, TaskState, TaskStage, Discussion
 from mio_taskhub.events import emit_event
+from mio_taskhub.models import Task, TaskState, TaskStage, Discussion
+from mio_taskhub.transitions import apply_transition, _orm_to_status_state, _orm_to_status_stage
 from mio_taskhub.api.task_helpers import parse_enum
+from mio_taskhub.state_machine import State, State as M1State, Stage as M1Stage, ActorType, IllegalTransition as M1Illegal
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -33,6 +35,23 @@ def _apply_stage_requirements(t: Task, dst: TaskStage, body: dict, strict: bool 
         if strict and not (body.get("review_result") or t.review_result):
             raise HTTPException(422, "done stage requires review_result")
         t.review_result = review
+
+
+def _transition_to_stage(task, to_state, stage, actor_type, actor_id, reason, m1_events):
+    """Apply a single state transition and collect the resulting event."""
+    t, event = apply_transition(task, to_state, stage, actor_type, actor_id, reason)
+    if event:
+        m1_events.append(event)
+    return t, event
+
+
+def _commit_task_and_events(task, db, m1_events):
+    """Commit task and all transition events, then refresh the task."""
+    db.add(task)
+    for ev in m1_events:
+        db.add(ev)
+    db.commit()
+    db.refresh(task)
 
 
 @router.delete("/{task_id}")
@@ -114,51 +133,33 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
         if not discussions:
             raise HTTPException(422, "design stage requires at least one discussion record")
     _apply_stage_requirements(t, dst, body)
-    from mio_taskhub.transitions import apply_transition, _orm_to_status_state, _orm_to_status_stage
-    from mio_taskhub.state_machine import State, Stage as M1Stage, ActorType, IllegalTransition as M1Illegal
     m1_events = []
     try:
         cur_s = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
         from_st = _orm_to_status_stage(src)
         if dst == TaskStage.DONE:
             if cur_s in (TaskState.CLAIMED, TaskState.QUEUED):
-                _, e1 = apply_transition(
-                    t, State.COMPLETED, from_st,
-                    ActorType.USER, "api:advance_stage",
-                    reason="advance→done: review pass",
-                )
-                if e1: m1_events.append(e1)
-            _, e2 = apply_transition(
-                t, State.COMPLETED, M1Stage.DONE,
-                ActorType.SYSTEM, "auto:finalize",
-                reason="T6 finalize",
-            )
-            if e2: m1_events.append(e2)
+                _transition_to_stage(t, State.COMPLETED, from_st,
+                                     ActorType.USER, "api:advance_stage",
+                                     "advance→done: review pass", m1_events)
+            _transition_to_stage(t, State.COMPLETED, M1Stage.DONE,
+                                  ActorType.SYSTEM, "auto:finalize",
+                                  "T6 finalize", m1_events)
         elif dst == TaskStage.CANCELLED:
-            _, e = apply_transition(
-                t, State.CANCELLED, from_st,
-                ActorType.USER, "api:advance_stage",
-                reason="advance→cancelled",
-            )
-            if e: m1_events.append(e)
+            _transition_to_stage(t, State.CANCELLED, from_st,
+                                  ActorType.USER, "api:advance_stage",
+                                  "advance→cancelled", m1_events)
         else:
             actor = ActorType.USER if cur_s == TaskState.QUEUED else ActorType.SYSTEM
             actor_id = "api:advance_stage" if cur_s == TaskState.QUEUED else "auto:advance"
-            _, e = apply_transition(
-                t, _orm_to_status_state(cur_s),
-                M1Stage(dst.value), actor, actor_id,
-                reason=f"advance {src.value}→{dst.value}",
-            )
-            if e: m1_events.append(e)
+            _transition_to_stage(t, _orm_to_status_state(cur_s), M1Stage(dst.value),
+                                  actor, actor_id,
+                                  f"advance {src.value}→{dst.value}", m1_events)
     except M1Illegal as exc:
         raise HTTPException(400, f"state machine rejected advance: {exc}")
-    event = emit_event(db, type="task_stage", entity="task", entity_id=task_id,
-                       payload={"target": dst.value})
-    db.add(t)
-    for ev in m1_events:
-        db.add(ev)
-    db.commit()
-    db.refresh(t)
+    emit_event(db, type="task_stage", entity="task", entity_id=task_id,
+               payload={"target": dst.value})
+    _commit_task_and_events(t, db, m1_events)
     return {"id": t.id, "stage": t.stage.value, "spec_path": t.spec_path,
             "plan_path": t.plan_path, "review_result": t.review_result,
             "state": t.state.value}
@@ -187,8 +188,6 @@ def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
         return {"id": t.id, "stage": t.stage.value, "spec_path": t.spec_path,
                 "plan_path": t.plan_path, "review_result": t.review_result,
                 "state": t.state.value}
-    from mio_taskhub.transitions import apply_transition, _orm_to_status_state, _orm_to_status_stage
-    from mio_taskhub.state_machine import State as M1State, Stage as M1Stage, ActorType as M1Actor
     m1_events = []
     cur_s = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
     cur_m1 = _orm_to_status_state(cur_s)
@@ -196,33 +195,25 @@ def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
     if dst == TaskStage.DONE:
         if cur_s in (TaskState.CLAIMED, TaskState.QUEUED):
             from_st_done = _orm_to_status_stage(src)
-            _, e1 = apply_transition(t, M1State.COMPLETED, from_st_done,
-                                     M1Actor.USER, "api:move_to_stage",
-                                     reason="move→done")
-            if e1: m1_events.append(e1)
-        _, e2 = apply_transition(t, M1State.COMPLETED, M1Stage.DONE,
-                                 M1Actor.SYSTEM, "auto:finalize",
-                                 reason="move→done: finalize")
-        if e2: m1_events.append(e2)
+            _transition_to_stage(t, M1State.COMPLETED, from_st_done,
+ActorType.USER, "api:move_to_stage",
+                                  "move→done", m1_events)
+        _transition_to_stage(t, M1State.COMPLETED, M1Stage.DONE,
+                              ActorType.SYSTEM, "auto:finalize",
+                              "move→done: finalize", m1_events)
     elif dst == TaskStage.CANCELLED:
         from_st = _orm_to_status_stage(src)
-        _, e = apply_transition(t, M1State.CANCELLED, from_st,
-                                M1Actor.USER, "api:move_to_stage",
-                                reason="move→cancelled")
-        if e: m1_events.append(e)
+        _transition_to_stage(t, M1State.CANCELLED, from_st,
+                              ActorType.USER, "api:move_to_stage",
+                              "move→cancelled", m1_events)
     else:
-        actor = M1Actor.USER if cur_s == TaskState.QUEUED else M1Actor.SYSTEM
+        actor = ActorType.USER if cur_s == TaskState.QUEUED else ActorType.SYSTEM
         actor_id = "api:move_to_stage" if cur_s == TaskState.QUEUED else "auto:move"
-        _, e = apply_transition(t, cur_m1, to_st, actor, actor_id,
-                                reason=f"move {src.value}→{dst.value}")
-        if e: m1_events.append(e)
-    event = emit_event(db, type="task_moved", entity="task", entity_id=t.id,
-                       payload={"from": src.value, "to": dst.value})
-    db.add(t)
-    for ev in m1_events:
-        db.add(ev)
-    db.commit()
-    db.refresh(t)
+        _transition_to_stage(t, cur_m1, to_st, actor, actor_id,
+                              f"move {src.value}→{dst.value}", m1_events)
+    emit_event(db, type="task_moved", entity="task", entity_id=t.id,
+               payload={"from": src.value, "to": dst.value})
+    _commit_task_and_events(t, db, m1_events)
     return {"id": t.id, "stage": t.stage.value, "spec_path": t.spec_path,
             "plan_path": t.plan_path, "review_result": t.review_result,
             "state": t.state.value}
