@@ -15,7 +15,7 @@ from mio_taskhub.utils import _now
 from mio_taskhub.dependency import normalize_depends, task_deps
 from mio_taskhub.planner import detect_cycle
 from mio_taskhub.events import emit_event
-from mio_taskhub.idea_templates import DEFAULT_TEMPLATES, IdeaTemplate, get_template_by_id, get_templates_by_category
+from mio_taskhub.idea_prompts import DEFAULT_TEMPLATES, IdeaTemplate, get_template_by_id, get_templates_by_category
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
 
@@ -971,7 +971,7 @@ def generate_from_template(request: TemplateGenerateRequest):
         text = resp["result"]["content"][0]["text"]
         return json.loads(text, strict=False)
 
-    from mio_taskhub.idea_templates import render_template_prompt
+    from mio_taskhub.idea_prompts import render_template_prompt
 
     context = render_template_prompt(template=DEFAULT_TEMPLATES[0], values=request.values)
     context_parts = []
