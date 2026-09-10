@@ -36,7 +36,7 @@ Remove-Item -Recurse -Force build, dist -ErrorAction SilentlyContinue
 
 # ---------- 3) PyInstaller 打包 ----------
 Write-Host '[3/6] PyInstaller 打包 ...'
-& python -m PyInstaller mio-taskhub.spec --noconfirm --clean
+& "E:\work\code\agent-dev\mio-taskhub\.venv\Scripts\python.exe" -m PyInstaller mio-taskhub.spec --noconfirm --clean
 if ($LASTEXITCODE -ne 0) { throw 'PyInstaller 失败' }
 
 $distDir = Join-Path $root 'dist\mio-taskhub'
@@ -80,9 +80,10 @@ if (Test-Path (Join-Path $root 'packaging\workbuddy')) {
 # ---------- 6) 压缩 + 重启 ----------
 if (-not $Quick) {
     Write-Host '[6/6] 生成 zip ...'
-    $zip = Join-Path $root 'dist\mio-taskhub-绿色版.zip'
+$zip = Join-Path $root 'dist\mio-taskhub-绿色版.zip'
     Remove-Item -Force $zip -ErrorAction SilentlyContinue
-    Compress-Archive -Path (Join-Path $distDir '*') -DestinationPath $zip
+    Get-ChildItem -Path $distDir -Recurse | Where-Object { $_.Name -eq 'base_library.zip' } | ForEach-Object { $_.IsReadOnly = $false }
+    Compress-Archive -Path (Join-Path $distDir '*') -DestinationPath $zip -Force
     $size = [math]::Round((Get-Item $zip).Length / 1MB, 1)
     Write-Host "  zip: $zip ($size MB)" -ForegroundColor Green
 } else {

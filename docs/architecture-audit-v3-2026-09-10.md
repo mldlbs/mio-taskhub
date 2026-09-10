@@ -1,6 +1,6 @@
 # mio-taskhub CTO级架构深度审计报告（v3）
 
-> 审计日期：2026-09-10 | 版本：0.2.0 | 后端 9,329 行 + 测试 506 个
+> 审计日期：2026-09-10 | 版本：0.2.0 | 后端 9,329 行 + 测试 506 个 | PyInstaller 打包验证通过
 > 对比基线：v2 审计（8,019 行源码 + 505 测试）
 
 ---
@@ -516,8 +516,11 @@ External: MCP Server / Git / Webhook
 | P3 | MCP 工具重构 | 921→531 行（-42%） |
 | P3 | ThreadRegistry | 6 线程统一管理 |
 | P3 | 共享阶段逻辑提取 | DRY 修复 |
+| 构建 | PyInstaller 打包 | `mio-taskhub.exe` 12.5 MB，通过 venv Python (3.12.14) 构建 |
 
 **架构评分：80/100（卓越）**
+
+**打包验证：** `packaging\build.ps1` 已更新为使用 venv Python（`.venv\Scripts\python.exe`），解决系统 Python 3.13 + SQLAlchemy 2.0.52 的 `AssertionError` 兼容性问题。EXE 成功运行 5 秒无报错。
 
 剩余技术债（均为 P3 低优先级）：
 1. OutboxEvent 表无自动清理（P3）
