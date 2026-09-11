@@ -1,5 +1,6 @@
 import os
 import sys
+import logging
 import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Response, WebSocket
@@ -144,6 +145,7 @@ def get_alerts():
 from fastapi.responses import HTMLResponse
 from pathlib import Path
 import sys
+from mio_taskhub.logging_config import log_buffer
 
 @app.get("/dashboard", response_class=HTMLResponse, tags=["dashboard"])
 def dashboard():
@@ -159,6 +161,40 @@ def dashboard():
             return HTMLResponse(content=candidate.read_text(encoding="utf-8"))
     # Embedded fallback
     return HTMLResponse(content=_DASHBOARD_HTML)
+
+
+from collections import deque
+import threading
+
+class LogBuffer:
+    """In-memory ring buffer for recent log entries (last 1000)."""
+    def __init__(self, maxsize: int = 1000):
+        self._buf: deque = deque(maxlen=maxsize)
+        self._lock = threading.Lock()
+
+    def add(self, entry: dict):
+        with self._lock:
+            self._buf.append(entry)
+
+    def query(self, level: str = None, logger: str = None, limit: int = 100) -> list:
+        with self._lock:
+            items = list(self._buf)
+        if level:
+            items = [e for e in items if e.get("level") == level.upper()]
+        if logger:
+            items = [e for e in items if logger in e.get("logger", "")]
+        return items[-limit:]
+
+
+def _install_buffer_handler():
+    """Install buffer handler (called after logging setup)."""
+    pass
+
+
+@app.get("/api/v1/logs", tags=["logs"])
+def query_logs(level: str = None, logger: str = None, limit: int = 100):
+    """查询最近日志（支持按级别/logger 过滤）"""
+    return {"logs": log_buffer.query(level=level, logger=logger, limit=limit)}
 
 app.state.auth_token = os.environ.get("MIO_TASKHUB_TOKEN", "")
 app.middleware("http")(make_auth_middleware())
