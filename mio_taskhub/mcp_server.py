@@ -11,10 +11,12 @@ Config: MIO_TASKHUB_URL (default http://127.0.0.1:48620/api/v1)
 
 import json
 import os
+import time
 from typing import Optional
 import httpx
 from pydantic import Field
 from mcp.server.fastmcp import FastMCP
+from mio_taskhub.dep_metrics import DepMetrics
 
 HUB_URL = os.environ.get("MIO_TASKHUB_URL", "http://127.0.0.1:48620/api/v1")
 TIMEOUT = 15.0
@@ -44,17 +46,27 @@ mcp = FastMCP(
 
 async def _request(method: str, path: str, params: Optional[dict] = None, body: Optional[dict] = None) -> dict:
     """调用 hub HTTP API，统一处理错误。"""
+    start = time.perf_counter()
     try:
         resp = await _client.request(method, f"{HUB_URL}{path}", params=params, json=body)
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        op = f"{method} {path}"
+        DepMetrics.record("mcp", op, elapsed_ms, success=(resp.status_code < 400))
         if resp.status_code == 204:
             return {}
         resp.raise_for_status()
         return resp.json()
     except httpx.ConnectError:
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        DepMetrics.record("mcp", f"{method} {path}", elapsed_ms, success=False)
         return {"error": f"无法连接 mio-taskhub 服务（{HUB_URL}）。请先启动：python -m uvicorn mio_taskhub.main:app --port 48620"}
     except httpx.HTTPStatusError as e:
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        DepMetrics.record("mcp", f"{method} {path}", elapsed_ms, success=False)
         return {"error": f"HTTP {e.response.status_code}: {e.response.text[:200]}"}
     except httpx.HTTPError as e:
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        DepMetrics.record("mcp", f"{method} {path}", elapsed_ms, success=False)
         return {"error": f"请求失败: {e}"}
 
 

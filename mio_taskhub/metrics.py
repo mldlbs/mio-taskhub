@@ -324,4 +324,30 @@ def render_metrics() -> str:
     except Exception:
         pass
 
+    # ========== Dependency Latency Metrics (SQLite / Git / MCP) ==========
+    try:
+        from mio_taskhub.dep_metrics import DepMetrics
+        dep_lines = DepMetrics.render()
+        if dep_lines:
+            lines.append("")
+            lines.append("# HELP taskhub_dep_latency_count Total calls by dependency and operation")
+            lines.append("# TYPE taskhub_dep_latency_count counter")
+            lines.append("# HELP taskhub_dep_latency_errors Error count by dependency and operation")
+            lines.append("# TYPE taskhub_dep_latency_errors counter")
+            lines.append("# HELP taskhub_dep_latency_avg_ms Average latency in ms")
+            lines.append("# TYPE taskhub_dep_latency_avg_ms gauge")
+            lines.append("# HELP taskhub_dep_latency_max_ms Maximum latency in ms")
+            lines.append("# TYPE taskhub_dep_latency_max_ms gauge")
+            lines.append("# HELP taskhub_dep_latency_p50_ms P50 latency in ms")
+            lines.append("# TYPE taskhub_dep_latency_p50_ms gauge")
+            lines.append("# HELP taskhub_dep_latency_p90_ms P90 latency in ms")
+            lines.append("# TYPE taskhub_dep_latency_p90_ms gauge")
+            lines.append("# HELP taskhub_dep_latency_p99_ms P99 latency in ms")
+            lines.append("# TYPE taskhub_dep_latency_p99_ms gauge")
+            lines.append("# HELP taskhub_dep_error_rate Error rate by dependency and operation")
+            lines.append("# TYPE taskhub_dep_error_rate gauge")
+            lines.append(dep_lines)
+    except Exception:
+        pass
+
     return "\n".join(lines) + "\n"

@@ -19,6 +19,7 @@ from sqlmodel import Session, select
 
 from mio_taskhub.db import engine
 from mio_taskhub.models import OutboxEvent, OutboxStatus, Idea, IdeaType
+from mio_taskhub.dep_metrics import DepMetrics
 
 logger = logging.getLogger("git_sync")
 
@@ -36,6 +37,7 @@ def _adr_dir() -> Path:
 
 def _run_git(*args: str) -> bool:
     """执行 git 命令，返回是否成功"""
+    start = time.perf_counter()
     try:
         result = subprocess.run(
             ["git"] + list(args),
@@ -44,11 +46,17 @@ def _run_git(*args: str) -> bool:
             encoding='utf-8',
             timeout=30,
         )
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        op = args[0] if args else "unknown"
+        DepMetrics.record("git", op, elapsed_ms, success=(result.returncode == 0))
         if result.returncode != 0:
             logger.error(f"git {' '.join(args)} failed: {result.stderr}")
             return False
         return True
     except Exception as e:
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        op = args[0] if args else "unknown"
+        DepMetrics.record("git", op, elapsed_ms, success=False)
         logger.error(f"git {' '.join(args)} exception: {e}")
         return False
 

@@ -1,9 +1,11 @@
 # mio_taskhub/db.py
 import os
+import time
 from sqlmodel import SQLModel, create_engine, Session
 from typing import Generator
 from sqlalchemy import event, text
 from sqlalchemy.pool import QueuePool
+from mio_taskhub.dep_metrics import DepMetrics
 
 # Allow overriding the DB path (e.g. tests use a throwaway DB so the
 # production data in ~/.mio_taskhub/taskhub.db is never wiped).
@@ -50,6 +52,28 @@ def init_db():
 def get_session() -> Generator[Session, None, None]:
     with Session(engine) as session:
         yield session
+
+
+@event.listens_for(engine, "before_cursor_execute")
+def _before_query(conn, cursor, statement, parameters, context, executemany):
+    conn.info.setdefault("query_start_time", []).append(time.perf_counter())
+
+
+@event.listens_for(engine, "after_cursor_execute")
+def _after_query(conn, cursor, statement, parameters, context, executemany):
+    start_times = conn.info.get("query_start_time", [])
+    if start_times:
+        elapsed_ms = (time.perf_counter() - start_times.pop()) * 1000
+        op = "execute"
+        if statement.strip().upper().startswith("SELECT"):
+            op = "select"
+        elif statement.strip().upper().startswith("INSERT"):
+            op = "insert"
+        elif statement.strip().upper().startswith("UPDATE"):
+            op = "update"
+        elif statement.strip().upper().startswith("DELETE"):
+            op = "delete"
+        DepMetrics.record("sqlite", op, elapsed_ms, success=True)
 
 def check_connection() -> dict:
     """Verify DB connectivity. Returns {"ok": bool, "error": str|None}."""
