@@ -154,6 +154,97 @@ def render_metrics() -> str:
             for transition, avg_seconds in trans_rows:
                 if avg_seconds is not None:
                     lines.append(f'taskhub_task_transition_seconds{{transition="{transition}"}} {avg_seconds:.1f}')
+
+            # ========== Business Metrics ==========
+
+            # Task success rate (completed / total terminal)
+            rate_rows = s.exec(text("""
+                SELECT
+                    SUM(CASE WHEN state = 'COMPLETED' THEN 1 ELSE 0 END) as completed,
+                    SUM(CASE WHEN state = 'FAILED' THEN 1 ELSE 0 END) as failed,
+                    SUM(CASE WHEN state = 'CANCELLED' THEN 1 ELSE 0 END) as cancelled,
+                    COUNT(*) as total_terminal
+                FROM task
+                WHERE state IN ('COMPLETED', 'FAILED', 'CANCELLED')
+            """)).first()
+            if rate_rows and rate_rows[3] and rate_rows[3] > 0:
+                completed, failed, cancelled, total = rate_rows
+                lines.append(f'taskhub_task_success_rate {completed / total:.4f}')
+                lines.append(f'taskhub_task_failure_rate {failed / total:.4f}')
+                lines.append(f'taskhub_task_cancel_rate {cancelled / total:.4f}')
+                lines.append(f'taskhub_task_terminal_total {total}')
+
+            # Task throughput (tasks created per hour in last 24h)
+            throughput_rows = s.exec(text("""
+                SELECT COUNT(*) as cnt
+                FROM task
+                WHERE created_at IS NOT NULL
+                AND julianday('now') - julianday(created_at) <= 1.0
+            """)).first()
+            if throughput_rows:
+                lines.append(f'taskhub_task_throughput_24h {throughput_rows[0]}')
+
+            throughput_7d = s.exec(text("""
+                SELECT COUNT(*) as cnt
+                FROM task
+                WHERE created_at IS NOT NULL
+                AND julianday('now') - julianday(created_at) <= 7.0
+            """)).first()
+            if throughput_7d:
+                lines.append(f'taskhub_task_throughput_7d {throughput_7d[0]}')
+
+            # Retry metrics
+            retry_rows = s.exec(text("""
+                SELECT
+                    SUM(retry_count) as total_retries,
+                    AVG(retry_count) as avg_retries,
+                    MAX(retry_count) as max_retries,
+                    SUM(CASE WHEN retry_count > 0 THEN 1 ELSE 0 END) as retried_tasks
+                FROM task
+                WHERE state IN ('COMPLETED', 'FAILED', 'CANCELLED')
+            """)).first()
+            if retry_rows and retry_rows[0] is not None:
+                lines.append(f'taskhub_task_retries_total {retry_rows[0]}')
+                lines.append(f'taskhub_task_retries_avg {retry_rows[1]:.2f}')
+                lines.append(f'taskhub_task_retries_max {retry_rows[2]}')
+                lines.append(f'taskhub_task_retried_count {retry_rows[3]}')
+
+            # Average completion time (completed tasks only)
+            avg_time = s.exec(text("""
+                SELECT AVG(julianday(completed_at) - julianday(created_at)) * 86400.0 as avg_seconds
+                FROM task
+                WHERE state = 'COMPLETED'
+                AND created_at IS NOT NULL AND completed_at IS NOT NULL
+            """)).first()
+            if avg_time and avg_time[0] is not None:
+                lines.append(f'taskhub_task_avg_completion_seconds {avg_time[0]:.1f}')
+
+            # P50/P90/P99 completion time
+            p50 = s.exec(text("""
+                SELECT AVG(julianday(completed_at) - julianday(created_at)) * 86400.0
+                FROM (
+                    SELECT julianday(completed_at) - julianday(created_at) as dur
+                    FROM task
+                    WHERE state = 'COMPLETED'
+                    AND created_at IS NOT NULL AND completed_at IS NOT NULL
+                    ORDER BY dur
+                    LIMIT (SELECT MAX(1, COUNT(*) / 2) FROM task WHERE state = 'COMPLETED')
+                )
+            """)).first()
+            if p50 and p50[0] is not None:
+                lines.append(f'taskhub_task_completion_p50_seconds {p50[0]:.1f}')
+
+            # Agent utilization (agents with active tasks / total online agents)
+            agent_util = s.exec(text("""
+                SELECT
+                    (SELECT COUNT(DISTINCT assigned_agent) FROM task WHERE state = 'RUNNING') as active_agents,
+                    (SELECT COUNT(*) FROM agent WHERE status = 'online') as online_agents
+            """)).first()
+            if agent_util and agent_util[1] and agent_util[1] > 0:
+                lines.append(f'taskhub_agent_utilization {agent_util[0] / agent_util[1]:.4f}')
+                lines.append(f'taskhub_agents_active {agent_util[0]}')
+                lines.append(f'taskhub_agents_online {agent_util[1]}')
+
     except Exception:
         pass
 
