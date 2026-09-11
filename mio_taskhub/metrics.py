@@ -3,6 +3,7 @@ import time
 from sqlmodel import Session, text
 from mio_taskhub.db import engine
 from mio_taskhub.middleware import get_http_metrics
+from mio_taskhub.background import get_thread_health
 
 _start_time = time.time()
 
@@ -87,5 +88,73 @@ def render_metrics() -> str:
     lines.append("# TYPE taskhub_http_request_duration_ms_total counter")
     for label, duration in sorted(hm["total_duration_ms"].items()):
         lines.append(f'taskhub_http_request_duration_ms_total{{label="{label}"}} {duration:.1f}')
+
+    # ---------- Background Thread Health Metrics ----------
+    th = get_thread_health()
+
+    lines.append("# HELP taskhub_thread_alive Background thread alive status")
+    lines.append("# TYPE taskhub_thread_alive gauge")
+    for name, data in sorted(th.items()):
+        lines.append(f'taskhub_thread_alive{{name="{name}"}} {1 if data.get("alive") else 0}')
+
+    lines.append("# HELP taskhub_thread_heartbeat_age_seconds Seconds since last heartbeat")
+    lines.append("# TYPE taskhub_thread_heartbeat_age_seconds gauge")
+    for name, data in sorted(th.items()):
+        age = data.get("age_seconds", 0)
+        if age != float("inf"):
+            lines.append(f'taskhub_thread_heartbeat_age_seconds{{name="{name}"}} {age:.1f}')
+
+    lines.append("# HELP taskhub_thread_consecutive_failures Consecutive failures count")
+    lines.append("# TYPE taskhub_thread_consecutive_failures gauge")
+    for name, data in sorted(th.items()):
+        lines.append(f'taskhub_thread_consecutive_failures{{name="{name}"}} {data.get("consecutive_failures", 0)}')
+
+    # ---------- Task Stage Dwell Time Metrics ----------
+    try:
+        with Session(engine) as s:
+            # Stage dwell time: average time tasks spend in each stage (using last_transition_at)
+            rows = s.exec(text("""
+                SELECT stage, AVG(julianday('now') - julianday(last_transition_at)) * 86400.0 as avg_dwell_seconds
+                FROM task
+                WHERE state NOT IN ('COMPLETED', 'FAILED', 'CANCELLED') AND last_transition_at IS NOT NULL
+                GROUP BY stage
+            """)).all()
+            for stage, avg_dwell in rows:
+                if avg_dwell is not None:
+                    lines.append(f'taskhub_task_stage_dwell_seconds{{stage="{stage}"}} {avg_dwell:.1f}')
+
+            # Tasks stuck in stage > threshold (stalled) - using last_transition_at
+            stalled_rows = s.exec(text("""
+                SELECT stage, COUNT(*) as stuck_count
+                FROM task
+                WHERE state NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')
+                AND last_transition_at IS NOT NULL
+                AND (julianday('now') - julianday(last_transition_at)) * 86400.0 > 300
+                GROUP BY stage
+            """)).all()
+            for stage, stuck_count in stalled_rows:
+                lines.append(f'taskhub_task_stalled_total{{stage="{stage}"}} {stuck_count}')
+
+            # Task state transition latency (created -> claimed, claimed -> running, etc.)
+            trans_rows = s.exec(text("""
+                SELECT
+                    CASE
+                        WHEN state = 'QUEUED' THEN 'created_to_queued'
+                        WHEN state = 'CLAIMED' THEN 'queued_to_claimed'
+                        WHEN state = 'RUNNING' THEN 'claimed_to_running'
+                        WHEN state = 'COMPLETED' THEN 'running_to_completed'
+                        WHEN state = 'FAILED' THEN 'running_to_failed'
+                        ELSE 'other'
+                    END as transition,
+                    AVG(julianday('now') - julianday(created_at)) * 86400.0 as avg_seconds
+                FROM task
+                WHERE state IN ('QUEUED', 'CLAIMED', 'RUNNING', 'COMPLETED', 'FAILED')
+                GROUP BY transition
+            """)).all()
+            for transition, avg_seconds in trans_rows:
+                if avg_seconds is not None:
+                    lines.append(f'taskhub_task_transition_seconds{{transition="{transition}"}} {avg_seconds:.1f}')
+    except Exception:
+        pass
 
     return "\n".join(lines) + "\n"

@@ -1,19 +1,121 @@
+import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 import threading
+import time
+from typing import Callable, List, Dict, Optional
 from sqlmodel import Session, select
 from mio_taskhub.db import engine
 from mio_taskhub.api.claim import claim_for as _claim_for
 from mio_taskhub.models import Agent, AgentStatus, Run, RunState, Task, TaskStage, TaskState
-from mio_taskhub.heartbeat import HeartbeatSweep, RunInfo
-from mio_taskhub.scheduler import Scheduler
 from mio_taskhub.state_machine import is_terminal
 from mio_taskhub.dependency import dependency_satisfied, task_deps
 from mio_taskhub.events import emit_event, broadcast_for_event
 from mio_taskhub.transitions import apply_transition, _orm_to_status_stage
 from mio_taskhub.state_machine import State as M1State, Stage as M1Stage, ActorType as M1Actor
+from mio_taskhub.idea_review import IdeaReviewScanner
+
+logger = logging.getLogger("mio_taskhub.background")
 
 DEFAULT_TIMEOUT_SECONDS = 120
 AGENT_TIMEOUT_SECONDS = 180
+
+# ---------- RunInfo ----------
+@dataclass
+class RunInfo:
+    run_id: str
+    task_id: str
+    agent_name: str
+    state: RunState
+    last_heartbeat: float
+    attempt: int
+    max_retries: int
+    timeout_seconds: int = 120
+    agent_offline: bool = False
+
+
+# ---------- Background Thread Heartbeat ----------
+
+_thread_heartbeats: dict[str, dict] = {}
+_thread_heartbeats_lock = threading.Lock()
+
+STALL_THRESHOLD_SECONDS = 300  # 5 minutes
+
+def thread_heartbeat(name: str, status: str = "running", metadata: dict | None = None):
+    """Record a heartbeat for a background thread."""
+    with _thread_heartbeats_lock:
+        _thread_heartbeats[name] = {
+            "last_heartbeat": time.time(),
+            "status": status,
+            "metadata": metadata or {},
+            "consecutive_failures": 0,
+            "last_failure": None,
+        }
+
+def thread_failure(name: str, error: str | None = None):
+    """Record a failure for a background thread."""
+    with _thread_heartbeats_lock:
+        if name in _thread_heartbeats:
+            _thread_heartbeats[name]["consecutive_failures"] += 1
+            _thread_heartbeats[name]["last_failure"] = {
+                "time": time.time(),
+                "error": error,
+            }
+
+def get_thread_health() -> dict:
+    """Get health status of all registered threads."""
+    now = time.time()
+    with _thread_heartbeats_lock:
+        result = {}
+        for name, data in _thread_heartbeats.items():
+            last_hb = data.get("last_heartbeat", 0)
+            age = now - last_hb if last_hb else float("inf")
+            result[name] = {
+                "status": data.get("status", "unknown"),
+                "last_heartbeat": last_hb,
+                "age_seconds": age,
+                "consecutive_failures": data.get("consecutive_failures", 0),
+                "last_failure": data.get("last_failure"),
+                "alive": age < 60,  # consider dead if no heartbeat for 60s
+            }
+        return result
+
+
+class BackgroundWorker:
+    """Base class for background workers with heartbeat support."""
+
+    def __init__(self, name: str, poll_interval: float = 10.0):
+        self.name = name
+        self.poll_interval = poll_interval
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self):
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._loop, daemon=True, name=self.name)
+        self._thread.start()
+        logger.info("%s started", self.name)
+
+    def stop(self):
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=5)
+        logger.info("%s stopped", self.name)
+
+    def _loop(self):
+        while not self._stop.wait(self.poll_interval):
+            try:
+                self.tick()
+                thread_heartbeat(self.name, "running")
+            except Exception as e:
+                logger.exception("%s tick failed", self.name)
+                thread_failure(self.name, str(e))
+
+    def tick(self):
+        """Override in subclass."""
+        pass
 
 
 def _get_runs():
@@ -328,7 +430,53 @@ def register_thread(name: str, thread: threading.Thread, obj: object = None):
     _thread_registry.register(name, thread, obj)
 
 
-from mio_taskhub.idea_review import IdeaReviewScanner
+class ThreadRegistry:
+    """统一管理所有后台守护线程的启动与停止。
+
+    按注册顺序启动，按反向顺序停止（保证依赖正确的关闭顺序）。
+    提供健康检查接口（含心跳状态）。
+    """
+
+    def __init__(self):
+        self._entries: list[tuple[str, threading.Thread, object]] = []
+
+    def register(self, name: str, thread: threading.Thread, obj: object = None):
+        """注册一个守护线程及其停止方法。"""
+        self._entries.append((name, thread, obj))
+
+    def start_all(self):
+        """按注册顺序启动所有线程。"""
+        for name, thread, _ in self._entries:
+            thread.start()
+
+    def stop_all(self):
+        """按反向顺序停止所有线程（保证依赖正确的关闭顺序）。"""
+        for name, thread, obj in reversed(self._entries):
+            if obj is not None and hasattr(obj, "stop"):
+                obj.stop()
+            thread.join(timeout=5)
+
+    def health_check(self) -> dict:
+        """返回所有线程的健康状态（含心跳）。"""
+        thread_health = get_thread_health()
+        result = {}
+        for name, thread, _ in self._entries:
+            hb = thread_health.get(name, {})
+            result[name] = {
+                "alive": thread.is_alive(),
+                "heartbeat_age_seconds": hb.get("age_seconds"),
+                "consecutive_failures": hb.get("consecutive_failures", 0),
+                "last_failure": hb.get("last_failure"),
+            }
+        return result
+
+
+_thread_registry = ThreadRegistry()
+
+
+def register_thread(name: str, thread: threading.Thread, obj: object = None):
+    """注册一个守护线程到全局调度器。"""
+    _thread_registry.register(name, thread, obj)
 
 
 def start_background_jobs():
@@ -342,3 +490,91 @@ def start_background_jobs():
     register_thread("scheduler", scheduler._thread, scheduler)
     register_thread("idea-review", idea_scanner._thread, idea_scanner)
     return sweep, scheduler, idea_scanner
+
+
+# ---------- HeartbeatSweep ----------
+class HeartbeatSweep:
+    def __init__(
+        self,
+        timeout_seconds: int = 120,
+        poll_interval: float = 10.0,
+        get_runs: Callable[[], List[RunInfo]] = lambda: [],
+        on_timeout: Callable[[str, str], None] = lambda rid, tid: None,
+        on_alive: Callable[[str], None] = lambda rid: None,
+    ):
+        self.timeout = timeout_seconds
+        self.interval = poll_interval
+        self._get_runs = get_runs
+        self._on_timeout = on_timeout
+        self._on_alive = on_alive
+        self._stop = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+
+    def start(self):
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=5)
+
+    def _run(self):
+        while not self._stop.wait(self.interval):
+            try:
+                self._sweep()
+                thread_heartbeat("heartbeat", "running")
+            except Exception:
+                thread_failure("heartbeat")
+                logging.getLogger("mio_taskhub.heartbeat").exception("heartbeat sweep failed")
+
+    def _sweep(self):
+        now = time.time()
+        for run in self._get_runs():
+            if run.state not in (RunState.CLAIMED, RunState.RUNNING):
+                continue
+            try:
+                expired = now - run.last_heartbeat > getattr(run, "timeout_seconds", self.timeout)
+                if run.agent_offline or expired:
+                    self._on_timeout(run.run_id, run.task_id)
+                else:
+                    self._on_alive(run.run_id)
+            except Exception:
+                pass  # isolate per-run failures
+
+
+# ---------- Scheduler ----------
+class Scheduler:
+    def __init__(
+        self,
+        interval: float = 30.0,
+        get_due_tasks: Callable[[], List[Dict]] = lambda: [],
+        on_enqueue: Callable[[str], None] = lambda tid: None,
+    ):
+        self.interval = interval
+        self._get_due_tasks = get_due_tasks
+        self._on_enqueue = on_enqueue
+        self._stop = threading.Event()
+        self._thread = None
+
+    def start(self):
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=5)
+
+    def tick(self):
+        for task in self._get_due_tasks():
+            self._on_enqueue(task["id"])
+
+    def _run(self):
+        while not self._stop.wait(self.interval):
+            try:
+                self.tick()
+                thread_heartbeat("scheduler", "running")
+            except Exception:
+                thread_failure("scheduler")
+                logging.getLogger("mio_taskhub.scheduler").exception("scheduler tick failed")
