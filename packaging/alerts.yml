@@ -1,0 +1,206 @@
+# Prometheus Alerting Rules for mio-taskhub
+# Place at: ~/.mio_taskhub/alerts.yml or /etc/prometheus/rules/mio-taskhub.yml
+# Load in prometheus.yml: rule_files: ["alerts.yml"]
+
+groups:
+  - name: mio-taskhub-critical
+    interval: 30s
+    rules:
+      # === Service Availability ===
+      - alert: TaskHubDown
+        expr: up{job="mio-taskhub"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "mio-taskhub instance down"
+          description: "mio-taskhub has been down for more than 1 minute"
+
+      - alert: TaskHubPortUnreachable
+        expr: probe_success{job="mio-taskhub"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "mio-taskhub port unreachable"
+          description: "Cannot reach mio-taskhub on port {{ $labels.instance }}"
+
+      # === Thread Health ===
+      - alert: BackgroundThreadDead
+        expr: taskhub_thread_alive == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Background thread {{ $labels.name }} is dead"
+          description: "Thread {{ $labels.name }} has not reported heartbeat for >60s"
+
+      - alert: BackgroundThreadStalled
+        expr: taskhub_thread_heartbeat_age_seconds > 120
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Background thread {{ $labels.name }} stalled"
+          description: "Thread {{ $labels.name }} heartbeat age > 120s (last: {{ $value }}s ago)"
+
+      - alert: BackgroundThreadRepeatedFailures
+        expr: taskhub_thread_consecutive_failures > 3
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Background thread {{ $labels.name }} repeated failures"
+          description: "Thread {{ $labels.name }} has {{ $value }} consecutive failures"
+
+  - name: mio-taskhub-warning
+    interval: 30s
+    rules:
+      # === HTTP Layer ===
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(taskhub_http_errors_total[5m])) / sum(rate(taskhub_http_requests_total[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High HTTP error rate"
+          description: "Error rate > 5% over 5m (current: {{ $value | humanizePercentage }})"
+
+      - alert: HighLatencyP99
+        expr: |
+          histogram_quantile(0.99, sum(rate(taskhub_http_request_duration_ms_bucket[5m])) by (le, method, path)) > 2000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High P99 latency"
+          description: "P99 latency > 2s (current: {{ $value }}ms)"
+
+      - alert: HighActiveRequests
+        expr: taskhub_http_active_requests > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High concurrent requests"
+          description: "{{ $value }} active HTTP requests"
+
+      # === Task Business Metrics ===
+      - alert: TaskStalled
+        expr: taskhub_task_stalled_total > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} tasks stalled in stage {{ $labels.stage }}"
+          description: "Tasks in stage {{ $labels.stage }} stuck > 5min"
+
+      - alert: TaskStuckInStage
+        expr: taskhub_task_stage_dwell_seconds > 3600
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tasks in {{ $labels.stage }} stuck > 1h"
+          description: "Avg dwell time: {{ $value | humanizeDuration }}"
+
+      - alert: LowTaskCompletionRate
+        expr: |
+          (rate(taskhub_tasks_total{state="COMPLETED"}[15m]) 
+           / 
+           (rate(taskhub_tasks_total{state="COMPLETED"}[15m]) 
+            + rate(taskhub_tasks_total{state="FAILED"}[15m]))) < 0.8
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low task completion rate"
+          description: "Completion rate < 80% over 15m"
+
+      # === Outbox / ADR Sync ===
+      - alert: OutboxEventBacklog
+        expr: taskhub_task_stalled_total{stage="ADR_SYNC"} > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OutboxEvent backlog > 10"
+          description: "{{ $value }} ADR sync events pending > 5min"
+
+      - alert: GitSyncWorkerStalled
+        expr: taskhub_thread_heartbeat_age_seconds{name="git-sync"} > 120
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GitSyncWorker heartbeat stalled"
+          description: "No heartbeat for {{ $value }}s"
+
+      # === Scheduler / NightRunner ===
+      - alert: SchedulerStalled
+        expr: taskhub_thread_heartbeat_age_seconds{name="scheduler"} > 120
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Scheduler heartbeat stalled"
+          description: "Scheduler no heartbeat for {{ $value }}s"
+
+      - alert: NightRunnerStalled
+        expr: taskhub_thread_heartbeat_age_seconds{name="night-runner"} > 180
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "NightRunner heartbeat stalled"
+          description: "NightRunner no heartbeat for {{ $value }}s"
+
+      - alert: CronEngineStalled
+        expr: taskhub_thread_heartbeat_age_seconds{name="cron-engine"} > 120
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CronEngine heartbeat stalled"
+          description: "CronEngine no heartbeat for {{ $value }}s"
+
+      # === Resource ===
+      - alert: HighMemoryUsage
+        expr: (process_resident_memory_bytes / process_virtual_memory_bytes) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage > 90% of virtual memory"
+
+      - alert: DiskSpaceLow
+        expr: (disk_free_bytes / disk_total_bytes) < 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk space low"
+          description: "Free disk space < 10%"
+
+  - name: mio-taskhub-info
+    interval: 60s
+    rules:
+      - alert: TaskQueueBacklog
+        expr: taskhub_tasks_total{state="QUEUED"} > 50
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "Task queue backlog growing"
+          description: "{{ $value }} tasks queued"
+
+      - alert: HighRetryRate
+        expr: taskhub_tasks_total{state="RETRYING"} > 10
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "High task retry count"
+          description: "{{ $value }} tasks in RETRYING state"

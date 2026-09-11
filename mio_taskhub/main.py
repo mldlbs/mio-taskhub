@@ -13,6 +13,7 @@ from mio_taskhub.logging_config import setup_logging
 from mio_taskhub.middleware import RequestIDMiddleware, RateLimitMiddleware
 from mio_taskhub.events import ws_manager
 from mio_taskhub.otel import init_otel, instrument_app, instrument_sqlalchemy, instrument_httpx, shutdown_otel
+from mio_taskhub.alerts import init_alert_manager, get_alert_manager
 from mio_taskhub.db import engine as db_engine
 
 
@@ -63,6 +64,11 @@ async def lifespan(app):
     backup.start()
     register_thread("backup", backup._thread, backup)
     app.state.backup = backup
+
+    # Initialize alert manager
+    alert_mgr = init_alert_manager()
+    app.state.alert_manager = alert_mgr
+
     yield
     jobs = getattr(app.state, "background", None)
     if jobs:
@@ -123,6 +129,16 @@ app.include_router(memory.router, tags=["memory-gateway"])
 def status_alias(agent: str = None, db=Depends(get_session)):
     """调度器与心跳状态别名：复用 board_summary，满足验收中 GET /status 要求。"""
     return _board_summary(agent=agent, db=db)
+
+
+@app.get("/api/v1/alerts", tags=["alerts"])
+def get_alerts():
+    """返回当前所有告警状态（active + resolved）"""
+    mgr = get_alert_manager()
+    if mgr:
+        mgr.evaluate()
+        return {"alerts": mgr.get_all(), "active_count": len(mgr.get_active())}
+    return {"alerts": [], "active_count": 0}
 
 app.state.auth_token = os.environ.get("MIO_TASKHUB_TOKEN", "")
 app.middleware("http")(make_auth_middleware())
