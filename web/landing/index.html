@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mio-TaskHub — 多 Agent 任务调度基础设施</title>
+<meta name="description" content="让多个 AI Agent 共享任务队列、并行执行、自动调度。本地优先，MCP 原生集成，开箱即用。">
+<meta property="og:title" content="Mio-TaskHub — 多 Agent 任务调度基础设施">
+<meta property="og:description" content="让多个 AI Agent 共享任务队列、并行执行、自动调度。">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#06080f;--bg2:#0c1018;--card:#111827;--card2:#161d2e;
+  --border:#1c2538;--border2:#253049;
+  --accent:#3b82f6;--accent-dim:rgba(59,130,246,0.12);
+  --green:#22c55e;--green-dim:rgba(34,197,94,0.12);
+  --amber:#f59e0b;--amber-dim:rgba(245,158,11,0.12);
+  --red:#ef4444;--red-dim:rgba(239,68,68,0.12);
+  --purple:#8b5cf6;--purple-dim:rgba(139,92,246,0.12);
+  --text:#e8ecf4;--text2:#94a3b8;--text3:#64748b;
+  --mono:'JetBrains Mono',monospace;--sans:'Inter',system-ui,-apple-system,sans-serif;
+}
+html{scroll-behavior:smooth;-webkit-font-smoothing:antialiased}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.6;overflow-x:hidden}
+a{color:var(--accent);text-decoration:none;transition:color .2s}
+a:hover{color:#60a5fa}
+
+/* Layout */
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+section{padding:120px 0}
+@media(max-width:768px){section{padding:80px 0}}
+
+/* Nav */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;padding:16px 0;transition:background .3s,box-shadow .3s}
+nav.scrolled{background:rgba(6,8,15,0.92);backdrop-filter:blur(12px);box-shadow:0 1px 0 var(--border)}
+nav .wrap{display:flex;align-items:center;justify-content:space-between}
+.nav-logo{font-size:18px;font-weight:700;color:var(--text);letter-spacing:-0.5px}
+.nav-logo span{color:var(--accent)}
+.nav-links{display:flex;gap:28px;align-items:center}
+.nav-links a{color:var(--text2);font-size:14px;font-weight:500;transition:color .2s}
+.nav-links a:hover{color:var(--text)}
+.nav-cta{background:var(--accent);color:#fff!important;padding:8px 20px;border-radius:8px;font-weight:600;font-size:13px}
+.nav-cta:hover{background:#2563eb;color:#fff!important}
+@media(max-width:768px){.nav-links a:not(.nav-cta){display:none}}
+
+/* Hero */
+.hero{min-height:100vh;display:flex;align-items:center;position:relative;padding-top:80px}
+.hero-grid{display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center}
+@media(max-width:900px){.hero-grid{grid-template-columns:1fr;gap:48px;text-align:center}}
+.hero-badge{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;color:var(--green);border:1px solid rgba(34,197,94,0.25);background:var(--green-dim);margin-bottom:24px}
+.hero-badge .dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.hero h1{font-size:clamp(36px,5.5vw,64px);font-weight:900;line-height:1.08;letter-spacing:-2px;margin-bottom:20px}
+.hero h1 em{font-style:normal;background:linear-gradient(135deg,var(--accent),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero-sub{font-size:clamp(16px,2vw,20px);color:var(--text2);line-height:1.7;max-width:520px;margin-bottom:36px}
+@media(max-width:900px){.hero-sub{margin:0 auto 36px}}
+.hero-actions{display:flex;gap:12px;flex-wrap:wrap}
+@media(max-width:900px){.hero-actions{justify-content:center}}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:12px 28px;border-radius:10px;font-size:15px;font-weight:600;border:none;cursor:pointer;transition:all .2s}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:#2563eb;transform:translateY(-1px);box-shadow:0 4px 20px rgba(59,130,246,0.3);color:#fff}
+.btn-ghost{background:transparent;color:var(--text);border:1px solid var(--border2)}
+.btn-ghost:hover{border-color:var(--accent);background:var(--accent-dim);color:var(--accent)}
+
+/* Hero Visual — Live Kanban */
+.hero-visual{position:relative}
+.kanban{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px;overflow:hidden}
+.kanban-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+.kanban-title{font-size:13px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:1px}
+.kanban-dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+.kanban-cols{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.kanban-col{min-height:160px}
+.kanban-col-title{font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.kanban-col-title .cnt{background:var(--border);color:var(--text3);font-size:10px;padding:1px 6px;border-radius:8px}
+.kanban-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:6px;font-size:12px;transition:all .3s;opacity:0;transform:translateY(8px)}
+.kanban-card.show{opacity:1;transform:translateY(0)}
+.kanban-card .label{font-weight:600;color:var(--text);margin-bottom:4px;line-height:1.4}
+.kanban-card .meta{display:flex;align-items:center;gap:8px;color:var(--text3);font-size:11px}
+.kanban-card .tag{padding:2px 6px;border-radius:4px;font-size:10px;font-weight:500}
+.tag-blue{background:var(--accent-dim);color:var(--accent)}
+.tag-green{background:var(--green-dim);color:var(--green)}
+.tag-amber{background:var(--amber-dim);color:var(--amber)}
+.tag-purple{background:var(--purple-dim);color:var(--purple)}
+.tag-red{background:var(--red-dim);color:var(--red)}
+@media(max-width:600px){.kanban-cols{grid-template-columns:1fr}}
+
+/* Stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:64px}
+@media(max-width:768px){.stats{grid-template-columns:repeat(2,1fr)}}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px 20px;text-align:center}
+.stat-num{font-size:32px;font-weight:800;letter-spacing:-1px;background:linear-gradient(135deg,var(--accent),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.stat-label{font-size:13px;color:var(--text3);margin-top:4px}
+
+/* Section Headers */
+.sec-label{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:2px;color:var(--accent);margin-bottom:12px}
+.sec-title{font-size:clamp(28px,4vw,42px);font-weight:800;letter-spacing:-1px;line-height:1.15;margin-bottom:16px}
+.sec-desc{font-size:17px;color:var(--text2);max-width:600px;line-height:1.7}
+.sec-center{text-align:center}
+.sec-center .sec-desc{margin:0 auto}
+
+/* Problem */
+.problem-grid{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:48px}
+@media(max-width:768px){.problem-grid{grid-template-columns:1fr}}
+.problem-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:32px;position:relative;overflow:hidden}
+.problem-card.before{border-color:rgba(239,68,68,0.2)}
+.problem-card.after{border-color:rgba(34,197,94,0.2)}
+.problem-card .tag{display:inline-block;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;margin-bottom:16px;text-transform:uppercase;letter-spacing:0.5px}
+.problem-card.before .tag{background:var(--red-dim);color:var(--red)}
+.problem-card.after .tag{background:var(--green-dim);color:var(--green)}
+.problem-card h3{font-size:18px;font-weight:700;margin-bottom:12px}
+.problem-card ul{list-style:none;display:flex;flex-direction:column;gap:10px}
+.problem-card li{font-size:14px;color:var(--text2);padding-left:20px;position:relative;line-height:1.6}
+.problem-card.before li::before{content:'✕';position:absolute;left:0;color:var(--red);font-size:12px;font-weight:700}
+.problem-card.after li::before{content:'✓';position:absolute;left:0;color:var(--green);font-size:12px;font-weight:700}
+
+/* Capabilities */
+.cap-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:48px}
+@media(max-width:900px){.cap-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){.cap-grid{grid-template-columns:1fr}}
+.cap-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:28px;transition:all .3s}
+.cap-card:hover{border-color:var(--accent);transform:translateY(-2px)}
+.cap-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:16px}
+.cap-icon.blue{background:var(--accent-dim);color:var(--accent)}
+.cap-icon.green{background:var(--green-dim);color:var(--green)}
+.cap-icon.purple{background:var(--purple-dim);color:var(--purple)}
+.cap-icon.amber{background:var(--amber-dim);color:var(--amber)}
+.cap-card h3{font-size:16px;font-weight:700;margin-bottom:8px}
+.cap-card p{font-size:13px;color:var(--text2);line-height:1.7}
+
+/* How It Works */
+.workflow{margin-top:48px;position:relative}
+.workflow-steps{display:grid;grid-template-columns:repeat(5,1fr);gap:0;position:relative}
+@media(max-width:900px){.workflow-steps{grid-template-columns:1fr;gap:0}}
+.workflow-step{text-align:center;padding:24px 16px;position:relative}
+@media(max-width:900px){.workflow-step{text-align:left;padding:16px 0 16px 48px;position:relative}}
+.step-num{width:36px;height:36px;border-radius:50%;background:var(--accent-dim);border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:var(--accent);margin:0 auto 12px}
+@media(max-width:900px){.step-num{position:absolute;left:0;top:16px}}
+.step-title{font-size:14px;font-weight:700;margin-bottom:4px}
+.step-desc{font-size:12px;color:var(--text3);line-height:1.5}
+.workflow-line{position:absolute;top:42px;left:10%;right:10%;height:2px;background:var(--border);z-index:0}
+@media(max-width:900px){.workflow-line{display:none}}
+.arrow-connector{display:none}
+@media(max-width:900px){
+  .workflow-step:not(:last-child)::after{content:'↓';position:absolute;left:14px;bottom:-4px;color:var(--text3);font-size:16px}
+}
+
+/* Showcase */
+.showcase-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:48px}
+@media(max-width:768px){.showcase-grid{grid-template-columns:1fr}}
+.showcase-card{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;transition:all .3s}
+.showcase-card:hover{border-color:var(--accent)}
+.showcase-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.showcase-header h4{font-size:13px;font-weight:600;color:var(--text2)}
+.showcase-header .status{font-size:11px;color:var(--green);display:flex;align-items:center;gap:4px}
+.showcase-header .status::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--green)}
+.showcase-body{padding:20px}
+.showcase-code{font-family:var(--mono);font-size:12px;line-height:1.8;color:var(--text2)}
+.showcase-code .kw{color:#c678dd}
+.showcase-code .fn{color:#61afef}
+.showcase-code .str{color:#98c379}
+.showcase-code .cm{color:#5c6370}
+.showcase-code .num{color:#d19a66}
+.showcase-code .op{color:#56b6c2}
+
+/* Metrics row inside showcase */
+.metrics-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}
+.metric-mini{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center}
+.metric-mini .val{font-size:20px;font-weight:800;color:var(--accent)}
+.metric-mini .lbl{font-size:10px;color:var(--text3);margin-top:2px;text-transform:uppercase;letter-spacing:0.5px}
+
+/* Live Status Simulation */
+.live-status{margin-top:16px;font-family:var(--mono);font-size:11px}
+.status-line{display:flex;align-items:center;gap:8px;padding:4px 0;color:var(--text3)}
+.status-line .ts{color:var(--text3);min-width:60px}
+.status-line .agent{color:var(--accent);min-width:80px}
+.status-line .action{color:var(--text2)}
+.status-line .ok{color:var(--green)}
+.status-line .warn{color:var(--amber)}
+
+/* Use Cases */
+.use-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;margin-top:48px}
+@media(max-width:768px){.use-grid{grid-template-columns:1fr}}
+.use-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:28px;transition:all .3s}
+.use-card:hover{border-color:var(--accent)}
+.use-card .emoji{font-size:28px;margin-bottom:16px}
+.use-card h3{font-size:17px;font-weight:700;margin-bottom:8px}
+.use-card .problem{font-size:13px;color:var(--red);margin-bottom:8px;line-height:1.6}
+.use-card .solution{font-size:13px;color:var(--green);margin-bottom:8px;line-height:1.6}
+.use-card .result{font-size:13px;color:var(--text2);line-height:1.6;padding-top:8px;border-top:1px solid var(--border)}
+
+/* Differentiation */
+.diff-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:48px}
+@media(max-width:768px){.diff-grid{grid-template-columns:1fr}}
+.diff-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:28px}
+.diff-card h3{font-size:16px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.diff-card p{font-size:13px;color:var(--text2);line-height:1.7}
+.diff-tag{display:inline-block;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600;background:var(--accent-dim);color:var(--accent);text-transform:uppercase;letter-spacing:0.5px}
+
+/* CTA */
+.cta-section{text-align:center;padding:120px 0;position:relative}
+.cta-section::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;background:radial-gradient(circle,rgba(59,130,246,0.06) 0%,transparent 70%);pointer-events:none}
+.cta-title{font-size:clamp(32px,5vw,48px);font-weight:900;letter-spacing:-1.5px;margin-bottom:16px}
+.cta-desc{font-size:18px;color:var(--text2);margin-bottom:40px;max-width:500px;margin-left:auto;margin-right:auto}
+.cta-actions{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
+.cta-code{margin-top:32px;font-family:var(--mono);font-size:13px;color:var(--text3);background:var(--card);display:inline-block;padding:12px 24px;border-radius:10px;border:1px solid var(--border)}
+.cta-code span{color:var(--accent)}
+
+/* Footer */
+footer{border-top:1px solid var(--border);padding:40px 0}
+.footer-inner{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px}
+.footer-left{font-size:14px;color:var(--text3)}
+.footer-links{display:flex;gap:20px}
+.footer-links a{font-size:13px;color:var(--text3);transition:color .2s}
+.footer-links a:hover{color:var(--text)}
+
+/* Scroll Reveal */
+.reveal{opacity:0;transform:translateY(24px);transition:opacity .6s ease,transform .6s ease}
+.reveal.visible{opacity:1;transform:translateY(0)}
+.reveal-delay-1{transition-delay:.1s}
+.reveal-delay-2{transition-delay:.2s}
+.reveal-delay-3{transition-delay:.3s}
+.reveal-delay-4{transition-delay:.4s}
+
+/* Code block */
+.code-block{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:20px;font-family:var(--mono);font-size:13px;line-height:1.8;overflow-x:auto;margin-top:24px}
+.code-block .cm{color:#5c6370}
+.code-block .kw{color:#c678dd}
+.code-block .fn{color:#61afef}
+.code-block .str{color:#98c379}
+.code-block .op{color:#56b6c2}
+</style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav id="nav">
+<div class="wrap">
+  <div class="nav-logo">Mio<span>-TaskHub</span></div>
+  <div class="nav-links">
+    <a href="#problem">为什么</a>
+    <a href="#capabilities">能力</a>
+    <a href="#showcase">产品</a>
+    <a href="#workflow">工作流</a>
+    <a href="#usecases">场景</a>
+    <a href="https://github.com/mldlbs/mio-taskhub" class="nav-cta">GitHub</a>
+  </div>
+</div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+<div class="wrap">
+<div class="hero-grid">
+  <div>
+    <div class="hero-badge"><span class="dot"></span>v0.2.0 已发布</div>
+    <h1>多个 Agent，<br><em>一个调度中心</em></h1>
+    <p class="hero-sub">当 opencode 在写代码时，Claude Code 在跑测试，Codex 在重构——Mio-TaskHub 让它们共享同一个任务队列，自动调度，互不冲突。</p>
+    <div class="hero-actions">
+      <a href="https://github.com/mldlbs/mio-taskhub" class="btn btn-primary">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        View on GitHub
+      </a>
+      <a href="#capabilities" class="btn btn-ghost">了解更多</a>
+    </div>
+  </div>
+  <div class="hero-visual">
+    <div class="kanban">
+      <div class="kanban-header">
+        <span class="kanban-title">任务看板</span>
+        <span class="kanban-dot"></span>
+      </div>
+      <div class="kanban-cols">
+        <div class="kanban-col">
+          <div class="kanban-col-title">Queued <span class="cnt">2</span></div>
+          <div class="kanban-card show"><div class="label">重构认证模块</div><div class="meta"><span class="tag tag-purple">opencode</span><span>P2</span></div></div>
+          <div class="kanban-card show"><div class="label">编写 API 文档</div><div class="meta"><span class="tag tag-blue">claude-code</span><span>P1</span></div></div>
+        </div>
+        <div class="kanban-col">
+          <div class="kanban-col-title">Running <span class="cnt">2</span></div>
+          <div class="kanban-card show"><div class="label">修复登录超时</div><div class="meta"><span class="tag tag-green">opencode</span><span>68%</span></div></div>
+          <div class="kanban-card show"><div class="label">优化查询性能</div><div class="meta"><span class="tag tag-amber">codex</span><span>34%</span></div></div>
+        </div>
+        <div class="kanban-col">
+          <div class="kanban-col-title">Done <span class="cnt">3</span></div>
+          <div class="kanban-card show"><div class="label">升级依赖版本</div><div class="meta"><span class="tag tag-green">完成</span></div></div>
+          <div class="kanban-card show"><div class="label">修复 CI 流水线</div><div class="meta"><span class="tag tag-green">完成</span></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat-card"><div class="stat-num">507</div><div class="stat-label">测试用例</div></div>
+      <div class="stat-card"><div class="stat-num">44+</div><div class="stat-label">API 端点</div></div>
+      <div class="stat-card"><div class="stat-num">26</div><div class="stat-label">MCP 工具</div></div>
+      <div class="stat-card"><div class="stat-num">7</div><div class="stat-label">研发阶段</div></div>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+<!-- Problem -->
+<section id="problem">
+<div class="wrap">
+  <div class="sec-center reveal">
+    <div class="sec-label">Why Mio-TaskHub</div>
+    <div class="sec-title">多个 Agent，各自为战</div>
+    <div class="sec-desc">当你同时使用 opencode、Claude Code、Codex 时，每个 agent 都是一个信息孤岛。它们不知道彼此在做什么，无法共享进度，失败了也不会自动重试。</div>
+  </div>
+  <div class="problem-grid">
+    <div class="problem-card before reveal reveal-delay-1">
+      <div class="tag">没有调度中心</div>
+      <h3>Agent 各自为战</h3>
+      <ul>
+        <li>手动在多个终端间切换，复制粘贴任务描述</li>
+        <li>不知道哪个 agent 在执行什么，进度如何</li>
+        <li>一个 agent 挂了，任务就丢了，需要手动重跑</li>
+        <li>多个 agent 可能同时修改同一个文件，产生冲突</li>
+        <li>需求到执行缺乏结构化流程，全靠口头描述</li>
+      </ul>
+    </div>
+    <div class="problem-card after reveal reveal-delay-2">
+      <div class="tag">有了调度中心</div>
+      <h3>统一调度，并行执行</h3>
+      <ul>
+        <li>一个任务队列，所有 agent 共享，自动领取</li>
+        <li>实时看板：谁在执行什么、进度多少、是否健康</li>
+        <li>心跳检测 + 自动重试，agent 挂了任务自动回收</li>
+        <li>依赖编排：前置任务完成后才放行下一个</li>
+        <li>想法 → 讨论 → 评审 → 任务 → 执行，全链路结构化</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- Capabilities -->
+<section id="capabilities" style="background:var(--bg2)">
+<div class="wrap">
+  <div class="sec-center reveal">
+    <div class="sec-label">Core Capabilities</div>
+    <div class="sec-title">为多 Agent 协作设计的每个能力</div>
+  </div>
+  <div class="cap-grid">
+    <div class="cap-card reveal reveal-delay-1">
+      <div class="cap-icon blue">⚡</div>
+      <h3>任务状态机</h3>
+      <p>7 阶段研发流水线：brainstorming → design → planning → ready → implementing → review → done。每个阶段有明确的准入条件和产出物要求。</p>
+    </div>
+    <div class="cap-card reveal reveal-delay-2">
+      <div class="cap-icon green">🔄</div>
+      <h3>Agent 调度</h3>
+      <p>注册 → 领取 → 心跳 → 提交。按优先级 + 关联度智能分配，超时自动回收，支持 agent 类型匹配和 fallback 降级。</p>
+    </div>
+    <div class="cap-card reveal reveal-delay-3">
+      <div class="cap-icon purple">🔗</div>
+      <h3>依赖编排</h3>
+      <p>depends_on 数组定义前置依赖，环检测防止死锁，前置任务完成后自动放行。支持全图和子图查询。</p>
+    </div>
+    <div class="cap-card reveal reveal-delay-1">
+      <div class="cap-icon amber">💡</div>
+      <h3>想法工作台</h3>
+      <p>记录想法 → 发酵讨论 → 评审决策 → 拆解为任务。版本历史追踪，ADR 自动投影到 Git 仓库。</p>
+    </div>
+    <div class="cap-card reveal reveal-delay-2">
+      <div class="cap-icon blue">🔌</div>
+      <h3>MCP 原生</h3>
+      <p>26 个 MCP 工具，任何支持 MCP 的 agent（opencode、Claude Code、Codex、Hermes）可直接调用，零适配成本。</p>
+    </div>
+    <div class="cap-card reveal reveal-delay-3">
+      <div class="cap-icon green">📊</div>
+      <h3>实时监控</h3>
+      <p>自包含仪表盘：CPU/内存/线程/DB 连接池。24 条告警规则，OpenTelemetry 全链路追踪，结构化日志查询。</p>
+    </div>
+    <div class="cap-card reveal reveal-delay-1">
+      <div class="cap-icon purple">🌙</div>
+      <h3>夜间执行</h3>
+      <p>NightRunner 配置驱动，跨夜时间窗口自动 spawn agent 进程。睡前安排任务，醒来查看结果。</p>
+    </div>
+    <div class="cap-card reveal reveal-delay-2">
+      <div class="cap-icon amber">⏰</div>
+      <h3>定时任务</h3>
+      <p>CronEngine 定时调度，支持 create_task 和 webhook 两种动作。执行日志和历史可追溯。</p>
+    </div>
+    <div class="cap-card reveal reveal-delay-3">
+      <div class="cap-icon blue">📦</div>
+      <h3>单文件部署</h3>
+      <p>PyInstaller 打包为单个 EXE，SQLite 单文件数据库。无需 Docker、无需 Node.js、无需外部数据库服务。</p>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- How It Works -->
+<section id="workflow">
+<div class="wrap">
+  <div class="sec-center reveal">
+    <div class="sec-label">How It Works</div>
+    <div class="sec-title">从想法到执行，5 步完成</div>
+  </div>
+  <div class="workflow reveal">
+    <div class="workflow-line"></div>
+    <div class="workflow-steps">
+      <div class="workflow-step">
+        <div class="step-num">1</div>
+        <div class="step-title">记录想法</div>
+        <div class="step-desc">在 Mio-TaskHub 中记录需求想法，进入发酵流程</div>
+      </div>
+      <div class="workflow-step">
+        <div class="step-num">2</div>
+        <div class="step-title">讨论评审</div>
+        <div class="step-desc">多 agent 参与讨论，评审决策，拆解为具体任务</div>
+      </div>
+      <div class="workflow-step">
+        <div class="step-num">3</div>
+        <div class="step-title">任务入队</div>
+        <div class="step-desc">任务进入队列，设置优先级、依赖、截止时间</div>
+      </div>
+      <div class="workflow-step">
+        <div class="step-num">4</div>
+        <div class="step-title">Agent 领取</div>
+        <div class="step-desc">空闲 agent 自动领取任务，开始并行执行</div>
+      </div>
+      <div class="workflow-step">
+        <div class="step-num">5</div>
+        <div class="step-title">监控交付</div>
+        <div class="step-desc">实时看板追踪进度，心跳保活，失败自动重试</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="code-block reveal" style="margin-top:48px">
+    <span class="cm"># Agent 通过 MCP 工具与 TaskHub 交互</span><br>
+    <span class="cm"># 1. 注册</span><br>
+    <span class="fn">taskhub_register</span>(name=<span class="str">"opencode"</span>, agent_type=<span class="str">"cli"</span>)<br><br>
+    <span class="cm"># 2. 领取任务</span><br>
+    <span class="fn">taskhub_claim</span>(agent=<span class="str">"opencode"</span>)<br><br>
+    <span class="cm"># 3. 上报进度</span><br>
+    <span class="fn">taskhub_heartbeat</span>(run_id=<span class="str">"run_abc123"</span>, progress=<span class="num">68</span>)<br><br>
+    <span class="cm"># 4. 提交结果</span><br>
+    <span class="fn">taskhub_submit_result</span>(run_id=<span class="str">"run_abc123"</span>, success=<span class="kw">True</span>)<br><br>
+    <span class="cm"># 5. 查看看板</span><br>
+    <span class="fn">taskhub_status</span>()  <span class="cm"># → 全局任务状态一览</span>
+  </div>
+</div>
+</section>
+
+<!-- Product Showcase -->
+<section id="showcase" style="background:var(--bg2)">
+<div class="wrap">
+  <div class="sec-center reveal">
+    <div class="sec-label">Product Showcase</div>
+    <div class="sec-title">真实产品，真实状态</div>
+  </div>
+  <div class="showcase-grid">
+    <div class="showcase-card reveal reveal-delay-1">
+      <div class="showcase-header">
+        <h4>任务状态机</h4>
+        <div class="status">运行中</div>
+      </div>
+      <div class="showcase-body">
+        <div class="showcase-code">
+          <span class="cm">// 7 阶段研发流水线</span><br>
+          <span class="kw">brainstorming</span> <span class="op">→</span> <span class="kw">design</span> <span class="op">→</span> <span class="kw">planning</span> <span class="op">→</span> <span class="kw">ready</span><br>
+          <span class="op">→</span> <span class="kw">implementing</span> <span class="op">→</span> <span class="kw">review</span> <span class="op">→</span> <span class="kw">done</span><br><br>
+          <span class="cm">// 执行状态流转</span><br>
+          <span class="fn">queued</span> <span class="op">→</span> <span class="fn">claimed</span> <span class="op">→</span> <span class="fn">running</span> <span class="op">→</span> <span class="fn">completed</span><br>
+          <span class="op">&nbsp;&nbsp;&nbsp;&nbsp;</span> <span class="op">└→</span> <span class="fn">retrying</span> <span class="op">→</span> <span class="fn">failed</span> <span class="op">→</span> <span class="fn">cancelled</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="showcase-card reveal reveal-delay-2">
+      <div class="showcase-header">
+        <h4>Agent 心跳监控</h4>
+        <div class="status">实时</div>
+      </div>
+      <div class="showcase-body">
+        <div class="live-status" id="live-status">
+          <div class="status-line"><span class="ts">14:32:01</span><span class="agent">opencode</span><span class="action">heartbeat </span><span class="ok">✓ 12s ago</span></div>
+          <div class="status-line"><span class="ts">14:32:01</span><span class="agent">claude-code</span><span class="action">heartbeat </span><span class="ok">✓ 8s ago</span></div>
+          <div class="status-line"><span class="ts">14:32:01</span><span class="agent">codex</span><span class="action">heartbeat </span><span class="warn">⚠ 145s ago</span></div>
+          <div class="status-line"><span class="ts">14:31:45</span><span class="agent">opencode</span><span class="action">claimed </span><span class="ok">task_auth_refactor</span></div>
+          <div class="status-line"><span class="ts">14:31:30</span><span class="agent">claude-code</span><span class="action">completed </span><span class="ok">task_fix_timeout</span></div>
+          <div class="status-line"><span class="ts">14:31:12</span><span class="agent">system</span><span class="action">retry </span><span class="warn">task_query_opt → attempt 2</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="showcase-card reveal reveal-delay-3">
+      <div class="showcase-header">
+        <h4>实时仪表盘</h4>
+        <div class="status">监控中</div>
+      </div>
+      <div class="showcase-body">
+        <div class="metrics-row">
+          <div class="metric-mini"><div class="val">2.1%</div><div class="lbl">CPU</div></div>
+          <div class="metric-mini"><div class="val">48MB</div><div class="lbl">内存</div></div>
+          <div class="metric-mini"><div class="val">3/5</div><div class="lbl">线程</div></div>
+        </div>
+        <div class="metrics-row">
+          <div class="metric-mini"><div class="val">98.7%</div><div class="lbl">成功率</div></div>
+          <div class="metric-mini"><div class="val">12ms</div><div class="lbl">P50 延迟</div></div>
+          <div class="metric-mini"><div class="val">0</div><div class="lbl">活跃告警</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="showcase-card reveal reveal-delay-4">
+      <div class="showcase-header">
+        <h4>MCP 工具集</h4>
+        <div class="status">26 tools</div>
+      </div>
+      <div class="showcase-body">
+        <div class="showcase-code">
+          <span class="cm">// 任务管理</span><br>
+          <span class="fn">taskhub_create_task</span>&nbsp;&nbsp;<span class="fn">taskhub_claim</span>&nbsp;&nbsp;<span class="fn">taskhub_status</span><br><br>
+          <span class="cm">// Agent 调度</span><br>
+          <span class="fn">taskhub_register</span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="fn">taskhub_heartbeat</span>&nbsp;&nbsp;<span class="fn">taskhub_submit_result</span><br><br>
+          <span class="cm">// 想法 & 评审</span><br>
+          <span class="fn">taskhub_add_idea</span>&nbsp;&nbsp;&nbsp;<span class="fn">taskhub_review_idea</span>&nbsp;&nbsp;<span class="fn">taskhub_breakdown_idea</span><br><br>
+          <span class="cm">// 讨论 & 依赖</span><br>
+          <span class="fn">taskhub_open_discussion</span>&nbsp;&nbsp;<span class="fn">taskhub_advance_stage</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- Use Cases -->
+<section id="usecases">
+<div class="wrap">
+  <div class="sec-center reveal">
+    <div class="sec-label">Use Cases</div>
+    <div class="sec-title">真实场景，真实价值</div>
+  </div>
+  <div class="use-grid">
+    <div class="use-card reveal reveal-delay-1">
+      <div class="emoji">🔀</div>
+      <h3>多 Agent 并行编码</h3>
+      <div class="problem">问题：一个需求拆成 3 个子任务，手动在 3 个终端分别启动 agent，复制粘贴描述，来回切换查看进度。</div>
+      <div class="solution">解决：创建 3 个任务设置依赖，opencode、Claude Code、Codex 各自领取执行，看板实时追踪。</div>
+      <div class="result">结果：并行执行时间从 3 小时压缩到 40 分钟，无需手动协调。</div>
+    </div>
+    <div class="use-card reveal reveal-delay-2">
+      <div class="emoji">🌙</div>
+      <h3>夜间自动执行</h3>
+      <div class="problem">问题：大量重复性任务（依赖升级、格式化、测试）占用白天编码时间。</div>
+      <div class="solution">解决：睡前在 TaskHub 排好任务队列，NightRunner 跨夜自动 spawn agent 执行。</div>
+      <div class="result">结果：早上查看结果，夜间完成 15+ 个任务，白天专注创造性工作。</div>
+    </div>
+    <div class="use-card reveal reveal-delay-3">
+      <div class="emoji">💡</div>
+      <h3>需求发酵到执行</h3>
+      <div class="problem">问题：脑子里的想法直接变成代码，缺乏设计和评审，返工率高。</div>
+      <div class="solution">解决：想法记录 → 讨论评审 → 结构化拆解 → 依赖排序 → agent 执行，全链路可追溯。</div>
+      <div class="result">结果：需求质量提升，执行有据可查，版本历史完整保留。</div>
+    </div>
+    <div class="use-card reveal reveal-delay-4">
+      <div class="emoji">🔄</div>
+      <h3>失败自动恢复</h3>
+      <div class="problem">问题：agent 执行到一半挂了，任务丢失，需要从头手动重跑。</div>
+      <div class="solution">解决：心跳检测 agent 存活，超时自动回收任务，指数退避重试，最多 10 次。</div>
+      <div class="result">结果：任务完成率从 ~85% 提升到 ~98%，无需人工干预。</div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- Differentiation -->
+<section id="differentiation" style="background:var(--bg2)">
+<div class="wrap">
+  <div class="sec-center reveal">
+    <div class="sec-label">Why Not Just Use ChatGPT</div>
+    <div class="sec-title">不是另一个 AI 工具</div>
+    <div class="sec-desc">Mio-TaskHub 不是 AI，不写代码，不做推理。它是让多个 AI Agent 协同工作的基础设施。</div>
+  </div>
+  <div class="diff-grid">
+    <div class="diff-card reveal reveal-delay-1">
+      <h3><span class="diff-tag">调度</span> 不是任务列表</h3>
+      <p>普通 TODO 工具只记录"要做什么"。Mio-TaskHub 管理"谁在做什么、做得怎么样、什么时候完成"——带心跳检测、自动重试、优先级调度的真正任务队列。</p>
+    </div>
+    <div class="diff-card reveal reveal-delay-2">
+      <h3><span class="diff-tag">协调</span> 不是单 Agent</h3>
+      <p>ChatGPT/Claude 一次只能服务一个用户、一个任务。Mio-TaskHub 让 opencode 写代码的同时，Claude Code 在跑测试，Codex 在重构——三者共享同一个任务队列。</p>
+    </div>
+    <div class="diff-card reveal reveal-delay-3">
+      <h3><span class="diff-tag">本地</span> 不是云服务</h3>
+      <p>SQLite 单文件数据库，PyInstaller 单个 EXE。数据在你本机，不上传任何外部服务。无需注册账号，无需 API Key，开箱即用。</p>
+    </div>
+    <div class="diff-card reveal reveal-delay-4">
+      <h3><span class="diff-tag">MCP</span> 不是私有协议</h3>
+      <p>基于开放的 MCP 协议，任何支持 MCP 的 agent 都能直接接入。不锁定你用哪个 agent，不绑架你的工作流。</p>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+<div class="wrap">
+  <div class="sec-label reveal">Get Started</div>
+  <div class="cta-title reveal">开始使用</div>
+  <div class="cta-desc reveal">3 行命令启动，无需配置，开箱即用。</div>
+  <div class="cta-actions reveal">
+    <a href="https://github.com/mldlbs/mio-taskhub" class="btn btn-primary">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      View on GitHub
+    </a>
+    <a href="#capabilities" class="btn btn-ghost">查看能力</a>
+  </div>
+  <div class="cta-code reveal">
+    <span>git clone</span> https://github.com/mldlbs/mio-taskhub.git && pip install -e .
+  </div>
+</div>
+</section>
+
+<!-- Footer -->
+<footer>
+<div class="wrap">
+  <div class="footer-inner">
+    <div class="footer-left">Mio-TaskHub v0.2.0 · Built with FastAPI + SQLite</div>
+    <div class="footer-links">
+      <a href="https://github.com/mldlbs/mio-taskhub">GitHub</a>
+      <a href="https://github.com/mldlbs/mio-taskhub/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/mldlbs/mio-taskhub/blob/main/docs/SLO-SLI.md">SLO/SLI</a>
+      <a href="http://127.0.0.1:48620/dashboard">Dashboard</a>
+    </div>
+  </div>
+</div>
+</footer>
+
+<script>
+// Nav scroll effect
+const nav = document.getElementById('nav');
+window.addEventListener('scroll', () => {
+  nav.classList.toggle('scrolled', window.scrollY > 40);
+});
+
+// Scroll reveal
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.classList.add('visible');
+      observer.unobserve(e.target);
+    }
+  });
+}, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+// Kanban card staggered animation
+setTimeout(() => {
+  document.querySelectorAll('.kanban-card').forEach((card, i) => {
+    setTimeout(() => card.classList.add('show'), i * 150);
+  });
+}, 300);
+
+// Live status ticker
+const statuses = [
+  { ts: '14:32:15', agent: 'opencode', action: 'heartbeat ', status: '✓ 3s ago', cls: 'ok' },
+  { ts: '14:32:15', agent: 'claude-code', action: 'heartbeat ', status: '✓ 1s ago', cls: 'ok' },
+  { ts: '14:32:10', agent: 'opencode', action: 'progress ', status: 'task_auth 72%', cls: 'ok' },
+  { ts: '14:31:58', agent: 'codex', action: 'claimed ', status: 'task_query_opt', cls: 'ok' },
+  { ts: '14:31:45', agent: 'claude-code', action: 'completed ', status: 'task_fix_timeout', cls: 'ok' },
+  { ts: '14:31:30', agent: 'system', action: 'auto-retry ', status: 'task_ci_fix → attempt 2', cls: 'warn' },
+];
+let statusIdx = 0;
+setInterval(() => {
+  const el = document.getElementById('live-status');
+  if (!el) return;
+  const s = statuses[statusIdx % statuses.length];
+  const line = document.createElement('div');
+  line.className = 'status-line';
+  line.innerHTML = `<span class="ts">${s.ts}</span><span class="agent">${s.agent}</span><span class="action">${s.action}</span><span class="${s.cls}">${s.status}</span>`;
+  line.style.opacity = '0';
+  line.style.transform = 'translateY(-4px)';
+  el.insertBefore(line, el.firstChild);
+  requestAnimationFrame(() => {
+    line.style.transition = 'all .3s ease';
+    line.style.opacity = '1';
+    line.style.transform = 'translateY(0)';
+  });
+  if (el.children.length > 6) el.removeChild(el.lastChild);
+  statusIdx++;
+}, 2500);
+
+// Smooth scroll for anchor links
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+  a.addEventListener('click', e => {
+    e.preventDefault();
+    const target = document.querySelector(a.getAttribute('href'));
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+});
+</script>
+</body>
+</html>
