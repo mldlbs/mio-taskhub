@@ -350,4 +350,47 @@ def render_metrics() -> str:
     except Exception:
         pass
 
+    # ========== SLO Compliance Metrics ==========
+    try:
+        with Session(engine) as s:
+            # Availability SLO: success rate over 30-day window
+            avail = s.exec(text("""
+                SELECT
+                    SUM(CASE WHEN state = 'COMPLETED' THEN 1 ELSE 0 END) as completed,
+                    SUM(CASE WHEN state = 'FAILED' THEN 1 ELSE 0 END) as failed
+                FROM task
+                WHERE state IN ('COMPLETED', 'FAILED')
+                AND created_at IS NOT NULL
+                AND julianday('now') - julianday(created_at) <= 30.0
+            """)).first()
+            if avail and (avail[0] + avail[1]) > 0:
+                slo_availability = avail[0] / (avail[0] + avail[1])
+                lines.append(f'taskhub_slo_availability_30d {slo_availability:.6f}')
+                lines.append(f'taskhub_slo_availability_target 0.99')
+                lines.append(f'taskhub_slo_availability_breach {1 if slo_availability < 0.99 else 0}')
+                # Error budget remaining (target 1% failure rate)
+                budget_used = 1 - slo_availability
+                budget_remaining = max(0, 0.01 - budget_used)
+                lines.append(f'taskhub_slo_error_budget_remaining {budget_remaining:.6f}')
+
+            # Latency SLO: P99 over recent requests (using taskhub_task_avg_completion_seconds proxy)
+            # Note: real P99 requires request-level histogram, using task completion as proxy
+            avg_completion = s.exec(text("""
+                SELECT AVG(julianday(completed_at) - julianday(created_at)) * 86400.0
+                FROM task
+                WHERE state = 'COMPLETED'
+                AND created_at IS NOT NULL AND completed_at IS NOT NULL
+                AND julianday('now') - julianday(created_at) <= 1.0
+            """)).first()
+            if avg_completion and avg_completion[0] is not None:
+                # Convert to ms for comparison with SLO
+                avg_ms = avg_completion[0] * 1000
+                lines.append(f'taskhub_slo_latency_avg_ms_1d {avg_ms:.1f}')
+                lines.append(f'taskhub_slo_latency_p50_target_ms 500')
+                lines.append(f'taskhub_slo_latency_p99_target_ms 2000')
+                lines.append(f'taskhub_slo_latency_breach {1 if avg_ms > 2000 else 0}')
+
+    except Exception:
+        pass
+
     return "\n".join(lines) + "\n"
