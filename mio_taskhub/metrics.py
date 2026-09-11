@@ -1,5 +1,7 @@
 """Lightweight Prometheus-format metrics (no external dependencies)."""
+import os
 import time
+import threading
 from sqlmodel import Session, text
 from mio_taskhub.db import engine
 from mio_taskhub.middleware import get_http_metrics
@@ -154,6 +156,80 @@ def render_metrics() -> str:
             for transition, avg_seconds in trans_rows:
                 if avg_seconds is not None:
                     lines.append(f'taskhub_task_transition_seconds{{transition="{transition}"}} {avg_seconds:.1f}')
+
+            # ========== USE Metrics (Utilization / Saturation / Errors) ==========
+
+            # --- Process ---
+            try:
+                import psutil
+                proc = psutil.Process(os.getpid())
+
+                # CPU
+                cpu_pct = proc.cpu_percent(interval=0.1)
+                lines.append(f'taskhub_process_cpu_percent {cpu_pct:.1f}')
+
+                # Memory
+                mem = proc.memory_info()
+                lines.append(f'taskhub_process_memory_rss_bytes {mem.rss}')
+                lines.append(f'taskhub_process_memory_vms_bytes {mem.vms}')
+
+                mem_pct = proc.memory_percent()
+                lines.append(f'taskhub_process_memory_percent {mem_pct:.1f}')
+
+                # Threads
+                thread_count = proc.num_threads()
+                lines.append(f'taskhub_process_threads {thread_count}')
+
+                # File descriptors (Linux only)
+                try:
+                    fds = proc.num_fds()
+                    lines.append(f'taskhub_process_fds {fds}')
+                except (AttributeError, psutil.AccessDenied):
+                    pass
+
+                # Open connections
+                try:
+                    conns = proc.num_connections()
+                    lines.append(f'taskhub_process_connections {conns}')
+                except (psutil.AccessDenied, OSError):
+                    pass
+
+            except ImportError:
+                # psutil not available — fallback to /proc (Linux) or skip
+                pass
+
+            # --- SQLAlchemy Connection Pool ---
+            try:
+                pool = engine.pool
+                checked_out = pool.checkedout()
+                checked_in = pool.checkedin()
+                overflow = pool.overflow()
+                size = pool.size()
+
+                lines.append(f'taskhub_db_pool_size {size}')
+                lines.append(f'taskhub_db_pool_checked_out {checked_out}')
+                lines.append(f'taskhub_db_pool_checked_in {checked_in}')
+                lines.append(f'taskhub_db_pool_overflow {overflow}')
+
+                # Saturation: ratio of checked out to total capacity
+                capacity = size + pool._max_overflow if hasattr(pool, '_max_overflow') else size
+                if capacity > 0:
+                    lines.append(f'taskhub_db_pool_utilization {checked_out / capacity:.4f}')
+
+            except Exception:
+                pass
+
+            # --- Thread pool (background workers) ---
+            try:
+                th = get_thread_health()
+                alive_count = sum(1 for d in th.values() if d.get("alive"))
+                total_count = len(th)
+                lines.append(f'taskhub_thread_pool_alive {alive_count}')
+                lines.append(f'taskhub_thread_pool_total {total_count}')
+                if total_count > 0:
+                    lines.append(f'taskhub_thread_pool_utilization {alive_count / total_count:.4f}')
+            except Exception:
+                pass
 
             # ========== Business Metrics ==========
 
