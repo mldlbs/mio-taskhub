@@ -88,7 +88,7 @@ async def lifespan(app):
 
 app = FastAPI(
     title="mio-taskhub",
-    version="0.1.0",
+    version="0.2.0",
     description="Multi-agent R&D dispatch system with state machine, task lifecycle, and real-time notifications.",
     lifespan=lifespan,
 )
