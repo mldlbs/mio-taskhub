@@ -12,6 +12,8 @@ from mio_taskhub.api.board import board_summary as _board_summary
 from mio_taskhub.logging_config import setup_logging
 from mio_taskhub.middleware import RequestIDMiddleware, RateLimitMiddleware
 from mio_taskhub.events import ws_manager
+from mio_taskhub.otel import init_otel, instrument_app, instrument_sqlalchemy, instrument_httpx, shutdown_otel
+from mio_taskhub.db import engine as db_engine
 
 
 def get_token(args_token=None):
@@ -40,6 +42,12 @@ setup_logging()
 
 @asynccontextmanager
 async def lifespan(app):
+    # Initialize OpenTelemetry
+    init_otel()
+    instrument_app(app)
+    instrument_sqlalchemy(db_engine)
+    instrument_httpx()
+
     from .background import start_background_jobs, _thread_registry, register_thread
     from mio_taskhub.git_sync import start_git_sync_worker, stop_git_sync_worker
     from mio_taskhub.night_runner import start_night_runner, stop_night_runner
@@ -68,6 +76,8 @@ async def lifespan(app):
     # Gracefully close DB connections
     from mio_taskhub.db import engine
     engine.dispose()
+    # Shutdown OpenTelemetry
+    shutdown_otel()
 
 
 app = FastAPI(
