@@ -2,7 +2,7 @@
 
 ## v0.2.0 (2026-09-11)
 
-### Observability Overhaul
+### Observability Overhaul (P0-P3)
 - **OpenTelemetry**: Auto-instrumentation for FastAPI, SQLAlchemy, httpx
 - **Built-in alerting**: `AlertManager` with thread/HTTP health rules
 - **Alerts API**: `GET /api/v1/alerts` returns active alerts
@@ -11,6 +11,9 @@
 - **Business metrics**: Success/failure/cancel rates, throughput, P50 latency, retry stats
 - **Dependency latency**: SQLite/Git/MCP call tracking (avg/P50/P90/P99/errors)
 - **Thread health**: Heartbeat age, consecutive failures, alive status per thread
+- **SLO/SLI**: Service level objectives with compliance metrics
+- **Structured logging**: Trace context correlation (trace_id/span_id)
+- **Log query API**: `GET /api/v1/logs` with level/logger filtering
 
 ### Prometheus Alert Rules
 - `packaging/alerts.yml`: 24 alerting rules (critical/warning/info)
@@ -42,7 +45,17 @@ taskhub_agent_utilization
 # Dependencies
 taskhub_dep_latency_count / errors / avg_ms / max_ms / p50_ms / p90_ms / p99_ms
 taskhub_dep_error_rate
+
+# SLO
+taskhub_slo_availability_30d / target / breach
+taskhub_slo_error_budget_remaining
+taskhub_slo_latency_avg_ms_1d / breach
 ```
+
+### API Endpoints Added
+- `GET /dashboard` - Self-contained monitoring dashboard
+- `GET /api/v1/alerts` - Active alert status
+- `GET /api/v1/logs` - Log query with filtering
 
 ---
 
