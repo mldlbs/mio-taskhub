@@ -1,38 +1,17 @@
-from __future__ import annotations
-import threading
-import time
-from typing import Callable, List, Dict
-
-class Scheduler:
-    def __init__(
-        self,
-        interval: float = 30.0,
-        get_due_tasks: Callable[[], List[Dict]] = lambda: [],
-        on_enqueue: Callable[[str], None] = lambda tid: None,
-    ):
-        self.interval = interval
-        self._get_due_tasks = get_due_tasks
-        self._on_enqueue = on_enqueue
-        self._stop = threading.Event()
-        self._thread = None
-
-    def start(self):
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def stop(self):
-        self._stop.set()
-        if self._thread:
-            self._thread.join(timeout=5)
-
-    def tick(self):
-        for task in self._get_due_tasks():
-            self._on_enqueue(task["id"])
-
-    def _run(self):
-        import logging
-        while not self._stop.wait(self.interval):
-            try:
-                self.tick()
-            except Exception:
-                logging.getLogger("mio_taskhub.scheduler").exception("scheduler tick failed")
+# Module proxy stub — real code in scheduling/scheduler.py
+import sys as _sys
+import importlib as _importlib
+_real_name = 'mio_taskhub.scheduling.scheduler'
+class _ProxyModule:
+    def __init__(self): object.__setattr__(self, '_real', None)
+    def _ensure(self):
+        r = object.__getattribute__(self, '_real')
+        if r is None: r = _importlib.import_module(_real_name); object.__setattr__(self, '_real', r)
+        return r
+    def __getattr__(self, name): return getattr(self._ensure(), name)
+    def __setattr__(self, name, value): setattr(self._ensure(), name, value)
+    def __delattr__(self, name): delattr(self._ensure(), name)
+    def __dir__(self): return dir(self._ensure())
+    def __repr__(self): return f"<proxy '{_real_name}'>"
+_proxy = _ProxyModule()
+_sys.modules[__name__] = _proxy

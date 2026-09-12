@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+*.pyo
 venv/
 *.egg-info/
 .mio_taskhub/
@@ -10,8 +11,8 @@ node_modules/
 web/dist/
 
 .worktrees/
-server.log
-server.err
+*.log
+*.err
 
 # MCP 调试工具运行时产物
 gh-kit.json

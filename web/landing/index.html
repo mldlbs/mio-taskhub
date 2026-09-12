@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mio-TaskHub — Multi-Agent Task调度基础设施</title>
+<title>Mio-TaskHub — 多 Agent 任务调度基础设施</title>
 <meta name="description" content="让多个 AI Agent 共享任务队列、并行执行、自动调度。本地优先，MCP 原生集成。">
-<meta property="og:title" content="Mio-TaskHub">
-<meta property="og:description" content="Multi-Agent Task Orchestration">
+<meta property="og:title" content="Mio-TaskHub — 多 Agent 任务调度基础设施">
+<meta property="og:description" content="让多个 AI Agent 共享任务队列、并行执行、自动调度。">
 <link rel="icon" type="image/png" href="/icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+SC:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -18,7 +18,7 @@
   --border:#27272a;--border2:#3f3f46;
   --blue:#3b82f6;--green:#22c55e;--amber:#f59e0b;--red:#ef4444;--purple:#a78bfa;
   --text:#fafafa;--text2:#a1a1aa;--text3:#71717a;
-  --mono:'JetBrains Mono',monospace;--sans:'Inter',system-ui,sans-serif;
+  --mono:'JetBrains Mono',monospace;--sans:'Noto Sans SC','Inter',system-ui,sans-serif;
 }
 html{-webkit-font-smoothing:antialiased;scroll-behavior:smooth}
 body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.5}
@@ -60,10 +60,9 @@ section{padding:96px 0}
 .mock-title{margin-left:8px;font-size:12px;color:var(--text3);font-weight:500}
 .mock-body{padding:16px}
 
-/* Kanban inside mock */
+/* Kanban */
 .kb{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 @media(max-width:600px){.kb{grid-template-columns:1fr}}
-.kb-col{}
 .kb-head{font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
 .kb-head .n{background:var(--surface2);color:var(--text3);font-size:10px;padding:1px 5px;border-radius:4px}
 .kb-card{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:5px;opacity:0;transform:translateY(6px);transition:all .3s ease}
@@ -80,7 +79,7 @@ section{padding:96px 0}
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:48px}
 .stat{background:var(--surface);padding:20px;text-align:center}
 .stat-v{font-size:28px;font-weight:800;letter-spacing:-1px}
-.stat-l{font-size:11px;color:var(--text3);margin-top:2px;text-transform:uppercase;letter-spacing:.5px}
+.stat-l{font-size:11px;color:var(--text3);margin-top:2px;letter-spacing:.5px}
 @media(max-width:600px){.stats{grid-template-columns:repeat(2,1fr)}}
 
 /* ── Section Headers ── */
@@ -164,7 +163,8 @@ section{padding:96px 0}
 .cta-cmd b{color:var(--text)}
 
 /* ── Footer ── */
-.foot{border-top:1px solid var(--border);padding:24px 0;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.foot{border-top:1px solid var(--border);padding:24px 0}
+.foot-inner{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
 .foot-l{font-size:12px;color:var(--text3)}
 .foot-r{display:flex;gap:16px}
 .foot-r a{font-size:12px;color:var(--text3);transition:color .15s}
@@ -181,10 +181,10 @@ section{padding:96px 0}
 <nav class="nav">
   <div class="nav-brand">Mio<b>-TaskHub</b></div>
   <div class="nav-links">
-    <a href="#why">Why</a>
-    <a href="#caps">Capabilities</a>
-    <a href="#product">Product</a>
-    <a href="#how">How</a>
+    <a href="#why">为什么</a>
+    <a href="#caps">能力</a>
+    <a href="#product">产品</a>
+    <a href="#how">工作流</a>
     <a href="https://github.com/mldlbs/mio-taskhub" class="nav-cta">GitHub</a>
   </div>
 </nav>
@@ -194,42 +194,42 @@ section{padding:96px 0}
 <div class="wrap">
 <div class="hero-grid">
   <div>
-    <div class="hero-eyebrow">Multi-Agent Orchestration</div>
-    <h1>One queue.<br>Every agent.</h1>
-    <p>opencode writes code. Claude Code runs tests. Codex refactors. Mio-TaskHub gives them one shared task queue — auto-assigned, heartbeated, retried.</p>
+    <div class="hero-eyebrow">多 Agent 调度基础设施</div>
+    <h1>一个队列，<br>所有 Agent。</h1>
+    <p>opencode 在写代码，Claude Code 在跑测试，Codex 在重构——Mio-TaskHub 给它们一个共享任务队列，自动分配、心跳保活、失败重试。</p>
     <div class="hero-btns">
       <a href="https://github.com/mldlbs/mio-taskhub" class="btn btn-w">GitHub</a>
-      <a href="#product" class="btn btn-o">See Product</a>
+      <a href="#product" class="btn btn-o">查看产品</a>
     </div>
   </div>
   <div>
     <div class="mock">
-      <div class="mock-bar"><div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div><span class="mock-title">Mio-TaskHub — Kanban</span></div>
+      <div class="mock-bar"><div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div><span class="mock-title">Mio-TaskHub — 任务看板</span></div>
       <div class="mock-body">
         <div class="kb">
           <div class="kb-col">
-            <div class="kb-head">Queued <span class="n">2</span></div>
-            <div class="kb-card on"><div class="t">Refactor auth module</div><div class="m"><span class="tag tg-p">opencode</span>P2</div></div>
-            <div class="kb-card on"><div class="t">Write API docs</div><div class="m"><span class="tag tg">claude-code</span>P1</div></div>
+            <div class="kb-head">排队中 <span class="n">2</span></div>
+            <div class="kb-card on"><div class="t">重构认证模块</div><div class="m"><span class="tag tg-p">opencode</span>P2</div></div>
+            <div class="kb-card on"><div class="t">编写 API 文档</div><div class="m"><span class="tag tg">claude-code</span>P1</div></div>
           </div>
           <div class="kb-col">
-            <div class="kb-head">Running <span class="n">2</span></div>
-            <div class="kb-card on"><div class="t">Fix login timeout</div><div class="m"><span class="tag tg-g">opencode</span>68%</div></div>
-            <div class="kb-card on"><div class="t">Optimize queries</div><div class="m"><span class="tag tg-a">codex</span>34%</div></div>
+            <div class="kb-head">执行中 <span class="n">2</span></div>
+            <div class="kb-card on"><div class="t">修复登录超时</div><div class="m"><span class="tag tg-g">opencode</span>68%</div></div>
+            <div class="kb-card on"><div class="t">优化查询性能</div><div class="m"><span class="tag tg-a">codex</span>34%</div></div>
           </div>
           <div class="kb-col">
-            <div class="kb-head">Done <span class="n">3</span></div>
-            <div class="kb-card on"><div class="t">Upgrade deps</div><div class="m"><span class="tag tg-g">done</span></div></div>
-            <div class="kb-card on"><div class="t">Fix CI pipeline</div><div class="m"><span class="tag tg-g">done</span></div></div>
+            <div class="kb-head">已完成 <span class="n">3</span></div>
+            <div class="kb-card on"><div class="t">升级依赖版本</div><div class="m"><span class="tag tg-g">完成</span></div></div>
+            <div class="kb-card on"><div class="t">修复 CI 流水线</div><div class="m"><span class="tag tg-g">完成</span></div></div>
           </div>
         </div>
       </div>
     </div>
     <div class="stats">
-      <div class="stat"><div class="stat-v">507</div><div class="stat-l">Tests</div></div>
-      <div class="stat"><div class="stat-v">44+</div><div class="stat-l">API</div></div>
-      <div class="stat"><div class="stat-v">26</div><div class="stat-l">MCP Tools</div></div>
-      <div class="stat"><div class="stat-v">7</div><div class="stat-l">Stages</div></div>
+      <div class="stat"><div class="stat-v">507</div><div class="stat-l">测试用例</div></div>
+      <div class="stat"><div class="stat-v">44+</div><div class="stat-l">API 端点</div></div>
+      <div class="stat"><div class="stat-v">26</div><div class="stat-l">MCP 工具</div></div>
+      <div class="stat"><div class="stat-v">7</div><div class="stat-l">研发阶段</div></div>
     </div>
   </div>
 </div>
@@ -240,31 +240,31 @@ section{padding:96px 0}
 <section id="why">
 <div class="wrap">
   <div class="sh rv">
-    <div class="sh-label">Why Mio-TaskHub</div>
-    <h2>Agents don't talk to each other.</h2>
-    <p>Each agent is an island. It doesn't know what others are doing, can't share progress, and won't retry on failure.</p>
+    <div class="sh-label">为什么需要</div>
+    <h2>Agent 之间互不通信。</h2>
+    <p>每个 agent 都是一座孤岛。它不知道其他 agent 在做什么，无法共享进度，失败了也不会自动重试。</p>
   </div>
   <div class="prob rv">
     <div class="prob-panel no">
-      <div class="prob-tag">Without</div>
-      <h3>Manual coordination</h3>
+      <div class="prob-tag">没有调度中心</div>
+      <h3>手动协调</h3>
       <ul>
-        <li>Switch between terminals, copy-paste task descriptions</li>
-        <li>No visibility into who's doing what</li>
-        <li>Agent crashes → task lost → manual re-run</li>
-        <li>Multiple agents edit the same file → conflicts</li>
-        <li>No structure from idea to execution</li>
+        <li>在多个终端间切换，复制粘贴任务描述</li>
+        <li>不知道谁在做什么，进度如何</li>
+        <li>Agent 挂了，任务丢失，需要手动重跑</li>
+        <li>多个 agent 同时修改同一个文件，产生冲突</li>
+        <li>从想法到执行缺乏结构化流程</li>
       </ul>
     </div>
     <div class="prob-panel yes">
-      <div class="prob-tag">With Mio-TaskHub</div>
-      <h3>Automated orchestration</h3>
+      <div class="prob-tag">有了 Mio-TaskHub</div>
+      <h3>自动调度</h3>
       <ul>
-        <li>One shared queue, agents auto-claim tasks</li>
-        <li>Real-time kanban: who, what, progress, health</li>
-        <li>Heartbeat + auto-retry on failure</li>
-        <li>Dependency ordering prevents conflicts</li>
-        <li>Idea → discussion → tasks → execution, fully tracked</li>
+        <li>一个共享队列，agent 自动领取任务</li>
+        <li>实时看板：谁在做什么、进度多少、是否健康</li>
+        <li>心跳检测 + 失败自动重试</li>
+        <li>依赖排序，防止冲突</li>
+        <li>想法 → 讨论 → 任务 → 执行，全链路可追溯</li>
       </ul>
     </div>
   </div>
@@ -275,18 +275,18 @@ section{padding:96px 0}
 <section id="caps" style="background:var(--surface)">
 <div class="wrap">
   <div class="sh rv">
-    <div class="sh-label">Capabilities</div>
-    <h2>Built for multi-agent workflows.</h2>
+    <div class="sh-label">核心能力</div>
+    <h2>为多 Agent 协作而生。</h2>
   </div>
   <div class="cap-list rv">
-    <div class="cap-row"><div class="cap-label">Task State Machine</div><div class="cap-desc">7-stage pipeline: brainstorming → design → planning → ready → implementing → review → done. Each stage has entry conditions and required deliverables.</div></div>
-    <div class="cap-row"><div class="cap-label">Agent Scheduling</div><div class="cap-desc">Register → claim → heartbeat → submit. Priority + affinity-based assignment. Timeout auto-reclaim. Agent type matching with fallback.</div></div>
-    <div class="cap-row"><div class="cap-label">Dependency Graph</div><div class="cap-desc">depends_on arrays with cycle detection. Tasks auto-unblock when prerequisites complete. Full graph and sub-graph queries.</div></div>
-    <div class="cap-row"><div class="cap-label">Idea Workspace</div><div class="cap-desc">Record → ferment → review → break down into tasks. Version history. ADR auto-projection to Git repos.</div></div>
-    <div class="cap-row"><div class="cap-label">MCP Native</div><div class="cap-desc">26 MCP tools. Any MCP-compatible agent (opencode, Claude Code, Codex, Hermes) connects with zero adaptation.</div></div>
-    <div class="cap-row"><div class="cap-label">Monitoring</div><div class="cap-desc">Built-in dashboard: CPU/memory/threads/DB pool. 24 alert rules. OpenTelemetry tracing. Structured log query.</div></div>
-    <div class="cap-row"><div class="cap-label">Night Runner</div><div class="cap-desc">Config-driven overnight execution. Spawn agent processes across time windows. Schedule tasks, check results in the morning.</div></div>
-    <div class="cap-row"><div class="cap-label">Single Binary</div><div class="cap-desc">PyInstaller EXE + SQLite file. No Docker, no Node.js, no external database. Run anywhere.</div></div>
+    <div class="cap-row"><div class="cap-label">任务状态机</div><div class="cap-desc">7 阶段研发流水线：brainstorming → design → planning → ready → implementing → review → done。每个阶段有明确的准入条件和产出物要求。</div></div>
+    <div class="cap-row"><div class="cap-label">Agent 调度</div><div class="cap-desc">注册 → 领取 → 心跳 → 提交。按优先级 + 关联度智能分配，超时自动回收，支持 agent 类型匹配和 fallback 降级。</div></div>
+    <div class="cap-row"><div class="cap-label">依赖编排</div><div class="cap-desc">depends_on 数组 + 环检测。前置任务完成后自动放行下游。支持全图和子图查询。</div></div>
+    <div class="cap-row"><div class="cap-label">想法工作台</div><div class="cap-desc">记录 → 发酵 → 评审 → 拆解为任务。版本历史追踪，ADR 自动投影到 Git 仓库。</div></div>
+    <div class="cap-row"><div class="cap-label">MCP 原生</div><div class="cap-desc">26 个 MCP 工具。任何支持 MCP 的 agent（opencode、Claude Code、Codex、Hermes）零适配接入。</div></div>
+    <div class="cap-row"><div class="cap-label">实时监控</div><div class="cap-desc">内建仪表盘：CPU / 内存 / 线程 / 数据库连接池。24 条告警规则，OpenTelemetry 全链路追踪，结构化日志查询。</div></div>
+    <div class="cap-row"><div class="cap-label">夜间执行</div><div class="cap-desc">配置驱动的跨夜执行。按时间窗口自动 spawn agent 进程。睡前安排任务，醒来查看结果。</div></div>
+    <div class="cap-row"><div class="cap-label">单文件部署</div><div class="cap-desc">PyInstaller 打包为单个 EXE，SQLite 单文件数据库。无需 Docker、Node.js 或外部数据库。</div></div>
   </div>
 </div>
 </section>
@@ -295,19 +295,19 @@ section{padding:96px 0}
 <section id="product">
 <div class="wrap">
   <div class="sh rv">
-    <div class="sh-label">Product</div>
-    <h2>What it actually looks like.</h2>
+    <div class="sh-label">产品实览</div>
+    <h2>真实产品，真实状态。</h2>
   </div>
   <div class="shows">
     <div class="show-card rv rv-d1">
-      <div class="show-head"><h4>State Machine</h4><div class="live">Running</div></div>
+      <div class="show-head"><h4>状态机</h4><div class="live">运行中</div></div>
       <div class="show-body">
         <div class="code">
-<span class="c">// Stage pipeline</span>
+<span class="c">// 研发阶段流水线</span>
 <span class="k">brainstorming</span> <span class="o">→</span> <span class="k">design</span> <span class="o">→</span> <span class="k">planning</span> <span class="o">→</span> <span class="k">ready</span>
   <span class="o">→</span> <span class="k">implementing</span> <span class="o">→</span> <span class="k">review</span> <span class="o">→</span> <span class="k">done</span>
 
-<span class="c">// Execution states</span>
+<span class="c">// 执行状态流转</span>
 <span class="f">queued</span> <span class="o">→</span> <span class="f">claimed</span> <span class="o">→</span> <span class="f">running</span> <span class="o">→</span> <span class="f">completed</span>
          <span class="o">└→</span> <span class="f">retrying</span> <span class="o">→</span> <span class="f">failed</span>
         </div>
@@ -315,48 +315,48 @@ section{padding:96px 0}
     </div>
 
     <div class="show-card rv rv-d2">
-      <div class="show-head"><h4>Agent Heartbeat</h4><div class="live">Live</div></div>
+      <div class="show-head"><h4>Agent 心跳</h4><div class="live">实时</div></div>
       <div class="show-body">
         <div class="log" id="log">
           <div class="log-line"><span class="ts">14:32</span><span class="who">opencode</span><span class="act">heartbeat </span><span class="ok">12s</span></div>
           <div class="log-line"><span class="ts">14:32</span><span class="who">claude-code</span><span class="act">heartbeat </span><span class="ok">8s</span></div>
           <div class="log-line"><span class="ts">14:32</span><span class="who">codex</span><span class="act">heartbeat </span><span class="wrn">145s</span></div>
-          <div class="log-line"><span class="ts">14:31</span><span class="who">opencode</span><span class="act">claimed </span><span class="ok">auth_refactor</span></div>
-          <div class="log-line"><span class="ts">14:31</span><span class="who">claude-code</span><span class="act">completed </span><span class="ok">fix_timeout</span></div>
+          <div class="log-line"><span class="ts">14:31</span><span class="who">opencode</span><span class="act">领取 </span><span class="ok">auth_refactor</span></div>
+          <div class="log-line"><span class="ts">14:31</span><span class="who">claude-code</span><span class="act">完成 </span><span class="ok">fix_timeout</span></div>
         </div>
       </div>
     </div>
 
     <div class="show-card rv rv-d3">
-      <div class="show-head"><h4>Dashboard</h4><div class="live">Monitoring</div></div>
+      <div class="show-head"><h4>监控仪表盘</h4><div class="live">监控中</div></div>
       <div class="show-body">
         <div class="met">
           <div class="met-i"><div class="v">2.1%</div><div class="l">CPU</div></div>
-          <div class="met-i"><div class="v">48MB</div><div class="l">Memory</div></div>
-          <div class="met-i"><div class="v">3/5</div><div class="l">Threads</div></div>
+          <div class="met-i"><div class="v">48MB</div><div class="l">内存</div></div>
+          <div class="met-i"><div class="v">3/5</div><div class="l">线程</div></div>
         </div>
         <div class="met" style="margin-top:8px">
-          <div class="met-i"><div class="v">98.7%</div><div class="l">Success</div></div>
+          <div class="met-i"><div class="v">98.7%</div><div class="l">成功率</div></div>
           <div class="met-i"><div class="v">12ms</div><div class="l">P50</div></div>
-          <div class="met-i"><div class="v">0</div><div class="l">Alerts</div></div>
+          <div class="met-i"><div class="v">0</div><div class="l">告警</div></div>
         </div>
       </div>
     </div>
 
     <div class="show-card rv rv-d4">
-      <div class="show-head"><h4>MCP Tools</h4><div class="live">26 tools</div></div>
+      <div class="show-head"><h4>MCP 工具集</h4><div class="live">26 个工具</div></div>
       <div class="show-body">
         <div class="code">
-<span class="c">// Task management</span>
+<span class="c">// 任务管理</span>
 <span class="f">taskhub_create_task</span>  <span class="f">taskhub_claim</span>  <span class="f">taskhub_status</span>
 
-<span class="c">// Agent lifecycle</span>
+<span class="c">// Agent 生命周期</span>
 <span class="f">taskhub_register</span>  <span class="f">taskhub_heartbeat</span>  <span class="f">taskhub_submit_result</span>
 
-<span class="c">// Ideas & reviews</span>
+<span class="c">// 想法 & 评审</span>
 <span class="f">taskhub_add_idea</span>  <span class="f">taskhub_review_idea</span>  <span class="f">taskhub_breakdown_idea</span>
 
-<span class="c">// Dependencies</span>
+<span class="c">// 依赖 & 讨论</span>
 <span class="f">taskhub_advance_stage</span>  <span class="f">taskhub_open_discussion</span>
         </div>
       </div>
@@ -369,34 +369,34 @@ section{padding:96px 0}
 <section id="how" style="background:var(--surface)">
 <div class="wrap">
   <div class="sh rv">
-    <div class="sh-label">How It Works</div>
-    <h2>From idea to execution.</h2>
+    <div class="sh-label">工作流程</div>
+    <h2>从想法到交付。</h2>
   </div>
   <div class="wf rv">
-    <div class="wf-step"><div class="wf-n">1</div><div class="wf-t">Record idea</div><div class="wf-d">Log requirements, enter fermentation</div></div>
-    <div class="wf-step"><div class="wf-n">2</div><div class="wf-t">Discuss & review</div><div class="wf-d">Multi-agent discussion, decision</div></div>
-    <div class="wf-step"><div class="wf-n">3</div><div class="wf-t">Queue tasks</div><div class="wf-d">Set priority, deps, deadline</div></div>
-    <div class="wf-step"><div class="wf-n">4</div><div class="wf-t">Agents claim</div><div class="wf-d">Auto-assign to idle agents</div></div>
-    <div class="wf-step"><div class="wf-n">5</div><div class="wf-t">Monitor & deliver</div><div class="wf-d">Heartbeat, retry, track progress</div></div>
+    <div class="wf-step"><div class="wf-n">1</div><div class="wf-t">记录想法</div><div class="wf-d">记录需求，进入发酵流程</div></div>
+    <div class="wf-step"><div class="wf-n">2</div><div class="wf-t">讨论评审</div><div class="wf-d">多 agent 讨论，评审决策</div></div>
+    <div class="wf-step"><div class="wf-n">3</div><div class="wf-t">任务入队</div><div class="wf-d">设置优先级、依赖、截止时间</div></div>
+    <div class="wf-step"><div class="wf-n">4</div><div class="wf-t">Agent 领取</div><div class="wf-d">自动分配给空闲 agent</div></div>
+    <div class="wf-step"><div class="wf-n">5</div><div class="wf-t">监控交付</div><div class="wf-d">心跳保活，失败重试，进度追踪</div></div>
   </div>
   <div class="mock rv" style="margin-top:32px">
-    <div class="mock-bar"><div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div><span class="mock-title">MCP Interaction</span></div>
+    <div class="mock-bar"><div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div><span class="mock-title">MCP 交互示例</span></div>
     <div class="mock-body">
       <div class="code">
-<span class="c"># Agent connects via MCP</span>
+<span class="c"># Agent 通过 MCP 连接 TaskHub</span>
 <span class="f">taskhub_register</span>(name=<span class="s">"opencode"</span>, agent_type=<span class="s">"cli"</span>)
 
-<span class="c"># Claim next task</span>
+<span class="c"># 领取下一个任务</span>
 <span class="f">taskhub_claim</span>(agent=<span class="s">"opencode"</span>)
-<span class="c"># → { task_id: "task_abc", title: "Fix login timeout", priority: 1 }</span>
+<span class="c"># → { task_id: "task_abc", title: "修复登录超时", priority: 1 }</span>
 
-<span class="c"># Report progress</span>
+<span class="c"># 上报进度</span>
 <span class="f">taskhub_heartbeat</span>(run_id=<span class="s">"run_001"</span>, progress=<span class="n">68</span>)
 
-<span class="c"># Submit result</span>
+<span class="c"># 提交结果</span>
 <span class="f">taskhub_submit_result</span>(run_id=<span class="s">"run_001"</span>, success=<span class="k">True</span>)
 
-<span class="c"># Check全局状态</span>
+<span class="c"># 查看全局状态</span>
 <span class="f">taskhub_status</span>()
 <span class="c"># → { queued: 2, running: 2, completed: 15, failed: 0 }</span>
       </div>
@@ -409,26 +409,26 @@ section{padding:96px 0}
 <section id="diff">
 <div class="wrap">
   <div class="sh rv">
-    <div class="sh-label">Why Not Just ChatGPT</div>
-    <h2>Not another AI tool.</h2>
-    <p>Mio-TaskHub doesn't write code. It orchestrates the agents that do.</p>
+    <div class="sh-label">为什么不用 ChatGPT</div>
+    <h2>不是又一个 AI 工具。</h2>
+    <p>Mio-TaskHub 不写代码。它调度写代码的 agent。</p>
   </div>
   <div class="diff rv">
     <div class="diff-item">
-      <h4><span class="dt">Orchestration</span> Not a TODO list</h4>
-      <p>TODO tools track "what to do." Mio-TaskHub tracks "who's doing it, how far along, and whether they're still alive" — with heartbeats, auto-retry, and priority scheduling.</p>
+      <h4><span class="dt">调度</span> 不是 TODO 列表</h4>
+      <p>TODO 工具只记录"要做什么"。Mio-TaskHub 追踪"谁在做、做到哪了、还活着吗"——心跳检测、自动重试、优先级调度。</p>
     </div>
     <div class="diff-item">
-      <h4><span class="dt">Multi-agent</span> Not single-agent</h4>
-      <p>ChatGPT serves one user, one task. Mio-TaskHub lets opencode write while Claude Code tests while Codex refactors — all sharing one queue.</p>
+      <h4><span class="dt">协调</span> 不是单 Agent</h4>
+      <p>ChatGPT 一次服务一个用户、一个任务。Mio-TaskHub 让 opencode 写代码的同时，Claude Code 在跑测试，Codex 在重构——共享同一个队列。</p>
     </div>
     <div class="diff-item">
-      <h4><span class="dt">Local</span> Not cloud</h4>
-      <p>SQLite file, single EXE. Data stays on your machine. No accounts, no API keys, no external services.</p>
+      <h4><span class="dt">本地</span> 不是云服务</h4>
+      <p>SQLite 文件，单个 EXE。数据在你本机，不上传任何外部服务。无需注册账号，无需 API Key。</p>
     </div>
     <div class="diff-item">
-      <h4><span class="dt">MCP</span> Not proprietary</h4>
-      <p>Open MCP protocol. Any compatible agent connects directly. No vendor lock-in.</p>
+      <h4><span class="dt">MCP</span> 不是私有协议</h4>
+      <p>开放的 MCP 协议，任何兼容 agent 直接接入。不锁定你用哪个 agent，不绑架你的工作流。</p>
     </div>
   </div>
 </div>
@@ -437,22 +437,22 @@ section{padding:96px 0}
 <!-- CTA -->
 <section class="cta">
 <div class="wrap">
-  <h2 class="rv">Start in 3 commands</h2>
-  <p class="rv">Clone, install, run. No configuration needed.</p>
+  <h2 class="rv">3 行命令启动</h2>
+  <p class="rv">克隆、安装、运行。无需配置。</p>
   <div class="cta-cmd rv"><b>git clone</b> https://github.com/mldlbs/mio-taskhub && pip install -e .</div>
   <div style="margin-top:24px" class="rv">
-    <a href="https://github.com/mldlbs/mio-taskhub" class="btn btn-w">View on GitHub</a>
+    <a href="https://github.com/mldlbs/mio-taskhub" class="btn btn-w">查看 GitHub</a>
   </div>
 </div>
 </section>
 
 <footer class="foot">
-<div class="wrap" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+<div class="wrap foot-inner">
   <div class="foot-l">Mio-TaskHub v0.2.0</div>
   <div class="foot-r">
     <a href="https://github.com/mldlbs/mio-taskhub">GitHub</a>
-    <a href="https://github.com/mldlbs/mio-taskhub/blob/main/CHANGELOG.md">Changelog</a>
-    <a href="http://127.0.0.1:48620/dashboard">Dashboard</a>
+    <a href="https://github.com/mldlbs/mio-taskhub/blob/main/CHANGELOG.md">更新日志</a>
+    <a href="http://127.0.0.1:48620/dashboard">监控面板</a>
   </div>
 </div>
 </footer>
@@ -471,10 +471,10 @@ setTimeout(()=>{document.querySelectorAll('.kb-card').forEach((c,i)=>{setTimeout
 
 // Live log
 const logs=[
-  {ts:'14:32',who:'opencode',act:'progress ',val:'auth 72%',cls:'ok'},
-  {ts:'14:31',who:'codex',act:'claimed ',val:'query_opt',cls:'ok'},
-  {ts:'14:31',who:'system',act:'retry ',val:'ci_fix → #2',cls:'wrn'},
-  {ts:'14:30',who:'claude-code',act:'completed ',val:'docs_gen',cls:'ok'},
+  {ts:'14:32',who:'opencode',act:'进度 ',val:'auth 72%',cls:'ok'},
+  {ts:'14:31',who:'codex',act:'领取 ',val:'query_opt',cls:'ok'},
+  {ts:'14:31',who:'system',act:'重试 ',val:'ci_fix → #2',cls:'wrn'},
+  {ts:'14:30',who:'claude-code',act:'完成 ',val:'docs_gen',cls:'ok'},
   {ts:'14:30',who:'opencode',act:'heartbeat ',val:'5s',cls:'ok'},
 ];
 let li=0;
