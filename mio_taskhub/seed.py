@@ -202,7 +202,7 @@ def seed_common_templates(db: Session):
 
 def seed_idea_generate_job(db: Session):
     """播种 idea 自动生成定时任务（幂等：已存在则更新 description）。"""
-    from mio_taskhub.cron_engine import compute_next_run, validate_cron
+    from mio_taskhub.scheduling.cron_engine import compute_next_run, validate_cron
 
     NEW_DESCRIPTION = (
         "自动调用 agent-runtime 生成创意想法并同步到 taskhub。\n\n"

@@ -2,7 +2,7 @@
 """综合状态标签 + 前端映射导出。"""
 from __future__ import annotations
 
-from mio_taskhub.state_machine import (
+from mio_taskhub.workflow.state_machine import (
     State, Stage, ActorType,
     LEGAL_COMBOS, is_fully_done, TRANSITIONS,
 )

@@ -5,7 +5,7 @@ import json
 import logging
 from typing import Any
 
-from mio_taskhub.state_machine import _stage_str
+from mio_taskhub.workflow.state_machine import _stage_str
 
 logger = logging.getLogger("mio_taskhub.dependency")
 

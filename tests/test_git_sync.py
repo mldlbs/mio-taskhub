@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from sqlmodel import Session, select
 
 from mio_taskhub.db import engine, init_db
-from mio_taskhub.git_sync import cleanup_old_outbox_events
+from mio_taskhub.ops.git_sync import cleanup_old_outbox_events
 from mio_taskhub.models import OutboxEvent, OutboxStatus
 
 

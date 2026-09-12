@@ -16,7 +16,7 @@ from typing import Optional
 import httpx
 from pydantic import Field
 from mcp.server.fastmcp import FastMCP
-from mio_taskhub.dep_metrics import DepMetrics
+from mio_taskhub.observability.dep_metrics import DepMetrics
 
 HUB_URL = os.environ.get("MIO_TASKHUB_URL", "http://127.0.0.1:48620/api/v1")
 TIMEOUT = 15.0

@@ -3,8 +3,8 @@ from sqlmodel import Session, select
 
 from mio_taskhub.db import get_session
 from mio_taskhub.models import Task, TaskState
-from mio_taskhub import night_runner as nr
-from mio_taskhub.night_runner import load_config, save_config
+from mio_taskhub.scheduling import night_runner as nr
+from mio_taskhub.scheduling.night_runner import load_config, save_config
 
 router = APIRouter(prefix="/nightrun", tags=["nightrun"])
 

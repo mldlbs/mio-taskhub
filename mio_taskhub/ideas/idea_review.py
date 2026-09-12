@@ -12,7 +12,7 @@ from sqlmodel import Session, select
 from mio_taskhub.db import engine
 from mio_taskhub.models import (Idea, IdeaStatus, Task, TaskKind, TaskStage,
                                 TaskState)
-from mio_taskhub.scheduler import Scheduler
+from mio_taskhub.scheduling.scheduler import Scheduler
 from mio_taskhub.events import emit_event, broadcast_for_event
 
 INTERVAL_MIN = int(os.environ.get("MIO_IDEA_REVIEW_INTERVAL_MIN", "1440"))

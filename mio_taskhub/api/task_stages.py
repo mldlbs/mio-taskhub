@@ -4,9 +4,9 @@ from sqlmodel import Session, select
 from mio_taskhub.db import get_session
 from mio_taskhub.events import emit_event
 from mio_taskhub.models import Task, TaskState, TaskStage, Discussion
-from mio_taskhub.transitions import apply_transition, _orm_to_status_state, _orm_to_status_stage
+from mio_taskhub.workflow.transitions import apply_transition, _orm_to_status_state, _orm_to_status_stage
 from mio_taskhub.api.task_helpers import parse_enum
-from mio_taskhub.state_machine import State, State as M1State, Stage as M1Stage, ActorType, IllegalTransition as M1Illegal
+from mio_taskhub.workflow.state_machine import State, State as M1State, Stage as M1Stage, ActorType, IllegalTransition as M1Illegal
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -59,8 +59,8 @@ def cancel_task(task_id: str, db: Session = Depends(get_session)):
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404)
-    from mio_taskhub.transitions import apply_transition
-    from mio_taskhub.state_machine import State, Stage, ActorType, IllegalTransition
+    from mio_taskhub.workflow.transitions import apply_transition
+    from mio_taskhub.workflow.state_machine import State, Stage, ActorType, IllegalTransition
     current_stage = t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
     try:
         _, m1_event = apply_transition(
@@ -89,8 +89,8 @@ def retry_task(task_id: str, body: dict = None, db: Session = Depends(get_sessio
         t.attempt = 0
         t.retry_count = 0
     t.retry_at = None
-    from mio_taskhub.transitions import apply_transition
-    from mio_taskhub.state_machine import State, Stage, ActorType, IllegalTransition
+    from mio_taskhub.workflow.transitions import apply_transition
+    from mio_taskhub.workflow.state_machine import State, Stage, ActorType, IllegalTransition
     current_stage = t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
     try:
         _, m1_event = apply_transition(

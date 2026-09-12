@@ -198,5 +198,5 @@ def get_adr_markdown(idea_id: str, db: Session = Depends(get_session)):
         except OSError:
             pass  # 文件缺失则即时渲染
 
-    from mio_taskhub.git_sync import _render_adr_markdown
+    from mio_taskhub.ops.git_sync import _render_adr_markdown
     return {"path": "", "content": _render_adr_markdown(i), "source": "inline"}

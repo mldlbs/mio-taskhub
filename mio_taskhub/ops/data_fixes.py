@@ -1,8 +1,8 @@
 """M1 一次性脏数据修复：state/stage 合法化 + 归一化。
 
 调用方式：
-    python -m mio_taskhub.data_fixes            # 实际修复
-    python -m mio_taskhub.data_fixes --dry-run   # 预览不写
+    python -m mio_taskhub.ops.data_fixes            # 实际修复
+    python -m mio_taskhub.ops.data_fixes --dry-run   # 预览不写
 
 规则（与 mio_taskhub.status.LEGAL_COMBOS 对齐）：
   1. state=running   AND stage≠implementing  → state=claimed, stage 保留
@@ -31,7 +31,7 @@ from sqlalchemy import inspect, text
 # ---------- helpers ----------
 def _legal_combo_strings() -> set:
     """把 status.LEGAL_COMBOS 转为 (state_str, stage_str) 集合（小写）。"""
-    from mio_taskhub.state_machine import LEGAL_COMBOS, State, Stage
+    from mio_taskhub.workflow.state_machine import LEGAL_COMBOS, State, Stage
     return {(s.value, st.value) for s, st in LEGAL_COMBOS}
 
 

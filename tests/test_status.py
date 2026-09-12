@@ -10,7 +10,7 @@
  - 回归：原有 is_terminal / dependency_satisfied / normalize_depends 行为不变
 """
 import pytest
-from mio_taskhub.state_machine import (
+from mio_taskhub.workflow.state_machine import (
     TERMINAL_STATES, is_terminal,
     State, Stage, ActorType,
     LEGAL_COMBOS, is_legal_combo, is_fully_done, initial_state,

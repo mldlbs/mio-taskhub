@@ -5,7 +5,7 @@ from sqlmodel import SQLModel, create_engine, Session
 from typing import Generator
 from sqlalchemy import event, text
 from sqlalchemy.pool import QueuePool
-from mio_taskhub.dep_metrics import DepMetrics
+from mio_taskhub.observability.dep_metrics import DepMetrics
 
 # Allow overriding the DB path (e.g. tests use a throwaway DB so the
 # production data in ~/.mio_taskhub/taskhub.db is never wiped).

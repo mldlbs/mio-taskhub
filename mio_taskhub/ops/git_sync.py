@@ -19,7 +19,7 @@ from sqlmodel import Session, select
 
 from mio_taskhub.db import engine
 from mio_taskhub.models import OutboxEvent, OutboxStatus, Idea, IdeaType
-from mio_taskhub.dep_metrics import DepMetrics
+from mio_taskhub.observability.dep_metrics import DepMetrics
 
 logger = logging.getLogger("git_sync")
 

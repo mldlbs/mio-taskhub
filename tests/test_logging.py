@@ -1,7 +1,7 @@
 """Structured logging configuration tests."""
 import json
 import logging
-from mio_taskhub.logging_config import setup_logging
+from mio_taskhub.observability.logging_config import setup_logging
 
 def test_setup_logging_configures_root():
     setup_logging()
@@ -10,7 +10,7 @@ def test_setup_logging_configures_root():
     assert any(isinstance(h, logging.StreamHandler) for h in root.handlers)
 
 def test_json_formatter_output():
-    from mio_taskhub.logging_config import JSONFormatter
+    from mio_taskhub.observability.logging_config import JSONFormatter
     fmt = JSONFormatter()
     record = logging.LogRecord(
         name="test", level=logging.INFO, pathname="test.py",
@@ -24,7 +24,7 @@ def test_json_formatter_output():
 
 def test_request_id_context_isolation():
     """ContextVar should isolate request_id across different contexts."""
-    from mio_taskhub.logging_config import request_id_var
+    from mio_taskhub.observability.logging_config import request_id_var
     token_a = request_id_var.set("req-A")
     try:
         assert request_id_var.get() == "req-A"
@@ -38,7 +38,7 @@ def test_request_id_context_isolation():
         request_id_var.reset(token_a)
 
 def test_json_formatter_exception():
-    from mio_taskhub.logging_config import JSONFormatter
+    from mio_taskhub.observability.logging_config import JSONFormatter
     fmt = JSONFormatter()
     try:
         raise ValueError("boom")

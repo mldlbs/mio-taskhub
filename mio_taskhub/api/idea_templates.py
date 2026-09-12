@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
 from mio_taskhub.models import Idea
-from mio_taskhub.idea_prompts import DEFAULT_TEMPLATES, get_template_by_id, get_templates_by_category, render_template_prompt
+from mio_taskhub.ideas.idea_prompts import DEFAULT_TEMPLATES, get_template_by_id, get_templates_by_category, render_template_prompt
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
 

@@ -326,7 +326,7 @@ def render_metrics() -> str:
 
     # ========== Dependency Latency Metrics (SQLite / Git / MCP) ==========
     try:
-        from mio_taskhub.dep_metrics import DepMetrics
+        from mio_taskhub.observability.dep_metrics import DepMetrics
         dep_lines = DepMetrics.render()
         if dep_lines:
             lines.append("")

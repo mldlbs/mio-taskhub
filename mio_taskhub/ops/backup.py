@@ -11,7 +11,7 @@ import time
 import logging
 from datetime import datetime
 
-logger = logging.getLogger("mio_taskhub.backup")
+logger = logging.getLogger("mio_taskhub.ops.backup")
 
 DEFAULT_INTERVAL = 3600  # seconds (1 hour)
 DEFAULT_KEEP_HOURLY = 24

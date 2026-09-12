@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 from mio_taskhub.models import Task, TaskEvent, TaskState, TaskStage
-from mio_taskhub.state_machine import (
+from mio_taskhub.workflow.state_machine import (
     State, Stage, ActorType, Transition,
     validate_transition, IllegalTransition,
 )

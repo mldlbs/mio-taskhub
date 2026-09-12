@@ -1,7 +1,7 @@
 import json
 from unittest.mock import patch
 
-from mio_taskhub import night_runner as nr
+from mio_taskhub.scheduling import night_runner as nr
 
 
 def test_in_window_overnight():

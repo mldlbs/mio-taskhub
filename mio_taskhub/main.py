@@ -10,11 +10,11 @@ from fastapi.responses import JSONResponse
 from mio_taskhub.db import get_session, init_db
 from mio_taskhub.api import tasks, task_stages, task_graph, task_subtasks, templates, agents, runs, plans, board, ideas, idea_templates, idea_scoring, adr, discussions, events, nightrun, memory, scheduled_jobs, task_documents, reviews, ideas_breakdown, ideas_discussion
 from mio_taskhub.api.board import board_summary as _board_summary
-from mio_taskhub.logging_config import setup_logging
+from mio_taskhub.observability.logging_config import setup_logging
 from mio_taskhub.middleware import RequestIDMiddleware, RateLimitMiddleware
 from mio_taskhub.events import ws_manager
-from mio_taskhub.otel import init_otel, instrument_app, instrument_sqlalchemy, instrument_httpx, shutdown_otel
-from mio_taskhub.alerts import init_alert_manager, get_alert_manager
+from mio_taskhub.observability.otel import init_otel, instrument_app, instrument_sqlalchemy, instrument_httpx, shutdown_otel
+from mio_taskhub.observability.alerts import init_alert_manager, get_alert_manager
 from mio_taskhub.db import engine as db_engine
 
 
@@ -51,15 +51,15 @@ async def lifespan(app):
     instrument_httpx()
 
     from .background import start_background_jobs, _thread_registry, register_thread
-    from mio_taskhub.git_sync import start_git_sync_worker, stop_git_sync_worker
-    from mio_taskhub.night_runner import start_night_runner, stop_night_runner
-    from mio_taskhub.cron_engine import start_cron_engine, stop_cron_engine
+    from mio_taskhub.ops.git_sync import start_git_sync_worker, stop_git_sync_worker
+    from mio_taskhub.scheduling.night_runner import start_night_runner, stop_night_runner
+    from mio_taskhub.scheduling.cron_engine import start_cron_engine, stop_cron_engine
     app.state.background = start_background_jobs()
     start_git_sync_worker()
     start_night_runner()
     cron_engine = start_cron_engine()
     # SQLite auto-backup (hourly snapshots, 31 kept)
-    from mio_taskhub.backup import SQLiteBackup
+    from mio_taskhub.ops.backup import SQLiteBackup
     from mio_taskhub.db import DB_PATH
     backup = SQLiteBackup(DB_PATH)
     backup.start()
@@ -145,7 +145,7 @@ def get_alerts():
 from fastapi.responses import HTMLResponse
 from pathlib import Path
 import sys
-from mio_taskhub.logging_config import log_buffer
+from mio_taskhub.observability.logging_config import log_buffer
 
 @app.get("/dashboard", response_class=HTMLResponse, tags=["dashboard"])
 def dashboard():
@@ -258,7 +258,7 @@ def healthz():
 )
 def readyz():
     from mio_taskhub.db import check_connection, DB_PATH
-    from mio_taskhub.backup import get_backup_status
+    from mio_taskhub.ops.backup import get_backup_status
     result = check_connection()
     status = "ok" if result["ok"] else "degraded"
     backup_info = get_backup_status(DB_PATH)
@@ -269,7 +269,7 @@ def readyz():
     )
 
 
-from mio_taskhub.metrics import render_metrics
+from mio_taskhub.observability.metrics import render_metrics
 
 
 @app.get(

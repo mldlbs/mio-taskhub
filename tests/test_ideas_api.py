@@ -547,7 +547,7 @@ def test_outbox_event_created_on_adr_action():
 
 def test_git_sync_render_adr_markdown():
     """测试 ADR Markdown 渲染"""
-    from mio_taskhub.git_sync import _render_adr_markdown
+    from mio_taskhub.ops.git_sync import _render_adr_markdown
     from mio_taskhub.models import Idea, IdeaType, IdeaStatus
     from datetime import datetime
 
@@ -576,7 +576,7 @@ def test_git_sync_render_adr_markdown():
 
 def test_git_sync_render_adr_alternatives_string():
     """madr_alternatives 为字符串时应整段渲染，而非逐字符拆成列表"""
-    from mio_taskhub.git_sync import _render_adr_markdown
+    from mio_taskhub.ops.git_sync import _render_adr_markdown
     from mio_taskhub.models import Idea, IdeaType, IdeaStatus
     from datetime import datetime
 
@@ -603,7 +603,7 @@ def test_git_sync_render_adr_alternatives_string():
 
 def test_git_sync_render_readme():
     """测试 README 索引渲染"""
-    from mio_taskhub.git_sync import _render_readme
+    from mio_taskhub.ops.git_sync import _render_readme
     from mio_taskhub.models import Idea, IdeaType, IdeaStatus
     from datetime import datetime
 

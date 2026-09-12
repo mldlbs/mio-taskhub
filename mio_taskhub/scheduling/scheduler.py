@@ -35,4 +35,4 @@ class Scheduler:
             try:
                 self.tick()
             except Exception:
-                logging.getLogger("mio_taskhub.scheduler").exception("scheduler tick failed")
+                logging.getLogger("mio_taskhub.scheduling.scheduler").exception("scheduler tick failed")

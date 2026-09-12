@@ -112,7 +112,7 @@ def atomic_claim(db, agent, candidate):
         return None
     task = db.get(Task, candidate.id)
     db.refresh(task)
-    from mio_taskhub.transitions import record_post_claim
+    from mio_taskhub.workflow.transitions import record_post_claim
     claim_event = record_post_claim(task, agent)
     task.attempt += 1
     task.stage = TaskStage.IMPLEMENTING

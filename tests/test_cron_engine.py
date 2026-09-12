@@ -1,4 +1,4 @@
-"""Tests for mio_taskhub.cron_engine — CronEngine core logic."""
+"""Tests for mio_taskhub.scheduling.cron_engine — CronEngine core logic."""
 import json
 import time
 from datetime import datetime, timezone, timedelta
@@ -12,7 +12,7 @@ from mio_taskhub.models import Event, ScheduledJob, ScheduledJobActionType
 
 
 def test_validate_cron_valid():
-    from mio_taskhub.cron_engine import validate_cron
+    from mio_taskhub.scheduling.cron_engine import validate_cron
     assert validate_cron("0 * * * *") is True
     assert validate_cron("*/5 * * * *") is True
     assert validate_cron("0 9 * * 1-5") is True
@@ -20,7 +20,7 @@ def test_validate_cron_valid():
 
 
 def test_validate_cron_invalid():
-    from mio_taskhub.cron_engine import validate_cron
+    from mio_taskhub.scheduling.cron_engine import validate_cron
     assert validate_cron("") is False
     assert validate_cron("invalid") is False
     assert validate_cron("* * *") is False
@@ -28,7 +28,7 @@ def test_validate_cron_invalid():
 
 
 def test_compute_next_run():
-    from mio_taskhub.cron_engine import compute_next_run
+    from mio_taskhub.scheduling.cron_engine import compute_next_run
     now = datetime(2026, 9, 7, 8, 0, 0, tzinfo=timezone.utc)
     nxt = compute_next_run("0 9 * * *", after=now)
     assert nxt.hour == 9
@@ -37,7 +37,7 @@ def test_compute_next_run():
 
 
 def test_compute_next_runs():
-    from mio_taskhub.cron_engine import compute_next_runs
+    from mio_taskhub.scheduling.cron_engine import compute_next_runs
     now = datetime(2026, 9, 7, 8, 0, 0, tzinfo=timezone.utc)
     runs = compute_next_runs("0 9 * * *", count=3, after=now)
     assert len(runs) == 3
@@ -50,7 +50,7 @@ def test_compute_next_runs():
 
 
 def test_cron_engine_start_stop():
-    from mio_taskhub.cron_engine import CronEngine
+    from mio_taskhub.scheduling.cron_engine import CronEngine
     engine = CronEngine(poll_interval=1)
     engine.start()
     assert engine._thread.is_alive()
@@ -59,14 +59,14 @@ def test_cron_engine_start_stop():
 
 
 def test_cron_engine_tick_no_jobs():
-    from mio_taskhub.cron_engine import CronEngine
+    from mio_taskhub.scheduling.cron_engine import CronEngine
     engine = CronEngine(poll_interval=1)
     # tick 不应该崩溃（即使没有 job）
     engine.tick()
 
 
 def test_cron_engine_add_and_pause():
-    from mio_taskhub.cron_engine import CronEngine
+    from mio_taskhub.scheduling.cron_engine import CronEngine
     from mio_taskhub.models import ScheduledJob, ScheduledJobActionType
     from mio_taskhub.db import engine as db_engine
     from sqlmodel import Session
@@ -111,7 +111,7 @@ def test_cron_job_event_persisted_to_db():
     - event.id 已生成（非 None）
     - payload 包含 status 和 action_type
     """
-    from mio_taskhub.cron_engine import CronEngine
+    from mio_taskhub.scheduling.cron_engine import CronEngine
 
     engine_obj = CronEngine()
     job = ScheduledJob(

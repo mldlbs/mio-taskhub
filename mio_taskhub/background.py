@@ -8,12 +8,12 @@ from sqlmodel import Session, select
 from mio_taskhub.db import engine
 from mio_taskhub.api.claim import claim_for as _claim_for
 from mio_taskhub.models import Agent, AgentStatus, Run, RunState, Task, TaskStage, TaskState
-from mio_taskhub.state_machine import is_terminal
+from mio_taskhub.workflow.state_machine import is_terminal
 from mio_taskhub.dependency import dependency_satisfied, task_deps
 from mio_taskhub.events import emit_event, broadcast_for_event
-from mio_taskhub.transitions import apply_transition, _orm_to_status_stage
-from mio_taskhub.state_machine import State as M1State, Stage as M1Stage, ActorType as M1Actor
-from mio_taskhub.idea_review import IdeaReviewScanner
+from mio_taskhub.workflow.transitions import apply_transition, _orm_to_status_stage
+from mio_taskhub.workflow.state_machine import State as M1State, Stage as M1Stage, ActorType as M1Actor
+from mio_taskhub.ideas.idea_review import IdeaReviewScanner
 
 logger = logging.getLogger("mio_taskhub.background")
 
@@ -577,4 +577,4 @@ class Scheduler:
                 thread_heartbeat("scheduler", "running")
             except Exception:
                 thread_failure("scheduler")
-                logging.getLogger("mio_taskhub.scheduler").exception("scheduler tick failed")
+                logging.getLogger("mio_taskhub.scheduling.scheduler").exception("scheduler tick failed")

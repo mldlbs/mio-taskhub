@@ -4,7 +4,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from mio_taskhub.middleware import RequestIDMiddleware
-from mio_taskhub.logging_config import request_id_var
+from mio_taskhub.observability.logging_config import request_id_var
 
 def test_request_id_in_response():
     app = FastAPI()

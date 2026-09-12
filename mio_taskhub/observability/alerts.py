@@ -11,7 +11,7 @@ from threading import Lock
 from mio_taskhub.background import get_thread_health
 from mio_taskhub.middleware import get_http_metrics
 
-logger = logging.getLogger("mio_taskhub.alerts")
+logger = logging.getLogger("mio_taskhub.observability.alerts")
 
 _status_lock = Lock()
 

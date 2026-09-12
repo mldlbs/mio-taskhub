@@ -12,7 +12,7 @@ from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME, SERVICE_VERSION
 
-logger = logging.getLogger("mio_taskhub.otel")
+logger = logging.getLogger("mio_taskhub.observability.otel")
 
 # Global tracer provider
 _tracer_provider: trace.TracerProvider | None = None

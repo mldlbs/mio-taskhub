@@ -14,7 +14,7 @@ from sqlmodel import Session
 
 from mio_taskhub.db import engine, init_db
 from mio_taskhub.models import Task, TaskEvent, TaskState, TaskStage, Run, RunState, SQLModel
-from mio_taskhub.data_fixes import fix_state_stage, _legal_combo_strings
+from mio_taskhub.ops.data_fixes import fix_state_stage, _legal_combo_strings
 
 
 # ---------- Schema 迁移 ----------

@@ -10,7 +10,7 @@ from mio_taskhub.db import get_session
 from mio_taskhub.models import (
     ScheduledJob, ScheduledJobActionType, ScheduledJobStatus, ScheduledJobExecution,
 )
-from mio_taskhub.cron_engine import (
+from mio_taskhub.scheduling.cron_engine import (
     validate_cron, compute_next_run, compute_next_runs, get_cron_engine,
 )
 

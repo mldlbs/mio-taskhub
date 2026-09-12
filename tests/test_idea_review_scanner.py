@@ -2,7 +2,7 @@
 from sqlmodel import Session, select
 from mio_taskhub.db import engine
 from mio_taskhub.models import Idea, Task, TaskKind
-from mio_taskhub import idea_review
+from mio_taskhub.ideas import idea_review
 
 
 def _seed_idea(**kw):

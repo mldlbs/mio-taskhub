@@ -1,4 +1,4 @@
-from mio_taskhub.scheduler import Scheduler
+from mio_taskhub.scheduling.scheduler import Scheduler
 
 def test_scheduler_enqueue_task():
     enqueued = []

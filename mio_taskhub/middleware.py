@@ -7,7 +7,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from mio_taskhub.logging_config import request_id_var
+from mio_taskhub.observability.logging_config import request_id_var
 
 logger = logging.getLogger("mio_taskhub.middleware")
 
