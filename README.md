@@ -6,7 +6,7 @@
 
 | 维度 | 现状 |
 |------|------|
-| 版本 | v0.2.0 |
+| 版本 | v0.2.1 |
 | 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 61 模块 / 10,257 行 |
 | 对外能力 | **93 个 REST 端点** · **33 个 MCP 工具** · WebSocket 实时广播 · React Web UI |
 | 前端 | React 18 + Vite 5 · 38 文件 / 11,270 行 · 10 个视图 |

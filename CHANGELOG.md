@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.2.1 (2026-09-14)
 
 ### Fixed
 - `/dashboard` 在 `web/dist/dashboard.html` 缺失时返回 404（且错误文案误写为 "Landing page not found"）。现改为回退到 `main.py` 中已有的内置仪表盘 HTML（`_DASHBOARD_HTML`），无需构建产物即可访问。
