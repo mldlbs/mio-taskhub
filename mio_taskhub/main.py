@@ -160,7 +160,7 @@ def dashboard():
         if candidate.exists():
             return HTMLResponse(content=candidate.read_text(encoding="utf-8"))
     # Embedded fallback
-    return HTMLResponse(content="<h1>Landing page not found</h1>", status_code=404)
+    return HTMLResponse(content=_DASHBOARD_HTML)
 
 
 @app.get("/landing", response_class=HTMLResponse, tags=["landing"])

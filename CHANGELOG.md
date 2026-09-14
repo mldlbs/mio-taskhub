@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- `/dashboard` 在 `web/dist/dashboard.html` 缺失时返回 404（且错误文案误写为 "Landing page not found"）。现改为回退到 `main.py` 中已有的内置仪表盘 HTML（`_DASHBOARD_HTML`），无需构建产物即可访问。
+
+### Docs
+- 重写 `README.md`：补充核心模型（状态机 / 7 段研发阶段 / 想法生命周期 / 实体表）、三种部署方式、MCP 33 工具分组、Web UI 视图表、可观测性与 SLO、完整环境变量表、7 个后台线程、打包踩坑与已知限制。
+- 修正文档中的 API 文档地址：为 `/docs`（非 `/api/v1/docs`）。
+
+---
+
 ## v0.2.0 (2026-09-11)
 
 ### Observability Overhaul (P0-P3)
