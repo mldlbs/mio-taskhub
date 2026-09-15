@@ -205,3 +205,20 @@ def _migrate_observability(conn):
             )
         """))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_slosnapshot_ts ON slosnapshot(ts)"))
+    if "alertaudit" not in tables:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS alertaudit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts FLOAT NOT NULL,
+                alert_name VARCHAR NOT NULL,
+                severity VARCHAR NOT NULL,
+                action VARCHAR NOT NULL,
+                message TEXT,
+                metric_value FLOAT,
+                threshold FLOAT,
+                duration_seconds FLOAT,
+                resolution_message TEXT
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_alertaudit_ts ON alertaudit(ts)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_alertaudit_name ON alertaudit(alert_name)"))

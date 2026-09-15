@@ -10,8 +10,11 @@ from threading import Lock
 
 from mio_taskhub.background import get_thread_health
 from mio_taskhub.middleware import get_http_metrics
+from mio_taskhub.observability.audit import AlertAudit
 
 logger = logging.getLogger("mio_taskhub.observability.alerts")
+
+_audit = AlertAudit()
 
 _status_lock = Lock()
 
@@ -127,16 +130,26 @@ class AlertManager:
             return [a for a in self._alerts.values() if a.active]
 
         with _status_lock:
+            previously_active = {n for n, a in self._alerts.items() if a.active}
+
             new_alerts: dict[str, Alert] = {}
             for alert in self._check_threads():
                 new_alerts[alert.name] = alert
             for alert in self._check_http():
                 new_alerts[alert.name] = alert
 
+            currently_active = {n for n in new_alerts if new_alerts[n].active}
+
+            for name in currently_active - previously_active:
+                a = new_alerts[name]
+                _audit.log_fire(name, a.severity, message=a.message, metric_value=a.value)
+
             for name, old in self._alerts.items():
                 if old.active and name not in new_alerts:
                     old.resolved_at = now
                     new_alerts[name] = old
+                    duration = now - old.fired_at if old.fired_at else None
+                    _audit.log_resolve(name, message=f"resolved: {old.message}", duration_seconds=duration)
 
             self._alerts = new_alerts
             self._last_eval = now
