@@ -465,6 +465,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <div class="cc"><h3>Thread Health</h3><canvas id="c2" height="200"></canvas></div>
 <div class="cc"><h3>Dependency Latency</h3><canvas id="c3" height="200"></canvas></div>
 <div class="cc"><h3>System Resources</h3><canvas id="c4" height="200"></canvas></div>
+<div class="cc" style="grid-column:span 2"><h3>SLO Availability Trend (7 Days)</h3><canvas id="sloChart" height="100"></canvas></div>
+<div class="cc"><h3>Recent Insights</h3><div id="insightsFeed" style="max-height:300px;overflow-y:auto"></div></div>
 </div>
 <div class="al"><h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;margin-bottom:12px">Active Alerts</h3><div class="alist" id="alerts"><div class="alr info"><span>No active alerts</span></div></div></div>
 <div class="gr" style="margin-bottom:32px"><div class="cd" style="grid-column:1/-1"><h3>Dependency Performance</h3><table class="dt" id="dpt"><thead><tr><th>Dep</th><th>Op</th><th>Calls</th><th>Errors</th><th>Avg</th><th>P50</th><th>P90</th><th>P99</th><th>Max</th><th>Err%</th></tr></thead><tbody></tbody></table></div></div>
@@ -528,6 +530,9 @@ function connectWS(){
 }
 load();
 connectWS();
+async function loadSloChart(){try{var resp=await fetch('/api/v1/slo/history?hours=168&limit=168');var json=await resp.json();var data=json.snapshots||json;if(!data||!data.length)return;var labels=data.map(function(d){return new Date(d.ts*1000).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})});var availability=data.map(function(d){return(d.availability*100).toFixed(2)});new Chart(document.getElementById('sloChart'),{type:'line',data:{labels:labels,datasets:[{label:'Availability %',data:availability,borderColor:'#10b981',backgroundColor:'rgba(16,185,129,0.1)',fill:true,tension:0.3},{label:'Target (99%)',data:Array(labels.length).fill(99),borderColor:'#ef4444',borderDash:[5,5],pointRadius:0}]},options:{responsive:true,plugins:{legend:{labels:{color:'#94a3b8'}}},scales:{x:{ticks:{color:'#64748b',maxTicksLimit:10}},y:{min:95,max:100,ticks:{color:'#64748b'}}}}})}catch(e){console.error('SLO chart error:',e)}}
+async function loadInsightsFeed(){try{var resp=await fetch('/api/v1/insights?limit=10');var insights=await resp.json();var feed=document.getElementById('insightsFeed');if(!feed)return;if(!insights.length){feed.innerHTML='<div style="padding:8px;color:#64748b">No insights yet</div>';return}feed.innerHTML=insights.map(function(i){return '<div style="padding:8px;border-bottom:1px solid #334155"><span style="color:'+(i.severity==='critical'?'#ef4444':i.severity==='warning'?'#f59e0b':'#3b82f6')+';font-size:11px">'+i.severity.toUpperCase()+'</span> <strong style="color:#e2e8f0;font-size:13px">'+i.title+'</strong><div style="color:#94a3b8;font-size:12px">'+i.description+'</div>'+(i.recommendation?'<div style="color:#10b981;font-size:11px;margin-top:4px">'+i.recommendation+'</div>':'')+'</div>'}).join('')}catch(e){console.error('Insights feed error:',e)}}
+loadSloChart();loadInsightsFeed();setInterval(loadInsightsFeed,30000);
 </script>
 </body>
 </html>"""
