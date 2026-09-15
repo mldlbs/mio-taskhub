@@ -25,6 +25,8 @@ def run_migrations(target_engine=None):
         if "ideachange" in tables:
             _migrate_ideachange(conn)
 
+        _migrate_observability(conn)
+
         conn.commit()
 
 
@@ -162,3 +164,44 @@ def _migrate_ideachange(conn):
     iccols = {c["name"] for c in inspect(conn).get_columns("ideachange")}
     if "change_type" not in iccols:
         conn.execute(text("ALTER TABLE ideachange ADD COLUMN change_type VARCHAR NOT NULL DEFAULT 'FIELD_CHANGE'"))
+
+
+def _migrate_observability(conn):
+    """Create observability tables: alertrule, slosnapshot."""
+    tables = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
+    if "alertrule" not in tables:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS alertrule (
+                id VARCHAR PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                metric VARCHAR NOT NULL,
+                condition VARCHAR NOT NULL,
+                threshold FLOAT NOT NULL,
+                severity VARCHAR NOT NULL DEFAULT 'warning',
+                enabled BOOLEAN NOT NULL DEFAULT 1,
+                cooldown_seconds INTEGER NOT NULL DEFAULT 300,
+                last_fired_at FLOAT,
+                notify_channels TEXT,
+                notify_config TEXT,
+                created_at FLOAT NOT NULL,
+                updated_at FLOAT NOT NULL
+            )
+        """))
+    if "slosnapshot" not in tables:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS slosnapshot (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts FLOAT NOT NULL,
+                availability FLOAT,
+                error_budget_remaining FLOAT,
+                latency_avg_ms FLOAT,
+                success_rate FLOAT,
+                failure_rate FLOAT,
+                throughput_24h INTEGER,
+                cpu_percent FLOAT,
+                memory_percent FLOAT,
+                db_pool_utilization FLOAT,
+                extra TEXT
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_slosnapshot_ts ON slosnapshot(ts)"))

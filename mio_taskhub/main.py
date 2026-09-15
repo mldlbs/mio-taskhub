@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import logging
 import uvicorn
 from contextlib import asynccontextmanager
@@ -8,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 import secrets
 from fastapi.responses import JSONResponse
 from mio_taskhub.db import get_session, init_db
-from mio_taskhub.api import tasks, task_stages, task_graph, task_subtasks, templates, agents, runs, plans, board, ideas, idea_templates, idea_scoring, adr, discussions, events, nightrun, memory, scheduled_jobs, task_documents, reviews, ideas_breakdown, ideas_discussion
+from mio_taskhub.api import tasks, task_stages, task_graph, task_subtasks, templates, agents, runs, plans, board, ideas, idea_templates, idea_scoring, adr, discussions, events, nightrun, memory, scheduled_jobs, task_documents, reviews, ideas_breakdown, ideas_discussion, observability
 from mio_taskhub.api.board import board_summary as _board_summary
 from mio_taskhub.observability.logging_config import setup_logging
 from mio_taskhub.middleware import RequestIDMiddleware, RateLimitMiddleware
@@ -70,6 +71,24 @@ async def lifespan(app):
     alert_mgr = init_alert_manager()
     app.state.alert_manager = alert_mgr
 
+    # Initialize custom alert rules evaluator
+    from mio_taskhub.observability.alert_rules import init_custom_evaluator
+    init_custom_evaluator()
+
+    # Start WebSocket real-time metrics push
+    from mio_taskhub.observability.ws_push import start_ws_push
+    start_ws_push()
+
+    # Start SLO snapshot capture (every 5 minutes)
+    import threading
+    def _slo_loop():
+        from mio_taskhub.observability.slo_history import capture_slo_snapshot
+        while True:
+            capture_slo_snapshot()
+            time.sleep(300)
+    _slo_thread = threading.Thread(target=_slo_loop, daemon=True, name="slo-snapshot")
+    _slo_thread.start()
+
     yield
     jobs = getattr(app.state, "background", None)
     if jobs:
@@ -124,6 +143,7 @@ app.include_router(events.task_events_router, prefix="/api/v1", tags=["tasks"])
 app.include_router(nightrun.router, prefix="/api/v1", tags=["nightrun"])
 app.include_router(scheduled_jobs.router, prefix="/api/v1", tags=["scheduled-jobs"])
 app.include_router(memory.router, tags=["memory-gateway"])
+app.include_router(observability.router)
 
 
 @app.get("/api/v1/status", tags=["status"])
@@ -413,8 +433,46 @@ function fm(ms){if(!ms&&ms!==0)return'-';if(ms<1)return'<1ms';if(ms<1000)return 
 function RC(m){var c=document.getElementById('cards');document.getElementById('up').textContent='Uptime: '+fs(m.sys.uptime);var total=0;for(var k in m.tasks)total+=m.tasks[k];var sr=m.biz.success!=null?(m.biz.success*100).toFixed(1)+'%':'-';var cpu=m.sys.cpu!=null?m.sys.cpu.toFixed(1)+'%':'-';var mem=m.sys.memPct!=null?m.sys.memPct.toFixed(1)+'%':'-';c.innerHTML='<div class="cd"><h3>Total Tasks</h3><div class="v">'+total+'</div><div class="sub">'+(m.tasks.QUEUED||0)+' queued / '+(m.tasks.COMPLETED||0)+' completed / '+(m.tasks.FAILED||0)+' failed</div></div><div class="cd"><h3>Success Rate</h3><div class="v">'+sr+'</div><div class="bar"><div class="bf" style="width:'+(m.biz.success!=null?m.biz.success*100:0)+'%;background:#22c55e"></div></div></div><div class="cd"><h3>CPU</h3><div class="v">'+cpu+'</div><div class="bar"><div class="bf" style="width:'+(m.sys.cpu||0)+'%;background:#3b82f6"></div></div></div><div class="cd"><h3>Memory</h3><div class="v">'+mem+'</div><div class="bar"><div class="bf" style="width:'+(m.sys.memPct||0)+'%;background:#8b5cf6"></div></div></div><div class="cd"><h3>DB Pool</h3><div class="v">'+(m.sys.dbPoolOut||0)+'<span class="u">/ 15</span></div></div><div class="cd"><h3>Threads</h3><div class="v">'+Object.values(m.threads).filter(t=>t.alive).length+'<span class="u">/ '+Object.keys(m.threads).length+'</span></div></div>';}
 function RCH(m){for(var k in ch)ch[k].destroy();ch={};var tl=Object.keys(m.tasks);var td=tl.map(l=>m.tasks[l]);ch.c1=new Chart(document.getElementById('c1'),{type:'doughnut',data:{labels:tl,datasets:[{data:td,backgroundColor:tl.map(l=>CL[l]||'#6b7280')}]},options:{responsive:true,plugins:{legend:{position:'right',labels:{color:'#94a3b8'}}}}});var tn=Object.keys(m.threads);ch.c2=new Chart(document.getElementById('c2'),{type:'bar',data:{labels:tn,datasets:[{label:'Heartbeat Age (s)',data:tn.map(n=>m.threads[n].age||0),backgroundColor:tn.map(n=>m.threads[n].alive?'#22c55e':'#ef4444')}]},options:{responsive:true,scales:{x:{ticks:{color:'#94a3b8'}},y:{ticks:{color:'#94a3b8'},beginAtZero:true}},plugins:{legend:{display:false}}}});var dl=[];var p5=[];var p90=[];var p99=[];for(var d in m.dep)for(var o in m.dep[d]){dl.push(d+'.'+o);p5.push(m.dep[d][o].taskhub_dep_latency_p50_ms||0);p90.push(m.dep[d][o].taskhub_dep_latency_p90_ms||0);p99.push(m.dep[d][o].taskhub_dep_latency_p99_ms||0);}ch.c3=new Chart(document.getElementById('c3'),{type:'bar',data:{labels:dl.slice(0,10),datasets:[{label:'P50',data:p5.slice(0,10),backgroundColor:'#3b82f6'},{label:'P90',data:p90.slice(0,10),backgroundColor:'#f59e0b'},{label:'P99',data:p99.slice(0,10),backgroundColor:'#ef4444'}]},options:{responsive:true,scales:{x:{ticks:{color:'#94a3b8',maxRotation:45}},y:{ticks:{color:'#94a3b8'},beginAtZero:true}},plugins:{legend:{labels:{color:'#94a3b8'}}}}});ch.c4=new Chart(document.getElementById('c4'),{type:'bar',data:{labels:['CPU %','Memory %'],datasets:[{data:[m.sys.cpu||0,m.sys.memPct||0],backgroundColor:['#3b82f6','#8b5cf6']}]},options:{responsive:true,indexAxis:'y',scales:{x:{ticks:{color:'#94a3b8'},max:100},y:{ticks:{color:'#94a3b8'}}},plugins:{legend:{display:false}}}});}
 function RDT(m){var tb=document.querySelector('#dpt tbody');var h='';for(var d in m.dep)for(var o in m.dep[d]){var dt=m.dep[d][o];var er=dt.taskhub_dep_error_rate||0;var cls=er===0?'ok':er<0.05?'wrn':'err';h+='<tr><td>'+d+'</td><td>'+o+'</td><td>'+(dt.taskhub_dep_latency_count||0)+'</td><td class="'+cls+'">'+(dt.taskhub_dep_latency_errors||0)+'</td><td>'+fm(dt.taskhub_dep_latency_avg_ms)+'</td><td>'+fm(dt.taskhub_dep_latency_p50_ms)+'</td><td>'+fm(dt.taskhub_dep_latency_p90_ms)+'</td><td>'+fm(dt.taskhub_dep_latency_p99_ms)+'</td><td>'+fm(dt.taskhub_dep_latency_max_ms)+'</td><td class="'+cls+'">'+(er*100).toFixed(2)+'%</td></tr>';}tb.innerHTML=h||'<tr><td colspan="10" style="color:#64748b;text-align:center">No dependency data</td></tr>';}
-function load(){fetch('/metrics').then(r=>r.text()).then(t=>{var m=P(t);RC(m);RCH(m);RDT(m);document.getElementById('dot').style.background='#22c55e'}).catch(()=>{document.getElementById('dot').style.background='#ef4444';document.getElementById('up').textContent='Connection error'});fetch('/api/v1/alerts').then(r=>r.json()).then(d=>{var el=document.getElementById('alerts');if(d.active_count===0){el.innerHTML='<div class="alr info"><span>No active alerts</span></div>';return}el.innerHTML=d.alerts.filter(a=>a.active).map(a=>'<div class="alr '+a.severity+'"><span class="bdg">'+a.severity+'</span><span>'+a.message+'</span></div>').join('')}).catch(()=>{})}
-load();setInterval(load,30000);
+function renderFromMetrics(t){var m=P(t);RC(m);RCH(m);RDT(m);document.getElementById('dot').style.background='#22c55e';}
+function load(){fetch('/metrics').then(r=>r.text()).then(renderFromMetrics).catch(()=>{document.getElementById('dot').style.background='#ef4444';document.getElementById('up').textContent='Connection error'});fetch('/api/v1/alerts').then(r=>r.json()).then(d=>{var el=document.getElementById('alerts');if(d.active_count===0){el.innerHTML='<div class="alr info"><span>No active alerts</span></div>';return}el.innerHTML=d.alerts.filter(a=>a.active).map(a=>'<div class="alr '+a.severity+'"><span class="bdg">'+a.severity+'</span><span>'+a.message+'</span></div>').join('')}).catch(()=>{})}
+/* WebSocket real-time push */
+var wsReconnectTimer=null;
+function connectWS(){
+  var proto=location.protocol==='https:'?'wss:':'ws:';
+  var ws=new WebSocket(proto+'//'+location.host+'/ws');
+  ws.onmessage=function(e){
+    try{
+      var msg=JSON.parse(e.data);
+      if(msg.type==='metrics_snapshot'){
+        /* Convert snapshot back to Prometheus text for re-render */
+        var lines=[];
+        var snap=msg.data;
+        for(var name in snap.metrics){
+          var v=snap.metrics[name];
+          if(Array.isArray(v))for(var i=0;i<v.length;i++)lines.push(name+' '+v[i]);
+          else lines.push(name+' '+v);
+        }
+        renderFromMetrics(lines.join('\\n'));
+        /* Update alerts from snapshot */
+        if(snap.alerts){
+          var el=document.getElementById('alerts');
+          if(snap.alerts.length===0){el.innerHTML='<div class="alr info"><span>No active alerts</span></div>';}
+          else{el.innerHTML=snap.alerts.map(a=>'<div class="alr '+a.severity+'"><span class="bdg">'+a.severity+'</span><span>'+a.message+'</span></div>').join('');}
+        }
+      }else if(msg.type==='task_update'||msg.type==='idea_update'){
+        /* On entity update, refresh metrics */
+        load();
+      }
+    }catch(ex){}
+  };
+  ws.onclose=function(){
+    if(wsReconnectTimer)clearTimeout(wsReconnectTimer);
+    wsReconnectTimer=setTimeout(connectWS,3000);
+  };
+  ws.onerror=function(){ws.close();};
+}
+load();
+connectWS();
 </script>
 </body>
 </html>"""
