@@ -125,6 +125,23 @@ async def lifespan(app):
     _insights_thread.start()
     register_thread("insights-eval", _insights_thread, None)
 
+    # Start remediation evaluator (every 2 minutes)
+    from mio_taskhub.observability.remediation import RemediationEngine
+    _remediation_engine = RemediationEngine()
+    async def _remediation_eval_loop():
+        while True:
+            await asyncio.sleep(120)
+            try:
+                stalled = _remediation_engine.evaluate_stalled_tasks()
+                for action in stalled[:5]:
+                    if action["type"] == "requeue_stuck_task":
+                        _remediation_engine.requeue_task(action["task_id"])
+            except Exception:
+                pass
+    _remediation_thread = threading.Thread(target=lambda: asyncio.run(_remediation_eval_loop()), daemon=True, name="remediation-eval")
+    _remediation_thread.start()
+    register_thread("remediation-eval", _remediation_thread, None)
+
     yield
     jobs = getattr(app.state, "background", None)
     if jobs:
