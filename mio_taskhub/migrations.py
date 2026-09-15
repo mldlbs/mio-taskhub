@@ -216,8 +216,7 @@ def _migrate_observability(conn):
                 message TEXT,
                 metric_value FLOAT,
                 threshold FLOAT,
-                duration_seconds FLOAT,
-                resolution_message TEXT
+                duration_seconds FLOAT
             )
         """))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_alertaudit_ts ON alertaudit(ts)"))

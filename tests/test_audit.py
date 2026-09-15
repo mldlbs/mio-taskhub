@@ -25,7 +25,7 @@ def test_alert_audit_log_fire():
 def test_alert_audit_log_resolve():
     audit = AlertAudit()
     audit.log_fire("TestAlert2", "warning")
-    audit.log_resolve("TestAlert2", message="resolved", duration_seconds=120.5)
+    audit.log_resolve("TestAlert2", message="resolved", duration_seconds=120.5, severity="warning")
     rows = audit.recent(limit=10)
     resolves = [r for r in rows if r["action"] == "resolve"]
     assert len(resolves) >= 1
@@ -38,3 +38,16 @@ def test_alert_audit_recent_limit():
         audit.log_fire(f"Alert_{i}", "info")
     rows = audit.recent(limit=3)
     assert len(rows) == 3
+
+
+def test_alert_audit_stats():
+    audit = AlertAudit()
+    audit.log_fire("StatsTest", "warning", metric_value=1.0, threshold=0.5)
+    audit.log_resolve("StatsTest", message="ok", duration_seconds=10.0, severity="warning")
+    result = audit.stats(hours=1)
+    assert "total" in result
+    assert "fires" in result
+    assert "resolves" in result
+    assert result["total"] >= 2
+    assert result["fires"] >= 1
+    assert result["resolves"] >= 1

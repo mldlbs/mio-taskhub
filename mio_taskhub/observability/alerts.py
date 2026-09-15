@@ -140,24 +140,36 @@ class AlertManager:
 
             currently_active = {n for n in new_alerts if new_alerts[n].active}
 
+            # Collect audit events (no DB writes under lock)
+            audit_events = []
             for name in currently_active - previously_active:
                 a = new_alerts[name]
-                _audit.log_fire(name, a.severity, message=a.message, metric_value=a.value)
+                audit_events.append(("fire", name, a.severity, a.message, a.value, None))
 
             for name, old in self._alerts.items():
                 if old.active and name not in new_alerts:
                     old.resolved_at = now
                     new_alerts[name] = old
                     duration = now - old.fired_at if old.fired_at else None
-                    _audit.log_resolve(name, message=f"resolved: {old.message}", duration_seconds=duration)
+                    audit_events.append(("resolve", name, old.severity, f"resolved: {old.message}", duration, None))
 
             self._alerts = new_alerts
             self._last_eval = now
 
-            active = [a for a in self._alerts.values() if a.active]
-            if active:
-                logger.warning("Active alerts: %s", [a.name for a in active])
-            return active
+        # Flush audit events outside the lock
+        for ev in audit_events:
+            try:
+                if ev[0] == "fire":
+                    _audit.log_fire(ev[1], ev[2], message=ev[3], metric_value=ev[4])
+                else:
+                    _audit.log_resolve(ev[1], message=ev[3], duration_seconds=ev[4], severity=ev[2])
+            except Exception:
+                logger.exception("Failed to write audit event")
+
+        active = [a for a in self._alerts.values() if a.active]
+        if active:
+            logger.warning("Active alerts: %s", [a.name for a in active])
+        return active
 
     def get_all(self) -> list[dict]:
         with _status_lock:
