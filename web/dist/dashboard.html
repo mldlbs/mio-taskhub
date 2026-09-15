@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mio-TaskHub · Observatory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg-deep: #070b14;
+  --bg-surface: rgba(15, 23, 42, 0.6);
+  --bg-card: rgba(30, 41, 59, 0.45);
+  --bg-card-hover: rgba(30, 41, 59, 0.65);
+  --border: rgba(148, 163, 184, 0.08);
+  --border-glow: rgba(16, 185, 129, 0.15);
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --accent-emerald: #10b981;
+  --accent-emerald-dim: rgba(16, 185, 129, 0.12);
+  --accent-ruby: #ef4444;
+  --accent-ruby-dim: rgba(239, 68, 68, 0.12);
+  --accent-gold: #f59e0b;
+  --accent-gold-dim: rgba(245, 158, 11, 0.12);
+  --accent-sapphire: #3b82f6;
+  --accent-sapphire-dim: rgba(59, 130, 246, 0.12);
+  --accent-amethyst: #8b5cf6;
+  --accent-amethyst-dim: rgba(139, 92, 246, 0.12);
+  --glass-blur: 20px;
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --shadow-card: 0 4px 24px rgba(0,0,0,0.25), 0 1px 2px rgba(0,0,0,0.15);
+  --shadow-glow: 0 0 40px rgba(16,185,129,0.06);
+  --font-display: 'Syne', sans-serif;
+  --font-body: 'DM Sans', sans-serif;
+  --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+  line-height: 1.5;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  top: -50%; left: -50%;
+  width: 200%; height: 200%;
+  background:
+    radial-gradient(ellipse at 20% 20%, rgba(16,185,129,0.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 80%, rgba(59,130,246,0.03) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(139,92,246,0.02) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.app { position: relative; z-index: 1; }
+
+/* ─── Header ─── */
+.header {
+  padding: 28px 40px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  background: rgba(7, 11, 20, 0.7);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--accent-emerald), var(--accent-sapphire));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 16px;
+  color: white;
+  box-shadow: 0 0 20px rgba(16,185,129,0.2);
+}
+
+.header h1 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: -0.5px;
+  background: linear-gradient(135deg, var(--text-primary), var(--text-secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: var(--accent-emerald-dim);
+  border: 1px solid rgba(16,185,129,0.2);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent-emerald);
+}
+
+.status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--accent-emerald);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16,185,129,0.4); }
+  50% { opacity: 0.6; box-shadow: 0 0 0 6px rgba(16,185,129,0); }
+}
+
+.uptime-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.btn-refresh {
+  padding: 8px 18px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  backdrop-filter: blur(10px);
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.btn-refresh:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+  border-color: var(--border-glow);
+}
+
+/* ─── Grid ─── */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  padding: 28px 40px;
+}
+
+.grid-2 { grid-template-columns: repeat(2, 1fr); }
+.grid-3 { grid-template-columns: repeat(3, 1fr); }
+
+/* ─── Cards ─── */
+.card {
+  background: var(--bg-card);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 24px;
+  box-shadow: var(--shadow-card);
+  transition: var(--transition);
+  position: relative;
+  overflow: hidden;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.04), transparent);
+}
+
+.card:hover {
+  border-color: rgba(148, 163, 184, 0.12);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-card), var(--shadow-glow);
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.card-title {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--text-muted);
+}
+
+.card-icon {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+}
+
+.card-value {
+  font-family: var(--font-display);
+  font-size: 36px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+
+.card-sub {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-bar {
+  height: 4px;
+  background: rgba(148, 163, 184, 0.1);
+  border-radius: 2px;
+  margin-top: 14px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.span-2 { grid-column: span 2; }
+.span-3 { grid-column: span 3; }
+.span-4 { grid-column: span 4; }
+
+/* ─── Section Divider ─── */
+.section-label {
+  padding: 8px 40px 0;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+}
+
+/* ─── Alert Items ─── */
+.alert-item {
+  padding: 14px 18px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  transition: var(--transition);
+}
+
+.alert-item.critical {
+  background: var(--accent-ruby-dim);
+  border: 1px solid rgba(239,68,68,0.2);
+  color: #fca5a5;
+}
+.alert-item.warning {
+  background: var(--accent-gold-dim);
+  border: 1px solid rgba(245,158,11,0.2);
+  color: #fcd34d;
+}
+.alert-item.info {
+  background: var(--accent-sapphire-dim);
+  border: 1px solid rgba(59,130,246,0.2);
+  color: #93c5fd;
+}
+
+.alert-badge {
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+/* ─── Table ─── */
+.dep-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.dep-table th {
+  text-align: left;
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dep-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(148,163,184,0.04);
+  font-variant-numeric: tabular-nums;
+}
+
+.dep-table tr:hover td {
+  background: rgba(148,163,184,0.03);
+}
+
+.dep-table .ok { color: var(--accent-emerald); }
+.dep-table .wrn { color: var(--accent-gold); }
+.dep-table .err { color: var(--accent-ruby); }
+
+/* ─── Insight Feed ─── */
+.insight-item {
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(148,163,184,0.06);
+  transition: var(--transition);
+}
+.insight-item:last-child { border-bottom: none; }
+.insight-item:hover { padding-left: 6px; }
+
+.insight-severity {
+  display: inline-block;
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-right: 8px;
+}
+
+.insight-severity.critical { background: var(--accent-ruby-dim); color: var(--accent-ruby); }
+.insight-severity.warning { background: var(--accent-gold-dim); color: var(--accent-gold); }
+.insight-severity.info { background: var(--accent-sapphire-dim); color: var(--accent-sapphire); }
+
+.insight-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.insight-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.insight-rec {
+  font-size: 11px;
+  color: var(--accent-emerald);
+  margin-top: 6px;
+  padding-left: 10px;
+  border-left: 2px solid rgba(16,185,129,0.3);
+}
+
+/* ─── Chart Cards ─── */
+.chart-card {
+  min-height: 280px;
+}
+
+.chart-card canvas {
+  max-height: 240px;
+}
+
+/* ─── Empty State ─── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+  gap: 8px;
+}
+
+.empty-icon {
+  font-size: 28px;
+  opacity: 0.4;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 1200px) {
+  .grid { grid-template-columns: repeat(2, 1fr); }
+  .span-3, .span-4 { grid-column: span 2; }
+}
+
+@media (max-width: 768px) {
+  .header { padding: 20px; flex-wrap: wrap; gap: 12px; }
+  .grid { grid-template-columns: 1fr; padding: 16px; gap: 12px; }
+  .span-2, .span-3, .span-4 { grid-column: span 1; }
+  .card-value { font-size: 28px; }
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.15); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.25); }
+
+/* ─── Fade-in animation ─── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.card { animation: fadeUp 0.4s ease-out both; }
+.card:nth-child(1) { animation-delay: 0s; }
+.card:nth-child(2) { animation-delay: 0.05s; }
+.card:nth-child(3) { animation-delay: 0.1s; }
+.card:nth-child(4) { animation-delay: 0.15s; }
+.card:nth-child(5) { animation-delay: 0.2s; }
+.card:nth-child(6) { animation-delay: 0.25s; }
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- Header -->
+<header class="header">
+  <div class="header-left">
+    <div class="logo">M</div>
+    <h1>Mio-TaskHub Observatory</h1>
+  </div>
+  <div class="header-right">
+    <div class="status-pill">
+      <div class="status-dot" id="wsDot"></div>
+      <span id="wsLabel">Connecting...</span>
+    </div>
+    <span class="uptime-label" id="uptime"></span>
+    <button class="btn-refresh" onclick="fetchAll()">Refresh</button>
+  </div>
+</header>
+
+<!-- Metric Cards -->
+<div class="grid" id="metricCards"></div>
+
+<!-- Charts Section -->
+<div class="section-label">Performance Analytics</div>
+<div class="grid grid-2" style="padding-bottom:8px">
+  <div class="card chart-card">
+    <div class="card-header">
+      <span class="card-title">Tasks by State</span>
+    </div>
+    <canvas id="chartTasks"></canvas>
+  </div>
+  <div class="card chart-card">
+    <div class="card-header">
+      <span class="card-title">Thread Health</span>
+    </div>
+    <canvas id="chartThreads"></canvas>
+  </div>
+</div>
+
+<div class="grid grid-2" style="padding-top:0">
+  <div class="card chart-card">
+    <div class="card-header">
+      <span class="card-title">Dependency Latency</span>
+    </div>
+    <canvas id="chartDepLatency"></canvas>
+  </div>
+  <div class="card chart-card">
+    <div class="card-header">
+      <span class="card-title">System Resources</span>
+    </div>
+    <canvas id="chartResources"></canvas>
+  </div>
+</div>
+
+<!-- SLO Trend -->
+<div class="grid" style="padding-top:0">
+  <div class="card span-4 chart-card" style="min-height:260px">
+    <div class="card-header">
+      <span class="card-title">SLO Availability Trend (7 Days)</span>
+    </div>
+    <canvas id="chartSLO"></canvas>
+  </div>
+</div>
+
+<!-- Insights + Alerts -->
+<div class="section-label">Intelligence Feed</div>
+<div class="grid grid-3" style="padding-bottom:8px">
+  <div class="card span-2">
+    <div class="card-header">
+      <span class="card-title">Recent Insights</span>
+    </div>
+    <div id="insightsFeed" style="max-height:320px;overflow-y:auto"></div>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Active Alerts</span>
+    </div>
+    <div id="alertsPanel"></div>
+  </div>
+</div>
+
+<!-- Audit + Remediation -->
+<div class="grid grid-2" style="padding-top:0;padding-bottom:8px">
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Alert Audit (24h)</span>
+    </div>
+    <div id="auditPanel"></div>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Auto-Remediation Log</span>
+    </div>
+    <div id="remediationPanel" style="max-height:240px;overflow-y:auto"></div>
+  </div>
+</div>
+
+<!-- Dependency Table -->
+<div class="section-label">Dependency Performance</div>
+<div class="grid" style="padding-bottom:40px">
+  <div class="card span-4">
+    <table class="dep-table" id="depTable">
+      <thead>
+        <tr><th>Dependency</th><th>Operation</th><th>Calls</th><th>Errors</th><th>Avg</th><th>P50</th><th>P90</th><th>P99</th><th>Max</th><th>Error%</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+</div>
+
+<script>
+const charts = {};
+const COLORS = {
+  COMPLETED: '#10b981', FAILED: '#ef4444', QUEUED: '#3b82f6',
+  CLAIMED: '#8b5cf6', RUNNING: '#f59e0b', RETRYING: '#f97316',
+  CANCELLED: '#64748b'
+};
+
+/* ─── Metric Parsing ─── */
+function parseMetrics(text) {
+  const m = { tasks: {}, threads: {}, dep: {}, biz: {}, sys: {} };
+  for (const line of text.split('\n')) {
+    if (!line || line[0] === '#') continue;
+    const x = line.match(/^([a-z_]+)(?:\{(.+?)\})?\s+(.+)$/);
+    if (!x) continue;
+    const labels = {};
+    if (x[2]) for (const p of x[2].split(',')) { const [k,v] = p.split('='); labels[k] = v.replace(/"/g,''); }
+    const val = parseFloat(x[3]);
+    const n = x[1];
+    if (n.startsWith('taskhub_tasks_total')) m.tasks[labels.state || ''] = val;
+    else if (n.startsWith('taskhub_thread_alive')) { m.threads[labels.name] = m.threads[labels.name] || {}; m.threads[labels.name].alive = val; }
+    else if (n.startsWith('taskhub_thread_heartbeat_age')) { m.threads[labels.name] = m.threads[labels.name] || {}; m.threads[labels.name].age = val; }
+    else if (n.startsWith('taskhub_dep_')) { const d = labels.dep||'?'; const o = labels.op||'?'; m.dep[d] = m.dep[d]||{}; m.dep[d][o] = m.dep[d][o]||{}; m.dep[d][o][n] = val; }
+    else if (n === 'taskhub_task_success_rate') m.biz.success = val;
+    else if (n === 'taskhub_uptime_seconds') m.sys.uptime = val;
+    else if (n === 'taskhub_process_cpu_percent') m.sys.cpu = val;
+    else if (n === 'taskhub_process_memory_percent') m.sys.memPct = val;
+    else if (n === 'taskhub_process_memory_rss_bytes') m.sys.memRss = val;
+    else if (n === 'taskhub_db_pool_checked_out') m.sys.dbOut = val;
+    else if (n === 'taskhub_db_pool_size') m.sys.dbSize = val;
+    else if (n === 'taskhub_slo_availability_30d') m.sys.sloAvail = val;
+    else if (n === 'taskhub_slo_error_budget_remaining') m.sys.sloBudget = val;
+    else if (n === 'taskhub_task_stalled_total') { const st = labels.stage||'?'; m.tasks['_stalled_'+st] = val; }
+  }
+  return m;
+}
+
+function fmt(s) { if (!s && s !== 0) return '-'; if (s < 60) return s.toFixed(0) + 's'; if (s < 3600) return (s/60).toFixed(1) + 'm'; return (s/3600).toFixed(1) + 'h'; }
+function fmtB(b) { if (!b) return '-'; if (b < 1024) return b.toFixed(0) + 'B'; if (b < 1048576) return (b/1024).toFixed(1) + 'KB'; return (b/1048576).toFixed(1) + 'MB'; }
+function fmtMs(ms) { if (ms == null) return '-'; if (ms < 1) return '<1ms'; if (ms < 1000) return ms.toFixed(1) + 'ms'; return (ms/1000).toFixed(2) + 's'; }
+
+/* ─── Render Metric Cards ─── */
+function renderCards(m) {
+  document.getElementById('uptime').textContent = 'Uptime ' + fmt(m.sys.uptime);
+  let total = 0; for (const k in m.tasks) if (!k.startsWith('_stalled')) total += m.tasks[k];
+  const sr = m.biz.success != null ? (m.biz.success * 100).toFixed(1) : '-';
+  const cpu = m.sys.cpu != null ? m.sys.cpu.toFixed(1) : '-';
+  const mem = m.sys.memPct != null ? m.sys.memPct.toFixed(1) : '-';
+  const dbMax = m.sys.dbSize || 15;
+  const threadsAlive = Object.values(m.threads).filter(t => t.alive).length;
+  const threadsTotal = Object.keys(m.threads).length;
+  const sloAvail = m.sys.sloAvail != null ? (m.sys.sloAvail * 100).toFixed(2) : '-';
+  const sloBudget = m.sys.sloBudget != null ? (m.sys.sloBudget * 100).toFixed(1) : '-';
+
+  document.getElementById('metricCards').innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Total Tasks</span>
+        <div class="card-icon" style="background:var(--accent-sapphire-dim);color:var(--accent-sapphire)">📋</div>
+      </div>
+      <div class="card-value">${total}</div>
+      <div class="card-sub">${m.tasks.QUEUED||0} queued · ${m.tasks.COMPLETED||0} done · ${m.tasks.FAILED||0} failed</div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Success Rate</span>
+        <div class="card-icon" style="background:var(--accent-emerald-dim);color:var(--accent-emerald)">✓</div>
+      </div>
+      <div class="card-value" style="color:var(--accent-emerald)">${sr}%</div>
+      <div class="progress-bar"><div class="progress-fill" style="width:${m.biz.success != null ? m.biz.success*100 : 0}%;background:var(--accent-emerald)"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">CPU</span>
+        <div class="card-icon" style="background:var(--accent-gold-dim);color:var(--accent-gold)">⚡</div>
+      </div>
+      <div class="card-value">${cpu}%</div>
+      <div class="progress-bar"><div class="progress-fill" style="width:${m.sys.cpu||0}%;background:${(m.sys.cpu||0)>80?'var(--accent-ruby)':'var(--accent-gold)'}"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Memory</span>
+        <div class="card-icon" style="background:var(--accent-amethyst-dim);color:var(--accent-amethyst)">◉</div>
+      </div>
+      <div class="card-value">${mem}%</div>
+      <div class="card-sub">${fmtB(m.sys.memRss)} RSS</div>
+      <div class="progress-bar"><div class="progress-fill" style="width:${m.sys.memPct||0}%;background:${(m.sys.memPct||0)>80?'var(--accent-ruby)':'var(--accent-amethyst)'}"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">DB Pool</span>
+        <div class="card-icon" style="background:var(--accent-emerald-dim);color:var(--accent-emerald)">⬡</div>
+      </div>
+      <div class="card-value">${m.sys.dbOut||0}<span style="font-size:16px;color:var(--text-muted);font-weight:400"> / ${dbMax}</span></div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Threads</span>
+        <div class="card-icon" style="background:var(--accent-sapphire-dim);color:var(--accent-sapphire)">◎</div>
+      </div>
+      <div class="card-value">${threadsAlive}<span style="font-size:16px;color:var(--text-muted);font-weight:400"> / ${threadsTotal}</span></div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">SLO (30d)</span>
+        <div class="card-icon" style="background:var(--accent-emerald-dim);color:var(--accent-emerald)">△</div>
+      </div>
+      <div class="card-value" style="color:${m.sys.sloAvail != null && m.sys.sloAvail < 0.99 ? 'var(--accent-ruby)' : 'var(--accent-emerald)'}">${sloAvail}%</div>
+      <div class="card-sub">Error budget: ${sloBudget}%</div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Stalled</span>
+        <div class="card-icon" style="background:var(--accent-gold-dim);color:var(--accent-gold)">⏳</div>
+      </div>
+      <div class="card-value">${Object.entries(m.tasks).filter(([k])=>k.startsWith('_stalled')).reduce((s,[,v])=>s+v,0)}</div>
+      <div class="card-sub">Tasks stuck > 300s</div>
+    </div>
+  `;
+}
+
+/* ─── Charts ─── */
+function renderCharts(m) {
+  Object.values(charts).forEach(c => c.destroy());
+
+  // Tasks doughnut
+  const taskKeys = Object.keys(m.tasks).filter(k => !k.startsWith('_stalled'));
+  charts.tasks = new Chart(document.getElementById('chartTasks'), {
+    type: 'doughnut',
+    data: { labels: taskKeys, datasets: [{ data: taskKeys.map(k => m.tasks[k]), backgroundColor: taskKeys.map(k => COLORS[k] || '#64748b'), borderWidth: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false, cutout: '65%', plugins: { legend: { position: 'right', labels: { color: '#94a3b8', padding: 12, font: { family: 'DM Sans', size: 12 } } } } }
+  });
+
+  // Thread health
+  const tn = Object.keys(m.threads);
+  charts.threads = new Chart(document.getElementById('chartThreads'), {
+    type: 'bar',
+    data: { labels: tn.map(n => n.length > 12 ? n.slice(0,12)+'…' : n), datasets: [{ label: 'Heartbeat Age (s)', data: tn.map(n => m.threads[n].age||0), backgroundColor: tn.map(n => m.threads[n].alive ? 'rgba(16,185,129,0.6)' : 'rgba(239,68,68,0.6)'), borderRadius: 4, borderSkipped: false }] },
+    options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false }, ticks: { color: '#64748b', font: { size: 10 } } }, y: { grid: { color: 'rgba(148,163,184,0.06)' }, ticks: { color: '#64748b' }, beginAtZero: true } }, plugins: { legend: { display: false } } }
+  });
+
+  // Dep latency
+  const dl = [], p50 = [], p90 = [], p99 = [];
+  for (const d in m.dep) for (const o in m.dep[d]) { dl.push(d+'.'+o); p50.push(m.dep[d][o].taskhub_dep_latency_p50_ms||0); p90.push(m.dep[d][o].taskhub_dep_latency_p90_ms||0); p99.push(m.dep[d][o].taskhub_dep_latency_p99_ms||0); }
+  charts.depLatency = new Chart(document.getElementById('chartDepLatency'), {
+    type: 'bar',
+    data: { labels: dl.slice(0,8).map(l => l.length > 16 ? l.slice(0,16)+'…' : l), datasets: [
+      { label: 'P50', data: p50.slice(0,8), backgroundColor: 'rgba(59,130,246,0.6)', borderRadius: 4, borderSkipped: false },
+      { label: 'P90', data: p90.slice(0,8), backgroundColor: 'rgba(245,158,11,0.6)', borderRadius: 4, borderSkipped: false },
+      { label: 'P99', data: p99.slice(0,8), backgroundColor: 'rgba(239,68,68,0.6)', borderRadius: 4, borderSkipped: false }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false }, ticks: { color: '#64748b', font: { size: 10 }, maxRotation: 45 } }, y: { grid: { color: 'rgba(148,163,184,0.06)' }, ticks: { color: '#64748b' }, beginAtZero: true } }, plugins: { legend: { labels: { color: '#94a3b8', font: { size: 11 } } } } }
+  });
+
+  // Resources
+  charts.resources = new Chart(document.getElementById('chartResources'), {
+    type: 'bar',
+    data: { labels: ['CPU %', 'Memory %'], datasets: [{ data: [m.sys.cpu||0, m.sys.memPct||0], backgroundColor: ['rgba(59,130,246,0.5)', 'rgba(139,92,246,0.5)'], borderRadius: 6, borderSkipped: false, barThickness: 32 }] },
+    options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', scales: { x: { grid: { color: 'rgba(148,163,184,0.06)' }, ticks: { color: '#64748b' }, max: 100 }, y: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 13, weight: 500 } } } }, plugins: { legend: { display: false } } }
+  });
+}
+
+/* ─── Dep Table ─── */
+function renderDepTable(m) {
+  const tbody = document.querySelector('#depTable tbody');
+  let h = '';
+  for (const d in m.dep) for (const o in m.dep[d]) {
+    const dt = m.dep[d][o];
+    const er = dt.taskhub_dep_error_rate || 0;
+    const cls = er === 0 ? 'ok' : er < 0.05 ? 'wrn' : 'err';
+    h += `<tr><td>${d}</td><td>${o}</td><td>${dt.taskhub_dep_latency_count||0}</td><td class="${cls}">${dt.taskhub_dep_latency_errors||0}</td><td>${fmtMs(dt.taskhub_dep_latency_avg_ms)}</td><td>${fmtMs(dt.taskhub_dep_latency_p50_ms)}</td><td>${fmtMs(dt.taskhub_dep_latency_p90_ms)}</td><td>${fmtMs(dt.taskhub_dep_latency_p99_ms)}</td><td>${fmtMs(dt.taskhub_dep_latency_max_ms)}</td><td class="${cls}">${(er*100).toFixed(2)}%</td></tr>`;
+  }
+  tbody.innerHTML = h || '<tr><td colspan="10" class="empty-state">No dependency data yet</td></tr>';
+}
+
+/* ─── Insights Feed ─── */
+async function loadInsights() {
+  try {
+    const resp = await fetch('/api/v1/insights?limit=15');
+    const data = await resp.json();
+    const el = document.getElementById('insightsFeed');
+    if (!data.length) { el.innerHTML = '<div class="empty-state"><span class="empty-icon">◇</span>No insights yet</div>'; return; }
+    el.innerHTML = data.map(i => `
+      <div class="insight-item">
+        <span class="insight-severity ${i.severity}">${i.severity}</span>
+        <span class="insight-title">${i.title}</span>
+        <div class="insight-desc">${i.description}</div>
+        ${i.recommendation ? `<div class="insight-rec">${i.recommendation}</div>` : ''}
+      </div>
+    `).join('');
+  } catch(e) {}
+}
+
+/* ─── Alerts ─── */
+async function loadAlerts() {
+  try {
+    const resp = await fetch('/api/v1/alerts');
+    const data = await resp.json();
+    const el = document.getElementById('alertsPanel');
+    const active = data.alerts ? data.alerts.filter(a => a.active) : [];
+    if (!active.length) { el.innerHTML = '<div class="empty-state"><span class="empty-icon">✓</span>No active alerts</div>'; return; }
+    el.innerHTML = active.map(a => `
+      <div class="alert-item ${a.severity}" style="margin-bottom:8px">
+        <span class="alert-badge" style="background:${a.severity==='critical'?'rgba(239,68,68,0.2)':a.severity==='warning'?'rgba(245,158,11,0.2)':'rgba(59,130,246,0.2)'}">${a.severity}</span>
+        <span>${a.message}</span>
+      </div>
+    `).join('');
+  } catch(e) {}
+}
+
+/* ─── Audit ─── */
+async function loadAudit() {
+  try {
+    const resp = await fetch('/api/v1/audit/stats?hours=24');
+    const stats = await resp.json();
+    const el = document.getElementById('auditPanel');
+    el.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div style="text-align:center;padding:16px;background:var(--bg-card);border-radius:var(--radius-sm)">
+          <div style="font-size:24px;font-weight:700;color:var(--accent-gold)">${stats.fires||0}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Fires</div>
+        </div>
+        <div style="text-align:center;padding:16px;background:var(--bg-card);border-radius:var(--radius-sm)">
+          <div style="font-size:24px;font-weight:700;color:var(--accent-emerald)">${stats.resolves||0}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Resolves</div>
+        </div>
+        <div style="text-align:center;padding:16px;background:var(--bg-card);border-radius:var(--radius-sm)">
+          <div style="font-size:24px;font-weight:700;color:var(--text-secondary)">${stats.total||0}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Total</div>
+        </div>
+      </div>
+    `;
+  } catch(e) {}
+}
+
+/* ─── Remediation ─── */
+async function loadRemediation() {
+  try {
+    const resp = await fetch('/api/v1/remediation?limit=10');
+    const data = await resp.json();
+    const el = document.getElementById('remediationPanel');
+    if (!data.length) { el.innerHTML = '<div class="empty-state"><span class="empty-icon">✓</span>No remediation events</div>'; return; }
+    el.innerHTML = data.map(r => `
+      <div style="padding:10px 0;border-bottom:1px solid rgba(148,163,184,0.06);font-size:12px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="color:var(--text-primary);font-weight:500">${r.title}</span>
+          <span style="color:var(--text-muted);font-size:11px">${new Date(r.ts*1000).toLocaleString('zh-CN',{hour:'2-digit',minute:'2-digit'})}</span>
+        </div>
+        <div style="color:var(--text-muted)">${r.description}</div>
+      </div>
+    `).join('');
+  } catch(e) {}
+}
+
+/* ─── SLO Chart ─── */
+let sloChartInstance = null;
+async function loadSLO() {
+  try {
+    const resp = await fetch('/api/v1/slo/history?hours=168&limit=168');
+    const json = await resp.json();
+    const data = json.snapshots || json;
+    if (!data || !data.length) return;
+    const labels = data.map(d => new Date(d.ts*1000).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}));
+    const avail = data.map(d => (d.availability*100).toFixed(2));
+    if (sloChartInstance) sloChartInstance.destroy();
+    sloChartInstance = new Chart(document.getElementById('chartSLO'), {
+      type: 'line',
+      data: { labels, datasets: [
+        { label: 'Availability %', data: avail, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.06)', fill: true, tension: 0.4, pointRadius: 2, pointHoverRadius: 5 },
+        { label: 'Target (99%)', data: Array(labels.length).fill(99), borderColor: 'rgba(239,68,68,0.5)', borderDash: [6,4], pointRadius: 0, borderWidth: 1.5 }
+      ] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#94a3b8', font: { size: 11 } } } }, scales: { x: { grid: { display: false }, ticks: { color: '#64748b', maxTicksLimit: 12, font: { size: 10 } } }, y: { min: 95, max: 100, grid: { color: 'rgba(148,163,184,0.06)' }, ticks: { color: '#64748b' } } } }
+    });
+  } catch(e) {}
+}
+
+/* ─── Fetch All ─── */
+function fetchAll() {
+  fetch('/metrics').then(r => r.text()).then(t => { renderCards(parseMetrics(t)); renderCharts(parseMetrics(t)); renderDepTable(parseMetrics(t)); }).catch(() => {});
+  loadInsights(); loadAlerts(); loadAudit(); loadRemediation(); loadSLO();
+}
+
+/* ─── WebSocket ─── */
+let wsReconnect;
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(proto + '//' + location.host + '/ws');
+  ws.onopen = () => { document.getElementById('wsDot').style.background = 'var(--accent-emerald)'; document.getElementById('wsLabel').textContent = 'Live'; };
+  ws.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'metrics_snapshot') {
+        const lines = [];
+        const snap = msg.data;
+        for (const name in snap.metrics) { const v = snap.metrics[name]; if (Array.isArray(v)) v.forEach(i => lines.push(name+' '+i)); else lines.push(name+' '+v); }
+        const m = parseMetrics(lines.join('\n'));
+        renderCards(m); renderCharts(m); renderDepTable(m);
+        if (snap.alerts) { const el = document.getElementById('alertsPanel'); if (!snap.alerts.length) el.innerHTML = '<div class="empty-state"><span class="empty-icon">✓</span>No active alerts</div>'; else el.innerHTML = snap.alerts.map(a => `<div class="alert-item ${a.severity}" style="margin-bottom:8px"><span class="alert-badge" style="background:${a.severity==='critical'?'rgba(239,68,68,0.2)':'rgba(245,158,11,0.2)'}">${a.severity}</span><span>${a.message}</span></div>`).join(''); }
+      } else if (msg.type === 'task_update' || msg.type === 'idea_update') { fetchAll(); }
+    } catch(ex) {}
+  };
+  ws.onclose = () => { document.getElementById('wsDot').style.background = 'var(--accent-ruby)'; document.getElementById('wsLabel').textContent = 'Disconnected'; clearTimeout(wsReconnect); wsReconnect = setTimeout(connectWS, 3000); };
+  ws.onerror = () => ws.close();
+}
+
+/* ─── Init ─── */
+fetchAll();
+connectWS();
+setInterval(loadInsights, 30000);
+setInterval(loadAlerts, 15000);
+</script>
+</body>
+</html>
