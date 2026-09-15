@@ -95,12 +95,10 @@ async def lifespan(app):
     def _dep_persist_loop():
         while True:
             time.sleep(300)
-            try:
-                _dep_persist.snapshot()
-            except Exception:
-                pass
+            _dep_persist.snapshot()
     _dep_persist_thread = threading.Thread(target=_dep_persist_loop, daemon=True, name="dep-persist")
     _dep_persist_thread.start()
+    register_thread("dep-persist", _dep_persist_thread, _dep_persist)
 
     yield
     jobs = getattr(app.state, "background", None)
