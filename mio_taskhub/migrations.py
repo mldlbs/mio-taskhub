@@ -221,3 +221,21 @@ def _migrate_observability(conn):
         """))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_alertaudit_ts ON alertaudit(ts)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_alertaudit_name ON alertaudit(alert_name)"))
+    if "depmetricssnapshot" not in tables:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS depmetricssnapshot (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts FLOAT NOT NULL,
+                dep VARCHAR NOT NULL,
+                op VARCHAR NOT NULL,
+                count INTEGER,
+                errors INTEGER,
+                avg_ms FLOAT,
+                p50_ms FLOAT,
+                p90_ms FLOAT,
+                p99_ms FLOAT,
+                max_ms FLOAT,
+                error_rate FLOAT
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_depmetricssnapshot_ts ON depmetricssnapshot(ts)"))

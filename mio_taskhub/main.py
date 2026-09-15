@@ -89,6 +89,19 @@ async def lifespan(app):
     _slo_thread = threading.Thread(target=_slo_loop, daemon=True, name="slo-snapshot")
     _slo_thread.start()
 
+    # Start dep metrics snapshot capture (every 5 minutes)
+    from mio_taskhub.observability.dep_persist import DepMetricsPersist
+    _dep_persist = DepMetricsPersist()
+    def _dep_persist_loop():
+        while True:
+            time.sleep(300)
+            try:
+                _dep_persist.snapshot()
+            except Exception:
+                pass
+    _dep_persist_thread = threading.Thread(target=_dep_persist_loop, daemon=True, name="dep-persist")
+    _dep_persist_thread.start()
+
     yield
     jobs = getattr(app.state, "background", None)
     if jobs:
