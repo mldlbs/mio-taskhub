@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import logging
+import asyncio
 import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Response, WebSocket
@@ -99,6 +100,30 @@ async def lifespan(app):
     _dep_persist_thread = threading.Thread(target=_dep_persist_loop, daemon=True, name="dep-persist")
     _dep_persist_thread.start()
     register_thread("dep-persist", _dep_persist_thread, _dep_persist)
+
+    # Start insights evaluator (every 60 seconds)
+    from mio_taskhub.observability.insights import InsightsEngine
+    _insights_engine = InsightsEngine()
+    async def _insights_eval_loop():
+        while True:
+            await asyncio.sleep(60)
+            try:
+                from mio_taskhub.observability.metrics import render_metrics
+                import re
+                metrics_text = render_metrics()
+                metrics = {}
+                for match in re.finditer(r'(\w+)\s+([\d.]+)', metrics_text):
+                    name, val = match.groups()
+                    try:
+                        metrics[name] = float(val)
+                    except ValueError:
+                        pass
+                _insights_engine.evaluate(metrics)
+            except Exception:
+                pass
+    _insights_thread = threading.Thread(target=lambda: asyncio.run(_insights_eval_loop()), daemon=True, name="insights-eval")
+    _insights_thread.start()
+    register_thread("insights-eval", _insights_thread, None)
 
     yield
     jobs = getattr(app.state, "background", None)

@@ -167,8 +167,27 @@ def _migrate_ideachange(conn):
 
 
 def _migrate_observability(conn):
-    """Create observability tables: alertrule, slosnapshot."""
+    """Create observability tables: alertrule, slosnapshot, insight."""
     tables = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
+    if "insight" not in tables:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS insight (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts FLOAT NOT NULL,
+                kind VARCHAR NOT NULL,
+                title VARCHAR NOT NULL,
+                description TEXT NOT NULL,
+                severity VARCHAR NOT NULL DEFAULT 'info',
+                metric_name VARCHAR,
+                metric_value FLOAT,
+                baseline FLOAT,
+                recommendation TEXT,
+                auto_action TEXT,
+                acknowledged BOOLEAN DEFAULT 0
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_insight_ts ON insight(ts)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_insight_kind ON insight(kind)"))
     if "alertrule" not in tables:
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS alertrule (
