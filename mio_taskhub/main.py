@@ -11,6 +11,7 @@ import secrets
 from fastapi.responses import JSONResponse
 from mio_taskhub.db import get_session, init_db
 from mio_taskhub.api import tasks, task_stages, task_graph, task_subtasks, templates, agents, runs, plans, board, ideas, idea_templates, idea_scoring, adr, discussions, events, nightrun, memory, scheduled_jobs, task_documents, reviews, ideas_breakdown, ideas_discussion, observability
+from mio_taskhub.api.insights import router as insights_router
 from mio_taskhub.api.board import board_summary as _board_summary
 from mio_taskhub.observability.logging_config import setup_logging
 from mio_taskhub.middleware import RequestIDMiddleware, RateLimitMiddleware
@@ -197,6 +198,7 @@ app.include_router(nightrun.router, prefix="/api/v1", tags=["nightrun"])
 app.include_router(scheduled_jobs.router, prefix="/api/v1", tags=["scheduled-jobs"])
 app.include_router(memory.router, tags=["memory-gateway"])
 app.include_router(observability.router)
+app.include_router(insights_router)
 
 
 @app.get("/api/v1/status", tags=["status"])
