@@ -233,7 +233,7 @@ def dashboard():
     ]:
         if candidate.exists():
             return HTMLResponse(content=candidate.read_text(encoding="utf-8"))
-    return HTMLResponse(content="<h1>dashboard.html not found</h1>", status_code=404)
+    return HTMLResponse(content=_DASHBOARD_HTML)
 
 
 @app.get("/landing", response_class=HTMLResponse, tags=["landing"])
@@ -409,3 +409,96 @@ def run():
 if __name__ == "__main__":
     run()
 
+
+# Embedded dashboard HTML (fallback when dashboard.html not found in bundle)
+_DASHBOARD_HTML = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mio-TaskHub Observatory</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#070b14;color:#f1f5f9;min-height:100vh}
+.hdr{padding:20px 32px;border-bottom:1px solid rgba(148,163,184,0.08);display:flex;align-items:center;justify-content:space-between;backdrop-filter:blur(12px);background:rgba(7,11,20,0.7);position:sticky;top:0;z-index:100}
+.hdr h1{font-size:20px;font-weight:700;background:linear-gradient(135deg,#f1f5f9,#94a3b8);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hdr .st{display:flex;gap:16px;align-items:center}
+.hdr .dot{width:7px;height:7px;border-radius:50%;background:#10b981;animation:p 2s ease-in-out infinite}
+@keyframes p{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(16,185,129,0.4)}50%{opacity:.6;box-shadow:0 0 0 6px rgba(16,185,129,0)}}
+.hdr .meta{font-size:13px;color:#64748b}
+.gr{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;padding:24px 32px}
+.cd{background:rgba(30,41,59,0.45);backdrop-filter:blur(20px);border:1px solid rgba(148,163,184,0.08);border-radius:16px;padding:24px;box-shadow:0 4px 24px rgba(0,0,0,0.25);transition:0.25s}
+.cd:hover{border-color:rgba(148,163,184,0.12);transform:translateY(-1px)}
+.cd .tl{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1.2px;color:#64748b;margin-bottom:12px}
+.cd .v{font-size:36px;font-weight:800;letter-spacing:-1px;line-height:1;margin-bottom:6px}
+.cd .sub{font-size:13px;color:#64748b;font-variant-numeric:tabular-nums}
+.bar{height:4px;background:rgba(148,163,184,0.1);border-radius:2px;margin-top:14px;overflow:hidden}
+.bf{height:100%;border-radius:2px;transition:width 0.8s cubic-bezier(0.4,0,0.2,1)}
+.ch{padding:0 32px 32px;display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.cc{background:rgba(30,41,59,0.45);backdrop-filter:blur(20px);border:1px solid rgba(148,163,184,0.08);border-radius:16px;padding:24px;box-shadow:0 4px 24px rgba(0,0,0,0.25)}
+.cc h3{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1.2px;color:#64748b;margin-bottom:16px}
+.al{padding:0 32px 32px}
+.alist{display:flex;flex-direction:column;gap:8px}
+.alr{padding:14px 18px;border-radius:10px;font-size:13px;display:flex;align-items:center;gap:12px}
+.alr.critical{background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.2);color:#fca5a5}
+.alr.warning{background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.2);color:#fcd34d}
+.alr.info{background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.2);color:#93c5fd}
+.alr .bdg{font-size:10px;padding:3px 8px;border-radius:4px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px}
+.dt{width:100%;border-collapse:collapse;font-size:13px}
+.dt th{text-align:left;color:#64748b;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.8px;padding:10px 14px;border-bottom:1px solid rgba(148,163,184,0.08)}
+.dt td{padding:10px 14px;border-bottom:1px solid rgba(148,163,184,0.04);font-variant-numeric:tabular-nums}
+.dt tr:hover td{background:rgba(148,163,184,0.03)}
+.dt .ok{color:#10b981}.dt .wrn{color:#f59e0b}.dt .err{color:#ef4444}
+.rl{padding:8px 18px;border-radius:10px;border:1px solid rgba(148,163,184,0.08);background:rgba(30,41,59,0.45);backdrop-filter:blur(10px);color:#94a3b8;font-size:13px;font-weight:500;cursor:pointer;transition:0.25s}
+.rl:hover{background:rgba(30,41,155,0.65);color:#f1f5f9}
+.span2{grid-column:span 2}
+@media(max-width:1200px){.gr{grid-template-columns:repeat(2,1fr)}.span2{grid-column:span 2}}
+@media(max-width:768px){.gr,.ch{grid-template-columns:1fr;padding:16px}.span2{grid-column:span 1}.cd .v{font-size:28px}}
+</style>
+</head>
+<body>
+<div class="hdr"><h1>Mio-TaskHub Observatory</h1><div class="st"><div class="dot" id="dot"></div><span class="meta" id="up">Loading...</span><button class="rl" onclick="load()">Refresh</button></div></div>
+<div class="gr" id="cards"></div>
+<div class="ch">
+<div class="cc"><h3>Tasks by State</h3><canvas id="c1" height="200"></canvas></div>
+<div class="cc"><h3>Thread Health</h3><canvas id="c2" height="200"></canvas></div>
+<div class="cc"><h3>Dependency Latency</h3><canvas id="c3" height="200"></canvas></div>
+<div class="cc"><h3>System Resources</h3><canvas id="c4" height="200"></canvas></div>
+<div class="cc span2"><h3>SLO Availability Trend (7 Days)</h3><canvas id="sloChart" height="100"></canvas></div>
+<div class="cc"><h3>Recent Insights</h3><div id="insightsFeed" style="max-height:300px;overflow-y:auto"></div></div>
+</div>
+<div class="al"><div class="tl" style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1.2px;color:#64748b;margin-bottom:12px">Active Alerts</div><div class="alist" id="alerts"><div class="alr info"><span>No active alerts</span></div></div></div>
+<div class="gr" style="margin-bottom:32px"><div class="cd span2" style="grid-column:1/-1"><div class="tl">Dependency Performance</div><table class="dt" id="dpt"><thead><tr><th>Dep</th><th>Op</th><th>Calls</th><th>Errors</th><th>Avg</th><th>P50</th><th>P90</th><th>P99</th><th>Max</th><th>Err%</th></tr></thead><tbody></tbody></table></div></div>
+<script>
+var ch={};
+var CL={COMPLETED:'#10b981',FAILED:'#ef4444',QUEUED:'#3b82f6',CLAIMED:'#8b5cf6',RUNNING:'#f59e0b',RETRYING:'#f97316',CANCELLED:'#64748b'};
+function P(t){var m={tasks:{},threads:{},dep:{},biz:{},sys:{}};for(var l of t.split('\\n')){if(!l||l[0]==='#')continue;var x=l.match(/^([a-z_]+)(?:\\{(.+?)\\})?\\s+(.+)$/);if(!x)continue;var lb={};if(x[2])for(var p of x[2].split(',')){var kv=p.split('=');lb[kv[0]]=kv[1].replace(/"/g,'');}var nv=parseFloat(x[3]);var n=x[1];if(n.startsWith('taskhub_tasks_total'))m.tasks[lb.state||'']=nv;
+else if(n.startsWith('taskhub_thread_alive')){m.threads[lb.name]=m.threads[lb.name]||{};m.threads[lb.name].alive=nv;}
+else if(n.startsWith('taskhub_thread_heartbeat_age')){m.threads[lb.name]=m.threads[lb.name]||{};m.threads[lb.name].age=nv;}
+else if(n.startsWith('taskhub_dep_')){var d=lb.dep||'?';var o=lb.op||'?';m.dep[d]=m.dep[d]||{};m.dep[d][o]=m.dep[d][o]||{};m.dep[d][o][n]=nv;}
+else if(n==='taskhub_task_success_rate')m.biz.success=nv;
+else if(n==='taskhub_uptime_seconds')m.sys.uptime=nv;
+else if(n==='taskhub_process_cpu_percent')m.sys.cpu=nv;
+else if(n==='taskhub_process_memory_percent')m.sys.memPct=nv;
+else if(n==='taskhub_process_memory_rss_bytes')m.sys.memRss=nv;
+else if(n==='taskhub_db_pool_checked_out')m.sys.dbPoolOut=nv;
+else if(n==='taskhub_slo_availability_30d')m.sys.sloAvail=nv;
+else if(n==='taskhub_slo_error_budget_remaining')m.sys.sloBudget=nv;}return m;}
+function fs(s){if(!s)return'-';if(s<60)return s.toFixed(0)+'s';if(s<3600)return(s/60).toFixed(1)+'m';return(s/3600).toFixed(1)+'h';}
+function fb(b){if(!b)return'-';if(b<1024)return b.toFixed(0)+'B';if(b<1048576)return(b/1024).toFixed(1)+'KB';return(b/1048576).toFixed(1)+'MB';}
+function fm(ms){if(!ms&&ms!==0)return'-';if(ms<1)return'<1ms';if(ms<1000)return ms.toFixed(1)+'ms';return(ms/1000).toFixed(2)+'s';}
+function RC(m){var c=document.getElementById('cards');document.getElementById('up').textContent='Uptime '+fs(m.sys.uptime);var total=0;for(var k in m.tasks)total+=m.tasks[k];var sr=m.biz.success!=null?(m.biz.success*100).toFixed(1)+'%':'-';var cpu=m.sys.cpu!=null?m.sys.cpu.toFixed(1)+'%':'-';var mem=m.sys.memPct!=null?m.sys.memPct.toFixed(1)+'%':'-';var slo=m.sys.sloAvail!=null?(m.sys.sloAvail*100).toFixed(2)+'%':'-';c.innerHTML='<div class="cd"><div class="tl">Total Tasks</div><div class="v">'+total+'</div><div class="sub">'+(m.tasks.QUEUED||0)+' queued / '+(m.tasks.COMPLETED||0)+' done / '+(m.tasks.FAILED||0)+' failed</div></div><div class="cd"><div class="tl">Success Rate</div><div class="v" style="color:#10b981">'+sr+'</div><div class="bar"><div class="bf" style="width:'+(m.biz.success!=null?m.biz.success*100:0)+'%;background:#10b981"></div></div></div><div class="cd"><div class="tl">CPU</div><div class="v">'+cpu+'</div><div class="bar"><div class="bf" style="width:'+(m.sys.cpu||0)+'%;background:'+(m.sys.cpu||0)>80?'#ef4444':'#f59e0b'+'"></div></div></div><div class="cd"><div class="tl">Memory</div><div class="v">'+mem+'</div><div class="sub">'+fb(m.sys.memRss)+' RSS</div><div class="bar"><div class="bf" style="width:'+(m.sys.memPct||0)+'%;background:'+(m.sys.memPct||0)>80?'#ef4444':'#8b5cf6'+'"></div></div></div><div class="cd"><div class="tl">DB Pool</div><div class="v">'+(m.sys.dbPoolOut||0)+'<span style="font-size:16px;color:#64748b;font-weight:400"> / 15</span></div></div><div class="cd"><div class="tl">Threads</div><div class="v">'+Object.values(m.threads).filter(function(t){return t.alive}).length+'<span style="font-size:16px;color:#64748b;font-weight:400"> / '+Object.keys(m.threads).length+'</span></div></div><div class="cd"><div class="tl">SLO (30d)</div><div class="v" style="color:'+(m.sys.sloAvail!=null&&m.sys.sloAvail<0.99?'#ef4444':'#10b981')+'">'+slo+'</div><div class="sub">Budget: '+(m.sys.sloBudget!=null?(m.sys.sloBudget*100).toFixed(1)+'%':'-')+'</div></div><div class="cd"><div class="tl">Stalled</div><div class="v">'+Object.entries(m.tasks).filter(function(e){return e[0].indexOf('_stalled')===0}).reduce(function(s,e){return s+e[1]},0)+'</div><div class="sub">Tasks stuck > 300s</div></div>';}
+function RCH(m){for(var k in ch)ch[k].destroy();ch={};var tl=Object.keys(m.tasks);ch.c1=new Chart(document.getElementById('c1'),{type:'doughnut',data:{labels:tl,datasets:[{data:tl.map(function(l){return m.tasks[l]}),backgroundColor:tl.map(function(l){return CL[l]||'#64748b'}),borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{position:'right',labels:{color:'#94a3b8',padding:12}}}}});var tn=Object.keys(m.threads);ch.c2=new Chart(document.getElementById('c2'),{type:'bar',data:{labels:tn,datasets:[{label:'Heartbeat Age (s)',data:tn.map(function(n){return m.threads[n].age||0}),backgroundColor:tn.map(function(n){return m.threads[n].alive?'rgba(16,185,129,0.6)':'rgba(239,68,68,0.6)'}),borderRadius:4,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,scales:{x:{grid:{display:false},ticks:{color:'#64748b',font:{size:10}}},y:{grid:{color:'rgba(148,163,184,0.06)'},ticks:{color:'#64748b'},beginAtZero:true}},plugins:{legend:{display:false}}}});var dl=[],p50=[],p90=[],p99=[];for(var d in m.dep)for(var o in m.dep[d]){dl.push(d+'.'+o);p50.push(m.dep[d][o].taskhub_dep_latency_p50_ms||0);p90.push(m.dep[d][o].taskhub_dep_latency_p90_ms||0);p99.push(m.dep[d][o].taskhub_dep_latency_p99_ms||0);}ch.c3=new Chart(document.getElementById('c3'),{type:'bar',data:{labels:dl.slice(0,8),datasets:[{label:'P50',data:p50.slice(0,8),backgroundColor:'rgba(59,130,246,0.6)',borderRadius:4,borderSkipped:false},{label:'P90',data:p90.slice(0,8),backgroundColor:'rgba(245,158,11,0.6)',borderRadius:4,borderSkipped:false},{label:'P99',data:p99.slice(0,8),backgroundColor:'rgba(239,68,68,0.6)',borderRadius:4,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,scales:{x:{grid:{display:false},ticks:{color:'#64748b',font:{size:10},maxRotation:45}},y:{grid:{color:'rgba(148,163,184,0.06)'},ticks:{color:'#64748b'},beginAtZero:true}},plugins:{legend:{labels:{color:'#94a3b8'}}}}});ch.c4=new Chart(document.getElementById('c4'),{type:'bar',data:{labels:['CPU %','Memory %'],datasets:[{data:[m.sys.cpu||0,m.sys.memPct||0],backgroundColor:['rgba(59,130,246,0.5)','rgba(139,92,246,0.5)'],borderRadius:6,borderSkipped:false,barThickness:32}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',scales:{x:{grid:{color:'rgba(148,163,184,0.06)'},ticks:{color:'#64748b'},max:100},y:{grid:{display:false},ticks:{color:'#94a3b8',font:{size:13,weight:500}}}},plugins:{legend:{display:false}}}});}
+function RDT(m){var tb=document.querySelector('#dpt tbody');var h='';for(var d in m.dep)for(var o in m.dep[d]){var dt=m.dep[d][o];var er=dt.taskhub_dep_error_rate||0;var cls=er===0?'ok':er<0.05?'wrn':'err';h+='<tr><td>'+d+'</td><td>'+o+'</td><td>'+(dt.taskhub_dep_latency_count||0)+'</td><td class="'+cls+'">'+(dt.taskhub_dep_latency_errors||0)+'</td><td>'+fm(dt.taskhub_dep_latency_avg_ms)+'</td><td>'+fm(dt.taskhub_dep_latency_p50_ms)+'</td><td>'+fm(dt.taskhub_dep_latency_p90_ms)+'</td><td>'+fm(dt.taskhub_dep_latency_p99_ms)+'</td><td>'+fm(dt.taskhub_dep_latency_max_ms)+'</td><td class="'+cls+'">'+(er*100).toFixed(2)+'%</td></tr>';}tb.innerHTML=h||'<tr><td colspan="10" style="color:#64748b;text-align:center">No dependency data</td></tr>';}
+function renderFromMetrics(t){var m=P(t);RC(m);RCH(m);RDT(m);document.getElementById('dot').style.background='#10b981';}
+function load(){fetch('/metrics').then(function(r){return r.text()}).then(renderFromMetrics).catch(function(){document.getElementById('dot').style.background='#ef4444';document.getElementById('up').textContent='Connection error'});fetch('/api/v1/alerts').then(function(r){return r.json()}).then(function(d){var el=document.getElementById('alerts');if(d.active_count===0){el.innerHTML='<div class="alr info"><span>No active alerts</span></div>';return}el.innerHTML=d.alerts.filter(function(a){return a.active}).map(function(a){return '<div class="alr '+a.severity+'"><span class="bdg" style="background:'+a.severity+'===critical?rgba(239,68,68,0.2):rgba(245,158,11,0.2)">'+a.severity+'</span><span>'+a.message+'</span></div>'}).join('')}).catch(function(){})}
+var wsReconnectTimer=null;
+function connectWS(){var proto=location.protocol==='https:'?'wss:':'ws:';var ws=new WebSocket(proto+'//'+location.host+'/ws');ws.onmessage=function(e){try{var msg=JSON.parse(e.data);if(msg.type==='metrics_snapshot'){var lines=[];var snap=msg.data;for(var name in snap.metrics){var v=snap.metrics[name];if(Array.isArray(v))for(var i=0;i<v.length;i++)lines.push(name+' '+v[i]);else lines.push(name+' '+v);}renderFromMetrics(lines.join('\\n'));if(snap.alerts){var el=document.getElementById('alerts');if(snap.alerts.length===0){el.innerHTML='<div class="alr info"><span>No active alerts</span></div>';}else{el.innerHTML=snap.alerts.map(function(a){return '<div class="alr '+a.severity+'"><span class="bdg" style="background:'+a.severity+'===critical?rgba(239,68,68,0.2):rgba(245,158,11,0.2)">'+a.severity+'</span><span>'+a.message+'</span></div>'}).join('');}}}else if(msg.type==='task_update'||msg.type==='idea_update'){load();}}catch(ex){}};ws.onclose=function(){if(wsReconnectTimer)clearTimeout(wsReconnectTimer);wsReconnectTimer=setTimeout(connectWS,3000);};ws.onerror=function(){ws.close();};}
+load();connectWS();
+async function loadSloChart(){try{var resp=await fetch('/api/v1/slo/history?hours=168&limit=168');var json=await resp.json();var data=json.snapshots||json;if(!data||!data.length)return;var labels=data.map(function(d){return new Date(d.ts*1000).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})});var availability=data.map(function(d){return(d.availability*100).toFixed(2)});new Chart(document.getElementById('sloChart'),{type:'line',data:{labels:labels,datasets:[{label:'Availability %',data:availability,borderColor:'#10b981',backgroundColor:'rgba(16,185,129,0.06)',fill:true,tension:0.4,pointRadius:2},{label:'Target (99%)',data:Array(labels.length).fill(99),borderColor:'rgba(239,68,68,0.5)',borderDash:[6,4],pointRadius:0,borderWidth:1.5}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#94a3b8'}}},scales:{x:{grid:{display:false},ticks:{color:'#64748b',maxTicksLimit:12}},y:{min:95,max:100,grid:{color:'rgba(148,163,184,0.06)'},ticks:{color:'#64748b'}}}}})}catch(e){}}
+async function loadInsightsFeed(){try{var resp=await fetch('/api/v1/insights?limit=10');var insights=await resp.json();var feed=document.getElementById('insightsFeed');if(!feed)return;if(!insights.length){feed.innerHTML='<div style="padding:16px;color:#64748b;text-align:center">No insights yet</div>';return}feed.innerHTML=insights.map(function(i){return '<div style="padding:12px 0;border-bottom:1px solid rgba(148,163,184,0.06)"><span style="display:inline-block;font-size:10px;padding:2px 7px;border-radius:4px;font-weight:700;text-transform:uppercase;margin-right:8px;background:'+(i.severity==='critical'?'rgba(239,68,68,0.12)':i.severity==='warning'?'rgba(245,158,11,0.12)':'rgba(59,130,246,0.12)');color:'+(i.severity==='critical'?'#ef4444':i.severity==='warning'?'#f59e0b':'#3b82f6')+'">'+i.severity+'</span><strong style="font-size:13px">'+i.title+'</strong><div style="font-size:12px;color:#64748b;margin-top:4px">'+i.description+'</div>'+(i.recommendation?'<div style="font-size:11px;color:#10b981;margin-top:6px;padding-left:10px;border-left:2px solid rgba(16,185,129,0.3)">'+i.recommendation+'</div>':'')+'</div>'}).join('')}catch(e){}}
+loadSloChart();loadInsightsFeed();setInterval(loadInsightsFeed,30000);
+</script>
+</body>
+</html>"""
