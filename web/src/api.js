@@ -52,6 +52,8 @@ export const api = {
   getTaskDoc: (id, kind) => req('GET', `/tasks/${id}/doc?kind=${kind}`),
   getTaskDocuments: (id) => req('GET', `/tasks/${id}/documents`),
   getTaskFile: (id, path) => req('GET', `/tasks/${id}/file?path=${encodeURIComponent(path)}`),
+  // 原样返回 workspace 内文件（二进制安全），用于 <img src> 等直接引用
+  rawFileUrl: (id, path) => `${BASE}/tasks/${id}/raw?path=${encodeURIComponent(path)}`,
   getTaskGraph: (id) => req('GET', `/tasks/${id}/graph`),
   getFullGraph: () => req('GET', '/tasks/graph'),
   createTask: (t) => req('POST', '/tasks', t),
@@ -160,4 +162,11 @@ export const api = {
   resumeScheduledJob: (id) => req('POST', `/scheduled-jobs/${id}/resume`),
   listScheduledJobExecutions: (id) => req('GET', `/scheduled-jobs/${id}/executions`),
   validateCron: (expr) => req('GET', `/scheduled-jobs/validate-cron?expr=${encodeURIComponent(expr)}`),
+  // Observability
+  observabilitySummary: () => req('GET', '/observability/summary'),
+  listAlerts: () => req('GET', '/alerts'),
+  taskTraces: (limit = 50) => req('GET', `/traces?limit=${limit}`),
+  sloHistory: (hours = 24) => req('GET', `/slo/history?hours=${hours}`),
+  listInsights: (limit = 20) => req('GET', `/insights?limit=${limit}`),
+  processInfo: () => req('GET', '/process'),
 }

@@ -52,6 +52,28 @@ def test_advance_to_done_with_review():
     assert r.status_code == 200
     assert r.json()["stage"] == "done"
 
+
+def test_advance_to_implementing_requires_changelog():
+    # brainstorming -> design -> planning -> ready，进入 implementing 需 changelog
+    tid = _mk()
+    client.post(f"/api/v1/tasks/{tid}/discussions",
+                json={"topic": "理解", "agent": "a", "summary": "s", "conclusions": "c"})
+    assert client.post(f"/api/v1/tasks/{tid}/stage",
+                       json={"target_stage": "design", "spec_path": "docs/s.md"}).status_code == 200
+    assert client.post(f"/api/v1/tasks/{tid}/stage",
+                       json={"target_stage": "planning", "plan_path": "docs/p.md"}).status_code == 200
+    assert client.post(f"/api/v1/tasks/{tid}/stage", json={"target_stage": "ready"}).status_code == 200
+    # 缺 changelog → 422（2026-09-17 新增 implementing 门槛）
+    r = client.post(f"/api/v1/tasks/{tid}/stage", json={"target_stage": "implementing"})
+    assert r.status_code == 422
+    assert "changelog" in r.json()["detail"]
+    # 提供 changelog → 200
+    r = client.post(f"/api/v1/tasks/{tid}/stage",
+                    json={"target_stage": "implementing", "doc_paths": {"changelog": "docs/changelog.md"}})
+    assert r.status_code == 200
+    assert r.json()["stage"] == "implementing"
+    assert r.json()["doc_paths"].get("changelog") == "docs/changelog.md"
+
 def test_advance_illegal_transition():
     tid = _mk()  # brainstorming
     r = client.post(f"/api/v1/tasks/{tid}/stage", json={"target_stage": "planning"})

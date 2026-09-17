@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { prio, fmtDur, agMono, agColor } from '../constants'
+import { artifactOf, artifactBody, currentArtifact } from '../stageDocs'
 
 const STAGES = [
   { id: 'brainstorming', label: '需求理解', en: 'BRAINSTORM' },
@@ -60,21 +61,13 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToS
     setDraggingId(null)
     if (!task || task.stage === stageId) return
     const body = { target_stage: stageId }
-    if (stageId === 'design') {
-      const val = window.prompt(`移动到 design 需提供 Spec 路径：`, task.spec_path || '')
+    // 产出物要求查表（stageDocs.js，与后端一致）
+    const spec = artifactOf(stageId)
+    if (spec) {
+      const val = window.prompt(`移动到 ${stageId} 需提供${spec.label}：`, currentArtifact(task, stageId))
       if (val === null) return
       if (!val.trim()) return
-      body.spec_path = val
-    } else if (stageId === 'planning') {
-      const val = window.prompt(`移动到 planning 需提供 Plan 路径：`, task.plan_path || '')
-      if (val === null) return
-      if (!val.trim()) return
-      body.plan_path = val
-    } else if (stageId === 'done') {
-      const val = window.prompt(`移动到 done 需提供审查结论：`, task.review_result || '')
-      if (val === null) return
-      if (!val.trim()) return
-      body.review_result = val
+      Object.assign(body, artifactBody(stageId, val))
     }
     try {
       await onMoveToStage(task.id, body)
@@ -177,11 +170,6 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToS
     return () => document.removeEventListener('keydown', onKey)
   }, [advancing])
 
-  const artifactField = (target) =>
-    target === 'design' ? { key: 'spec_path', ph: 'docs/superpowers/specs/xxx.md' } :
-    target === 'planning' ? { key: 'plan_path', ph: 'docs/superpowers/plans/xxx.md' } :
-    target === 'done' ? { key: 'review_result', ph: '审查结论…' } : null
-
   const nextStage = (stage) => {
     const i = STAGES.findIndex(s => s.id === stage)
     return i >= 0 && i < STAGES.length - 1 ? STAGES[i + 1].id : null
@@ -190,11 +178,11 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToS
   const confirmAdvance = async () => {
     if (!advancing) return
     const { task, target } = advancing
-    const af = artifactField(target)
+    const spec = artifactOf(target)
     const body = { target_stage: target }
-    if (af) {
+    if (spec) {
       if (!artifact.trim()) { alert('请填写产出物'); return }
-      body[af.key] = artifact.trim()
+      Object.assign(body, artifactBody(target, artifact))
     }
     try {
       await onAdvance(task.id, body)
@@ -336,12 +324,12 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToS
             </div>
             <div className="modal__body">
               <p style={{ fontSize: 13, color: 'var(--ink-dim)' }}>{advancing.task.title}</p>
-              {artifactField(advancing.target) ? (
+              {artifactOf(advancing.target) ? (
                 <div className="field">
-                  <label className="field__label">{advancing.target === 'done' ? '审查结论' : '产出物路径'}</label>
+                  <label className="field__label">{artifactOf(advancing.target).label}</label>
                   <input autoFocus value={artifact}
                     onChange={e => setArtifact(e.target.value)}
-                    placeholder={artifactField(advancing.target).ph} />
+                    placeholder={artifactOf(advancing.target).ph} />
                 </div>
               ) : (
                 <p style={{ fontSize: 13 }}>确认推进？</p>

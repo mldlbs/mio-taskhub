@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from './api'
+import { artifactOf, artifactBody, currentArtifact } from './stageDocs'
 import Rail from './components/Rail'
 import MissionBar from './components/MissionBar'
 import BoardView from './components/BoardView'
@@ -13,6 +14,7 @@ import IdeasView from './components/IdeasView'
 import TemplatesView from './components/TemplatesView'
 import WorkflowView from './components/WorkflowView'
 import StatsView from './components/StatsView'
+import ObservabilityView from './components/ObservabilityView'
 import MemoryView from './components/MemoryView'
 import ScheduledJobsView from './components/ScheduledJobsView'
 import CreateModal from './components/CreateModal'
@@ -212,15 +214,14 @@ export default function App() {
     const next = { brainstorming:'design', design:'planning', planning:'ready',
                    ready:'implementing', implementing:'review', review:'done' }[task.stage]
     if (!next) return
-    const msg = next === 'design' ? 'Spec 路径: ' :
-                next === 'planning' ? 'Plan 路径: ' :
-                next === 'done' ? '审查结论: ' : ''
-    const val = window.prompt(msg, '')
-    if (val === null) return
     const body = { target_stage: next }
-    if (next === 'design') body.spec_path = val
-    else if (next === 'planning') body.plan_path = val
-    else if (next === 'done') body.review_result = val
+    // 产出物要求查表（stageDocs.js，与后端一致）；无要求的阶段不再弹空输入框
+    const spec = artifactOf(next)
+    if (spec) {
+      const val = window.prompt(spec.label + '：', currentArtifact(task, next))
+      if (val === null) return
+      Object.assign(body, artifactBody(next, val))
+    }
     advanceStage(task.id, body)
   }
 
@@ -423,6 +424,9 @@ export default function App() {
             )}
             {view === 'memory' && (
               <MemoryView liveEvent={memoryEvent} />
+            )}
+            {view === 'observability' && (
+              <ObservabilityView onOpenTask={(id) => openTask({ id })} />
             )}
             </ErrorBoundary>
           </div>

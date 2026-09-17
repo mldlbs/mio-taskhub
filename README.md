@@ -6,11 +6,12 @@
 
 | 维度 | 现状 |
 |------|------|
-| 版本 | v0.2.1 |
-| 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 61 模块 / 10,257 行 |
-| 对外能力 | **93 个 REST 端点** · **33 个 MCP 工具** · WebSocket 实时广播 · React Web UI |
-| 前端 | React 18 + Vite 5 · 38 文件 / 11,270 行 · 10 个视图 |
-| 测试 | **509 个用例**（44 文件 / 6,220 行）· GitHub Actions（windows-latest / py3.12） |
+| 版本 | v0.2.1（Unreleased：任务文档体系） |
+| 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 76 模块 / 13,749 行 |
+| 对外能力 | **119 个 REST 端点** · **40 个 MCP 工具** · WebSocket 实时广播 · React Web UI |
+| 任务文档 | **22 类文档 kind** · **7 件套文档链** · **8 类生命周期状态机** · 质量 lint + 状态门控 + 修订指令 |
+| 前端 | React 18 + Vite 5 · 40 文件 / 11,694 行 · 10 个视图 |
+| 测试 | **603 个用例**（53 文件 / 7,585 行）· GitHub Actions（windows-latest / py3.12） |
 | 部署 | pip 源码 · Docker 多阶段镜像 · Windows 单 EXE 绿色版（免 Python） |
 
 ---
@@ -22,13 +23,14 @@
 - [3. 快速开始](#3-快速开始)
 - [4. 让 Agent 接入](#4-让-agent-接入)
 - [5. 能力详解](#5-能力详解)
-- [6. Web UI](#6-web-ui)
-- [7. 可观测性](#7-可观测性)
-- [8. 配置项](#8-配置项)
-- [9. 运维](#9-运维)
-- [10. 开发](#10-开发)
-- [11. 文档索引](#11-文档索引)
-- [12. 已知限制](#12-已知限制)
+- [6. 任务文档体系](#6-任务文档体系)
+- [7. Web UI](#7-web-ui)
+- [8. 可观测性](#8-可观测性)
+- [9. 配置项](#9-配置项)
+- [10. 运维](#10-运维)
+- [11. 开发](#11-开发)
+- [12. 文档索引](#12-文档索引)
+- [13. 已知限制](#13-已知限制)
 
 ---
 
@@ -38,9 +40,9 @@
 
 1. **谁在干什么** —— 没有统一的任务归属与在线状态，重复劳动和空转难以察觉。
 2. **干到哪了** —— 长任务断线即失忆，进度、重试、超时无人兜底。
-3. **干完的产出在哪** —— 分支、commit、设计文档、审查结论散落在各自的会话里。
+3. **干完的产出在哪** —— 需求、架构、接口契约、测试验收、部署手册散落在各自的会话里，且**写没写全、写没写对无人把关**。
 
-mio-taskhub 把这些收敛成一份**本地 SQLite 里的事实**：任务有状态机与 7 段研发阶段，Agent 有注册与心跳，执行有 Run 与重试，产出有 spec/plan/gitref/评审，变更有一条单调递增的全局事件流。
+mio-taskhub 把这些收敛成一份**本地 SQLite 里的事实**：任务有状态机与 7 段研发阶段，Agent 有注册与心跳，执行有 Run 与重试，产出有 22 类文档（七件套主链 + 生命周期状态机 + 写时质量 lint）、gitref 与评审记录，变更有一条单调递增的全局事件流。
 
 ```
    人                      mio-taskhub                     Agent
@@ -92,15 +94,28 @@ brainstorming → design → planning → ready → implementing → review → 
                  ↑spec_path   ↑plan_path                        ↑review_result
 ```
 
-| 进入阶段 | 必须提供的产出物 |
-|----------|------------------|
-| `design` | `spec_path`（设计文档） |
-| `planning` | `plan_path`（实现计划） |
-| `done` | `review_result`（审查结论） |
+| 进入阶段 | 必须提供的产出物 | 载体 |
+|----------|------------------|------|
+| `brainstorming` | 需求规格 | `doc_paths['requirement']` |
+| `design` | 设计文档 | `doc_paths['spec']`（兼容旧字段 `spec_path`） |
+| `planning` | 实现计划 | `doc_paths['plan']`（兼容旧字段 `plan_path`） |
+| `implementing` | 变更记录 | `doc_paths['changelog']` |
+| `done` | 审查结论 | `review_result` 文本 **或** `doc_paths['review']` |
 
-支持 `advance`（只走相邻一段）与 `move`（任意跳转，保留终态保护与产出物校验）。新建任务默认落在 `brainstorming`。
+支持 `advance`（只走相邻一段）与 `move`（任意跳转，保留终态保护与产出物校验）。新建任务默认落在 `brainstorming`。`design` 另外要求至少一条讨论会话（`requires_discussion`）。
 
-### 2.3 想法生命周期
+门控实现集中在 `api/task_stages.py` 的 `STAGE_ARTIFACT_REQUIREMENTS`，每个阶段的 `document_kinds` 是一个列表（同一阶段可要求多份文档），`GET /api/v1/stages/requirements` 会把这张表连同兼容字段 `document_kind` 一起返回给前端渲染。
+
+### 2.3 任务文档体系（文档维度）
+
+任务与上面两条维度再正交地挂一套**文档体系**，共 22 类 kind、7 件套主链、8 类生命周期状态机。完整机制见 [§6](#6-任务文档体系)。
+
+- **22 类 kind** —— `doc_paths.py` 的 `DOC_KINDS` 是唯一事实源，`doc_paths`（kind→相对路径的 JSON 列）落在 Task 上
+- **7 件套文档链** —— `requirement → architecture → spec → data-model → api → test → runbook`
+- **8 类生命周期** —— requirement / spec / decision / plan / test / milestone / incident + Task 自身
+- **质量闭环** —— 写时 lint 返分数与修法 → 状态门控拦 `review`/`approved`/`done` → `revision` 端点产出可执行的修订指令
+
+### 2.4 想法生命周期
 
 需求不是凭空变成任务的，中间要发酵：
 
@@ -113,11 +128,11 @@ new ──> fermenting ──> formed ──> broken_down ──> (任务全部�
 
 后半条是 **ADR（架构决策记录）** 分支：成形想法可演化为 ADR，状态推进后由 `GitSyncWorker` 投影成 `docs/adr/ADR-xxx.md` 落盘。
 
-### 2.4 主要实体
+### 2.5 主要实体
 
 | 实体 | 作用 | 关键字段 |
 |------|------|----------|
-| `Task` | 任务主体 | state · stage · depends_on · priority · max_retries · fallback_after · target_agent_type |
+| `Task` | 任务主体 | state · stage · doc_paths · doc_statuses · depends_on · priority · max_retries · fallback_after · target_agent_type |
 | `Run` | 一次执行 | task_id · agent_name · progress · attempt · checkpoint |
 | `Agent` | Agent 注册表 | name · status · last_heartbeat（180s 无心跳转 offline） |
 | `TaskEvent` | 任务级事件 | event_type · from/to_state · from/to_stage · actor_type |
@@ -188,7 +203,7 @@ docker compose up -d
 
 ### 4.1 MCP（推荐）
 
-hub 负责把 HTTP API 包装成 **33 个原生 MCP 工具**，Agent 侧不需要写 curl。
+hub 负责把 HTTP API 包装成 **40 个原生 MCP 工具**，Agent 侧不需要写 curl。
 
 ```bash
 # MCP 服务端启动命令（任选其一）
@@ -213,7 +228,8 @@ mio-taskhub.exe mcp          # 绿色版
 | 全局与事件 | `taskhub_status` · `taskhub_poll_events` |
 | 生命周期 | `taskhub_register` · `taskhub_agent_heartbeat` · `taskhub_claim` · `taskhub_heartbeat` · `taskhub_submit_result` |
 | 任务 CRUD | `taskhub_create_task` · `taskhub_update_task` · `taskhub_list_tasks` · `taskhub_get_task` · `taskhub_cancel_task` · `taskhub_retry_task` |
-| 阶段与产出 | `taskhub_advance_stage` · `taskhub_move_to_stage` · `taskhub_read_spec` · `taskhub_read_plan` |
+| 阶段推进 | `taskhub_advance_stage` · `taskhub_move_to_stage` |
+| 任务文档 | `taskhub_read_spec` · `taskhub_read_plan` · `taskhub_list_documents` · `taskhub_read_document` · `taskhub_write_document` · `taskhub_scaffold_docs` · `taskhub_set_doc_status` · `taskhub_doc_quality` · `taskhub_doc_revision` |
 | 拆解与追溯 | `taskhub_add_subtask` · `taskhub_update_subtask` · `taskhub_add_gitref` · `taskhub_add_history` · `taskhub_add_discussion` |
 | 想法工作台 | `taskhub_add_idea` · `taskhub_ideas` · `taskhub_update_idea` · `taskhub_breakdown_idea` · `taskhub_review_idea` · `taskhub_submit_review` · `taskhub_idea_history` |
 | 讨论会话 | `taskhub_open_discussion` · `taskhub_discussion_messages` · `taskhub_reply_discussion` · `taskhub_close_discussion` |
@@ -225,7 +241,9 @@ mio-taskhub.exe mcp          # 绿色版
 1. taskhub_register 注册；空闲时每约 1 分钟 taskhub_agent_heartbeat 保活
 2. taskhub_claim 领任务，拿到 run_id 与任务详情
 3. 执行期间周期性 taskhub_heartbeat 上报进度（0-100）
-4. 完成 → taskhub_submit_result(success=true, result="产出描述")
+4. 涉及文档时：taskhub_scaffold_docs 起骨架 → taskhub_write_document 填内容
+   → taskhub_doc_quality 看分数 → taskhub_doc_revision 拿修订指令改到 errors=0
+5. 完成 → taskhub_submit_result(success=true, result="产出描述")
    失败 → success=false 并说明原因
 ```
 
@@ -310,7 +328,148 @@ ADR 状态流转后，`GitSyncWorker` 通过 Outbox 模式把决策记录投影�
 
 ---
 
-## 6. Web UI
+## 6. 任务文档体系
+
+任务文档不是一个自由文本框，而是一套**带类型、带模板、带状态机、带质量门**的一等公民。
+
+- 唯一事实源：`doc_paths.py` 的 `DOC_KINDS`（22 类）
+- 落库字段：`Task.doc_paths`（kind→相对路径 JSON）与 `Task.doc_statuses`（kind→生命周期状态 JSON）
+- 路径安全：读写都经 `_resolve_within_workspace()` 做 workspace 越界校验，逃逸直接 400；`doc_paths` 约定存相对路径，便于跨机器迁移
+
+### 6.1 22 类文档 kind
+
+| 分组 | kind | 用途 |
+|------|------|------|
+| **主链（7 件套）** | `requirement` | 需求规格：为什么做 |
+| | `architecture` | 架构设计：整体怎么搭 |
+| | `spec` | 模块 Spec：本模块怎么设计 |
+| | `data-model` | 状态模型：实体、字段、状态机 |
+| | `api` | 接口契约：全局约定 + 接口清单 + 明细 |
+| | `test` | 测试验收：验收标准 + 用例清单 |
+| | `runbook` | 部署运维：环境、步骤、回滚 |
+| 工程记录 | `plan` | 实现计划 |
+| | `review` | 审查结论 |
+| | `changelog` | 变更记录 |
+| | `decision` | ADR：为什么这么决定 |
+| | `milestone` | 发布了什么 |
+| | `incident` | 出了什么问题 |
+| 复用资产 | `readme` | 项目/模块说明 |
+| | `setup` | 环境搭建 |
+| | `userguide` | 使用指南 |
+| | `glossary` | 术语表 |
+| | `risk` | 风险登记 |
+| | `security` | 安全说明 |
+| | `research` | 调研笔记 |
+| | `retro` | 复盘 |
+| | `troubleshooting` | 排障手册 |
+
+三个同步点必须一起改：`doc_paths.DOC_KINDS`（事实源）→ `api/task_documents.py` 的 `DOC_PATTERNS`（路径特征词）→ `web/src/components/DocPanel.jsx` 的 `KIND_META`（展示元数据）。
+
+### 6.2 七件套文档链
+
+`doc_chain.py` 定义主链顺序，并负责生成骨架：
+
+```
+requirement → architecture → spec → data-model → api → test → runbook
+```
+
+`POST /api/v1/tasks/{id}/docs/scaffold` 一键把缺的骨架补齐：
+
+- **默认不覆盖已有文件**，可以放心反复调用；`overwrite=true` 才重写
+- `kinds=["requirement","test"]` 可只生成指定几件
+- 每份骨架自带跨链导航头（上游/下游文档链接）和 TODO 占位，并预置 `FR-n` / `TC-n` / `ADR-n` 追溯编号
+- 骨架正文按**分点 + 换行**书写，便于直接阅读和增量填充
+
+### 6.3 八类生命周期状态机
+
+`doc_lifecycle.py` 让文档本身成为状态载体，规则是**严格向前**：不许回退、不许跳级、终态不可改判。
+
+| 类型 | 生命周期 |
+|------|----------|
+| Requirement | `draft → approved` |
+| Spec | `draft → review → approved` |
+| Decision (ADR) | `proposed → accepted → superseded` |
+| Plan | `draft → approved → done` |
+| Test | `planned → passed / failed` |
+| Milestone | `planned → released` |
+| Incident | `open → resolved → closed` |
+| Task（自身） | `todo → doing → done` |
+
+- 首次写入某类文档时，`doc_statuses` 自动初始化为该类型的初始态
+- 状态推进走 `POST /api/v1/tasks/{id}/doc/{kind}/status`，非法转移被 `validate_transition` 直接拒绝
+- `GET /api/v1/tasks/{id}/doc/statuses` 返回每类的当前态与 `allowed_next`，Agent 不用猜下一步
+
+### 6.4 质量保证：写时 lint → 状态门控 → 修订指令
+
+质量不是靠事后审查，而是压到写作阶段。三层依次收紧：
+
+**第一层 · 写时 lint（反馈，不阻断）**
+
+`doc_quality.check_content(kind, content)` 在每次 `PUT /doc` 时同步跑，结果挂在响应里：
+
+| 检查项 | 说明 |
+|--------|------|
+| 必备章节 | 每类 kind 有 `QUALITY_SPEC`，缺章节记 error |
+| 表格行数 | 如「功能需求」「用例清单」要求 ≥1 行有效数据行 |
+| 空壳/占位 | 残留 TODO、空章节、正文过短记 warn |
+| 分点书写 | 长段落、缺换行记 warn |
+
+评分公式：`score = max(0, 100 - 20*errors - 5*warns)`。
+
+**第二层 · 状态门控（阻断）**
+
+推进到 `review` / `approved` / `done` 时要求 `errors == 0`，否则拒绝。`force=true` 可强行推进，但会落一条事件留痕，便于事后追责。
+
+**第三层 · 修订指令反哺写作（最关键）**
+
+`GET /api/v1/tasks/{id}/doc/{kind}/revision` 返回**可直接执行的修订指令**，而不是一句"质量不达标"：
+
+- 逐条列出问题所在章节
+- 每条附上该章节的写作指引（`SECTION_HINTS`）
+- 附上该 kind 的模板片段与追溯要求
+- Agent 拿到就能改，改完再查一次分，直到 `errors=0` 再过门
+
+配套 `traceability()` 做需求↔测试追溯：校验 `requirement` 里的 `FR-n` 是否在 `test` 中有对应 `TC-n` 覆盖，避免"写了需求没写验收"。
+
+### 6.5 REST 端点
+
+| 方法 | 路径 | 作用 |
+|------|------|------|
+| `GET` | `/tasks/{id}/doc` | 读单份文档（kind 或 path） |
+| `GET` | `/tasks/{id}/documents` | 列出全部已登记文档 |
+| `GET` | `/tasks/{id}/file` | 读任意任务文件 |
+| `GET` | `/tasks/{id}/raw` | 读原始文本 |
+| `PUT` | `/tasks/{id}/doc` | 写入文档，响应含 `quality` 与 `status` |
+| `POST` | `/tasks/{id}/docs/scaffold` | 一键生成七件套骨架 |
+| `POST` | `/tasks/{id}/doc/{kind}/status` | 推进生命周期状态（带质量门控） |
+| `GET` | `/tasks/{id}/doc/statuses` | 全部 kind 状态 + `allowed_next` |
+| `GET` | `/tasks/{id}/doc/{kind}/revision` | 修订指令 |
+| `GET` | `/tasks/{id}/doc/quality` | 质量报告 + 追溯矩阵 |
+
+### 6.6 典型闭环
+
+```bash
+# 1. 起骨架
+POST /api/v1/tasks/{id}/docs/scaffold
+
+# 2. 填内容（分点书写）
+PUT  /api/v1/tasks/{id}/doc   {"kind":"requirement","content":"..."}
+
+# 3. 看分数，拿修订指令
+GET  /api/v1/tasks/{id}/doc/requirement/revision
+
+# 4. 改到 errors=0 后过门
+POST /api/v1/tasks/{id}/doc/requirement/status  {"target":"approved"}
+
+# 5. 阶段推进
+POST /api/v1/tasks/{id}/advance
+```
+
+Agent 侧对应 9 个 MCP 工具：`taskhub_scaffold_docs` · `taskhub_write_document` · `taskhub_read_document` · `taskhub_list_documents` · `taskhub_set_doc_status` · `taskhub_doc_quality` · `taskhub_doc_revision` · `taskhub_read_spec` · `taskhub_read_plan`。
+
+---
+
+## 7. Web UI
 
 React 18 + Vite 5，单页应用，10 个视图用左侧图标栏切换。生产构建产物由 hub 挂载在 `/`（PyInstaller 打包时嵌进 EXE）。
 
@@ -327,13 +486,13 @@ React 18 + Vite 5，单页应用，10 个视图用左侧图标栏切换。生产
 | **统计** | 成功率/吞吐/延迟等聚合视图 |
 | **记忆** | Memory Gateway 的记忆浏览与检索 |
 
-另有：命令面板（快捷键唤起）、任务详情抽屉、文档预览（markdown 渲染）、评审面板、评审队列、依赖图、嵌入式视图（`/#/embed`，可被 Agent 用 iframe 内嵌到产物面板）。
+另有：命令面板（快捷键唤起）、任务详情抽屉、**文档面板**（22 类 kind 分类展示 + 七件套一键起骨架 + 质量分与状态徽标 + markdown 预览）、评审面板、评审队列、依赖图、嵌入式视图（`/#/embed`，可被 Agent 用 iframe 内嵌到产物面板）。
 
 连接状态由 WebSocket 驱动，带连接横幅与实时刷新；接口异常有错误条与错误边界兜底。看板支持拖拽改变状态/阶段，并内置高对比模式。
 
 ---
 
-## 7. 可观测性
+## 8. 可观测性
 
 ### 健康与探针
 
@@ -392,7 +551,7 @@ OpenTelemetry 自动埋点覆盖 FastAPI、SQLAlchemy、httpx；结构化日志�
 
 ---
 
-## 8. 配置项
+## 9. 配置项
 
 全部通过环境变量配置，均有默认值，**不配也能跑**。
 
@@ -431,7 +590,7 @@ OpenTelemetry 自动埋点覆盖 FastAPI、SQLAlchemy、httpx；结构化日志�
 
 ---
 
-## 9. 运维
+## 10. 运维
 
 ### 后台线程
 
@@ -464,7 +623,7 @@ mio-taskhub serve --auth
 
 ---
 
-## 10. 开发
+## 11. 开发
 
 ### 目录结构
 
@@ -474,24 +633,28 @@ mio_taskhub/
 ├── models.py            # 全部 ORM 模型 + 状态机枚举（唯一权威定义）
 ├── db.py                # engine / session / WAL / 连接检查
 ├── migrations.py        # 轻量迁移
-├── mcp_server.py        # 33 个 MCP 工具（_tool 装饰器工厂）
+├── mcp_server.py        # 40 个 MCP 工具（_tool 装饰器工厂）
 ├── middleware.py        # RequestID + 限流
 ├── events.py            # 全局事件流 + WebSocket 广播
 ├── background.py        # 心跳扫描 / 调度器 / ThreadRegistry
 ├── dependency.py        # 依赖满足判定 + depends_on 归一化
 ├── composite.py         # 状态×阶段合成展示（含 block_reason 标签）
 ├── planner.py           # detect_cycle 环检测 + 夜间计划编排
+├── doc_paths.py         # 22 类文档 kind 唯一事实源
+├── doc_chain.py         # 七件套文档链 + 骨架模板
+├── doc_lifecycle.py     # 8 类文档生命周期状态机
+├── doc_quality.py       # 质量 lint + 追溯 + 修订指令
 ├── seed.py              # 演示数据
 ├── memory_store.py      # 记忆网关客户端与指标
-├── api/                 # 26 个路由模块（93 个端点）
+├── api/                 # 26 个路由模块（119 个端点）
 ├── workflow/            # state_machine / transitions
 ├── scheduling/          # cron_engine / scheduler / night_runner
 ├── ideas/               # idea_prompts / idea_review
 ├── ops/                 # backup / git_sync / data_fixes
-└── observability/       # metrics / alerts / dep_metrics / otel / logging_config
+└── observability/       # metrics / alerts / dep_metrics / otel / logging_config / report
 
 web/src/                 # React SPA（components/ 含全部视图）
-tests/                   # 509 个用例
+tests/                   # 603 个用例
 docs/                    # 规格、ADR、审计报告、HOWTO
 packaging/               # 构建脚本、setup 脚本、Prometheus 配置、WorkBuddy skill
 ```
@@ -504,6 +667,8 @@ pytest tests/ -q                                      # 其它平台
 ```
 
 测试通过 `MIO_TASKHUB_DB` 指向临时库做隔离，CI 会跳过不稳定的 `test_two_agents_race`（该用例已用 QueuePool 修复，稳定性仍在观察）。
+
+文档体系专项用例：`tests/test_doc_chain.py`（骨架）、`tests/test_doc_lifecycle.py`（状态机）、`tests/test_doc_quality.py`（质量与门控）、`tests/test_task_doc_paths.py`（22 类 kind）。
 
 ```bash
 cd web && npm run build       # 构建前端（hub 从 web/dist 读取）
@@ -524,7 +689,7 @@ cd web && npm run dev         # 前端热更新开发
 
 ---
 
-## 11. 文档索引
+## 12. 文档索引
 
 | 文档 | 内容 |
 |------|------|
@@ -540,9 +705,11 @@ cd web && npm run dev         # 前端热更新开发
 
 ---
 
-## 12. 已知限制
+## 13. 已知限制
 
 - **单用户本地服务**：认证只有单 Bearer token，没有多租户与权限体系
 - **SQLite 并发上限**：WAL + QueuePool 足以支撑单机多 Agent，但规模继续增长需迁移 Postgres
-- **God File 残留**：`mcp_server.py`（531 行）与 `background.py` 仍是最大的两个文件；MCP 层本质是薄代理，理想方案是从 OpenAPI spec 自动生成
+- **God File 残留**：`mcp_server.py`（643 行）与 `background.py`（580 行）仍是最大的两个文件；MCP 层本质是薄代理，理想方案是从 OpenAPI spec 自动生成
+- **文档质量 lint 是启发式的**：靠章节标题与表格行数做结构性校验，判断不了内容是否真的对。真正的内容审查仍需人或 Agent 阅读
+- **文档 kind 三处同步点**：新增一类 kind 要同时改 `doc_paths.py` / `DOC_PATTERNS` / `KIND_META`，漏改会导致前端不显示（缺自动一致性测试）
 - **Windows 优先**：绿色版打包与 setup 脚本只覆盖 Windows；Docker/源码路径跨平台可用

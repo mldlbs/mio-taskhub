@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { api } from '../api'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -9,19 +9,55 @@ marked.setOptions({ gfm: true, breaks: false, headerIds: false, mangle: false })
 marked.use({ renderer: { heading(token) { const level = token.depth ?? token.level; const id = 'mdh-' + Math.random().toString(36).slice(2, 8); return `<h${level} id="${id}">${token.text}</h${level}>` } } })
 
 const fmtSize = (n) => n == null ? '' : n < 1024 ? `${n} B` : n < 1048576 ? `${(n/1024).toFixed(1)} KB` : `${(n/1048576).toFixed(1)} MB`
-const sourceLabel = (s) => s === 'field' ? '字段关联' : '相关'
+const sourceLabel = (s) =>
+  s === 'field' ? '字段关联' :
+  s === 'deliverable' ? '交付物' :
+  s === 'file' ? '相关文件' :
+  s === 'navigated' ? '文内跳转' : '相关'
 
 const KIND_META = {
   spec:          { label: 'SPEC', group: 'Spec 设计文档', order: 0 },
   plan:          { label: 'PLAN', group: 'Plan 实现计划', order: 1 },
-  requirement:   { label: '需求', group: 'Requirement 需求文档', order: 2 },
-  test:          { label: '测试', group: 'Test 测试计划', order: 3 },
-  architecture:  { label: '架构', group: 'Architecture 架构文档', order: 4 },
-  api:           { label: 'API', group: 'API 接口文档', order: 5 },
-  readme:        { label: 'README', group: 'README 说明', order: 6 },
-  changelog:     { label: '变更', group: 'Changelog 变更记录', order: 7 },
+  review:        { label: '审查', group: 'Review 审查报告', order: 2 },
+  requirement:   { label: '需求', group: 'Requirement 需求文档', order: 3 },
+  test:          { label: '测试', group: 'Test 测试计划', order: 4 },
+  architecture:  { label: '架构', group: 'Architecture 架构文档', order: 5 },
+  api:           { label: 'API', group: 'API 接口文档', order: 6 },
+  readme:        { label: 'README', group: 'README 说明', order: 7 },
+  changelog:     { label: '变更', group: 'Changelog 变更记录', order: 8 },
+  // ── 扩展文档类型（与 DOC_KINDS 保持一致，2026-09-17）──
+  decision:      { label: '决策', group: 'Decision 决策记录', order: 9 },
+  risk:          { label: '风险', group: 'Risk 风险登记', order: 10 },
+  setup:         { label: '环境', group: 'Setup 环境搭建', order: 11 },
+  runbook:       { label: '运维', group: 'Runbook 部署运维', order: 12 },
+  glossary:      { label: '术语', group: 'Glossary 术语表', order: 13 },
+  userguide:     { label: '手册', group: 'UserGuide 用户手册', order: 14 },
+  research:      { label: '预研', group: 'Research 技术预研', order: 15 },
+  retro:         { label: '复盘', group: 'Retro 复盘', order: 16 },
+  milestone:     { label: '里程碑', group: 'Milestone 里程碑', order: 17 },
+  'data-model':  { label: '数据', group: 'DataModel 数据模型', order: 18 },
+  security:      { label: '安全', group: 'Security 安全', order: 19 },
+  troubleshooting: { label: '排查', group: 'Troubleshooting 故障排查', order: 20 },
+  incident:      { label: '事故', group: 'Incident 事故记录', order: 21 },
+  // 非文档类的挂载项（来自 task.deliverables / task.files）
+  deliverable:   { label: '交付物', group: 'Deliverables 交付物', order: 22 },
+  file:          { label: '文件', group: 'Files 相关文件', order: 23 },
 }
 const kindMeta = (k) => KIND_META[k] || { label: k.toUpperCase(), group: k, order: 9 }
+
+// 文档内相对资源（图片）解析：workspace 相对目录 + 引用路径
+const ABS_SRC_RE = /^(?:[a-z][a-z0-9+.-]*:|\/\/|\/)/i
+const decodeMaybe = (s) => { try { return decodeURIComponent(s) } catch { return s } }
+const dirOf = (p) => { const s = (p || '').replace(/\\/g, '/'); return s.includes('/') ? s.slice(0, s.lastIndexOf('/')) : '' }
+function joinRel(dir, src) {
+  const out = (dir || '').split('/').filter(Boolean)
+  for (const part of src.split('/')) {
+    if (!part || part === '.') continue
+    if (part === '..') out.pop()
+    else out.push(part)
+  }
+  return out.join('/')
+}
 
 const RISK_RE = /(风险|隐患|注意|警告|⚠️?|❗|‼|危险|禁止|必须|关键点|坑|caveat|risk|warning|caution|danger|important)/i
 const RISK_TAGS = ['strong', 'em', 'li', 'p', 'blockquote', 'td']
@@ -72,6 +108,7 @@ export default function DocPanel({ task, onClose }) {
   const [truncated, setTruncated] = useState(false)
   const [missing, setMissing] = useState(false)
   const [query, setQuery] = useState('')
+  const [activeKind, setActiveKind] = useState(null)
   const [toc, setToc] = useState([])
   const [riskCount, setRiskCount] = useState(0)
   const [findQ, setFindQ] = useState('')
@@ -92,6 +129,12 @@ export default function DocPanel({ task, onClose }) {
       ? api.getTaskDoc(task.id, doc.kind)
       : api.getTaskFile(task.id, doc.rel_path)
     p.then(r => {
+        if (r.binary) {
+          // 交付物 / 相关文件可能是二进制（PDF、图片…），不能按文本渲染
+          setTruncated(false); setMissing(false); setRawContent('')
+          setHtml(`<p class="docpanel__notice">二进制文件（${fmtSize(r.size ?? 0)}），无法按文本预览。</p>`)
+          return
+        }
         const content = r.content || ''
         setTruncated(!!r.truncated); setMissing(!!r.missing)
         setRawContent(content)
@@ -112,8 +155,35 @@ export default function DocPanel({ task, onClose }) {
     const root = viewRef.current
     if (!root || !html) return
     root.querySelectorAll('pre code').forEach(b => { try { hljs.highlightElement(b) } catch {} })
-    root.querySelectorAll('a[href]').forEach(a => { a.target = '_blank'; a.rel = 'noopener noreferrer' })
+    root.querySelectorAll('a[href]').forEach(a => {
+      a.target = '_blank'
+      a.rel = 'noopener noreferrer'
+      const rawHref = a.getAttribute('href') || ''
+      // 相对链接指向 workspace 内文件 → 改写到 /raw，否则浏览器会请求前端静态路径 → 404
+      if (rawHref && !rawHref.startsWith('#') && !rawHref.includes('?') && !ABS_SRC_RE.test(rawHref)) {
+        const baseDir = selected && selected.dir != null ? selected.dir : dirOf(selected && selected.rel_path)
+        const resolved = joinRel(baseDir, decodeMaybe(rawHref))
+        a.href = api.rawFileUrl(task.id, resolved)
+        // 相对 .md 链接在面板内直接打开目标文档（拦截点击；href 保留 /raw 作为兜底）
+        if (/\.(md|markdown)$/i.test(resolved)) {
+          a.addEventListener('click', (e) => {
+            e.preventDefault(); e.stopPropagation()
+            select({
+              name: resolved.split('/').pop() || resolved,
+              rel_path: resolved,
+              kind: 'file', source: 'navigated', dir: dirOf(resolved),
+            })
+          })
+        }
+      }
+    })
     root.querySelectorAll('img').forEach(img => {
+      // 相对引用的图片指向 workspace 内的原始文件，否则浏览器会请求前端静态路径 → 404
+      const rawSrc = img.getAttribute('src') || ''
+      if (rawSrc && !ABS_SRC_RE.test(rawSrc)) {
+        const baseDir = selected && selected.dir != null ? selected.dir : dirOf(selected && selected.rel_path)
+        img.src = api.rawFileUrl(task.id, joinRel(baseDir, decodeMaybe(rawSrc)))
+      }
       img.loading = 'lazy'; img.style.maxWidth = '100%'; img.style.height = 'auto'
       img.style.cursor = 'zoom-in'
       img.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); setLightbox(img.src) })
@@ -123,7 +193,7 @@ export default function DocPanel({ task, onClose }) {
     setRiskCount(rc)
     const hs = [...root.querySelectorAll('h1,h2,h3')]
     setToc(hs.map((h, i) => { if (!h.id) h.id = 'mdh-' + i; return { id: h.id, text: h.textContent, level: Number(h.tagName[1]) } }))
-  }, [html])
+  }, [html, selected, task.id, select])
 
   useEffect(() => {
     const root = viewRef.current
@@ -203,14 +273,32 @@ export default function DocPanel({ task, onClose }) {
   const q = query.trim().toLowerCase()
   const filtered = q ? all.filter(d => d.name.toLowerCase().includes(q) || d.rel_path.toLowerCase().includes(q)) : all
 
-  // 按 kind 分组
+  // 顶部「切换类型」标签：列出清单里实际存在的文档类型（按 KIND_META 顺序）
+  const kindsPresent = useMemo(() => {
+    const counts = {}
+    for (const d of all) counts[d.kind] = (counts[d.kind] || 0) + 1
+    return Object.keys(counts)
+      .sort((a, b) => kindMeta(a).order - kindMeta(b).order)
+      .map(k => ({ kind: k, label: kindMeta(k).label, count: counts[k] }))
+  }, [all])
+
+  // 按 kind 分组（受顶部类型筛选影响）
   const groups = {}
   for (const d of filtered) {
+    if (activeKind && d.kind !== activeKind) continue
     const meta = kindMeta(d.kind)
     if (!groups[d.kind]) groups[d.kind] = { meta, items: [] }
     groups[d.kind].items.push(d)
   }
   const sortedGroups = Object.values(groups).sort((a, b) => a.meta.order - b.meta.order)
+
+  const switchKind = (kind) => {
+    setActiveKind(kind)
+    if (kind) {
+      const first = all.find(d => d.kind === kind)
+      if (first) select(first)
+    }
+  }
 
   const wc = wordCount(rawContent)
 
@@ -218,11 +306,9 @@ export default function DocPanel({ task, onClose }) {
     <div className="overlay docpanel-overlay" onClick={onClose}>
       <div className="docpanel" role="dialog" aria-modal="true" aria-label="文档浏览" onClick={e => e.stopPropagation()}>
         <header className="docpanel__head">
-          <div>
-            <span className="docpanel__eyebrow">文档浏览</span>
-            <h2>{task.title}</h2>
-            <span className="docpanel__sub">{task.workspace ? `${task.workspace}` : '无工作区'}</span>
-          </div>
+          <span className="docpanel__eyebrow">文档浏览</span>
+          <h2 className="docpanel__title">{task.title}</h2>
+          <span className="docpanel__sub docpanel__ws">{task.workspace ? task.workspace : '无工作区'}</span>
           <div className="docpanel__head-actions">
             {selected && <button className="btn btn--ghost btn--xs" onClick={printDoc} title="打印 / 导出 PDF">🖨 打印</button>}
             <button className="modal__close" onClick={onClose} aria-label="关闭">×</button>
@@ -233,6 +319,14 @@ export default function DocPanel({ task, onClose }) {
           <input className="docpanel__search-input docpanel__find-input" placeholder="全文查找…" value={findQ} onChange={e => setFindQ(e.target.value)}
                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); jumpFind(e.shiftKey ? -1 : 1) } }} />
           {findQ && <span className="docpanel__find-count">{findHits} 处命中（Enter ↴ / Shift+Enter ↰）</span>}
+          <div className="docpanel__kinds">
+            <button className={`docpanel__kindtab${activeKind ? '' : ' is-active'}`} onClick={() => switchKind(null)}>全部<span>{all.length}</span></button>
+            {kindsPresent.map(k => (
+              <button key={k.kind} className={`docpanel__kindtab${activeKind === k.kind ? ' is-active' : ''}`} onClick={() => switchKind(k.kind)}>
+                {k.label}<span>{k.count}</span>
+              </button>
+            ))}
+          </div>
           <span className="docpanel__count">{docs ? `${docs.length} 篇文档` : '加载中…'}{riskCount > 0 && ` · ${riskCount} 处风险标记`}</span>
         </div>
         <div className="docpanel__body">
@@ -248,6 +342,7 @@ export default function DocPanel({ task, onClose }) {
                     <button key={d.rel_path} className={`docpanel__item${selected?.rel_path === d.rel_path ? ' is-active' : ''}`} onClick={() => select(d)}>
                       <span className={`docpanel__kind docpanel__kind--${d.kind}`}>{km.label}</span>
                       <span className="docpanel__name">{d.name}</span>
+                      {d.exists === false && <span className="docpanel__missing" title="路径已登记但文件不存在">缺失</span>}
                       <span className="docpanel__src">{sourceLabel(d.source)}</span>
                       <span className="docpanel__sub mono">{d.rel_path}{d.size != null ? ` · ${fmtSize(d.size)}` : ''}</span>
                     </button>

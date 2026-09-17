@@ -10,6 +10,7 @@ from mio_taskhub.models import (
     Discussion, DiscussionMessage, Agent,
 )
 from mio_taskhub.utils import _now
+from mio_taskhub.doc_paths import DOC_KINDS, doc_path_of, merge_doc_paths, sync_legacy_fields
 from mio_taskhub.dependency import normalize_depends, task_deps
 from mio_taskhub.events import emit_event
 from mio_taskhub.api.task_helpers import parse_dt, parse_enum, check_cycle, validate_depends
@@ -26,6 +27,14 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         stage = TaskStage(stage_val)
     except ValueError:
         raise HTTPException(400, f"invalid stage: {stage_val}")
+    # kind -> path 映射；spec_path / plan_path 仍可传，会并入 doc_paths
+    doc_paths = merge_doc_paths({}, body.get("doc_paths"))
+    _spec = (body.get("spec_path") or "").strip()
+    _plan = (body.get("plan_path") or "").strip()
+    if _spec:
+        doc_paths["spec"] = _spec
+    if _plan:
+        doc_paths["plan"] = _plan
     t = Task(
         id=str(uuid.uuid4())[:8],
         title=body.get("title", ""),
@@ -46,8 +55,9 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         workspace=body.get("workspace", ""),
         files=body.get("files", []),
         deliverables=body.get("deliverables", []),
-        spec_path=(body.get("spec_path") or "").strip() or None,
-        plan_path=(body.get("plan_path") or "").strip() or None,
+        spec_path=_spec or None,
+        plan_path=_plan or None,
+        doc_paths=doc_paths,
         stage=stage,
     )
     validate_depends(t, db)
@@ -139,6 +149,8 @@ def _task_detail(t: Task, db: Session) -> dict:
         "stage": t.stage.value if not isinstance(t.stage, str) else t.stage,
         "spec_path": t.spec_path,
         "plan_path": t.plan_path,
+        "doc_paths": dict(t.doc_paths or {}),
+        "doc_statuses": dict(getattr(t, "doc_statuses", None) or {}),
         "review_result": t.review_result,
         "fallback_after": t.fallback_after,
         "subtasks": [{"id": s.id, "order": s.order, "title": s.title, "status": s.status.value} for s in subtasks],
@@ -176,7 +188,7 @@ def update_task(task_id: str, body: dict, db: Session = Depends(get_session)):
         raise HTTPException(404, "task not found")
     editable = ["title", "description", "priority", "est_duration_min", "max_retries",
                 "acceptance_criteria", "due_at", "labels", "project", "workspace",
-                "spec_path", "plan_path", "files", "deliverables",
+                "files", "deliverables",
                 "target_agent_type", "fallback_after", "depends_on"]
     for k in editable:
         if k in body:
@@ -189,6 +201,20 @@ def update_task(task_id: str, body: dict, db: Session = Depends(get_session)):
                 check_cycle(t, db)
             else:
                 setattr(t, k, v)
+    # 文档路径：doc_paths 为主，spec_path/plan_path 是兼容入口；显式传空 = 清除该类型
+    dp_incoming = {}
+    if isinstance(body.get("doc_paths"), dict):
+        dp_incoming.update(body["doc_paths"])
+    for legacy_key, kind in (("spec_path", "spec"), ("plan_path", "plan")):
+        if legacy_key in body:
+            dp_incoming[kind] = body[legacy_key]
+    if dp_incoming:
+        t.doc_paths = merge_doc_paths(t.doc_paths, dp_incoming)
+        merged = t.doc_paths or {}
+        for kind, legacy_key in (("spec", "spec_path"), ("plan", "plan_path")):
+            if kind in dp_incoming:
+                # 显式传入即以其为准（含清空），不走 doc_path_of 的旧列回退
+                setattr(t, legacy_key, merged.get(kind, ""))
     db.add(t)
     event = emit_event(db, type="task_updated", entity="task", entity_id=t.id)
     db.commit()

@@ -25,6 +25,23 @@ def slo_snapshot_now():
     return {"ok": True}
 
 
+# ── Structured Observability Report (agent-readable, no Prometheus scraping) ──
+
+@router.get("/observability/report")
+def observability_report():
+    """完整结构化可观测性快照（database/http/process/threads/tasks/agents/slo/alerts/insights）。
+    供 agent 或脚本直接消费，无需解析 Prometheus 文本。"""
+    from mio_taskhub.observability.report import collect_observability
+    return collect_observability()
+
+
+@router.get("/observability/integrity")
+def integrity_check():
+    """integrity_check 风格总报告：每个组件 PASS/WARN/FAIL + overall_status + 完整 snapshot。"""
+    from mio_taskhub.observability.report import integrity_check as _run
+    return _run()
+
+
 # ── Task Tracing ─────────────────────────────────────────────────────
 
 @router.get("/traces/{task_id}")

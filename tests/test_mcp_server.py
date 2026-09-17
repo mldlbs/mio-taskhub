@@ -335,3 +335,72 @@ def test_review_idea_history_paged(mcp_ctx):
     hist = _call("taskhub_idea_history", {"idea_id": iid, "page": 2, "page_size": 2})
     assert hist["count"] == 3
     assert len(hist["items"]) == 1
+
+
+def test_list_and_read_documents_tools(mcp_ctx, tmp_path):
+    """文档工具：列清单 + 按 kind 读正文（走 REST，不要求本机可访问文件）。"""
+    ws = tmp_path / "mcp-ws"
+    ws.mkdir()
+    (ws / "review-report.md").write_text("# review body", encoding="utf-8")
+
+    created = _call("taskhub_create_task", {
+        "title": "MCP docs", "stage": "ready", "workspace": str(ws),
+        "doc_paths": {"review": "review-report.md"},
+    })
+    tid = created["id"]
+
+    listing = _call("taskhub_list_documents", {"task_id": tid})
+    kinds = {d["kind"] for d in listing["documents"]}
+    assert "review" in kinds
+
+    doc = _call("taskhub_read_document", {"task_id": tid, "kind": "review"})
+    assert doc["kind"] == "review"
+    assert doc["content"].strip() == "# review body"
+
+
+def test_update_task_doc_paths_tool(mcp_ctx, tmp_path):
+    """update_task 可写 doc_paths，并与旧列同步。"""
+    ws = tmp_path / "mcp-ws2"
+    ws.mkdir()
+    (ws / "s.md").write_text("# s", encoding="utf-8")
+
+    tid = _call("taskhub_create_task", {"title": "MCP doc paths"})["id"]
+    updated = _call("taskhub_update_task", {
+        "task_id": tid, "doc_paths": {"spec": "s.md"},
+    })
+    assert updated["doc_paths"].get("spec") == "s.md"
+    assert updated["spec_path"] == "s.md"
+
+
+def test_write_document_tool_roundtrip(mcp_ctx, tmp_path):
+    """agent 可直接产出文档：写入 → 落盘 → 读回。"""
+    ws = tmp_path / "mcp-ws3"
+    ws.mkdir()
+
+    tid = _call("taskhub_create_task",
+                {"title": "MCP write doc", "workspace": str(ws)})["id"]
+    w = _call("taskhub_write_document", {
+        "task_id": tid, "kind": "review", "content": "# 审查\n通过",
+    })
+    assert w["path"] == "docs/review.md"
+    assert w["created"] is True
+    assert (ws / "docs" / "review.md").read_text(encoding="utf-8") == "# 审查\n通过"
+
+    doc = _call("taskhub_read_document", {"task_id": tid, "kind": "review"})
+    assert doc["content"] == "# 审查\n通过"
+
+
+def test_write_document_tool_append_mode(mcp_ctx, tmp_path):
+    """mode=append 可逐条累积（changelog / 审查记录场景）。"""
+    ws = tmp_path / "mcp-ws4"
+    ws.mkdir()
+    tid = _call("taskhub_create_task",
+                {"title": "MCP append", "workspace": str(ws)})["id"]
+
+    _call("taskhub_write_document",
+          {"task_id": tid, "kind": "changelog", "content": "- a", "mode": "append"})
+    r = _call("taskhub_write_document",
+              {"task_id": tid, "kind": "changelog", "content": "- b", "mode": "append"})
+    assert r["mode"] == "append"
+    assert r["created"] is False
+    assert (ws / "docs" / "changelog.md").read_text(encoding="utf-8") == "- a\n- b"

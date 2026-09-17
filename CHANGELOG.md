@@ -1,5 +1,54 @@
 # Changelog
 
+## Unreleased
+
+### Added — 任务文档体系
+
+- **22 类文档 kind**：新增 `doc_paths.py` 作为唯一事实源（`DOC_KINDS`），`Task.doc_paths` 以 kind→相对路径的 JSON 落库，覆盖七件套主链 + 工程记录 + 复用资产三类。
+- **七件套文档链**（`doc_chain.py`）：`requirement → architecture → spec → data-model → api → test → runbook`。`POST /api/v1/tasks/{id}/docs/scaffold` 一键补骨架，**默认不覆盖已有文件**，支持 `kinds` 指定子集与 `overwrite`；骨架自带跨链导航头、`FR-n`/`TC-n`/`ADR-n` 追溯编号与 TODO 占位，正文按分点+换行书写。
+- **8 类文档生命周期状态机**（`doc_lifecycle.py`）：requirement `draft→approved`、spec `draft→review→approved`、decision `proposed→accepted→superseded`、plan `draft→approved→done`、test `planned→passed/failed`、milestone `planned→released`、incident `open→resolved→closed`，加 Task 自身。规则为严格向前：不许回退、不许跳级、终态不可改判。新增 `Task.doc_statuses` JSON 列（含迁移），首次写入自动初始化初始态。
+- **质量保证三层闭环**（`doc_quality.py`）：
+  - 写时 lint —— 每次 `PUT /doc` 同步检查必备章节、表格有效数据行、TODO 残留、分点书写，按 `score = max(0, 100 - 20*errors - 5*warns)` 评分并随响应返回；
+  - 状态门控 —— 推进到 `review`/`approved`/`done` 要求 `errors == 0`，`force=true` 可强推但落事件留痕；
+  - 修订指令 —— `GET /doc/{kind}/revision` 返回逐条可执行的修改要求，附章节写作指引与模板片段，把评分反哺回写作阶段。
+  - 追溯矩阵 —— `traceability()` 校验 `requirement` 的 `FR-n` 是否被 `test` 的 `TC-n` 覆盖。
+- **4 个新 MCP 工具**：`taskhub_scaffold_docs` · `taskhub_set_doc_status` · `taskhub_doc_quality` · `taskhub_doc_revision`（总数 33 → **40**）。
+- **5 个新 REST 端点**：`POST /docs/scaffold`、`POST /doc/{kind}/status`、`GET /doc/statuses`、`GET /doc/{kind}/revision`、`GET /doc/quality`（总数 93 → **119**）。
+- **阶段产出物门控扩展**：`STAGE_ARTIFACT_REQUIREMENTS` 由单 `document_kind` 改为 `document_kinds` 列表，新增 `brainstorming → requirement`、`implementing → changelog` 两个此前缺失的门，`design` 明确要求讨论会话；`GET /stages/requirements` 同时返回 `document_kinds` 与兼容字段 `document_kind`。
+- **前端文档面板**（`DocPanel.jsx`）：22 类 kind 分类展示、七件套一键起骨架、质量分与生命周期状态徽标；新增 `web/src/stageDocs.js` 作为阶段产出物要求的单一来源，阶段推进弹窗由硬编码改为查表（无要求的阶段不再弹空输入框）。
+
+### Added — 结构化可观测性
+
+- **`mio_taskhub/observability/report.py`**：新增 agent 可直接消费的结构化快照，避免解析 Prometheus 文本。
+  - `GET /api/v1/observability/report` —— database / http / process / threads / tasks / agents / slo / alerts / insights 全量快照。
+  - `GET /api/v1/observability/integrity` —— integrity_check 风格总报告，逐组件 PASS/WARN/FAIL + `overall_status` + 完整 snapshot。
+- `GET /api/v1/observability/summary` 改从 `collect_observability()` 取值，不再正则解析指标文本。
+- 前端新增**可观测性视图**（`ObservabilityView.jsx`）。
+
+### Fixed
+
+- **`middleware.py` 错误率统计错误**：原先把所有响应都计入 `_error_count`，导致 2xx 也被算作错误；改为仅 4xx/5xx 计数。此前 `HighHttpErrorRate` 告警与可用性 SLO 会基于虚高的错误率误报。
+- **`slo_history.py` SQLModel 参数传递**：`db.exec(text, {...})` 改为 `params={...}`，否则查询与清理静默失效。
+- **`insights.py` 重复洞察刷屏**：60s 一次的评估会把同一个未确认洞察反复插入；现按 `title + severity + acknowledged=0` 去重，已存在则直接返回原记录。
+- `AlertManager` 的 `HighHttpErrorRate` 告警文案改为中文并带百分比与请求数。
+
+### Changed
+
+- `PUT /api/v1/tasks/{id}/doc` 响应新增 `quality` 与 `status` 字段。
+- 任务创建/更新接口统一走 `doc_paths`，`spec_path` / `plan_path` 降级为兼容入口并保留双向同步（`merge_doc_paths` / `sync_legacy_fields`）。
+- `/dashboard` 移除对 `web/dist/dashboard.html` 构建产物的依赖，改由 `main.py` 内置 `_DASHBOARD_HTML` 兜底（`web/dist/dashboard.html` 已删除，876 行）。
+
+### Tests
+
+- 新增 `tests/test_doc_chain.py`（骨架生成与不覆盖语义）、`tests/test_doc_lifecycle.py`（状态机合法性）、`tests/test_doc_quality.py`（质量评分、门控、修订指令）、`tests/test_task_doc_paths.py`（22 类 kind 与兼容字段）。
+- 用例总数 509 → **603**（53 文件 / 7,585 行）。
+
+### Docs
+
+- 重写 `README.md`：修正全部统计数字（后端 76 模块 / 13,749 行、119 端点、40 MCP 工具、前端 40 文件 / 11,694 行、603 用例），新增「任务文档体系」独立章节（22 类 kind / 七件套链 / 8 类生命周期 / 质量三层闭环 / 端点表 / 典型闭环），更新阶段门控表、MCP 工具分组表与目录结构。
+
+---
+
 ## v0.2.1 (2026-09-14)
 
 ### Fixed

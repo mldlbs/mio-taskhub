@@ -57,7 +57,9 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
             status = response.status_code
             _request_count[key] = _request_count.get(key, 0) + 1
             status_class = f"{status // 100}xx"
-            _error_count[status_class] = _error_count.get(status_class, 0) + 1
+            # Only 4xx/5xx count as errors; 2xx/3xx are successful responses.
+            if status >= 400:
+                _error_count[status_class] = _error_count.get(status_class, 0) + 1
             if status >= 500:
                 logger.error(
                     "request_error",

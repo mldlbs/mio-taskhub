@@ -194,8 +194,10 @@ def render_metrics() -> str:
                 except (psutil.AccessDenied, OSError):
                     pass
 
-            except ImportError:
-                # psutil not available — fallback to /proc (Linux) or skip
+            except Exception:
+                # psutil 任意调用失败（含 AccessDenied）时不应中断后续指标采集，
+                # 改为 best-effort 跳过（原本只 except ImportError 会让 num_threads 等
+                # 未保护调用抛出的异常冒泡，导致 DB 池/线程池/任务成功率整段丢失）
                 pass
 
             # --- SQLAlchemy Connection Pool ---
@@ -217,19 +219,21 @@ def render_metrics() -> str:
                     lines.append(f'taskhub_db_pool_utilization {checked_out / capacity:.4f}')
 
             except Exception:
-                pass
+                # 连接池内省失败时不静默丢弃，输出 0 以便 summary 可渲染
+                lines.append('taskhub_db_pool_utilization 0.0')
 
             # --- Thread pool (background workers) ---
             try:
                 th = get_thread_health()
                 alive_count = sum(1 for d in th.values() if d.get("alive"))
                 total_count = len(th)
-                lines.append(f'taskhub_thread_pool_alive {alive_count}')
-                lines.append(f'taskhub_thread_pool_total {total_count}')
-                if total_count > 0:
-                    lines.append(f'taskhub_thread_pool_utilization {alive_count / total_count:.4f}')
             except Exception:
-                pass
+                th, alive_count, total_count = {}, 0, 0
+            # 无后台线程时显式输出 0，避免 summary 出现 null（前端显示 —）
+            util = (alive_count / total_count) if total_count else 0.0
+            lines.append(f'taskhub_thread_pool_alive {alive_count}')
+            lines.append(f'taskhub_thread_pool_total {total_count}')
+            lines.append(f'taskhub_thread_pool_utilization {util:.4f}')
 
             # ========== Business Metrics ==========
 
@@ -249,6 +253,12 @@ def render_metrics() -> str:
                 lines.append(f'taskhub_task_failure_rate {failed / total:.4f}')
                 lines.append(f'taskhub_task_cancel_rate {cancelled / total:.4f}')
                 lines.append(f'taskhub_task_terminal_total {total}')
+            else:
+                # 无终端任务时显式输出 0，避免 summary 出现 null（前端显示 —）
+                lines.append('taskhub_task_success_rate 0.0')
+                lines.append('taskhub_task_failure_rate 0.0')
+                lines.append('taskhub_task_cancel_rate 0.0')
+                lines.append('taskhub_task_terminal_total 0')
 
             # Task throughput (tasks created per hour in last 24h)
             throughput_rows = s.exec(text("""
@@ -310,16 +320,10 @@ def render_metrics() -> str:
             if p50 and p50[0] is not None:
                 lines.append(f'taskhub_task_completion_p50_seconds {p50[0]:.1f}')
 
-            # Agent utilization (agents with active tasks / total online agents)
-            agent_util = s.exec(text("""
-                SELECT
-                    (SELECT COUNT(DISTINCT assigned_agent) FROM task WHERE state = 'RUNNING') as active_agents,
-                    (SELECT COUNT(*) FROM agent WHERE status = 'online') as online_agents
-            """)).first()
-            if agent_util and agent_util[1] and agent_util[1] > 0:
-                lines.append(f'taskhub_agent_utilization {agent_util[0] / agent_util[1]:.4f}')
-                lines.append(f'taskhub_agents_active {agent_util[0]}')
-                lines.append(f'taskhub_agents_online {agent_util[1]}')
+            # Agent online count (task 表无 agent 关联列，故只统计在线 agent 数)
+            agent_online = s.exec(text("SELECT COUNT(*) FROM agent WHERE status = 'online'")).first()
+            if agent_online and agent_online[0] is not None:
+                lines.append(f'taskhub_agents_online {agent_online[0]}')
 
     except Exception:
         pass

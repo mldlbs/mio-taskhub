@@ -75,6 +75,15 @@ class InsightsEngine:
               recommendation: str = None, auto_action: str = None) -> dict:
         try:
             with engine.connect() as conn:
+                # Dedup: skip re-inserting an already-unacknowledged insight with the
+                # same title+severity. Without this, every 60s eval re-inserts the same
+                # breach and the insight list floods with duplicates.
+                existing = conn.execute(
+                    text("SELECT id, ts FROM insight WHERE title = :title AND severity = :severity AND acknowledged = 0 ORDER BY ts DESC LIMIT 1"),
+                    {"title": title, "severity": severity}
+                ).fetchone()
+                if existing:
+                    return {"id": existing[0], "ts": existing[1], "kind": kind, "title": title, "severity": severity}
                 result = conn.execute(
                     text("INSERT INTO insight (ts, kind, title, description, severity, metric_name, metric_value, baseline, recommendation, auto_action) VALUES (:ts, :kind, :title, :description, :severity, :metric_name, :metric_value, :baseline, :recommendation, :auto_action)"),
                     {"ts": time.time(), "kind": kind, "title": title, "description": description,

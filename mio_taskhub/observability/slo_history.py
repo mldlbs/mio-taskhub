@@ -86,7 +86,7 @@ def get_slo_history(hours: int = 24, limit: int = 288) -> list[dict]:
         with Session(engine) as db:
             rows = db.exec(
                 text("SELECT * FROM slosnapshot WHERE ts > :cutoff ORDER BY ts ASC LIMIT :lim"),
-                {"cutoff": cutoff, "lim": limit},
+                params={"cutoff": cutoff, "lim": limit},
             ).all()
             return [
                 {
@@ -111,7 +111,7 @@ def cleanup_old_snapshots(days: int = 30):
     cutoff = time.time() - days * 86400
     try:
         with Session(engine) as db:
-            db.exec(text("DELETE FROM slosnapshot WHERE ts < :cutoff"), {"cutoff": cutoff})
+            db.exec(text("DELETE FROM slosnapshot WHERE ts < :cutoff"), params={"cutoff": cutoff})
             db.commit()
     except Exception:
         pass

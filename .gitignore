@@ -20,3 +20,4 @@ gh-kit.json
 # PyInstaller build artifacts
 build/
 dist/
+build_old-*/

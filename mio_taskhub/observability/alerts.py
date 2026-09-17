@@ -107,7 +107,7 @@ class AlertManager:
             results.append(Alert(
                 name="HighHttpErrorRate",
                 severity="warning",
-                message=f"HTTP error rate > 5% ({errors}/{total})",
+                message=f"HTTP 错误率 {errors/total*100:.1f}%（{errors}/{total} 请求）超过 5% 阈值",
                 fired_at=now,
                 value=errors / total,
             ))

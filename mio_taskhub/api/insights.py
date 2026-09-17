@@ -31,23 +31,17 @@ def list_remediation(limit: int = Query(20, ge=1, le=100)):
 
 @router.get("/observability/summary")
 def observability_summary():
-    from mio_taskhub.observability.metrics import render_metrics
-    import re
-    metrics_text = render_metrics()
-
-    def extract(gauge_name):
-        match = re.search(rf'{gauge_name}\s+([\d.]+)', metrics_text)
-        return float(match.group(1)) if match else None
-
+    from mio_taskhub.observability.report import collect_observability
+    obs = collect_observability()
     return {
-        "slo_availability": extract("taskhub_slo_availability_30d"),
-        "error_budget_remaining": extract("taskhub_slo_error_budget_remaining"),
-        "task_success_rate": extract("taskhub_task_success_rate"),
-        "task_failure_rate": extract("taskhub_task_failure_rate"),
-        "cpu_percent": extract("taskhub_process_cpu_percent"),
-        "memory_percent": extract("taskhub_process_memory_percent"),
-        "db_pool_utilization": extract("taskhub_db_pool_utilization"),
-        "active_threads": extract("taskhub_thread_pool_alive"),
-        "insights_unacknowledged": len(_engine.recent(limit=100)),
+        "slo_availability": obs["slo"].get("availability_30d"),
+        "error_budget_remaining": obs["slo"].get("error_budget_remaining"),
+        "task_success_rate": obs["tasks"].get("success_rate"),
+        "task_failure_rate": obs["tasks"].get("failure_rate"),
+        "cpu_percent": obs["process"].get("cpu_percent"),
+        "memory_percent": obs["process"].get("memory_percent"),
+        "db_pool_utilization": obs["database"].get("pool_utilization"),
+        "active_threads": obs["threads"].get("alive"),
+        "insights_unacknowledged": obs["insights"]["unacknowledged"],
         "audit_events_24h": _audit.stats(hours=24).get("total", 0),
     }

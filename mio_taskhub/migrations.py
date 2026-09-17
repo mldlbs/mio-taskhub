@@ -41,6 +41,29 @@ def _migrate_task(conn):
         conn.execute(text("ALTER TABLE task ADD COLUMN plan_path VARCHAR NOT NULL DEFAULT ''"))
     if "review_result" not in cols:
         conn.execute(text("ALTER TABLE task ADD COLUMN review_result VARCHAR NOT NULL DEFAULT ''"))
+    if "doc_paths" not in cols:
+        # kind -> path 映射（JSON）。历史行回填 '{}'，避免 SQLAlchemy JSON 读出 NULL。
+        conn.execute(text("ALTER TABLE task ADD COLUMN doc_paths JSON"))
+        conn.execute(text("UPDATE task SET doc_paths = '{}' WHERE doc_paths IS NULL"))
+        # 已有 spec_path/plan_path 的历史任务迁移进 doc_paths（Python 组装 JSON，
+        # 避免路径含引号/反斜杠时拼接出非法 JSON）；二者此后保持同步。
+        import json as _json_dp
+        doc_rows = conn.execute(text(
+            "SELECT id, spec_path, plan_path FROM task "
+            "WHERE (spec_path IS NOT NULL AND spec_path != '') "
+            "   OR (plan_path IS NOT NULL AND plan_path != '')"
+        )).fetchall()
+        for _id, _spec, _plan in doc_rows:
+            migrated = {}
+            if _spec and _spec.strip():
+                migrated["spec"] = _spec.strip()
+            if _plan and _plan.strip():
+                migrated["plan"] = _plan.strip()
+            if migrated:
+                conn.execute(
+                    text("UPDATE task SET doc_paths=:dp WHERE id=:tid"),
+                    {"dp": _json_dp.dumps(migrated, ensure_ascii=False), "tid": _id},
+                )
     if "idea_id" not in cols:
         conn.execute(text("ALTER TABLE task ADD COLUMN idea_id VARCHAR NOT NULL DEFAULT ''"))
     if "task_kind" not in cols:
@@ -98,6 +121,10 @@ def _migrate_task(conn):
             "UPDATE task SET last_transition_at = created_at "
             "WHERE last_transition_at IS NULL"
         ))
+    if "doc_statuses" not in tcols_m1:
+        # kind -> {state, at, note}（文档生命周期状态机，JSON）。历史行回填 '{}'。
+        conn.execute(text("ALTER TABLE task ADD COLUMN doc_statuses JSON"))
+        conn.execute(text("UPDATE task SET doc_statuses = '{}' WHERE doc_statuses IS NULL"))
 
 
 def _migrate_idea(conn):
@@ -217,6 +244,7 @@ def _migrate_observability(conn):
                 success_rate FLOAT,
                 failure_rate FLOAT,
                 throughput_24h INTEGER,
+                task_total INTEGER,
                 cpu_percent FLOAT,
                 memory_percent FLOAT,
                 db_pool_utilization FLOAT,
@@ -224,6 +252,11 @@ def _migrate_observability(conn):
             )
         """))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_slosnapshot_ts ON slosnapshot(ts)"))
+    # 兼容已有库：补 model 后续新增的列（否则 INSERT 报 no column 被静默吞掉 → 快照恒为 0 行）
+    if "slosnapshot" in tables:
+        _cols = {r[1] for r in conn.execute(text("PRAGMA table_info(slosnapshot)")).fetchall()}
+        if "task_total" not in _cols:
+            conn.execute(text("ALTER TABLE slosnapshot ADD COLUMN task_total INTEGER"))
     if "alertaudit" not in tables:
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS alertaudit (

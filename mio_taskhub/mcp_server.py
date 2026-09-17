@@ -12,7 +12,7 @@ Config: MIO_TASKHUB_URL (default http://127.0.0.1:48620/api/v1)
 import json
 import os
 import time
-from typing import Optional
+from typing import List, Optional
 import httpx
 from pydantic import Field
 from mcp.server.fastmcp import FastMCP
@@ -178,6 +178,16 @@ async def taskhub_get_task(
     return _fmt(await _request("GET", f"/tasks/{task_id}"))
 
 
+def _doc_path_from(task: dict, kind: str) -> str:
+    """解析 kind -> 路径：优先 doc_paths，回退旧的 spec_path/plan_path 列。"""
+    paths = task.get("doc_paths") or {}
+    if isinstance(paths, dict):
+        v = str(paths.get(kind) or "").strip()
+        if v:
+            return v
+    return str(task.get(f"{kind}_path") or "").strip()
+
+
 @_tool(name="taskhub_read_spec", title="读取任务 spec 设计文档", method="GET", path="/tasks/{task_id}/spec", read_only=True, destructive=False, desc="读取任务的 spec（设计文档）内容。任务进入 design 阶段需提供 spec_path。")
 async def taskhub_read_spec(
     task_id: str = Field(description="任务唯一标识", min_length=1),
@@ -185,10 +195,11 @@ async def taskhub_read_spec(
     task = await _request("GET", f"/tasks/{task_id}")
     if "error" in task:
         return _fmt(task)
-    spec_path = (task.get("spec_path") or "").strip()
+    spec_path = _doc_path_from(task, "spec")
     if not spec_path:
-        return (f"任务 {task_id} 未设置 spec_path（尚未进入 design 阶段或未填写设计文档）。"
-                "可用 taskhub_advance_stage 推进到 design 时提供 spec_path。")
+        return (f"任务 {task_id} 未设置 spec 文档路径（尚未进入 design 阶段或未填写设计文档）。"
+                "可用 taskhub_advance_stage 推进到 design 时提供 spec_path，"
+                "或用 taskhub_update_task 的 doc_paths 参数指定。")
     return _read_doc(task, spec_path, "spec")
 
 
@@ -199,10 +210,11 @@ async def taskhub_read_plan(
     task = await _request("GET", f"/tasks/{task_id}")
     if "error" in task:
         return _fmt(task)
-    plan_path = (task.get("plan_path") or "").strip()
+    plan_path = _doc_path_from(task, "plan")
     if not plan_path:
-        return (f"任务 {task_id} 未设置 plan_path（尚未进入 planning 阶段或未填写计划文档）。"
-                "可用 taskhub_advance_stage 推进到 planning 时提供 plan_path。")
+        return (f"任务 {task_id} 未设置 plan 文档路径（尚未进入 planning 阶段或未填写计划文档）。"
+                "可用 taskhub_advance_stage 推进到 planning 时提供 plan_path，"
+                "或用 taskhub_update_task 的 doc_paths 参数指定。")
     return _read_doc(task, plan_path, "plan")
 
 
@@ -230,6 +242,82 @@ def _read_doc(task: dict, path_str: str, kind: str) -> str:
     return f"# {kind}: {p}\n\n{text}"
 
 
+@_tool(name="taskhub_list_documents", title="列出任务文档", method="GET", path="/tasks/{task_id}/documents", read_only=True, destructive=False, desc="列出任务的全部文档：字段关联（doc_paths）与工作区自动发现（.md 扫描）两部分，含 kind / 相对路径 / 大小 / 来源。")
+async def taskhub_list_documents(
+    task_id: str = Field(description="任务唯一标识", min_length=1),
+) -> str:
+    return _fmt(await _request("GET", f"/tasks/{task_id}/documents"))
+
+
+@_tool(name="taskhub_read_document", title="按类型读取任务文档", method="GET", path="/tasks/{task_id}/doc", read_only=True, destructive=False, desc="按 kind 读取任务文档正文。走服务端读取，支持全部类型（spec/plan/review/requirement/test/architecture/api/readme/changelog），不要求 MCP 与本机文件同机——读取非 spec/plan 文档优先用它。")
+async def taskhub_read_document(
+    task_id: str = Field(description="任务唯一标识", min_length=1),
+    kind: str = Field(description="文档类型：spec/plan/review/requirement/test/architecture/api/readme/changelog"),
+) -> str:
+    return _fmt(await _request("GET", f"/tasks/{task_id}/doc", params={"kind": kind}))
+
+
+@_tool(name="taskhub_write_document", title="写入任务文档", method="PUT", path="/tasks/{task_id}/doc", read_only=False, destructive=False, desc="写入/追加任务文档正文并自动登记到 doc_paths，让 agent 可直接产出设计/计划/审查等文档，无需先手工放文件。缺省写到 workspace 下 docs/<kind>.md。")
+async def taskhub_write_document(
+    task_id: str = Field(description="任务唯一标识", min_length=1),
+    kind: str = Field(description="文档类型：spec/plan/review/requirement/test/architecture/api/readme/changelog"),
+    content: str = Field(description="文档正文（Markdown）"),
+    path: Optional[str] = Field(default=None, description="相对 workspace 的路径；缺省沿用该类型已登记路径，再缺省为 docs/<kind>.md"),
+    mode: Optional[str] = Field(default=None, description="overwrite（默认，整篇替换）或 append（追加到末尾，适合 changelog/审查记录）"),
+    overwrite: Optional[bool] = Field(default=None, description="仅 overwrite 模式生效：传 false 且文件已存在时返回 409，避免误覆盖"),
+) -> str:
+    body = {"content": content}
+    if path is not None:
+        body["path"] = path
+    if mode is not None:
+        body["mode"] = mode
+    if overwrite is not None:
+        body["overwrite"] = overwrite
+    return _fmt(await _request("PUT", f"/tasks/{task_id}/doc", params={"kind": kind}, body=body))
+
+
+@_tool(name="taskhub_scaffold_docs", title="生成文档链骨架", method="POST", path="/tasks/{task_id}/docs/scaffold", read_only=False, destructive=False, desc="按「软件项目文档链」一次性生成 7 份文档骨架：需求规格→架构设计→模块 Spec→状态模型→接口契约→测试验收→部署运维，含章节骨架与上下游追溯链接。已有文件不覆盖（overwrite=true 才重置模板）。适合在任务起步时为 agent 准备完整的开发文档框架。")
+async def taskhub_scaffold_docs(
+    task_id: str = Field(description="任务唯一标识", min_length=1),
+    kinds: Optional[List[str]] = Field(default=None, description="只生成链内子集，缺省全部 7 份（requirement/architecture/spec/data-model/api/test/runbook）"),
+    overwrite: Optional[bool] = Field(default=None, description="默认 false：已存在的文件跳过不覆盖；true 时重置为模板（慎用）"),
+) -> str:
+    body = {}
+    if kinds is not None:
+        body["kinds"] = kinds
+    if overwrite is not None:
+        body["overwrite"] = overwrite
+    return _fmt(await _request("POST", f"/tasks/{task_id}/docs/scaffold", body=body))
+
+
+@_tool(name="taskhub_set_doc_status", title="推进文档生命周期", method="POST", path="/tasks/{task_id}/doc/{kind}/status", read_only=False, destructive=False, desc="推进文档生命周期状态机（严格向前不允许回退）：requirement/PRD draft→approved；spec draft→review→approved；decision/ADR proposed→accepted→superseded；plan draft→approved→done；test planned→passed/failed；milestone/Release planned→released；incident open→resolved→closed。文档首次写入时自动落初始状态。")
+async def taskhub_set_doc_status(
+    task_id: str = Field(description="任务唯一标识", min_length=1),
+    kind: str = Field(description="文档类型（需有生命周期的 kind）：requirement/spec/decision/plan/test/milestone/incident"),
+    state: str = Field(description="目标状态，如 approved / review / accepted / superseded / done / passed / failed / released / resolved / closed"),
+    note: Optional[str] = Field(default=None, description="备注，如 ADR superseded 时的替代决策编号"),
+) -> str:
+    body = {"state": state}
+    if note is not None:
+        body["note"] = note
+    return _fmt(await _request("POST", f"/tasks/{task_id}/doc/{kind}/status", body=body))
+
+
+@_tool(name="taskhub_doc_quality", title="文档质量报告", method="GET", path="/tasks/{task_id}/doc/quality", read_only=True, destructive=False, desc="全链文档质量报告：各文档质量分（必需章节/模板注释残留/必需表格数据行/链接有效性）+ FR↔测试用例追溯缺口。写阶段即可发现空心文档；推进 review/approved/done 时质量门会拦截带阻断问题的文档（force 可绕过留痕）。")
+async def taskhub_doc_quality(
+    task_id: str = Field(description="任务唯一标识", min_length=1),
+) -> str:
+    return _fmt(await _request("GET", f"/tasks/{task_id}/doc/quality"))
+
+
+@_tool(name="taskhub_doc_revision", title="文档修订指令", method="GET", path="/tasks/{task_id}/doc/{kind}/revision", read_only=True, destructive=False, desc="把文档质量结果反哺成可执行的修订指令（问题清单带修法 + 保留范围 + 完成标准），写的人照做重写即可。质量闭环：写→查质量→拿修订指令→重写→直到 errors 为空。无问题时 revision_prompt=null。")
+async def taskhub_doc_revision(
+    task_id: str = Field(description="任务唯一标识", min_length=1),
+    kind: str = Field(description="文档类型（需有质量规格）：requirement/architecture/spec/data-model/api/test/runbook"),
+) -> str:
+    return _fmt(await _request("GET", f"/tasks/{task_id}/doc/{kind}/revision"))
+
+
 @_tool(name="taskhub_create_task", title="创建任务", method="POST", path="/tasks", read_only=False, destructive=False, desc="向任务中心提交一个新任务，供各 agent 领取执行。")
 async def taskhub_create_task(
     title: str = Field(description="任务标题", min_length=1, max_length=200),
@@ -248,6 +336,9 @@ async def taskhub_create_task(
     files: Optional[list] = Field(default=None, description="文件路径列表（相对工作区）"),
     deliverables: Optional[list] = Field(default=None, description="预期产出物路径列表"),
     stage: str = Field(default="brainstorming", description="研发阶段（brainstorming/design/planning/ready/implementing/review/done），ready 才可被领取"),
+    doc_paths: Optional[dict] = Field(default=None, description="文档路径映射（kind -> 路径）。kind 取 spec/plan/requirement/test/architecture/api/readme/changelog"),
+    spec_path: Optional[str] = Field(default=None, description="设计文档路径（等价于 doc_paths['spec']）"),
+    plan_path: Optional[str] = Field(default=None, description="实现计划路径（等价于 doc_paths['plan']）"),
 ) -> str:
     body = {k: v for k, v in {
         "title": title, "description": description, "target_agent_type": target_agent_type,
@@ -255,6 +346,7 @@ async def taskhub_create_task(
         "depends_on": depends_on, "max_retries": max_retries, "acceptance_criteria": acceptance_criteria,
         "due_at": due_at, "labels": labels, "project": project, "workspace": workspace,
         "files": files, "deliverables": deliverables, "stage": stage,
+        "doc_paths": doc_paths, "spec_path": spec_path, "plan_path": plan_path,
     }.items() if v is not None}
     return _fmt(await _request("POST", "/tasks", body=body))
 
@@ -273,12 +365,16 @@ async def taskhub_update_task(
     deliverables: Optional[list] = Field(default=None, description="产出物路径列表"),
     depends_on: Optional[list] = Field(default=None, description="前置任务 id 列表（替换现有依赖）"),
     fallback_after: Optional[int] = Field(default=None, description="从 created_at 起算的秒数，超过后允许非目标 agent 领取"),
+    doc_paths: Optional[dict] = Field(default=None, description="文档路径映射（kind -> 路径），与现有映射合并；传空字符串可清除该类型。kind 取 spec/plan/requirement/test/architecture/api/readme/changelog"),
+    spec_path: Optional[str] = Field(default=None, description="设计文档路径（等价于 doc_paths['spec']，传空字符串清除）"),
+    plan_path: Optional[str] = Field(default=None, description="实现计划路径（等价于 doc_paths['plan']，传空字符串清除）"),
 ) -> str:
     body = {k: v for k, v in {
         "title": title, "description": description, "acceptance_criteria": acceptance_criteria,
         "due_at": due_at, "labels": labels, "project": project, "workspace": workspace,
         "files": files, "deliverables": deliverables, "depends_on": depends_on,
         "fallback_after": fallback_after,
+        "doc_paths": doc_paths, "spec_path": spec_path, "plan_path": plan_path,
     }.items() if v is not None}
     return _fmt(await _request("PATCH", f"/tasks/{task_id}", body=body))
 
@@ -351,11 +447,13 @@ async def taskhub_advance_stage(
     spec_path: Optional[str] = Field(default=None, description="设计文档路径（进 design 必填）"),
     plan_path: Optional[str] = Field(default=None, description="计划文档路径（进 planning 必填）"),
     review_result: Optional[str] = Field(default=None, description="审查结论（进 done 必填）"),
+    doc_paths: Optional[dict] = Field(default=None, description="文档路径映射（kind -> 路径），可与 spec_path/plan_path 混用"),
 ) -> str:
     body = {"target_stage": target_stage}
     if spec_path is not None: body["spec_path"] = spec_path
     if plan_path is not None: body["plan_path"] = plan_path
     if review_result is not None: body["review_result"] = review_result
+    if doc_paths is not None: body["doc_paths"] = doc_paths
     return _fmt(await _request("POST", f"/tasks/{task_id}/stage", body=body))
 
 
@@ -366,11 +464,13 @@ async def taskhub_move_to_stage(
     spec_path: Optional[str] = Field(default=None, description="设计文档路径（目标为 design 时必填）"),
     plan_path: Optional[str] = Field(default=None, description="计划文档路径（目标为 planning 时必填）"),
     review_result: Optional[str] = Field(default=None, description="审查结论（目标为 done 时必填）"),
+    doc_paths: Optional[dict] = Field(default=None, description="文档路径映射（kind -> 路径），可与 spec_path/plan_path 混用"),
 ) -> str:
     body = {"target_stage": target_stage}
     if spec_path is not None: body["spec_path"] = spec_path
     if plan_path is not None: body["plan_path"] = plan_path
     if review_result is not None: body["review_result"] = review_result
+    if doc_paths is not None: body["doc_paths"] = doc_paths
     return _fmt(await _request("POST", f"/tasks/{task_id}/stage/move", body=body))
 
 

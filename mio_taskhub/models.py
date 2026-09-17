@@ -153,6 +153,8 @@ class Task(SQLModel, table=True):
     stage: TaskStage = TaskStage.READY
     spec_path: str = ""
     plan_path: str = ""
+    doc_paths: dict = Field(default_factory=dict, sa_column=Column(JSON))  # kind -> path（见 doc_paths.py）；spec/plan 与旧列保持同步
+    doc_statuses: dict = Field(default_factory=dict, sa_column=Column(JSON))  # kind -> {state, at, note}（见 doc_lifecycle.py）
     review_result: str = ""
     idea_id: str = Field(default="", index=True)   # 拆解来源 idea
     # M1: 生命周期时间戳 + 计数器

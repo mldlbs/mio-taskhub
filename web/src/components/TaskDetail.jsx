@@ -6,6 +6,17 @@ import DependencyGraph from './DependencyGraph'
 const tone = (s) => STATE_META[s]?.tone || 'dim'
 const ACTIVE = ['queued', 'claimed', 'running', 'retrying']
 
+// 已登记的文档类型：优先 doc_paths，回退旧的 spec_path / plan_path
+const docKindList = (task) => {
+  const dp = (task && task.doc_paths) || {}
+  const kinds = Object.keys(dp)
+  if (!kinds.length && task) {
+    if (task.spec_path) kinds.push('spec')
+    if (task.plan_path) kinds.push('plan')
+  }
+  return kinds
+}
+
 const DISC_GROUPS = [
   { id: 'brainstorming', label: '需求理解' },
   { id: 'design',        label: '设计评审' },
@@ -129,9 +140,11 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
           </div>
         )}
 
-        {(task.spec_path || task.plan_path || task.workspace) && (
+        {(docKindList(task).length > 0 || task.workspace) && (
           <section className="drawer__sec">
-            <button className="btn btn--primary" onClick={onOpenDocs}>查看文档 · Spec / Plan / 自动发现</button>
+            <button className="btn btn--primary" onClick={onOpenDocs}>
+              查看文档 · {docKindList(task).length ? docKindList(task).join(' / ') : '自动发现'}
+            </button>
           </section>
         )}
         {task.review_result && (
