@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.3.0 (2026-09-17)
 
 ### Added — 接口契约「事无巨细」标准（`api` kind）
 
@@ -19,7 +19,7 @@
 - **`detail_rule`（明细单元完整性）**：`{'section', 'unit_label', 'min_units', 'unit_blocks'}`，把指定 H2 章节下的每个 `### ` 单元切开，逐个检查单元内必须存在的 `#### ` 子块及其表格数据行数；`unit_blocks` 值为 0 表示只要求子块存在（「示例」多为代码块）。
 - 新增 `_split_by_heading(lines, prefix)` helper，供 H3/H4 分层解析复用。
 
-### Fixed
+### Fixed — 文档质量
 
 - **`_table_data_rows` 数据行数始终多算 1 行**：旧实现仅在「表头下一行是分隔行」时置 `in_table=True`，导致**分隔行自身被计入数据行**——0 数据行的空表报告为 1 行，`min_table_rows: 1` 形同虚设，空表也能通过填充度校验。新实现先排除分隔行、再排除表头行，剩余才是数据行。该缺陷因接口契约的逐接口行数校验而暴露。
 
@@ -41,7 +41,7 @@
 - 效果：`POST /tasks/{id}/doc/api/status` 推进到 `review`/`approved` 时要求 `errors == 0`，**空心的接口契约被 422 拒绝**；`force: true` 仍可绕过并落事件留痕。
 - `tests/test_doc_lifecycle.py` 覆盖断言由 7 类扩到 8 类；`test_doc_quality.py` 新增门控端到端用例（空心契约 422 → force 通过；填满的契约 draft→review→approved 全通）。
 
-### Tests
+### Tests — 文档体系
 
 - `test_doc_quality.py` 新增 5 个用例：接口契约是全链最严规格（必需章节数最多 + detail_rule 齐备）、模板覆盖全部必需与建议章节且逐节报「未填写」、填满的参考契约 0 error 满分、`detail_rule` 三种失败形态（缺子块/子块空表/无接口小节）、`recommended` 缺失只 warn 不阻断而必需章节缺失仍 error。新增 `GOOD_API` 参考契约夹具（21 节齐全）。
 - 另新增 api 生命周期质量门控用例（见上），合计 6 个新用例。
@@ -69,7 +69,7 @@
 - `GET /api/v1/observability/summary` 改从 `collect_observability()` 取值，不再正则解析指标文本。
 - 前端新增**可观测性视图**（`ObservabilityView.jsx`）。
 
-### Fixed
+### Fixed — 可观测性
 
 - **`middleware.py` 错误率统计错误**：原先把所有响应都计入 `_error_count`，导致 2xx 也被算作错误；改为仅 4xx/5xx 计数。此前 `HighHttpErrorRate` 告警与可用性 SLO 会基于虚高的错误率误报。
 - **`slo_history.py` SQLModel 参数传递**：`db.exec(text, {...})` 改为 `params={...}`，否则查询与清理静默失效。
@@ -82,7 +82,7 @@
 - 任务创建/更新接口统一走 `doc_paths`，`spec_path` / `plan_path` 降级为兼容入口并保留双向同步（`merge_doc_paths` / `sync_legacy_fields`）。
 - `/dashboard` 移除对 `web/dist/dashboard.html` 构建产物的依赖，改由 `main.py` 内置 `_DASHBOARD_HTML` 兜底（`web/dist/dashboard.html` 已删除，876 行）。
 
-### Tests
+### Tests — 可观测性
 
 - 新增 `tests/test_doc_chain.py`（骨架生成与不覆盖语义）、`tests/test_doc_lifecycle.py`（状态机合法性）、`tests/test_doc_quality.py`（质量评分、门控、修订指令）、`tests/test_task_doc_paths.py`（22 类 kind 与兼容字段）。
 - 用例总数 509 → **603**（53 文件 / 7,585 行）。

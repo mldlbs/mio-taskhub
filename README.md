@@ -6,12 +6,12 @@
 
 | 维度 | 现状 |
 |------|------|
-| 版本 | v0.2.1（Unreleased：任务文档体系） |
+| 版本 | v0.3.0 |
 | 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 76 模块 / 13,749 行 |
 | 对外能力 | **119 个 REST 端点** · **40 个 MCP 工具** · WebSocket 实时广播 · React Web UI |
 | 任务文档 | **22 类文档 kind** · **7 件套文档链** · **9 类生命周期状态机** · 质量 lint + 状态门控 + 修订指令 |
 | 前端 | React 18 + Vite 5 · 40 文件 / 11,694 行 · 10 个视图 |
-| 测试 | **603 个用例**（53 文件 / 7,585 行）· GitHub Actions（windows-latest / py3.12） |
+| 测试 | **619 个用例**（54 文件 / 8,074 行）· GitHub Actions（windows-latest / py3.12） |
 | 部署 | pip 源码 · Docker 多阶段镜像 · Windows 单 EXE 绿色版（免 Python） |
 
 ---

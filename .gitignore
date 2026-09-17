@@ -25,3 +25,6 @@ build_old-*/
 # pytest 临时产物（--basetemp / 隔离测试库）
 .pytest_tmp*/
 .flaky_test.db
+
+# 重建 exe 的冒烟工作区（含临时库副本，绝不入库）
+.smoke_ws/
