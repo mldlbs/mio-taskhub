@@ -5,6 +5,7 @@
 |---------|----------|------------------------------------|
 | PRD     | 为什么做    | Draft → Approved                   |
 | Spec    | 怎么设计    | Draft → Review → Approved          |
+| 接口契约  | 怎么调用    | Draft → Review → Approved          |
 | ADR     | 为什么这么决定 | Proposed → Accepted → Superseded   |
 | Plan    | 怎么实施    | Draft → Approved → Done            |
 | Task    | 谁做什么    | Todo → Doing → Done（即任务本身 state 机，非文档）|
@@ -12,8 +13,13 @@
 | Release | 发布了什么   | Planned → Released                 |
 | Incident| 出了什么问题  | Open → Resolved → Closed           |
 
+扩展（2026-09-17）：**接口契约 `api`** 与 Spec 同形（`draft → review → approved`）。
+用户要求接口契约「事无巨细」，其质量规格是文档链里最严的一份；把它纳入生命周期后，
+`set_doc_status` 的质量门控才会作用于它——否则质量 error 仅出现在写入响应与报告里、
+不阻断任何推进（这是此前的缺口）。
+
 kind 映射（复用 21+1 类）：PRD→requirement、ADR→decision、Release→milestone、
-Incident→incident（新增 kind）。未列入表的 kind 无生命周期，不支持设状态。
+Incident→incident（新增 kind）、接口契约→api。未列入表的 kind 无生命周期，不支持设状态。
 状态存 `task.doc_statuses`（kind -> {state, at, note}），转移事件走 events。
 """
 
@@ -24,6 +30,10 @@ DOC_LIFECYCLE = {
         'transitions': {'draft': ('approved',)},
     },
     'spec': {
+        'states': ('draft', 'review', 'approved'),
+        'transitions': {'draft': ('review',), 'review': ('approved',)},
+    },
+    'api': {           # 接口契约（与 spec 同形；质量规格最严，见 doc_quality）
         'states': ('draft', 'review', 'approved'),
         'transitions': {'draft': ('review',), 'review': ('approved',)},
     },
@@ -53,6 +63,7 @@ DOC_LIFECYCLE = {
 INITIAL_STATE = {
     'requirement': 'draft',
     'spec': 'draft',
+    'api': 'draft',
     'decision': 'proposed',
     'plan': 'draft',
     'test': 'planned',

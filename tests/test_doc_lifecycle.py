@@ -103,13 +103,14 @@ def test_status_requires_document_first(tmp_path):
 
 
 def test_lifecycle_kind_validation_and_coverage():
-    """无生命周期 kind 400；非法状态 422；映射表覆盖用户 8 行中的 7 行。"""
+    """无生命周期 kind 400；非法状态 422；覆盖用户 8 行中的 7 行 + 接口契约 api。"""
     ws = None  # kind 校验在 404 之后，需要真实任务
     from fastapi.testclient import TestClient as _TC  # noqa: F401
     from mio_taskhub.doc_lifecycle import INITIAL_STATE
     # 用户表的 8 行：Task 行映射任务本身 state 机，其余 7 行 + task = 8
+    # 另加 api（接口契约，2026-09-17 纳入，与 spec 同形）
     assert set(DOC_LIFECYCLE) == set(INITIAL_STATE) == {
-        'requirement', 'spec', 'decision', 'plan', 'test', 'milestone', 'incident'}
+        'requirement', 'spec', 'api', 'decision', 'plan', 'test', 'milestone', 'incident'}
     # 线性状态机无回边
     for kind, lc in DOC_LIFECYCLE.items():
         for src, dsts in lc['transitions'].items():

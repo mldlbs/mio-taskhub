@@ -337,6 +337,38 @@ def test_api_detail_rule_requires_every_endpoint_block():
     assert any('接口明细不足' in e for e in q3['errors']), q3['errors']
 
 
+def test_api_quality_gate_blocks_status_advance(tmp_path):
+    """接口契约纳入生命周期后，质量门控真正生效（此前只提示不阻断）。
+
+    draft → review 要求 errors=0：空心契约被 422；填满的契约放行；force 可绕过。
+    """
+    from mio_taskhub.doc_lifecycle import INITIAL_STATE
+    assert INITIAL_STATE['api'] == 'draft', 'api 需有生命周期，否则门控不生效'
+
+    # 空心契约：PUT 写入即自动落 draft
+    tid, _ = _mk_with_doc(tmp_path, 'api', '占位 <!-- 没写 -->')
+    st = client.get(f'/api/v1/tasks/{tid}/doc/statuses').json()['statuses']['api']
+    assert st['state'] == 'draft'
+
+    r = client.post(f'/api/v1/tasks/{tid}/doc/api/status', json={'state': 'review'})
+    assert r.status_code == 422, r.text
+    assert 'quality gate' in str(r.json()['detail'])
+
+    # force 可绕过
+    r2 = client.post(f'/api/v1/tasks/{tid}/doc/api/status',
+                     json={'state': 'review', 'force': True})
+    assert r2.status_code == 200, r2.text
+
+    # 填满的契约从 draft 直接放行
+    tid2, _ = _mk_with_doc(tmp_path, 'api', GOOD_API)
+    r3 = client.post(f'/api/v1/tasks/{tid2}/doc/api/status', json={'state': 'review'})
+    assert r3.status_code == 200, r3.text
+    r4 = client.post(f'/api/v1/tasks/{tid2}/doc/api/status', json={'state': 'approved'})
+    assert r4.status_code == 200, r4.text
+    st2 = client.get(f'/api/v1/tasks/{tid2}/doc/statuses').json()['statuses']['api']
+    assert st2['state'] == 'approved' and st2['allowed_next'] == []
+
+
 def test_api_recommended_sections_warn_but_do_not_block():
     """建议章节缺失只记 warn（扣分不阻断）；必需章节缺失才记 error。"""
     from mio_taskhub.doc_quality import QUALITY_SPEC

@@ -23,15 +23,24 @@
 
 - **`_table_data_rows` 数据行数始终多算 1 行**：旧实现仅在「表头下一行是分隔行」时置 `in_table=True`，导致**分隔行自身被计入数据行**——0 数据行的空表报告为 1 行，`min_table_rows: 1` 形同虚设，空表也能通过填充度校验。新实现先排除分隔行、再排除表头行，剩余才是数据行。该缺陷因接口契约的逐接口行数校验而暴露。
 
+### Added — 接口契约纳入生命周期，质量门控真正生效
+
+此前 `api` 没有生命周期，而质量门控挂在 `set_doc_status` 上 —— 接口契约的质量 error 只出现在 `PUT /doc` 响应与质量报告里，**不阻断任何推进**，等于「最严的规格 + 最软的约束」。现补齐：
+
+- **`api` 加入 `DOC_LIFECYCLE`**，与 `spec` 同形：`draft → review → approved`（初始态 `draft`，首次写入自动落位）。文档生命周期由 7 类扩到 **8 类**（含 Task 自身共 9 条状态机）。
+- 效果：`POST /tasks/{id}/doc/api/status` 推进到 `review`/`approved` 时要求 `errors == 0`，**空心的接口契约被 422 拒绝**；`force: true` 仍可绕过并落事件留痕。
+- `tests/test_doc_lifecycle.py` 覆盖断言由 7 类扩到 8 类；`test_doc_quality.py` 新增门控端到端用例（空心契约 422 → force 通过；填满的契约 draft→review→approved 全通）。
+
 ### Tests
 
 - `test_doc_quality.py` 新增 5 个用例：接口契约是全链最严规格（必需章节数最多 + detail_rule 齐备）、模板覆盖全部必需与建议章节且逐节报「未填写」、填满的参考契约 0 error 满分、`detail_rule` 三种失败形态（缺子块/子块空表/无接口小节）、`recommended` 缺失只 warn 不阻断而必需章节缺失仍 error。新增 `GOOD_API` 参考契约夹具（21 节齐全）。
+- 另新增 api 生命周期质量门控用例（见上），合计 6 个新用例。
 
 ### Added — 任务文档体系（首轮，已提交于 6dc88a8）
 
 - **22 类文档 kind**：新增 `doc_paths.py` 作为唯一事实源（`DOC_KINDS`），`Task.doc_paths` 以 kind→相对路径的 JSON 落库，覆盖七件套主链 + 工程记录 + 复用资产三类。
 - **七件套文档链**（`doc_chain.py`）：`requirement → architecture → spec → data-model → api → test → runbook`。`POST /api/v1/tasks/{id}/docs/scaffold` 一键补骨架，**默认不覆盖已有文件**，支持 `kinds` 指定子集与 `overwrite`；骨架自带跨链导航头、`FR-n`/`TC-n`/`ADR-n` 追溯编号与 TODO 占位，正文按分点+换行书写。
-- **8 类文档生命周期状态机**（`doc_lifecycle.py`）：requirement `draft→approved`、spec `draft→review→approved`、decision `proposed→accepted→superseded`、plan `draft→approved→done`、test `planned→passed/failed`、milestone `planned→released`、incident `open→resolved→closed`，加 Task 自身。规则为严格向前：不许回退、不许跳级、终态不可改判。新增 `Task.doc_statuses` JSON 列（含迁移），首次写入自动初始化初始态。
+- **文档生命周期状态机（首轮 7 类，后追加 api 至 8 类）**（`doc_lifecycle.py`）：requirement `draft→approved`、spec `draft→review→approved`、decision `proposed→accepted→superseded`、plan `draft→approved→done`、test `planned→passed/failed`、milestone `planned→released`、incident `open→resolved→closed`，加 Task 自身。规则为严格向前：不许回退、不许跳级、终态不可改判。新增 `Task.doc_statuses` JSON 列（含迁移），首次写入自动初始化初始态。
 - **质量保证三层闭环**（`doc_quality.py`）：
   - 写时 lint —— 每次 `PUT /doc` 同步检查必备章节、表格有效数据行、TODO 残留、分点书写，按 `score = max(0, 100 - 20*errors - 5*warns)` 评分并随响应返回；
   - 状态门控 —— 推进到 `review`/`approved`/`done` 要求 `errors == 0`，`force=true` 可强推但落事件留痕；
@@ -70,7 +79,7 @@
 
 ### Docs
 
-- 重写 `README.md`：修正全部统计数字（后端 76 模块 / 13,749 行、119 端点、40 MCP 工具、前端 40 文件 / 11,694 行、603 用例），新增「任务文档体系」独立章节（22 类 kind / 七件套链 / 8 类生命周期 / 质量三层闭环 / 端点表 / 典型闭环），更新阶段门控表、MCP 工具分组表与目录结构。
+- 重写 `README.md`：修正全部统计数字（后端 76 模块 / 13,749 行、119 端点、40 MCP 工具、前端 40 文件 / 11,694 行、603 用例），新增「任务文档体系」独立章节（22 类 kind / 七件套链 / 9 类生命周期 / 质量三层闭环 / 端点表 / 典型闭环），更新阶段门控表、MCP 工具分组表与目录结构。
 
 ---
 

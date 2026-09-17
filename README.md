@@ -9,7 +9,7 @@
 | 版本 | v0.2.1（Unreleased：任务文档体系） |
 | 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 76 模块 / 13,749 行 |
 | 对外能力 | **119 个 REST 端点** · **40 个 MCP 工具** · WebSocket 实时广播 · React Web UI |
-| 任务文档 | **22 类文档 kind** · **7 件套文档链** · **8 类生命周期状态机** · 质量 lint + 状态门控 + 修订指令 |
+| 任务文档 | **22 类文档 kind** · **7 件套文档链** · **9 类生命周期状态机** · 质量 lint + 状态门控 + 修订指令 |
 | 前端 | React 18 + Vite 5 · 40 文件 / 11,694 行 · 10 个视图 |
 | 测试 | **603 个用例**（53 文件 / 7,585 行）· GitHub Actions（windows-latest / py3.12） |
 | 部署 | pip 源码 · Docker 多阶段镜像 · Windows 单 EXE 绿色版（免 Python） |
@@ -108,11 +108,11 @@ brainstorming → design → planning → ready → implementing → review → 
 
 ### 2.3 任务文档体系（文档维度）
 
-任务与上面两条维度再正交地挂一套**文档体系**，共 22 类 kind、7 件套主链、8 类生命周期状态机。完整机制见 [§6](#6-任务文档体系)。
+任务与上面两条维度再正交地挂一套**文档体系**，共 22 类 kind、7 件套主链、9 类生命周期状态机。完整机制见 [§6](#6-任务文档体系)。
 
 - **22 类 kind** —— `doc_paths.py` 的 `DOC_KINDS` 是唯一事实源，`doc_paths`（kind→相对路径的 JSON 列）落在 Task 上
 - **7 件套文档链** —— `requirement → architecture → spec → data-model → api → test → runbook`
-- **8 类生命周期** —— requirement / spec / decision / plan / test / milestone / incident + Task 自身
+- **9 类生命周期** —— requirement / spec / **api** / decision / plan / test / milestone / incident（8 类文档）+ Task 自身
 - **质量闭环** —— 写时 lint 返分数与修法 → 状态门控拦 `review`/`approved`/`done` → `revision` 端点产出可执行的修订指令
 
 ### 2.4 想法生命周期
@@ -380,7 +380,7 @@ requirement → architecture → spec → data-model → api → test → runboo
 - 每份骨架自带跨链导航头（上游/下游文档链接）和 TODO 占位，并预置 `FR-n` / `TC-n` / `ADR-n` 追溯编号
 - 骨架正文按**分点 + 换行**书写，便于直接阅读和增量填充
 
-### 6.3 八类生命周期状态机
+### 6.3 九类生命周期状态机
 
 `doc_lifecycle.py` 让文档本身成为状态载体，规则是**严格向前**：不许回退、不许跳级、终态不可改判。
 
@@ -388,12 +388,15 @@ requirement → architecture → spec → data-model → api → test → runboo
 |------|----------|
 | Requirement | `draft → approved` |
 | Spec | `draft → review → approved` |
+| API（接口契约） | `draft → review → approved` |
 | Decision (ADR) | `proposed → accepted → superseded` |
 | Plan | `draft → approved → done` |
 | Test | `planned → passed / failed` |
 | Milestone | `planned → released` |
 | Incident | `open → resolved → closed` |
 | Task（自身） | `todo → doing → done` |
+
+8 类文档 + Task 自身共 9 条状态机。**接口契约与 Spec 同形**（`draft → review → approved`）——它被纳入生命周期，是为了让 §6.4 的质量门控真正作用于它：接口契约的质量规格是全链最严的，如果它没有生命周期，质量 error 就只能停留在写入提示、无法阻断推进。
 
 - 首次写入某类文档时，`doc_statuses` 自动初始化为该类型的初始态
 - 状态推进走 `POST /api/v1/tasks/{id}/doc/{kind}/status`，非法转移被 `validate_transition` 直接拒绝
@@ -659,7 +662,7 @@ mio_taskhub/
 ├── planner.py           # detect_cycle 环检测 + 夜间计划编排
 ├── doc_paths.py         # 22 类文档 kind 唯一事实源
 ├── doc_chain.py         # 七件套文档链 + 骨架模板
-├── doc_lifecycle.py     # 8 类文档生命周期状态机
+├── doc_lifecycle.py     # 9 类文档生命周期状态机（8 类文档 + Task）
 ├── doc_quality.py       # 质量 lint + 追溯 + 修订指令
 ├── seed.py              # 演示数据
 ├── memory_store.py      # 记忆网关客户端与指标
@@ -728,6 +731,6 @@ cd web && npm run dev         # 前端热更新开发
 - **SQLite 并发上限**：WAL + QueuePool 足以支撑单机多 Agent，但规模继续增长需迁移 Postgres
 - **God File 残留**：`mcp_server.py`（643 行）与 `background.py`（580 行）仍是最大的两个文件；MCP 层本质是薄代理，理想方案是从 OpenAPI spec 自动生成
 - **文档质量 lint 是启发式的**：靠章节标题与表格行数做结构性校验，判断不了内容是否真的对。真正的内容审查仍需人或 Agent 阅读
-- **接口契约的质量 error 目前不阻断推进**：质量门控挂在 `set_doc_status` 上，而 `api` 没有生命周期（见 §6.3 的 7 类），也不在任何阶段的 `document_kinds` 里 —— 因此 `api` 的质量问题只出现在 `PUT /doc` 响应与 `GET /doc/quality` 报告中，属于**写时提示而非硬门**。要变成硬约束需给 `api` 加生命周期或挂进阶段门槛（会改变现有任务的工作流，需先确认）
+- **阶段推进不校验接口契约**：`api` 已纳入生命周期（`draft → review → approved`），空心的接口契约无法推进到 `review`；但它仍**不在任何阶段的 `document_kinds` 里**，所以 `advance`/`move` 阶段时不会检查接口契约是否已批准。要变成硬约束需把 `api` 挂进阶段门槛（会改变现有任务工作流）
 - **文档 kind 三处同步点**：新增一类 kind 要同时改 `doc_paths.py` / `DOC_PATTERNS` / `KIND_META`，漏改会导致前端不显示（缺自动一致性测试）
 - **Windows 优先**：绿色版打包与 setup 脚本只覆盖 Windows；Docker/源码路径跨平台可用
