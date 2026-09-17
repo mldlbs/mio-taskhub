@@ -48,9 +48,13 @@ def test_spawn_and_reap():
     runner = nr.NightRunner(poll_interval=0.1)
     ok = runner._spawn({"agent": "echo-test", "command": "cmd /c exit 0"})
     assert ok is True
+    # 子进程自身退出需要时间，原先固定 sleep(0.3) 在机器有负载时会等不到
+    # （历史 flaky 根因：进程还在 _procs 里就被断言）。改为有上限的轮询。
     import time as _t
-    _t.sleep(0.3)
-    runner._reap_finished()
+    deadline = _t.monotonic() + 10
+    while "echo-test" in runner._procs and _t.monotonic() < deadline:
+        _t.sleep(0.05)
+        runner._reap_finished()
     assert "echo-test" not in runner._procs
     runner.stop_agents()
 

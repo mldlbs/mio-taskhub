@@ -21,3 +21,7 @@ gh-kit.json
 build/
 dist/
 build_old-*/
+
+# pytest 临时产物（--basetemp / 隔离测试库）
+.pytest_tmp*/
+.flaky_test.db

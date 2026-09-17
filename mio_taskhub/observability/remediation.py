@@ -1,38 +1,69 @@
+import os
 import time
 import logging
-from datetime import datetime, timezone, timedelta
 from mio_taskhub.db import engine
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
+# 只有「已被 agent 接手、却迟迟没有推进」的状态才算卡住。
+# QUEUED 是正常排队等待领取（等几天也正常），既不能算卡住，更不能被自动重排——
+# 否则会把整块待办队列反复重置。
+ACTIVE_STATES = ("CLAIMED", "RUNNING", "RETRYING")
+DEFAULT_STALL_MINUTES = 30
+
+
+def stall_threshold_minutes() -> int:
+    """卡住判定阈值（分钟）。可用环境变量 MIO_TASKHUB_STALL_MINUTES 覆盖。"""
+    raw = os.environ.get("MIO_TASKHUB_STALL_MINUTES", "").strip()
+    if raw:
+        try:
+            value = int(raw)
+            if value > 0:
+                return value
+        except ValueError:
+            pass
+        logger.warning(
+            "Invalid MIO_TASKHUB_STALL_MINUTES=%r, falling back to %d",
+            raw, DEFAULT_STALL_MINUTES,
+        )
+    return DEFAULT_STALL_MINUTES
+
 
 class RemediationEngine:
     def evaluate_stalled_tasks(self) -> list:
-        """Detect tasks stuck in non-terminal states for too long."""
+        """找出在活跃状态下长时间没有推进、且还有重试余额的任务。
+
+        时间比较一律在 SQL 里用 julianday() 完成，不把时间取回 Python 算：
+        原生 SQL 查出来的是字符串，做减法会抛异常（历史缺陷，导致本函数
+        每 2 分钟报一次 AttributeError 且永远返回空）。
+        """
         try:
+            states = "', '".join(ACTIVE_STATES)
+            minutes = stall_threshold_minutes()
             with engine.connect() as conn:
-                cutoff = datetime.now(timezone.utc) - timedelta(seconds=600)  # 10 minutes
-                result = conn.execute(
-                    text("SELECT id, title, stage, state, created_at FROM task WHERE state NOT IN ('completed', 'failed', 'cancelled') AND created_at < :cutoff"),
-                    {"cutoff": cutoff}
-                )
+                result = conn.execute(text(f"""
+                    SELECT id, title, stage, state,
+                           (julianday('now') - julianday(COALESCE(last_transition_at, created_at))) * 1440.0 AS age_minutes
+                    FROM task
+                    WHERE state IN ('{states}')
+                      AND COALESCE(last_transition_at, created_at) IS NOT NULL
+                      AND COALESCE(retry_count, 0) < COALESCE(max_retries, 3)
+                      AND (julianday('now') - julianday(COALESCE(last_transition_at, created_at))) * 1440.0 > :minutes
+                    ORDER BY age_minutes DESC
+                """), {"minutes": minutes})
                 actions = []
-                now = datetime.now(timezone.utc)
                 for row in result:
                     task = dict(row._mapping)
-                    created_at = task["created_at"]
-                    if created_at.tzinfo is None:
-                        created_at = created_at.replace(tzinfo=timezone.utc)
-                    age_minutes = (now - created_at).total_seconds() / 60
-                    if age_minutes > 30:
-                        actions.append({
-                            "type": "requeue_stuck_task",
-                            "task_id": task["id"],
-                            "task_title": task["title"],
-                            "age_minutes": round(age_minutes, 1),
-                            "action": "reset_task_state"
-                        })
+                    actions.append({
+                        "type": "requeue_stuck_task",
+                        "task_id": task["id"],
+                        "task_title": task["title"],
+                        "stage": task["stage"],
+                        "state": task["state"],
+                        "age_minutes": round(task["age_minutes"] or 0.0, 1),
+                        "action": "reset_task_state"
+                    })
                 return actions
         except Exception:
             logger.exception("Failed to evaluate stalled tasks")

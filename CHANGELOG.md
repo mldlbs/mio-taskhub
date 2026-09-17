@@ -23,6 +23,16 @@
 
 - **`_table_data_rows` 数据行数始终多算 1 行**：旧实现仅在「表头下一行是分隔行」时置 `in_table=True`，导致**分隔行自身被计入数据行**——0 数据行的空表报告为 1 行，`min_table_rows: 1` 形同虚设，空表也能通过填充度校验。新实现先排除分隔行、再排除表头行，剩余才是数据行。该缺陷因接口契约的逐接口行数校验而暴露。
 
+### Fixed — 可观测性两块裸 SQL 长期坏死（root cause 同类）
+
+后台日志里 `Failed to evaluate stalled tasks` 每 2 分钟刷一次，且前端「任务链路」面板恒为空——根因是同一类「裸 `text()` SQL 绕过 ORM」的缺陷：
+
+- **`observability/remediation.py`**：`state NOT IN ('completed','failed','cancelled')` 用了**小写字面量**，而枚举列存的是大写枚举名（`QUEUED`/`COMPLETED`/…），导致状态过滤完全失效、匹配全表；且原生 SQL 返回的 `created_at` 是字符串，直接取 `.tzinfo` 抛 `AttributeError`，函数**永远返回空、自动重排功能从未真正工作**。
+- **`observability/task_trace.py`**：`get_task_trace` / `get_task_traces_summary` 三处叠加缺陷：①`Session.exec(stmt, params)` 不接受位置参数（**TypeError**，两函数直接全废）；②状态过滤同样小写字面量（`get_task_traces_summary` 永远匹配不到行）；③裸 SQL 返回的 `created_at/completed_at` 当 `datetime` 用（`.isoformat()` / `str - str` 必崩），且 `event_metadata` 查成 `event_metadata`（DB 列名实为 `metadata`）——导致 `GET /api/v1/traces/{id}` 恒 404、`GET /api/v1/traces` 恒 `[]`。
+- **修复做法**：状态过滤改用大写枚举名；时间比较一律在 SQL 里用 `julianday()`（不再取回 Python）；裸 SQL 时间值经新增的 `utils.parse_utc()` 统一转 aware UTC datetime；`db.exec(...)` 改 `db.execute(...)`；`event_metadata` 用 `metadata AS event_metadata` 取列并 JSON 还原。
+- **自动重排语义收窄（防误伤）**：旧逻辑「非终态 + 超 30 分钟」会把整块排队中的 `QUEUED` 任务当卡住反复重排（当前库有 93 条）。现判定改为**只有 CLAIMED/RUNNING/RETRYING 且超过阈值、且重试额度未耗尽**才算卡住；阈值可用 `MIO_TASKHUB_STALL_MINUTES` 覆盖。当前库活跃态为 0 条，**修复后零行为变化**。
+- **测试补强**：旧 `test_remediation.py` 只断言「返回 list」，给 bug 背书；新增断言真实卡住任务被识别、QUEUED 不被误判、重试额度耗尽即停、阈值可配；新增 `test_task_trace.py` 断言 span 时长数值化、summary 含已完成任务且时长为数值、metadata 还原为 dict、未完成任务不出现。`_table_data_rows` 修复一并保留。
+
 ### Added — 接口契约纳入生命周期，质量门控真正生效
 
 此前 `api` 没有生命周期，而质量门控挂在 `set_doc_status` 上 —— 接口契约的质量 error 只出现在 `PUT /doc` 响应与质量报告里，**不阻断任何推进**，等于「最严的规格 + 最软的约束」。现补齐：
