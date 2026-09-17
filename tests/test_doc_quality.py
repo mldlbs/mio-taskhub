@@ -19,6 +19,150 @@ GOOD_SPEC = """# Spec
 用 JWT。
 """
 
+# 一份「事无巨细」的接口契约参考样本：21 节齐全，接口明细含完整四子块。
+# 接口契约的质量规格最严（10 必需章节 + 每个接口四子块），这里当基准用。
+GOOD_API = """# 接口契约
+## 1. 文档信息与范围
+| 项 | 值 |
+|----|----|
+| 契约版本 | v1 |
+- 明确不含：内部 RPC。
+
+## 2. 环境与基础地址
+| 环境 | Base URL |
+|------|----------|
+| prod | https://api.example.com |
+
+## 3. 版本策略
+- 版本位置：URL 路径 `/api/v1`。
+
+## 4. 认证与鉴权
+| 项 | 约定 |
+|----|------|
+| 认证方式 | Bearer |
+| 未认证响应 | 401 UNAUTHENTICATED |
+| 越权响应 | 403 FORBIDDEN |
+
+## 5. 通用请求头
+| Header | 必填 | 类型 | 默认 | 说明 |
+|--------|------|------|------|------|
+| `Authorization` | 是 | string | — | Bearer token |
+
+## 6. 通用响应结构
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `code` | integer | 是 | 业务码，0 成功 |
+| `message` | string | 是 | 仅展示用 |
+| `data` | object \\| null | 否 | 失败时为 null |
+
+## 7. 统一错误码
+| HTTP | 业务码 | 含义 | 触发条件 | 处理建议 |
+|------|--------|------|---------|---------|
+| 404 | TASK_NOT_FOUND | 任务不存在 | id 查无 | 核对 id |
+| 429 | RATE_LIMITED | 超出限流 | 超阈值 | 按 Retry-After 退避 |
+
+## 8. 分页 / 排序 / 过滤
+| 项 | 参数 | 类型 | 默认 | 上限 | 说明 |
+|----|------|------|------|------|------|
+| 每页条数 | size | integer | 20 | 100 | 超限截断为 100 |
+
+## 9. 字段命名与类型规范
+| 项 | 规范 |
+|----|------|
+| 命名风格 | snake_case，反例：userName |
+| 可选字段 | 缺失=未设置；显式 null=清空 |
+
+## 10. 时间 / 数值 / 空值约定
+- 时间格式：RFC3339，UTC。
+
+## 11. 枚举全集
+| 枚举 | 取值 | 含义 | 出现在哪些接口 |
+|------|------|------|---------------|
+| state | queued | 待领取 | GET /tasks |
+
+## 12. 幂等性与重试
+| 接口 / 场景 | 幂等 | 幂等键 | 重试建议 |
+|------------|------|--------|---------|
+| GET /tasks/{id} | 是 | — | 可直接重试 |
+- 不可重试：409 冲突。
+
+## 13. 限流与配额
+| 范围 | 阈值 | 窗口 | 超限响应 |
+|------|------|------|---------|
+| 全局 | 120 | 1min | 429 + Retry-After |
+
+## 14. 超时与并发
+- 建议客户端超时：5s。
+
+## 15. 文件上传与下载
+| 项 | 约定 |
+|----|------|
+| 上传方式 | multipart |
+
+## 16. 安全与脱敏
+- 敏感字段：token 一律脱敏。
+
+## 17. 接口清单
+| Method | Path | 用途 | 权限 | 幂等 | 限流 | 关联状态 |
+|--------|------|------|------|------|------|---------|
+| GET | /api/v1/tasks/{id} | 查任务详情 | task:read | 是 | 全局 | 任意 |
+
+## 18. 接口明细
+
+### GET /api/v1/tasks/{id}
+
+- 用途：按 ID 查询任务
+- 权限：`task:read`
+- 幂等：是
+- 副作用：无
+
+#### 请求参数
+
+| 参数 | 位置 | 类型 | 必填 | 默认 | 约束 | 说明 | 示例 |
+|------|------|------|------|------|------|------|------|
+| id | path | string | 是 | — | 8 位 hex | 任务 ID | a1b2c3d4 |
+| verbose | query | boolean | 否 | false | — | 扩展字段 | true |
+
+#### 响应字段
+
+| 字段 | 类型 | 必填 | 说明 | 示例 |
+|------|------|------|------|------|
+| `data.id` | string | 是 | 任务 ID | a1b2c3d4 |
+| `data.state` | string | 是 | 执行状态 | queued |
+
+#### 错误码
+
+| HTTP | 业务码 | 含义 | 触发条件 | 处理建议 |
+|------|--------|------|---------|---------|
+| 404 | TASK_NOT_FOUND | 任务不存在 | id 查无 | 核对 id |
+| 403 | FORBIDDEN | 无权限 | 非归属者 | 检查权限点 |
+
+#### 示例
+
+请求：
+
+```bash
+curl -s "https://api.example.com/api/v1/tasks/a1b2c3d4"
+```
+
+响应（200）：
+
+```json
+{"code": 0, "message": "ok", "data": {"id": "a1b2c3d4"}}
+```
+
+## 19. 兼容性与废弃策略
+- 破坏性变更：字段删除、枚举删值。
+
+## 20. 变更记录
+| 日期 | 契约版本 | 变更内容 | 类型 | 影响方 |
+|------|---------|---------|------|--------|
+| 2026-09-17 | v1 | 首次发布 | — | — |
+
+## 21. 附录
+- 相关文档：`docs/data-model.md`
+"""
+
 
 def _mk_with_doc(tmp_path, kind, content):
     ws = tmp_path / 'ws'
@@ -133,6 +277,91 @@ def test_traceability_helper():
     t = traceability('FR-1 FR-2 FR-3', '用例引用 FR-1 和 FR-2')
     assert t['fr_total'] == 3 and t['fr_covered'] == 2
     assert t['fr_uncovered'] == ['FR-3']
+
+
+# ── 接口契约「事无巨细」规格（用户要求：必须足够详细记录每个细节）───────────────
+
+def test_api_spec_is_the_strictest():
+    """接口契约的必需章节数应为全链最多，且带 detail_rule。"""
+    from mio_taskhub.doc_quality import QUALITY_SPEC
+    api = QUALITY_SPEC['api']
+    others = [len(v['sections']) for k, v in QUALITY_SPEC.items() if k != 'api']
+    assert len(api['sections']) > max(others), '接口契约必须是要求最细的文档'
+    assert len(api['sections']) >= 10
+    assert api['recommended'], '接口契约应有建议章节层'
+    assert api['detail_rule']['section'] == '接口明细'
+    assert set(api['detail_rule']['unit_blocks']) == {'请求参数', '响应字段', '错误码', '示例'}
+
+
+def test_api_template_errors_cover_every_required_section():
+    """模板原样 → 每个必需章节各报一条「未填写」，写作者一眼看到全部待填项。"""
+    from mio_taskhub.doc_chain import render_chain
+    from mio_taskhub.doc_quality import QUALITY_SPEC
+    tpl = render_chain('api')
+    # 模板自身要覆盖全部必需 + 建议章节（否则是模板缺节，不是作者的问题）
+    for sec in QUALITY_SPEC['api']['sections'] + QUALITY_SPEC['api']['recommended']:
+        assert sec in tpl, f'模板缺少章节：{sec}'
+    q = check_content('api', tpl)
+    unfilled = [e for e in q['errors'] if '未填写' in e]
+    assert len(unfilled) == len(QUALITY_SPEC['api']['sections'])
+    assert q['score'] < 100
+
+
+def test_api_good_contract_passes_clean():
+    """填满的接口契约 → 0 error；分点/表格齐全时无 warn，满分。"""
+    q = check_content('api', GOOD_API)
+    assert q['errors'] == [], q['errors']
+    assert q['score'] == 100
+
+
+def test_api_detail_rule_requires_every_endpoint_block():
+    """接口明细：缺子块 / 子块空表 / 无接口，都要被拦下并给出可执行修法。"""
+    # 删掉「错误码」子块
+    missing_block = GOOD_API.replace('#### 错误码\n', '#### 备注\n')
+    q1 = check_content('api', missing_block)
+    assert any('缺少「错误码」子块' in e for e in q1['errors']), q1['errors']
+    assert any('请求参数 / 响应字段 / 错误码 / 示例' in e for e in q1['errors'])
+
+    # 「响应字段」表格只剩表头（0 数据行）
+    empty_table = GOOD_API.replace(
+        '| `data.id` | string | 是 | 任务 ID | a1b2c3d4 |\n'
+        '| `data.state` | string | 是 | 执行状态 | queued |\n', '')
+    assert empty_table != GOOD_API, '测试夹具未生效'
+    q2 = check_content('api', empty_table)
+    assert any('「响应字段」子块表格数据行不足' in e for e in q2['errors']), q2['errors']
+
+    # 接口明细完全没有接口小节（注释已删）
+    no_unit = GOOD_API.replace(
+        GOOD_API[GOOD_API.index('### GET'):GOOD_API.index('## 19.')], '')
+    q3 = check_content('api', no_unit)
+    assert any('接口明细不足' in e for e in q3['errors']), q3['errors']
+
+
+def test_api_recommended_sections_warn_but_do_not_block():
+    """建议章节缺失只记 warn（扣分不阻断）；必需章节缺失才记 error。"""
+    from mio_taskhub.doc_quality import QUALITY_SPEC
+    # 抽掉全部建议章节
+    trimmed = GOOD_API
+    for sec in ('版本策略', '通用请求头', '分页', '时间 / 数值 / 空值约定',
+                '枚举全集', '限流与配额', '超时与并发', '文件上传与下载',
+                '安全与脱敏', '兼容性与废弃策略', '附录'):
+        start = next((l for l in trimmed.splitlines()
+                      if l.startswith('## ') and sec in l), None)
+        assert start, sec
+        # 切掉该节到下一个 H2
+        i = trimmed.index(start)
+        nxt = trimmed.find('\n## ', i + 1)
+        trimmed = trimmed[:i] + (trimmed[nxt + 1:] if nxt != -1 else '')
+    q = check_content('api', trimmed)
+    assert q['errors'] == [], q['errors']
+    missing_warns = [w for w in q['warns'] if '缺少建议章节' in w]
+    assert len(missing_warns) == len(QUALITY_SPEC['api']['recommended'])
+    assert 0 < q['score'] < 100
+
+    # 必需章节缺失 → error
+    no_auth = trimmed.replace('## 4. 认证与鉴权\n', '')
+    q2 = check_content('api', no_auth)
+    assert any('缺少必需章节「认证与鉴权」' in e for e in q2['errors'])
 
 
 def test_issues_carry_fix_hints_and_revision_prompt(tmp_path):

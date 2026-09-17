@@ -16,8 +16,10 @@
 import re
 
 # kind -> 质量规格；未列入的 kind 无质量校验（quality=None）
-#   sections: 必需 H2 章节标题（子串匹配，忽略编号）
+#   sections: 必需 H2 章节标题（子串匹配，忽略编号）——缺失记 error（阻断状态推进）
+#   recommended: 建议 H2 章节标题——缺失记 warn（不阻断，但计入评分）
 #   min_table_rows: {章节标题子串: 最少数据行数}
+#   detail_rule: 明细单元完整性（如「接口契约的每个接口」必须写全子块）
 QUALITY_SPEC = {
     'requirement': {
         'sections': ['背景与问题', '目标与非目标', '功能需求', '非功能需求'],
@@ -35,9 +37,28 @@ QUALITY_SPEC = {
         'sections': ['实体与字段', '状态机'],
         'min_table_rows': {'实体与字段': 1},
     },
+    # 接口契约是唯一一份「必须事无巨细」的文档：字段级、错误码级、示例级都要落地。
+    # 因此必需章节数量最多，且额外用 detail_rule 约束「每个接口」都要写全四个子块。
     'api': {
-        'sections': ['全局约定', '接口清单', '接口明细'],
-        'min_table_rows': {'接口清单': 1},
+        'sections': [
+            '文档信息与范围', '环境与基础地址', '认证与鉴权', '通用响应结构',
+            '统一错误码', '字段命名与类型规范', '幂等性与重试',
+            '接口清单', '接口明细', '变更记录',
+        ],
+        'recommended': [
+            '版本策略', '通用请求头', '分页', '时间 / 数值 / 空值约定', '枚举全集',
+            '限流与配额', '超时与并发', '文件上传与下载', '安全与脱敏',
+            '兼容性与废弃策略', '附录',
+        ],
+        'min_table_rows': {'通用响应结构': 1, '统一错误码': 1, '接口清单': 1},
+        'detail_rule': {
+            'section': '接口明细',
+            'unit_label': '接口',
+            'min_units': 1,
+            # 每个接口小节（### ）内必须有的子块（#### ）-> 最少表格数据行
+            # 0 表示只要求该子块存在（如「示例」多为代码块，不强制表格）
+            'unit_blocks': {'请求参数': 1, '响应字段': 1, '错误码': 1, '示例': 0},
+        },
     },
     'test': {
         'sections': ['验收标准', '测试范围', '用例清单'],
@@ -80,9 +101,29 @@ SECTION_HINTS = {
         '迁移策略': '存量数据怎么迁、失败怎么回滚',
     },
     'api': {
-        '全局约定': '鉴权方式、错误码结构、分页/过滤约定、版本策略',
-        '接口清单': '表格列：Method + Path + 用途 + 权限；一览全量接口',
-        '接口明细': '每个接口：请求/响应字段表 + 示例 + 错误码；字段给类型与是否必填',
+        # ── 必需章节 ──
+        '文档信息与范围': '文档版本/契约版本/状态/最后更新/负责人/适用范围，并写清「明确不含」什么，防止被当成全量接口清单',
+        '环境与基础地址': '每个环境一行（dev/staging/prod）给完整 Base URL，禁止写「同上」；经网关导致路径前缀被剥离或重写的必须写明',
+        '认证与鉴权': '认证方式、凭证来源与传递位置、有效期与刷新、权限模型；401（未认证）与 403（越权）必须区分，并写明各自业务码',
+        '通用响应结构': '成功失败共用同一外壳，逐字段给类型与必填；data 为 null 与 {} 的语义差异要写明；有返回裸数组/二进制的接口必须在此显式列为例外',
+        '统一错误码': '每行写全 HTTP 状态 + 业务码 + 含义 + 触发条件 + 处理建议；禁止只写「参数错误」，要指明是哪个参数违反了哪条约束',
+        '字段命名与类型规范': '命名风格（并给反例）、ID/布尔/金额/数组的类型约定；「字段缺失」与「显式 null」的区别必须写明——这是调用方最容易踩的坑',
+        '幂等性与重试': '逐接口标明是否幂等、幂等键如何生成与有效期、重复提交返回什么；列出可安全重试与绝不可重试的状态码，给退避策略',
+        '接口清单': '一行一个接口，列 Method + Path + 用途 + 权限 + 幂等 + 限流 + 关联状态；必须与接口明细一一对应，不允许只在清单出现而无明细',
+        '接口明细': '每个接口一个「### <Method> <Path>」小节，必须含四个子块：请求参数 / 响应字段 / 错误码 / 示例；前三个子块各需一张有数据行的表',
+        '变更记录': '每次改契约追加一行（日期 + 契约版本 + 变更内容 + 兼容/破坏 + 影响方），破坏性变更标出影响方并链接通知记录',
+        # ── 建议章节 ──
+        '版本策略': '版本放在哪里（路径/请求头/查询参数，选一种写明）、版本号规则、多版本并存与旧版本下线流程',
+        '通用请求头': '表格列出每个 Header 的必填性/类型/默认值/说明；自定义追踪头要写明是否透传回响应',
+        '分页': '分页与排序过滤的参数名、默认值、上限；响应分页字段含义；游标 vs 偏移的选择理由；超限是截断还是报错、报哪个码',
+        '时间 / 数值 / 空值约定': '时间格式与时区（UTC 还是本地）、精度；数值范围与溢出处理；空值语义——这几项不统一会导致跨服务对接反复返工',
+        '枚举全集': '全项目枚举集中登记（枚举名 + 取值 + 含义 + 出现在哪些接口），明细里只引用不重复定义；写明调用方必须能处理未知取值',
+        '限流与配额': '逐范围给阈值/窗口/超限响应；429 是否带 Retry-After 要写明，否则调用方无法做退避',
+        '超时与并发': '服务端处理超时与建议客户端超时；乐观锁字段与并发冲突响应；长任务是同步阻塞还是异步返回任务 ID + 轮询',
+        '文件上传与下载': '上传方式（multipart/分片/预签名 URL）、单文件上限、允许类型、下载与鉴权方式；不涉及文件则整节删除而不是留空',
+        '安全与脱敏': '敏感字段清单及脱敏规则、传输要求、日志禁止记录的字段、越权与注入防护',
+        '兼容性与废弃策略': '明确定义什么算破坏性变更、什么算兼容变更；通知方式与提前期；废弃三阶段（标记→双写双读→下线）各阶段时长；契约校验方式',
+        '附录': '状态码全集 / 错误码全集 / 枚举全集 / 数据字典，与正文保持一致；列出关联文档（状态模型、测试验收）链接',
     },
     'test': {
         '验收标准': '逐条对应需求规格的 FR-n 编号，全部 FR 被覆盖才可验收',
@@ -98,12 +139,17 @@ SECTION_HINTS = {
     },
 }
 
-# error 文案的修法提示
+# error 文案的修法提示（按插入顺序匹配，越具体越靠前）
 _ISSUE_HINTS = {
     '缺少必需章节': '补写该章节（见 hint）；确属不适用的章节可整节删除后重写，但必需章节不可缺',
+    '缺少建议章节': '补写该章节（见 hint）能让契约更完整；确属不适用可留空缺省，但会扣分',
     '未填写': '把模板指引注释 <!-- --> 替换为实际内容；不适用的小节可删除',
+    '明细不足': '把每个接口写成一个独立小节「### <Method> <Path>」，直接从模板范例整块复制骨架',
+    '子块': '接口小节内必须含 请求参数 / 响应字段 / 错误码 / 示例 四个「#### 」子块，'
+            '且前三个各配一张至少 1 行数据的表——参数名、类型、必填、约束、示例都不能省',
     '表格数据行不足': '在表头下补数据行；确实无内容则说明该文档不适用此规格，需检查 kind 是否选对',
     '链接目标不存在': '修正链接路径，或先生成目标文档（taskhub_scaffold_docs 可一次补齐全链）',
+    '缺少「': '按模板复制该子块的表头并逐行填全；字段级细节不能省',
 }
 
 _MD_LINK_RE = re.compile(r'\[[^\]]*\]\(([^)]+)\)')
@@ -125,20 +171,42 @@ def _sections_of(content: str):
     return out
 
 
+def _split_by_heading(lines, prefix='###'):
+    """按指定级别的标题切分为 [(标题, 正文行列表)]。
+
+    用于明细单元解析：prefix='###' 切接口小节，prefix='####' 切小节内的子块。
+    更高级别的标题（#### 在 ### 切分时）会落入正文，不会误切。
+    """
+    out, cur, body = [], None, []
+    marker = prefix + ' '
+    for line in lines:
+        if line.startswith(marker):
+            if cur is not None:
+                out.append((cur, body))
+            cur, body = line[len(marker):].strip(), []
+        elif cur is not None:
+            body.append(line)
+    if cur is not None:
+        out.append((cur, body))
+    return out
+
+
 def _table_data_rows(body_lines):
-    """章节内所有 markdown 表格的数据行总数（表头/分隔行不算）。"""
-    rows, in_table = 0, False
+    """章节内所有 markdown 表格的数据行总数（表头行与分隔行都不算）。
+
+    判定规则：以 `|` 开头的行中，排除分隔行（`|---|`），排除「下一行是分隔行」
+    的表头行，剩下的才是数据行。注意必须排除分隔行本身——否则 0 数据行的空表
+    会被算成 1 行，导致 min_table_rows 永远满足（历史缺陷，2026-09-17 修复）。
+    """
+    rows = 0
     for i, line in enumerate(body_lines):
         s = line.strip()
-        if s.startswith('|'):
-            nxt = body_lines[i + 1].strip() if i + 1 < len(body_lines) else ''
-            if _TABLE_SEP_RE.match(nxt):
-                in_table = True
-                continue
-            if in_table:
-                rows += 1
-        else:
-            in_table = False
+        if not s.startswith('|') or _TABLE_SEP_RE.match(s):
+            continue
+        nxt = body_lines[i + 1].strip() if i + 1 < len(body_lines) else ''
+        if _TABLE_SEP_RE.match(nxt):
+            continue  # 表头行
+        rows += 1
     return rows
 
 
@@ -197,6 +265,32 @@ def check_content(kind: str, content, ws_dir=None) -> dict:
         if hit and '<!--' not in _section_body(hit[1]):
             if _table_data_rows(hit[1]) < min_rows:
                 errors.append(f'章节「{hit[0]}」表格数据行不足（需 ≥{min_rows}）')
+
+    # 2a) 建议章节缺失 → warn（不阻断，但计入评分）
+    for rec in spec.get('recommended', []):
+        if not any(rec in t for t in titles):
+            warns.append(f'缺少建议章节「{rec}」')
+
+    # 2b) 明细单元完整性：每个单元必须写全指定子块，且子块表格有数据行
+    #     （接口契约的「每个接口都要有 请求参数/响应字段/错误码」就靠这条兜住）
+    detail = spec.get('detail_rule')
+    if detail:
+        holder = next(((t, b) for t, b in sections if detail['section'] in t), None)
+        if holder and '<!--' not in _section_body(holder[1]):
+            label = detail.get('unit_label', '单元')
+            units = _split_by_heading(holder[1], '###')
+            min_units = detail.get('min_units', 1)
+            if len(units) < min_units:
+                errors.append(f'{label}明细不足：需 ≥{min_units} 个（当前 {len(units)}）')
+            for u_title, u_body in units:
+                subs = _split_by_heading(u_body, '####')
+                for block, min_rows in detail.get('unit_blocks', {}).items():
+                    sub = next((b for t, b in subs if block in t), None)
+                    if sub is None:
+                        errors.append(f'{label}「{u_title}」缺少「{block}」子块')
+                    elif min_rows and _table_data_rows(sub) < min_rows:
+                        errors.append(
+                            f'{label}「{u_title}」的「{block}」子块表格数据行不足（需 ≥{min_rows}）')
 
     # 3) 链接有效（仅检查指向 workspace 内 .md 的相对链接）
     todo_left = content.count('<!--')
