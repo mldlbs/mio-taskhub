@@ -84,7 +84,7 @@ python agent_wrapper.py claude-code claim # claude-code 领下一个
 pip install pyinstaller
 # 一键打包：构建前端 + PyInstaller + 复制分发文件 + 压缩 zip
 powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1
-# 产物: dist/mio-taskhub/ （绿色版目录）+ dist/mio-taskhub-绿色版.zip
+# 产物: dist/mio-taskhub/ （绿色版目录）+ dist/mio-taskhub-win64.zip
 ```
 
 产物包含：
@@ -98,6 +98,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1
 
 小白使用流程：① 双击 mio-taskhub.exe → ② 双击 setup-agent.bat →
 ③ 重启 agent 说"使用 mio-taskhub 领取任务"。全程免 Python、免联网。
+
+### 自动更新与发版
+
+程序启动后会自动检查 GitHub Releases 是否有新版本；有新版本时托盘提示、面板顶部出现"立即更新"条，
+点击后自动下载、校验（sha256）、替换并重启，失败自动回滚到上一版本。
+更新日志见 `%USERPROFILE%\.mio_taskhub\update\apply.log`；设 `MIO_UPDATE_DISABLED=1` 可关闭自动检查。
+其它开关：`MIO_UPDATE_CHANNEL`（`prerelease` 接收预发布）、`MIO_UPDATE_INTERVAL_H`（默认 6 小时）、
+`MIO_UPDATE_BASE_URL`（覆盖更新源，内网/测试用）。用户数据（数据库/日志）不受更新影响。
+
+发版（需已安装并登录 `gh` CLI）：
+
+```bash
+powershell -NoProfile -ExecutionPolicy Bypass -File packaging/release.ps1 -Version 0.4.0 -Notes "本次更新说明"
+```
+
+脚本会：`build.ps1` 产出 `dist/mio-taskhub-win64.zip` → 计算 sha256/size →
+生成 `dist/latest.json`（客户端更新契约）→ `gh release create vX.Y.Z`（附 zip + latest.json）。
 
 维护要点：
 - 唯一打包 spec 在根目录 `mio-taskhub.spec`（单 EXE：hub/mcp/widget 三合一 + excludes 瘦身），不要复制副本

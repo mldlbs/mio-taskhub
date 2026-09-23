@@ -7,6 +7,7 @@ from mio_taskhub.models import Task, TaskState, TaskStage, Discussion
 from mio_taskhub.workflow.transitions import apply_transition, _orm_to_status_state, _orm_to_status_stage
 from mio_taskhub.api.task_helpers import parse_enum
 from mio_taskhub.doc_paths import DOC_KINDS, doc_path_of, merge_doc_paths, sync_legacy_fields
+from mio_taskhub.doc_lifecycle import reached_state
 from mio_taskhub.workflow.state_machine import State, State as M1State, Stage as M1Stage, ActorType, IllegalTransition as M1Illegal
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -55,6 +56,55 @@ STAGE_ARTIFACT_REQUIREMENTS = {
         "error": "done stage requires review_result or a review document",
     },
 }
+
+# ── 阶段推进的文档生命周期门控 ──────────────────────────────────────────────
+# 关闭「draft / 空契约仍能推进到 design」的缺口：进入目标阶段前，要求这些文档
+# kind 的生命周期状态至少达到 required_state（线性生命周期，索引 >= 即可）。
+#   仅当 doc_statuses[kind] 已显式设置状态时才校验；从未设状态的旧任务 / 未跟踪
+#   任务一律放行（向后兼容，不阻断历史数据）。
+#   api 此前不在任何阶段的 document_kinds 里 → 这里补进 design 门控，契约未
+#   approved 不能进入 planning（设计产物 spec+api 都应先审完再写实现/计划）。
+# changelog / review 无生命周期，不在此表；implementing / done 仅靠上游
+# （design / planning 已门控 spec+api / plan）间接保证。
+LIFECYCLE_GATE = {
+    "brainstorming": {"requirement": "approved"},
+    "design": {"spec": "approved", "api": "approved"},
+    "planning": {"plan": "approved"},
+}
+
+
+def _check_lifecycle_gate(t: Task, dst: TaskStage, force: bool = False):
+    """进入目标阶段前校验文档生命周期状态已达门槛。
+
+    仅当 doc_statuses[kind] 有显式状态时才校验（未设置则不阻断，向后兼容）。
+    未达门槛且未 force → 抛 HTTPException(422, {message, gate})；
+    force 绕过 → 返回被绕过的条目列表（供调用方留痕），否则返回空列表。
+    """
+    gate = LIFECYCLE_GATE.get(getattr(dst, "value", dst)) or {}
+    if not gate:
+        return []
+    statuses = dict(getattr(t, "doc_statuses", None) or {})
+    blocked = []
+    for kind, required in gate.items():
+        entry = statuses.get(kind)
+        if not entry:                       # 从未设置状态：旧任务 / 未跟踪，放行
+            continue
+        cur = (entry or {}).get("state")
+        if reached_state(kind, cur, required):
+            continue
+        blocked.append({
+            "kind": kind,
+            "current": cur,
+            "required": required,
+            "has_doc": bool(doc_path_of(t, kind)),
+        })
+    if blocked and not force:
+        raise HTTPException(422, detail={
+            "message": "文档生命周期门控：以下文档未达进入该阶段所需状态，"
+                       "请先把它们推进到 required 状态，或带 force=true 跳过",
+            "gate": blocked,
+        })
+    return blocked
 
 
 def _stage_requirement(dst) -> dict:
@@ -159,6 +209,7 @@ def stage_requirements():
                 "accepts_text": bool(req.get("accepts_text")),
                 "text_field": req.get("text_field"),
                 "error": req["error"],
+                "lifecycle_gate": LIFECYCLE_GATE.get(stage, {}),
             }
             for stage, req in STAGE_ARTIFACT_REQUIREMENTS.items()
         },
@@ -245,6 +296,7 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
         if not discussions:
             raise HTTPException(422, f"{dst.value} stage requires at least one discussion record")
     _apply_stage_requirements(t, dst, body)
+    forced_gate = _check_lifecycle_gate(t, dst, force=bool((body or {}).get("force")))
     m1_events = []
     try:
         cur_s = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
@@ -269,6 +321,9 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
                                   f"advance {src.value}→{dst.value}", m1_events)
     except M1Illegal as exc:
         raise HTTPException(400, f"state machine rejected advance: {exc}")
+    if forced_gate:
+        emit_event(db, type="task_stage_gate_forced", entity="task", entity_id=task_id,
+                   payload={"target": dst.value, "gate": forced_gate})
     emit_event(db, type="task_stage", entity="task", entity_id=task_id,
                payload={"target": dst.value})
     _commit_task_and_events(t, db, m1_events)
@@ -301,6 +356,7 @@ def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
         return {"id": t.id, "stage": t.stage.value, "spec_path": t.spec_path,
                 "plan_path": t.plan_path, "review_result": t.review_result,
                 "state": t.state.value}
+    forced_gate = _check_lifecycle_gate(t, dst, force=bool((body or {}).get("force")))
     m1_events = []
     cur_s = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
     cur_m1 = _orm_to_status_state(cur_s)
@@ -324,6 +380,9 @@ ActorType.USER, "api:move_to_stage",
         actor_id = "api:move_to_stage" if cur_s == TaskState.QUEUED else "auto:move"
         _transition_to_stage(t, cur_m1, to_st, actor, actor_id,
                               f"move {src.value}→{dst.value}", m1_events)
+    if forced_gate:
+        emit_event(db, type="task_stage_gate_forced", entity="task", entity_id=t.id,
+                   payload={"target": dst.value, "gate": forced_gate, "move": True})
     emit_event(db, type="task_moved", entity="task", entity_id=t.id,
                payload={"from": src.value, "to": dst.value})
     _commit_task_and_events(t, db, m1_events)

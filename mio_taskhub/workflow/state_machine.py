@@ -222,8 +222,28 @@ _EXPLICIT: list = [
                {ActorType.USER}, requires_reason=True, event_type="reopened"),
     Transition("T16", State.FAILED, Stage.REVIEW, State.QUEUED, Stage.READY,
                {ActorType.USER}, requires_reason=True, event_type="reopened"),
+    # 注意：RETRYING 这一支额外放行 SYSTEM —— 指数退避到期后由 scheduler
+    # （background._requeue_retries）自动重入队列。此前只允许 USER，scheduler
+    # 以 SYSTEM 调用会抛「无权执行 T16」，重试链条从未真正走通。
+    # 状态机索引按 (from,from_stage,to,to_stage) 唯一，同一 key 不能再挂第二个
+    # id，故此处直接扩展 actor 集合而非新增 T-id。FAILED 各支保持 user-only。
     Transition("T16", State.RETRYING, Stage.IMPLEMENTING, State.QUEUED, Stage.READY,
-               {ActorType.USER}, requires_reason=True, event_type="reopened"),
+               {ActorType.USER, ActorType.SYSTEM}, requires_reason=True, event_type="reopened"),
+    # T22 late_result_recovery：被系统超时判死的任务收到迟到成功结果时改判完成。
+    # 背景：_sweep 曾因 agent 级 OFFLINE 旁路 run 心跳新鲜度而误判 FAILED（见
+    # mio_taskhub.heartbeat.effective_timeout），agent 随后正常提交的 result
+    # 因 FAILED 是终态而无法回写，留下 task=FAILED + run=成功/exit0 的矛盾态。
+    # 仅用于「系统判死」后的纠正，调用方需自行校验判死来源（runs.py 的
+    # _is_system_timeout_failure），用户/agent 主动判失败不走这里。
+    Transition("T22", State.FAILED, Stage.IMPLEMENTING, State.COMPLETED, Stage.IMPLEMENTING,
+               {ActorType.SYSTEM, ActorType.AGENT}, requires_reason=True, event_type="completed"),
+    Transition("T22", State.FAILED, Stage.REVIEW, State.COMPLETED, Stage.REVIEW,
+               {ActorType.SYSTEM, ActorType.AGENT}, requires_reason=True, event_type="completed"),
+    # T23 timeout_requeue_from_running：run 心跳超时/agent 离线回收时，
+    # 仍在 RUNNING 的任务需要回到队列等待重领（原表只有 CLAIMED→QUEUED 的 T21，
+    # 导致 RUNNING 任务超时重入抛 IllegalTransition，run 连带回滚）。
+    Transition("T23", State.RUNNING, Stage.IMPLEMENTING, State.QUEUED, Stage.READY,
+               {ActorType.SYSTEM}, event_type="requeued"),
 ]
 
 

@@ -151,6 +151,8 @@ def _rel_entry(t, rel, kind, source, dir_=None):
     """构造一条文档清单条目（doc_paths / deliverables / files 共用）。
 
     `exists` 与读取端规则一致；无法判定（缺 workspace 且路径为相对）时为 None。
+    `status` 为该 kind 的生命周期状态（doc_statuses[kind]，形如 {state, at, note}）；
+    无生命周期的 kind（如 deliverable/file）或未落状态时为 None。
     """
     p = _doc_fs_path(t, rel)
     exists = p.is_file() if p is not None else None
@@ -161,7 +163,8 @@ def _rel_entry(t, rel, kind, source, dir_=None):
         except OSError:
             size = 0
     return {'name': os.path.basename(rel), 'rel_path': rel, 'kind': kind,
-            'size': size, 'source': source, 'dir': dir_ or '', 'exists': exists}
+            'size': size, 'source': source, 'dir': dir_ or '', 'exists': exists,
+            'status': (getattr(t, 'doc_statuses', None) or {}).get(kind)}
 
 
 def _slug(name):
@@ -196,11 +199,16 @@ def _is_related(d, keys):
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
 @router.get('/{task_id}/doc')
-def get_task_doc(task_id: str, kind: str = Query(...), db: Session = Depends(get_session)):
+def get_task_doc(task_id: str, kind: str = Query(...), run_id: str = Query(None),
+                 agent: str = Query(None), db: Session = Depends(get_session)):
     """按 kind 读取任务文档正文。
 
     kind 支持全部 DOC_KINDS（spec/plan/requirement/test/architecture/api/readme/changelog）；
     spec/plan 走旧列或 doc_paths，其余走 doc_paths。
+
+    传 `run_id`（来自 claim）时，本次读取会落一条 **Read Evidence**（绑定该 run，
+    含内容指纹）；submit_result 成功路径会校验 required reads 是否齐备。详见
+    mio_taskhub/read_evidence.py。
     """
     t = db.get(Task, task_id)
     if not t:
@@ -215,10 +223,14 @@ def get_task_doc(task_id: str, kind: str = Query(...), db: Session = Depends(get
         return {'kind': kind, 'path': rel, 'content': err, 'truncated': False, 'missing': True,
                 'status': (getattr(t, 'doc_statuses', None) or {}).get(kind)}
     text, truncated = _read_content(p)
-    return {'kind': kind, 'path': rel,
+    resp = {'kind': kind, 'path': rel,
             'content': (text if text is not None else f'文件不存在：{p}'),
             'truncated': truncated, 'missing': text is None,
             'status': (getattr(t, 'doc_statuses', None) or {}).get(kind)}
+    if run_id and text is not None:
+        from mio_taskhub.read_evidence import record_read
+        resp['read_evidence'] = record_read(db, t, kind, run_id, agent or "")
+    return resp
 
 
 @router.get('/{task_id}/documents')
@@ -253,7 +265,16 @@ def list_task_documents(task_id: str, db: Session = Depends(get_session)):
         if not keys or not _is_related(d, keys):
             continue
         d['related'] = True
+        # 注意：扫描发现的文档**不挂生命周期状态**。doc_statuses 是「该 kind 登记
+        # 的那一份文档」的状态，而扫描结果的 kind 只是文件名的启发式归类，同一
+        # 任务里常有十几份文件都被判成 requirement —— 给它们套同一状态会显示成
+        # 一排假「草稿」徽标（2026-09-18 实测 14/14 误标）。
         docs.append(d)
+
+    # 统一响应形状：发现的文档没有 status 键，补 None（而不是缺字段），
+    # 让 /documents 的每条条目 schema 一致。
+    for d in docs:
+        d.setdefault('status', None)
 
     docs.sort(key=lambda x: (SOURCE_RANK.get(x['source'], 9), x['kind'], x.get('rel_path', '')))
     return {'workspace': ws, 'documents': docs}

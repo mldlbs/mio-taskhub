@@ -1,0 +1,22 @@
+#!/bin/sh
+# mio-taskhub 文档门控 pre-push（手动安装版；推荐用 scripts/install_hooks.py 生成，
+# 会把 mio-taskhub 绝对路径写死，从而支持从任意仓库 push）。
+# ② 任务 spec/api/plan 已 approved；③ diff 引用的 FR-n 存在于需求文档。
+# 可用环境变量覆盖：MIO_TASKHUB_ROOT / MIO_DOC_GATE_KINDS / MIO_DOC_GATE_STRICT。
+MIO_ROOT="${MIO_TASKHUB_ROOT:-$(cd "$(dirname "$0")" && cd ../.. && pwd)}"
+if [ -x "$MIO_ROOT/.venv/Scripts/python.exe" ]; then
+  PY="$MIO_ROOT/.venv/Scripts/python.exe"
+elif [ -x "$MIO_ROOT/.venv/bin/python" ]; then
+  PY="$MIO_ROOT/.venv/bin/python"
+else
+  PY="$(command -v python3 2>/dev/null || command -v python 2>/dev/null)"
+fi
+if [ -z "$PY" ]; then
+  echo "[doc-gate] 未找到 python，跳过文档门控（放行）" >&2
+  exit 0
+fi
+if [ ! -f "$MIO_ROOT/scripts/git-hooks/pre_push_runner.py" ]; then
+  echo "[doc-gate] 未找到 pre_push_runner.py，跳过文档门控（放行）" >&2
+  exit 0
+fi
+exec "$PY" "$MIO_ROOT/scripts/git-hooks/pre_push_runner.py" "$@"

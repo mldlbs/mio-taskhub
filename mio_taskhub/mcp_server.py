@@ -40,6 +40,13 @@ mcp = FastMCP(
         "- 任务完成后用 taskhub_submit_result 提交，并向用户一句话汇报结果（成功/失败+原因）。\n"
         "执行类流程：taskhub_register 注册 → taskhub_claim 领取 → taskhub_heartbeat 心跳 → taskhub_submit_result 提交结果。\n"
         "- 空闲时周期性调用 taskhub_agent_heartbeat 保持在线，否则超时会被标记离线；未注册时调用会自动注册。"
+        "文档强制 consult（开发前必读，Read Evidence 门控）：\n"
+        "- taskhub_claim 会返回 branch / required_reads / required_fr / documents（内联预览，**不等于已读**）。\n"
+        "- 动手写码前，必须对 required_reads 里的每个 kind 调用 taskhub_read_document(task_id, kind, run_id=<claim 返回的 run id>)，产生 ReadEvidence。\n"
+        "- 写代码/测试时引用 requirement 里的 FR-n 编号（可追溯，详见仓库 doc-consult-enforcement-plan.md）。\n"
+        "- 代码分支命名为 task-<id>（id 为 8 位十六进制）；本地 pre-push 钩子校验 spec/api/plan 已 approved 且引用的 FR-n 真实存在。\n"
+        "- taskhub_submit_result 成功路径会校验 ReadEvidence：required reads 缺失或文档版本已变更 → 422（服务端强制，绕不过）；可用 taskhub_read_status 查看还差哪些。\n"
+        "- spec/api/plan 未批准时先用 taskhub_set_doc_status 推进其生命周期再编码。"
     ),
 )
 
@@ -83,7 +90,7 @@ def _tool(name: str, title: str, method: str, path: str, read_only: bool, destru
         "openWorldHint": False,
     }
     def decorator(func):
-        return mcp.tool(name=name, title=title, annotations=annotations)(func)
+        return mcp.tool(name=name, title=title, description=desc, annotations=annotations)(func)
     return decorator
 
 
@@ -110,7 +117,7 @@ async def taskhub_agent_heartbeat(
     return _fmt(await _request("POST", "/agents/heartbeat", body={"name": name}))
 
 
-@_tool(name="taskhub_claim", title="领取一个任务", method="POST", path="/tasks/claim", read_only=False, destructive=False, desc="按关联度 + 优先级 + FIFO 领取一个排队任务，或按 task_id 直接认领指定任务，并返回 Run 上下文（含任务详情）。")
+@_tool(name="taskhub_claim", title="领取一个任务", method="POST", path="/tasks/claim", read_only=False, destructive=False, desc="按关联度 + 优先级 + FIFO 领取一个排队任务，或按 task_id 直接认领指定任务，返回 Run id + task 详情，并内联 branch / required_reads / required_fr / documents（预览）。**内联预览不等于已读**：动手前必须对 required_reads 逐一调用 taskhub_read_document(task_id, kind, run_id=<本 run>) 产生 ReadEvidence，否则 taskhub_submit_result 会被 422 拦截。")
 async def taskhub_claim(
     agent: str = Field(description="当前 agent 名称，需先注册", min_length=1, max_length=64),
     agent_type: Optional[str] = Field(default=None, description="若设置，只领取匹配该类型的任务；不传则自动回查注册 agent_type", max_length=32),
@@ -145,7 +152,7 @@ async def taskhub_heartbeat(
     return _fmt(await _request("POST", f"/runs/{run_id}/heartbeat", body=body))
 
 
-@_tool(name="taskhub_submit_result", title="提交任务执行结果", method="POST", path="/runs/{run_id}/result", read_only=False, destructive=False, desc="提交 run 的最终结果（成功/失败）。成功后任务标记 completed；失败时若未超最大重试次数会进入 retrying 并重新排队，否则标记 failed。")
+@_tool(name="taskhub_submit_result", title="提交任务执行结果", method="POST", path="/runs/{run_id}/result", read_only=False, destructive=False, desc="提交 run 的最终结果（成功/失败）。成功后任务标记 completed；失败时若未超最大重试次数会进入 retrying 并重新排队，否则标记 failed。**成功提交有 Read Evidence 前置门控**：本次 run 若未读过 required 文档（或文档在读取后被改动）会返回 422，先 taskhub_read_document(run_id=...) 补齐或用 taskhub_read_status 自查。失败提交不受该门控限制。")
 async def taskhub_submit_result(
     run_id: str = Field(description="Run 唯一标识（claim 返回的 id）", min_length=1),
     success: bool = Field(default=True, description="是否成功"),
@@ -249,12 +256,24 @@ async def taskhub_list_documents(
     return _fmt(await _request("GET", f"/tasks/{task_id}/documents"))
 
 
-@_tool(name="taskhub_read_document", title="按类型读取任务文档", method="GET", path="/tasks/{task_id}/doc", read_only=True, destructive=False, desc="按 kind 读取任务文档正文。走服务端读取，支持全部类型（spec/plan/review/requirement/test/architecture/api/readme/changelog），不要求 MCP 与本机文件同机——读取非 spec/plan 文档优先用它。")
+@_tool(name="taskhub_read_document", title="按类型读取任务文档", method="GET", path="/tasks/{task_id}/doc", read_only=True, destructive=False, desc="按 kind 读取任务文档正文（全部类型：spec/plan/review/requirement/test/architecture/api/readme/changelog）。**传 run_id（来自 taskhub_claim）会记录 ReadEvidence**——submit_result 成功路径要求 required_reads 全部有 evidence，缺失/版本变更会 422。因此领任务后写码前，务必带 run_id 读取 required_reads 中的 spec/api/requirement。")
 async def taskhub_read_document(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     kind: str = Field(description="文档类型：spec/plan/review/requirement/test/architecture/api/readme/changelog"),
+    run_id: Optional[str] = Field(default=None, description="本次执行的 run id（taskhub_claim 返回）。传入即记录 ReadEvidence，供 submit 门控校验。"),
+    agent: Optional[str] = Field(default=None, description="当前 agent 名称（可选，随 evidence 留存）", max_length=64),
 ) -> str:
-    return _fmt(await _request("GET", f"/tasks/{task_id}/doc", params={"kind": kind}))
+    params = {"kind": kind}
+    if run_id: params["run_id"] = run_id
+    if agent: params["agent"] = agent
+    return _fmt(await _request("GET", f"/tasks/{task_id}/doc", params=params))
+
+
+@_tool(name="taskhub_read_status", title="查看本次执行的阅读证据状态", method="GET", path="/runs/{run_id}/read-evidence", read_only=True, destructive=False, desc="查看本次 run 是否已满足 submit 的必读要求：required_reads（必读项）、read_ok（已读且版本一致）、missing（没读）、stale（文档已被改动需重读）、passed。提交前用它自查。")
+async def taskhub_read_status(
+    run_id: str = Field(description="Run 唯一标识（claim 返回的 id）", min_length=1),
+) -> str:
+    return _fmt(await _request("GET", f"/runs/{run_id}/read-evidence"))
 
 
 @_tool(name="taskhub_write_document", title="写入任务文档", method="PUT", path="/tasks/{task_id}/doc", read_only=False, destructive=False, desc="写入/追加任务文档正文并自动登记到 doc_paths，让 agent 可直接产出设计/计划/审查等文档，无需先手工放文件。缺省写到 workspace 下 docs/<kind>.md。")
@@ -448,12 +467,14 @@ async def taskhub_advance_stage(
     plan_path: Optional[str] = Field(default=None, description="计划文档路径（进 planning 必填）"),
     review_result: Optional[str] = Field(default=None, description="审查结论（进 done 必填）"),
     doc_paths: Optional[dict] = Field(default=None, description="文档路径映射（kind -> 路径），可与 spec_path/plan_path 混用"),
+    force: bool = Field(default=False, description="跳过文档生命周期门控（契约/文档未达 required 状态也强行推进），会留痕"),
 ) -> str:
     body = {"target_stage": target_stage}
     if spec_path is not None: body["spec_path"] = spec_path
     if plan_path is not None: body["plan_path"] = plan_path
     if review_result is not None: body["review_result"] = review_result
     if doc_paths is not None: body["doc_paths"] = doc_paths
+    if force: body["force"] = True
     return _fmt(await _request("POST", f"/tasks/{task_id}/stage", body=body))
 
 
@@ -465,12 +486,14 @@ async def taskhub_move_to_stage(
     plan_path: Optional[str] = Field(default=None, description="计划文档路径（目标为 planning 时必填）"),
     review_result: Optional[str] = Field(default=None, description="审查结论（目标为 done 时必填）"),
     doc_paths: Optional[dict] = Field(default=None, description="文档路径映射（kind -> 路径），可与 spec_path/plan_path 混用"),
+    force: bool = Field(default=False, description="跳过文档生命周期门控（契约/文档未达 required 状态也强行跳转），会留痕"),
 ) -> str:
     body = {"target_stage": target_stage}
     if spec_path is not None: body["spec_path"] = spec_path
     if plan_path is not None: body["plan_path"] = plan_path
     if review_result is not None: body["review_result"] = review_result
     if doc_paths is not None: body["doc_paths"] = doc_paths
+    if force: body["force"] = True
     return _fmt(await _request("POST", f"/tasks/{task_id}/stage/move", body=body))
 
 

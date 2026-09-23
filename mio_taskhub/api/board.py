@@ -8,11 +8,10 @@ from mio_taskhub.workflow.state_machine import (
 )
 from mio_taskhub.dependency import task_deps, dependency_satisfied
 from mio_taskhub.composite import composite_status, COMPOSITE_LABEL
+from mio_taskhub.heartbeat import DEFAULT_TIMEOUT_SECONDS
 from mio_taskhub.utils import _now
 
 router = APIRouter(prefix="/board", tags=["board"])
-
-DEFAULT_TIMEOUT_SECONDS = 120
 
 
 def _stage(v):

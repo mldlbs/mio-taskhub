@@ -88,6 +88,28 @@ def test_documents_lists_doc_paths_entries_as_field(tmp_path):
     assert all(d['source'] == 'field' for d in docs)
 
 
+def test_documents_carries_lifecycle_status(tmp_path):
+    """清单条目带上生命周期状态：有生命周期的带 {state}，无生命周期的为 None。
+
+    此前 /documents 走 _rel_entry，不带 doc_statuses —— 前端拿到清单也无法渲染
+    状态徽标（8 类文档生命周期在 Web UI 上不可见）。
+    """
+    ws = _ws(tmp_path, 'readme.md')
+    tid = _mk(ws, doc_paths={'readme': 'readme.md'})
+
+    r = client.put(f'/api/v1/tasks/{tid}/doc', params={'kind': 'spec'},
+                   json={'content': '# spec\n'})
+    assert r.status_code == 200, r.text
+    assert r.json()['status']['state'] == 'draft'
+
+    docs = client.get(f'/api/v1/tasks/{tid}/documents').json()['documents']
+    by_kind = {d['kind']: d for d in docs}
+    assert by_kind['spec']['status']['state'] == 'draft'
+    # readme 无生命周期 → status 为 None（而非缺失该键）
+    assert 'status' in by_kind['readme']
+    assert by_kind['readme']['status'] is None
+
+
 def test_legacy_spec_path_still_served_and_listed(tmp_path):
     """只用旧 spec_path 的任务：仍可 /doc 读取，且在 /documents 中为 field。"""
     ws = _ws(tmp_path, 'my-spec.md')
@@ -441,13 +463,23 @@ def test_write_doc_spec_syncs_legacy_field(tmp_path):
 
 
 def test_write_then_advance_design_without_workspace_doc(tmp_path):
-    """写入的文档可直接满足阶段门槛（无需手工放文件）。"""
+    """写入的文档自动落位 draft 生命周期；未 approved 不能进 design，需先审或 force。"""
     ws = _ws(tmp_path)
     tid = _mk(ws, stage='brainstorming')
     _discussion(tid)
 
-    _put_doc(tid, 'spec', content='# spec')
+    r = _put_doc(tid, 'spec', content='# spec')
+    assert r.status_code == 200
+    assert (r.json().get('status') or {}).get('state') == 'draft'
+
+    # draft 契约不能进 design（生命周期门控，2026-09-18 新增）
     r = client.post(f'/api/v1/tasks/{tid}/stage', json={'target_stage': 'design'})
+    assert r.status_code == 422
+    assert r.json()['detail']['gate'][0]['kind'] == 'spec'
+
+    # force 可绕过（留痕）；或先 set_doc_status approved 再进
+    r = client.post(f'/api/v1/tasks/{tid}/stage',
+                    json={'target_stage': 'design', 'force': True})
     assert r.status_code == 200, r.text
     assert r.json()['spec_path'] == 'docs/spec.md'
 

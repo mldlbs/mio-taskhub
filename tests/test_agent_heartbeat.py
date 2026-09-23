@@ -154,3 +154,72 @@ def test_sweep_recycles_offline_agent_run_despite_large_timeout():
         assert run.state == RunState.FINISHED
         task = s.get(Task, tid)
         assert task.state == TaskState.QUEUED
+
+
+# ── 误判防线：agent OFFLINE 不得旁路 run 心跳新鲜度 ──────────────────────
+# 2026-09-17 实测：13 个 task 在 agent 仍在正常上报 progress 时被判 FAILED，
+# 根因是 _sweep 只看 agent 级 OFFLINE 就判死（agent 心跳 180s 超时，而 agent
+# 只在 claim 前心跳一次）。run 级心跳新鲜时必须保持存活。
+
+def _claim_offline_agent_task(agent_name, title, timeout_min=None):
+    from mio_taskhub.models import Task, TaskStage
+    _mk_agent(agent_name, status=AgentStatus.OFFLINE)
+    with Session(engine) as s:
+        t = Task(title=title, stage=TaskStage.READY, timeout_min=timeout_min)
+        s.add(t); s.commit(); s.refresh(t)
+        tid = t.id
+    claim = client.post("/api/v1/tasks/claim", params={"agent": agent_name}).json()
+    return tid, claim["id"]
+
+
+def test_sweep_keeps_fresh_run_when_agent_offline():
+    """agent OFFLINE 但 run 刚心跳过 → 不得判死（生产误判的核心场景）。"""
+    from mio_taskhub.models import Task, Run, RunState, TaskState
+    tid, rid = _claim_offline_agent_task("fresh-offline", "fresh-offline-task", 600)
+
+    timed_out = []
+    sweep = background.HeartbeatSweep(get_runs=background._get_runs,
+                                      on_timeout=lambda r, t: timed_out.append(r),
+                                      on_alive=lambda r: None)
+    sweep._sweep()  # run.last_heartbeat = claim 时刻（刚刚）
+
+    assert rid not in timed_out
+    with Session(engine) as s:
+        assert s.get(Run, rid).state in (RunState.CLAIMED, RunState.RUNNING)
+        assert s.get(Task, tid).state != TaskState.FAILED
+
+
+def test_sweep_keeps_run_within_baseline_when_agent_offline():
+    """run 心跳落后 71s（实测生产值）仍在基线内 → 不得判死。"""
+    from mio_taskhub.models import Task, Run, RunState
+    tid, rid = _claim_offline_agent_task("baseline-offline", "baseline-offline-task", 600)
+    with Session(engine) as s:
+        run = s.get(Run, rid)
+        run.last_heartbeat = datetime.now(timezone.utc) - timedelta(seconds=71)
+        s.add(run); s.commit()
+
+    timed_out = []
+    sweep = background.HeartbeatSweep(get_runs=background._get_runs,
+                                      on_timeout=lambda r, t: timed_out.append(r),
+                                      on_alive=lambda r: None)
+    sweep._sweep()
+    assert rid not in timed_out
+    with Session(engine) as s:
+        assert s.get(Run, rid).state in (RunState.CLAIMED, RunState.RUNNING)
+
+
+def test_offline_agent_reclaim_capped_at_baseline():
+    """agent OFFLINE 时有效超时被收紧到基线：落后 130s 仍超出基线 → 回收。"""
+    from mio_taskhub.models import Task, Run, RunState, TaskState
+    tid, rid = _claim_offline_agent_task("capped-offline", "capped-offline-task", 600)
+    with Session(engine) as s:
+        run = s.get(Run, rid)
+        run.last_heartbeat = datetime.now(timezone.utc) - timedelta(seconds=130)
+        s.add(run); s.commit()
+
+    timed_out = []
+    sweep = background.HeartbeatSweep(get_runs=background._get_runs,
+                                      on_timeout=lambda r, t: timed_out.append(r),
+                                      on_alive=lambda r: None)
+    sweep._sweep()
+    assert rid in timed_out

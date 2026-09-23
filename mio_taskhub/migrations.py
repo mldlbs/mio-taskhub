@@ -24,10 +24,24 @@ def run_migrations(target_engine=None):
             _migrate_event(conn)
         if "ideachange" in tables:
             _migrate_ideachange(conn)
+        if "readevidence" in tables:
+            _migrate_read_evidence(conn)
 
         _migrate_observability(conn)
 
         conn.commit()
+
+
+def _migrate_read_evidence(conn):
+    """Read Evidence：一个 (run_id, document_kind) 只保留一行（upsert 幂等兜底）。"""
+    try:
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_read_evidence_run_kind "
+            "ON readevidence (run_id, document_kind)"
+        ))
+    except Exception:
+        # 历史重复行等异常不阻塞启动；写入端已按 upsert 保证唯一。
+        pass
 
 
 def _migrate_task(conn):

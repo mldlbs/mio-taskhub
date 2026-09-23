@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 import secrets
 from fastapi.responses import JSONResponse
 from mio_taskhub.db import get_session, init_db
-from mio_taskhub.api import tasks, task_stages, task_graph, task_subtasks, templates, agents, runs, plans, board, ideas, idea_templates, idea_scoring, adr, discussions, events, nightrun, memory, scheduled_jobs, task_documents, reviews, ideas_breakdown, ideas_discussion, observability
+from mio_taskhub.api import tasks, task_stages, task_graph, task_subtasks, templates, agents, runs, plans, board, ideas, idea_templates, idea_scoring, adr, discussions, events, nightrun, memory, scheduled_jobs, task_documents, reviews, ideas_breakdown, ideas_discussion, observability, update
 from mio_taskhub.api.insights import router as insights_router
 from mio_taskhub.api.board import board_summary as _board_summary
 from mio_taskhub.observability.logging_config import setup_logging
@@ -19,6 +19,7 @@ from mio_taskhub.events import ws_manager
 from mio_taskhub.observability.otel import init_otel, instrument_app, instrument_sqlalchemy, instrument_httpx, shutdown_otel
 from mio_taskhub.observability.alerts import init_alert_manager, get_alert_manager
 from mio_taskhub.db import engine as db_engine
+from mio_taskhub.version import __version__
 
 
 def get_token(args_token=None):
@@ -143,6 +144,22 @@ async def lifespan(app):
     _remediation_thread.start()
     register_thread("remediation-eval", _remediation_thread, None)
 
+    # 更新：启动残留恢复 + 后台检查线程 + runtime sentinel
+    from mio_taskhub.update import runtime as update_runtime
+    from mio_taskhub.version import __version__ as _ver, is_frozen as _frozen
+    update_runtime.startup_recovery()
+    try:
+        from mio_taskhub.update.service import get_service
+        _svc = get_service()
+        _interval = float(os.environ.get("MIO_UPDATE_INTERVAL_H", "6") or 6)
+        _svc.start_background(delay=20.0, interval_h=_interval)
+        app.state.update_service = _svc
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger("mio_taskhub.update").warning("update service 启动失败：%s", e)
+    if _frozen():
+        update_runtime.write_runtime_state(
+            version=_ver, port=int(os.environ.get("MIO_TASKHUB_PORT", "48620")))
+
     yield
     jobs = getattr(app.state, "background", None)
     if jobs:
@@ -162,7 +179,7 @@ async def lifespan(app):
 
 app = FastAPI(
     title="mio-taskhub",
-    version="0.3.0",
+    version=__version__,
     description="Multi-agent R&D dispatch system with state machine, task lifecycle, and real-time notifications.",
     lifespan=lifespan,
 )
@@ -198,6 +215,7 @@ app.include_router(nightrun.router, prefix="/api/v1", tags=["nightrun"])
 app.include_router(scheduled_jobs.router, prefix="/api/v1", tags=["scheduled-jobs"])
 app.include_router(memory.router, tags=["memory-gateway"])
 app.include_router(observability.router)
+app.include_router(update.router, prefix="/api/v1", tags=["update"])
 app.include_router(insights_router)
 
 

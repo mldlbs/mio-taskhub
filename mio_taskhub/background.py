@@ -1,9 +1,8 @@
 import logging
-from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 import threading
 import time
-from typing import Callable, List, Dict, Optional
+from typing import Callable, List, Dict
 from sqlmodel import Session, select
 from mio_taskhub.db import engine
 from mio_taskhub.api.claim import claim_for as _claim_for
@@ -13,25 +12,49 @@ from mio_taskhub.dependency import dependency_satisfied, task_deps
 from mio_taskhub.events import emit_event, broadcast_for_event
 from mio_taskhub.workflow.transitions import apply_transition, _orm_to_status_stage
 from mio_taskhub.workflow.state_machine import State as M1State, Stage as M1Stage, ActorType as M1Actor
+from mio_taskhub.workflow.state_machine import IllegalTransition as M1Illegal
 from mio_taskhub.ideas.idea_review import IdeaReviewScanner
+from mio_taskhub.heartbeat import (
+    HeartbeatSweep,
+    RunInfo,
+    DEFAULT_TIMEOUT_SECONDS,
+)
 
 logger = logging.getLogger("mio_taskhub.background")
 
-DEFAULT_TIMEOUT_SECONDS = 120
 AGENT_TIMEOUT_SECONDS = 180
 
-# ---------- RunInfo ----------
-@dataclass
-class RunInfo:
-    run_id: str
-    task_id: str
-    agent_name: str
-    state: RunState
-    last_heartbeat: float
-    attempt: int
-    max_retries: int
-    timeout_seconds: int = 120
-    agent_offline: bool = False
+
+# ---------- 状态迁移留痕 ----------
+def _apply_event(db, task, to_state, to_stage, actor_type, actor_id, reason="", metadata=None):
+    """apply_transition + 把 TaskEvent 加入 session。
+
+    apply_transition 会构造 TaskEvent 但**不会**持久化，调用方必须自行 add。
+    历史上 background.py 的 9 处调用都丢弃了返回值，导致系统侧状态变更
+    （超时判死、重入队列、放行依赖）全部不留痕，事后无法归因。
+    统一走本函数，避免再次遗漏。
+    """
+    _, event = apply_transition(
+        task, to_state, to_stage, actor_type, actor_id,
+        reason=reason, metadata=metadata,
+    )
+    if event is not None:
+        db.add(event)
+    return event
+
+
+def _try_apply_event(db, task, to_state, to_stage, actor_type, actor_id, reason="", metadata=None):
+    """宽松版 _apply_event：迁移非法时记 warning 并返回 None，不中断调用方。
+
+    用于看门狗等「状态可能已被别处改掉」的场景 —— 迁移被拒不应连带回滚
+    同一事务里已经做好的 run 回收。
+    """
+    try:
+        return _apply_event(db, task, to_state, to_stage, actor_type, actor_id,
+                            reason=reason, metadata=metadata)
+    except M1Illegal as exc:
+        logger.warning("状态迁移被拒，仅跳过留痕：task=%s %s", task.id, exc)
+        return None
 
 
 # ---------- Background Thread Heartbeat ----------
@@ -154,15 +177,15 @@ def _handle_retry_or_fail(task, reason: str, db):
     """指数退避：未超限进入 RETRYING 并设定 retry_at，超限进入 FAILED。通过 apply_transition 记录。"""
     from_st = _orm_to_status_stage(task.stage)
     if task.max_retries == 0 or task.attempt >= task.max_retries:
-        apply_transition(task, M1State.FAILED, from_st,
-                         M1Actor.SYSTEM, "scheduler:retry_or_fail",
-                         reason=reason or "max_retries_exceeded")
+        _apply_event(db, task, M1State.FAILED, from_st,
+                     M1Actor.SYSTEM, "scheduler:retry_or_fail",
+                     reason=reason or "max_retries_exceeded")
         task.retry_at = None
         return "failed"
     # 进入重试，设定退避
-    apply_transition(task, M1State.RETRYING, from_st,
-                     M1Actor.SYSTEM, "scheduler:retry_or_fail",
-                     reason=reason or "retry_backoff")
+    _apply_event(db, task, M1State.RETRYING, from_st,
+                 M1Actor.SYSTEM, "scheduler:retry_or_fail",
+                 reason=reason or "retry_backoff")
     task.retry_count = (task.retry_count or 0) + 1
     task.retry_at = datetime.now(timezone.utc) + _backoff_for(task)
     return "retrying"
@@ -179,9 +202,9 @@ def _requeue_retries():
                 # 兼容旧数据：无 retry_at 直接重入
                 # M1: T9 retry_requeue
                 from_st = _orm_to_status_stage(t.stage)
-                apply_transition(t, M1State.QUEUED, M1Stage.READY,
-                                 M1Actor.SYSTEM, "scheduler:requeue_retries",
-                                 reason="retry_backoff_elapsed")
+                _apply_event(db, t, M1State.QUEUED, M1Stage.READY,
+                             M1Actor.SYSTEM, "scheduler:requeue_retries",
+                             reason="retry_backoff_elapsed")
                 t.retry_at = None
                 event = emit_event(db, type="task_retry_requeued", entity="task", entity_id=t.id,
                                    payload={"reason": "retry_backoff_elapsed"})
@@ -194,9 +217,9 @@ def _requeue_retries():
             if rt <= now:
                 # M1: T9 retry_requeue
                 from_st = _orm_to_status_stage(t.stage)
-                apply_transition(t, M1State.QUEUED, M1Stage.READY,
-                                 M1Actor.SYSTEM, "scheduler:requeue_retries",
-                                 reason="retry_backoff_elapsed")
+                _apply_event(db, t, M1State.QUEUED, M1Stage.READY,
+                             M1Actor.SYSTEM, "scheduler:requeue_retries",
+                             reason="retry_backoff_elapsed")
                 t.retry_at = None
                 event = emit_event(db, type="task_retry_requeued", entity="task", entity_id=t.id,
                                    payload={"reason": "retry_backoff_elapsed", "attempt": t.attempt})
@@ -211,45 +234,32 @@ def _on_timeout(run_id: str, task_id: str):
     with Session(engine) as db:
         run = db.get(Run, run_id)
         task = db.get(Task, task_id)
-        if run and run.state in (RunState.CLAIMED, RunState.RUNNING):
-            agent = db.get(Agent, run.agent_name)
-            agent_offline = agent is None or agent.status == AgentStatus.OFFLINE
-            if agent_offline:
-                run.state = RunState.FINISHED
-                run.result = "agent offline"
-                run.finished_at = datetime.now(timezone.utc)
-                run.exit_code = 1
-                db.add(run)
-                if task:
-                    from_st = _orm_to_status_stage(task.stage)
-                    if task.attempt >= task.max_retries:
-                        apply_transition(task, M1State.FAILED, from_st,
-                                         M1Actor.SYSTEM, "scheduler:timeout",
-                                         reason="agent_offline:max_retries_exceeded")
-                    else:
-                        apply_transition(task, M1State.QUEUED, M1Stage.READY,
-                                         M1Actor.SYSTEM, "scheduler:timeout",
-                                         reason="agent_offline:requeue")
-                    db.add(task)
-                db.commit()
-                return
-        if run and run.state in (RunState.CLAIMED, RunState.RUNNING):
-            run.state = RunState.FINISHED
-            run.result = "heartbeat timeout"
-            run.finished_at = datetime.now(timezone.utc)
-            run.exit_code = 1
-            db.add(run)
-            if task:
-                from_st = _orm_to_status_stage(task.stage)
-                if task.attempt >= task.max_retries:
-                    apply_transition(task, M1State.FAILED, from_st,
-                                     M1Actor.SYSTEM, "scheduler:timeout",
-                                     reason="heartbeat_timeout:max_retries_exceeded")
-                else:
-                    apply_transition(task, M1State.QUEUED, M1Stage.READY,
-                                     M1Actor.SYSTEM, "scheduler:timeout",
-                                     reason="heartbeat_timeout:requeue")
-                db.add(task)
+        if not (run and run.state in (RunState.CLAIMED, RunState.RUNNING)):
+            return
+
+        agent = db.get(Agent, run.agent_name)
+        agent_offline = agent is None or agent.status == AgentStatus.OFFLINE
+        kind = "agent_offline" if agent_offline else "heartbeat_timeout"
+
+        # 先回收 run：这一步必须落库。历史上若任务迁移抛 IllegalTransition，
+        # 会连带把 run 回收一起回滚，导致该 run 每轮扫描重复失败、永远回收不掉。
+        run.state = RunState.FINISHED
+        run.result = "agent offline" if agent_offline else "heartbeat timeout"
+        run.finished_at = datetime.now(timezone.utc)
+        run.exit_code = 1
+        db.add(run)
+
+        if task is not None and not is_terminal(task):
+            from_st = _orm_to_status_stage(task.stage)
+            if task.attempt >= task.max_retries:
+                reason = f"{kind}:max_retries_exceeded"
+                _try_apply_event(db, task, M1State.FAILED, from_st,
+                                 M1Actor.SYSTEM, "scheduler:timeout", reason=reason)
+            else:
+                reason = f"{kind}:requeue"
+                _try_apply_event(db, task, M1State.QUEUED, M1Stage.READY,
+                                 M1Actor.SYSTEM, "scheduler:timeout", reason=reason)
+            db.add(task)
         db.commit()
 
 
@@ -277,7 +287,7 @@ def _release_dependencies():
             if prereqs and all(p is not None and dependency_satisfied(p) for p in prereqs):
                 # M1: T17 manual_advance (depsatisfied → ready)
                 from_st = _orm_to_status_stage(t.stage)
-                apply_transition(t, M1State.QUEUED, M1Stage.READY,
+                _try_apply_event(db, t, M1State.QUEUED, M1Stage.READY,
                                  M1Actor.SYSTEM, "scheduler:release_deps",
                                  reason="deps_satisfied")
                 event = emit_event(db, type="task_released", entity="task",
@@ -480,7 +490,13 @@ def register_thread(name: str, thread: threading.Thread, obj: object = None):
 
 
 def start_background_jobs():
-    sweep = HeartbeatSweep(get_runs=_get_runs, on_timeout=_on_timeout, on_alive=_on_alive)
+    sweep = HeartbeatSweep(
+        get_runs=_get_runs,
+        on_timeout=_on_timeout,
+        on_alive=_on_alive,
+        on_tick=lambda: thread_heartbeat("heartbeat", "running"),
+        on_error=lambda: thread_failure("heartbeat"),
+    )
     scheduler = Scheduler(get_due_tasks=_get_due_tasks, on_enqueue=_on_enqueue)
     idea_scanner = IdeaReviewScanner()
     sweep.start()
@@ -492,55 +508,9 @@ def start_background_jobs():
     return sweep, scheduler, idea_scanner
 
 
-# ---------- HeartbeatSweep ----------
-class HeartbeatSweep:
-    def __init__(
-        self,
-        timeout_seconds: int = 120,
-        poll_interval: float = 10.0,
-        get_runs: Callable[[], List[RunInfo]] = lambda: [],
-        on_timeout: Callable[[str, str], None] = lambda rid, tid: None,
-        on_alive: Callable[[str], None] = lambda rid: None,
-    ):
-        self.timeout = timeout_seconds
-        self.interval = poll_interval
-        self._get_runs = get_runs
-        self._on_timeout = on_timeout
-        self._on_alive = on_alive
-        self._stop = threading.Event()
-        self._thread: Optional[threading.Thread] = None
-
-    def start(self):
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def stop(self):
-        self._stop.set()
-        if self._thread:
-            self._thread.join(timeout=5)
-
-    def _run(self):
-        while not self._stop.wait(self.interval):
-            try:
-                self._sweep()
-                thread_heartbeat("heartbeat", "running")
-            except Exception:
-                thread_failure("heartbeat")
-                logging.getLogger("mio_taskhub.heartbeat").exception("heartbeat sweep failed")
-
-    def _sweep(self):
-        now = time.time()
-        for run in self._get_runs():
-            if run.state not in (RunState.CLAIMED, RunState.RUNNING):
-                continue
-            try:
-                expired = now - run.last_heartbeat > getattr(run, "timeout_seconds", self.timeout)
-                if run.agent_offline or expired:
-                    self._on_timeout(run.run_id, run.task_id)
-                else:
-                    self._on_alive(run.run_id)
-            except Exception:
-                pass  # isolate per-run failures
+# HeartbeatSweep / RunInfo 已统一到 mio_taskhub.heartbeat（单一事实源）。
+# 此前 background.py 里存在一份几乎相同的拷贝，两处判死逻辑各自演化，
+# 导致 agent_offline 旁路 run 心跳新鲜度的缺陷需要修两遍。
 
 
 # ---------- Scheduler ----------

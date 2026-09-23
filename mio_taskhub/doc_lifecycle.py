@@ -109,3 +109,20 @@ def validate_transition(kind, current, target):
         return (f"illegal transition {current} -> {target} for kind '{kind}'; "
                 f"allowed: {', '.join(allowed_next(kind, current)) or 'none (terminal)'}")
     return None
+
+
+def reached_state(kind, current, required):
+    """线性生命周期里 `current` 是否已经达到（含越过）`required` 状态。
+
+    用于阶段推进门控：进入某阶段要求文档 kind 的状态至少达到 required。
+    无生命周期 / required 或 current 不在状态表里 → False（需调用方自行决定兜底）。
+    """
+    lc = DOC_LIFECYCLE.get(kind)
+    if not lc:
+        return False
+    states = list(lc['states'])
+    if required not in states:
+        return False
+    if current is None or current not in states:
+        return False
+    return states.index(current) >= states.index(required)

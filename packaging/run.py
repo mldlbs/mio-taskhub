@@ -29,6 +29,9 @@ def _stdio():
 
 def main():
     mode = (sys.argv[1] if len(sys.argv) > 1 else "hub").lower()
+    if mode == "apply-update":
+        from mio_taskhub.update.apply import run_apply_update
+        raise SystemExit(run_apply_update(sys.argv[2:]))
     if mode == "mcp":
         from mio_taskhub.mcp_server import main as mcp_main
 
@@ -48,5 +51,8 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except SystemExit:
-        pass
+    except SystemExit as e:
+        # apply-update 的退出码必须透传给 OS（updater 成败的外部判据）；
+        # 仅吞掉"无码/成功退出"，保持 hub 原有交互退出行为不变。
+        if e.code not in (None, 0):
+            raise

@@ -271,8 +271,13 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
         select(Run).where(Run.agent_name == agent, Run.state.in_([RunState.CLAIMED, RunState.RUNNING]))
     ).first()
     if existing:
-        return {"id": existing.id, "task_id": existing.task_id, "state": existing.state.value,
+        from mio_taskhub.read_evidence import build_claim_context
+        resp = {"id": existing.id, "task_id": existing.task_id, "state": existing.state.value,
                 "agent_name": existing.agent_name}
+        t_existing = db.get(Task, existing.task_id)
+        if t_existing is not None:
+            resp.update(build_claim_context(t_existing))
+        return resp
     if not agent_type:
         ag = db.get(Agent, agent)
         if ag and ag.agent_type:
@@ -299,5 +304,8 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
     db.add(task)
     db.commit()
     db.refresh(run)
-    return {"id": run.id, "task_id": run.task_id, "state": run.state.value,
+    from mio_taskhub.read_evidence import build_claim_context
+    resp = {"id": run.id, "task_id": run.task_id, "state": run.state.value,
             "agent_name": run.agent_name, "attempt": run.attempt}
+    resp.update(build_claim_context(task))
+    return resp

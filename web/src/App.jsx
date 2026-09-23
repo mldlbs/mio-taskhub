@@ -23,6 +23,7 @@ import DocPanel from './components/DocPanel'
 import ErrorBoundary from './components/ErrorBoundary'
 import ErrorBar from './components/ErrorBar'
 import ConnectionBanner from './components/ConnectionBanner'
+import UpdateBanner from './components/UpdateBanner'
 
 import CommandPalette from './components/CommandPalette'
 
@@ -155,6 +156,11 @@ export default function App() {
           } else if (data.type === 'memory_update' && data.event) {
             // 实时把 memory 事件传给 MemoryView（独立 state 避免全量重渲染）
             setMemoryEvent(data)
+          } else if (data.type === 'update_status') {
+            setLastSync(new Date())   // 触发 UpdateBanner 立即刷新
+            if (data.kind === 'update_available' && data.status && data.status.latest) {
+              addToast(`发现新版本 v${data.status.latest}`, 'ok')
+            }
           }
         } catch { /* ignore parse errors */ }
       }
@@ -352,6 +358,7 @@ export default function App() {
         />
 
         <ConnectionBanner wsLive={ws} lastSync={lastSync} retryIn={wsRetryIn} />
+        <UpdateBanner eventTick={lastSync} />
 
         {error && (
           <ErrorBar

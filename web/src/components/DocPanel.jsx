@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { api } from '../api'
+import { docStateLabel, docStateTone, stateOfDoc, stateOfStatus, lifecycleTrack } from '../docLifecycle'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import hljs from 'highlight.js'
@@ -115,6 +116,8 @@ export default function DocPanel({ task, onClose }) {
   const [findHits, setFindHits] = useState(0)
   const [progress, setProgress] = useState(0)
   const [lightbox, setLightbox] = useState(null)
+  // 文档生命周期总览（kind -> {state, states, allowed_next, ...}），缺失不阻塞文档浏览
+  const [statusMap, setStatusMap] = useState({})
   const viewRef = useRef(null)
 
   useEffect(() => {
@@ -148,6 +151,10 @@ export default function DocPanel({ task, onClose }) {
     let alive = true
     api.getTaskDocuments(task.id).then(r => { if (!alive) return; const list = r.documents || []; setDocs(list); if (list.length) select(list[0]) })
       .catch(e => { if (alive) { setDocs([]); setErr(e.message) } })
+    // 生命周期总览：拿 states 全序列 + 合法后继，用于状态徽标与推进条
+    api.getDocStatuses(task.id)
+      .then(r => { if (alive) setStatusMap(r.statuses || {}) })
+      .catch(() => { if (alive) setStatusMap({}) })
     return () => { alive = false }
   }, [task.id, select])
 
@@ -302,6 +309,10 @@ export default function DocPanel({ task, onClose }) {
 
   const wc = wordCount(rawContent)
 
+  // 选中文档的生命周期：状态以清单条目为准（回退总览），赛道全序列来自总览接口
+  const selStatus = selected ? (stateOfDoc(selected) || stateOfStatus(statusMap[selected.kind])) : null
+  const selTrack = selected ? lifecycleTrack((statusMap[selected.kind] || {}).states, selStatus) : []
+
   return (
     <div className="overlay docpanel-overlay" onClick={onClose}>
       <div className="docpanel" role="dialog" aria-modal="true" aria-label="文档浏览" onClick={e => e.stopPropagation()}>
@@ -338,10 +349,15 @@ export default function DocPanel({ task, onClose }) {
                 <div className="docpanel__group-title">{g.meta.group}</div>
                 {g.items.map(d => {
                   const km = kindMeta(d.kind)
+                  const st = stateOfDoc(d)
                   return (
                     <button key={d.rel_path} className={`docpanel__item${selected?.rel_path === d.rel_path ? ' is-active' : ''}`} onClick={() => select(d)}>
                       <span className={`docpanel__kind docpanel__kind--${d.kind}`}>{km.label}</span>
-                      <span className="docpanel__name">{d.name}</span>
+                      <span className="docpanel__name">
+                        {d.name}
+                        {st && <span className={`docpanel__docstate docpanel__docstate--${docStateTone(st)}`}
+                                     title={`生命周期状态：${docStateLabel(st)}`}>{docStateLabel(st)}</span>}
+                      </span>
                       {d.exists === false && <span className="docpanel__missing" title="路径已登记但文件不存在">缺失</span>}
                       <span className="docpanel__src">{sourceLabel(d.source)}</span>
                       <span className="docpanel__sub mono">{d.rel_path}{d.size != null ? ` · ${fmtSize(d.size)}` : ''}</span>
@@ -360,9 +376,30 @@ export default function DocPanel({ task, onClose }) {
             ))}
           </aside>
           <article className={`docpanel__view${progress > 0 ? ' has-progress' : ''}`} ref={viewRef}>
-            {selected && rawContent && (
+            {selected && (
               <div className="docpanel__meta-bar">
-                <span>{wc} 字 · {readingTime(wc)}</span>
+                {rawContent && <span>{wc} 字 · {readingTime(wc)}</span>}
+                {selStatus && (
+                  <span className={`docpanel__docstate docpanel__docstate--${docStateTone(selStatus)}`}
+                        title={`生命周期状态：${docStateLabel(selStatus)}`}>
+                    生命周期：{docStateLabel(selStatus)}
+                  </span>
+                )}
+                {/* 该 kind 有生命周期就显示赛道：未落状态的文档全节点为「待推进」，
+                    这样 8 类生命周期在 UI 上都可见，而不是只有已落状态的那几个。 */}
+                {selTrack.length > 1 && (
+                  <span className="docpanel__flow">
+                    {selTrack.map((n, i) => (
+                      <span key={n.state} className="docpanel__flow-node">
+                        {i > 0 && <span className="docpanel__flow-arrow">→</span>}
+                        <span className={`docpanel__flow-label is-${n.phase} tone-${n.tone}`}
+                              title={`${n.label}${n.phase === 'current' ? '（当前）' : ''}`}>
+                          {n.label}
+                        </span>
+                      </span>
+                    ))}
+                  </span>
+                )}
                 {truncated && <span className="docpanel__meta-warn">内容已截断</span>}
               </div>
             )}

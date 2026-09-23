@@ -2,7 +2,8 @@
 # 用法:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1
 #   powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1 -Quick   (跳过 zip，只打包+重启)
-param([switch]$Quick)
+#   powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1 -Quick -Version 0.4.0  (注入版本号)
+param([switch]$Quick, [string]$Version = "")
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -18,6 +19,32 @@ Get-WmiObject Win32_Process | Where-Object {
     Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
 }
 Start-Sleep -Seconds 2
+
+# ---------- 0.5) 注入版本号 ----------
+if ($Version) {
+    Write-Host "[0.5/6] 注入版本号 $Version ..."
+    $verFile = Join-Path $root 'mio_taskhub\version.py'
+    $content = @"
+# mio_taskhub/version.py
+# -*- coding: utf-8 -*-
+"""(自动生成) 单一版本源。"""
+import sys
+from pathlib import Path
+
+__version__ = "$Version"
+
+
+def is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def install_dir() -> Path:
+    if is_frozen():
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+"@
+    Set-Content -Path $verFile -Value $content -Encoding UTF8
+}
 
 # ---------- 1) 前端构建 ----------
 Write-Host '[1/6] 构建前端 ...'
@@ -80,7 +107,7 @@ if (Test-Path (Join-Path $root 'packaging\workbuddy')) {
 # ---------- 6) 压缩 + 重启 ----------
 if (-not $Quick) {
     Write-Host '[6/6] 生成 zip ...'
-$zip = Join-Path $root 'dist\mio-taskhub-绿色版.zip'
+$zip = Join-Path $root 'dist\mio-taskhub-win64.zip'
     Remove-Item -Force $zip -ErrorAction SilentlyContinue
     Get-ChildItem -Path $distDir -Recurse | Where-Object { $_.Name -eq 'base_library.zip' } | ForEach-Object { $_.IsReadOnly = $false }
     Compress-Archive -Path (Join-Path $distDir '*') -DestinationPath $zip -Force

@@ -404,3 +404,33 @@ def test_write_document_tool_append_mode(mcp_ctx, tmp_path):
     assert r["mode"] == "append"
     assert r["created"] is False
     assert (ws / "docs" / "changelog.md").read_text(encoding="utf-8") == "- a\n- b"
+
+
+def test_read_evidence_gate_via_mcp(mcp_ctx, tmp_path, monkeypatch):
+    """MCP 链路：claim 内联 → 未读 submit 422 → read_document(run_id) → submit 通过。"""
+    monkeypatch.delenv("MIO_READ_GATE", raising=False)
+    ws = tmp_path / "mcp-readgate"
+    ws.mkdir()
+    (ws / "spec.md").write_text("# spec\nFR-1", encoding="utf-8")
+    tid = _call("taskhub_create_task", {
+        "title": "MCP read gate", "stage": "ready", "workspace": str(ws),
+        "doc_paths": {"spec": "spec.md"},
+    })["id"]
+
+    claim = _call("taskhub_claim", {"agent": "mcp-rg"})
+    rid = claim["id"]
+    assert claim["task_id"] == tid
+    assert claim["required_reads"] == ["spec"] and claim["branch"] == f"task-{tid}"
+
+    blocked = _call("taskhub_submit_result", {"run_id": rid, "success": True, "result": "x"})
+    assert "error" in blocked and "422" in blocked["error"]
+
+    status = _call("taskhub_read_status", {"run_id": rid})
+    assert status["passed"] is False and status["missing"] == ["spec"]
+
+    _call("taskhub_read_document",
+          {"task_id": tid, "kind": "spec", "run_id": rid, "agent": "mcp-rg"})
+    assert _call("taskhub_read_status", {"run_id": rid})["passed"] is True
+
+    ok = _call("taskhub_submit_result", {"run_id": rid, "success": True, "result": "done"})
+    assert ok.get("task_state") == "completed"

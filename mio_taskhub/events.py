@@ -83,6 +83,25 @@ def broadcast_for_event(event: Event):
         pass
 
 
+def broadcast_json(message: dict) -> None:
+    """从任意线程安全地广播一条裸消息（用于非 Event 行驱动的场景，如更新状态）。
+
+    与 broadcast_for_event 一致：asyncio.run 隔离事件循环；任何异常静默，
+    广播失败绝不影响主流程。
+    """
+    try:
+        asyncio.run(ws_manager.broadcast(message))
+    except RuntimeError:
+        # 已在事件循环中：改调度到当前循环（best-effort）
+        try:
+            loop = asyncio.get_event_loop()
+            loop.create_task(ws_manager.broadcast(message))
+        except Exception:  # noqa: BLE001
+            pass
+    except Exception:  # noqa: BLE001
+        pass
+
+
 # ── Auto-broadcast on commit ───────────────────────────────────────────
 
 _pending_broadcasts: list = []

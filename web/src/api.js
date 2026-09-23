@@ -51,6 +51,8 @@ export const api = {
   getTask: (id) => req('GET', `/tasks/${id}`),
   getTaskDoc: (id, kind) => req('GET', `/tasks/${id}/doc?kind=${kind}`),
   getTaskDocuments: (id) => req('GET', `/tasks/${id}/documents`),
+  // 文档生命周期总览：各 kind 当前状态 + states 全序列 + 合法后继
+  getDocStatuses: (id) => req('GET', `/tasks/${id}/doc/statuses`),
   getTaskFile: (id, path) => req('GET', `/tasks/${id}/file?path=${encodeURIComponent(path)}`),
   // 原样返回 workspace 内文件（二进制安全），用于 <img src> 等直接引用
   rawFileUrl: (id, path) => `${BASE}/tasks/${id}/raw?path=${encodeURIComponent(path)}`,
@@ -169,4 +171,10 @@ export const api = {
   sloHistory: (hours = 24) => req('GET', `/slo/history?hours=${hours}`),
   listInsights: (limit = 20) => req('GET', `/insights?limit=${limit}`),
   processInfo: () => req('GET', '/process'),
+  // Software update
+  updateStatus: () => req('GET', '/update/status'),
+  updateCheck: () => req('POST', '/update/check'),
+  updateDownload: () => req('POST', '/update/download'),
+  updateApply: () => req('POST', '/update/apply'),
+  updateDismiss: () => req('POST', '/update/dismiss'),
 }

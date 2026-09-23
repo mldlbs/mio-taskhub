@@ -25,10 +25,12 @@ all_hiddenimports = (
        "pystray", "PIL", "PIL.Image",
        "PIL._imaging", "PIL._imagingft",
        "croniter", "dateutil", "dateutil.tz",
-       "run_hub", "run_widget"]
+       "run_hub", "run_widget",
+       "mio_taskhub.version"]
     + collect_submodules("mcp")
     + collect_submodules("pystray")
     + collect_submodules("PIL")
+    + collect_submodules("mio_taskhub.update")
 )
 
 excludes = [

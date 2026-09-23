@@ -1,5 +1,84 @@
 # Changelog
 
+## v0.4.0 (2026-09-23)
+
+### Added — 文档生命周期在 Web UI 可见（此前 8 类生命周期前端完全看不到）
+
+`doc_statuses` 早就写进了库、`set_doc_status` 也有质量门控，但前端**一个像素都没渲染**——缺口其实有两半：
+
+- **后端清单漏字段**（`api/task_documents.py`）：`GET /tasks/{id}/documents` 的条目由 `_rel_entry()` 构造，从未带 `status`；只有 `GET /doc` 与 `PUT /doc` 的响应里有。前端即使想渲染也拿不到数据。现补 `status`（= `doc_statuses[kind]`，形如 `{state, at, note}`）。
+- **前端未消费**：新增 `web/src/docLifecycle.js`（状态 → 中文名 + 色调的纯映射，与 `doc_lifecycle.py` 同源），`DocPanel` 据此渲染 ① 列表条目的状态徽标 ② 选中文档 meta bar 的生命周期赛道（`草稿 → 待审 → 已批准`，当前节点描边高亮，已过节点正常色、未到节点淡化）。新增 `api.getDocStatuses()`。
+
+两条设计约束（都由实测暴露）：
+
+- **扫描发现的文档不挂状态**：`doc_statuses` 是「该 kind 登记的那一份」的状态，而 `discover_task_docs` 的 kind 只是文件名启发式归类——同一任务实测有 **13 份文件都被判成 `requirement`**，若统一套状态会显示成一排假「草稿」徽标。故只有 `source=field` 的登记条目携带 `status`，并有测试锁定该边界。
+- **未落状态也显示赛道**：`spec`/`plan`/`api` 等登记了文档但尚未 `set_doc_status` 的 kind，此前什么都不显示；现在按全 `todo` 渲染赛道，让「这个 kind 有生命周期、还没开始推进」本身可见。
+
+### Added — 阶段推进的文档生命周期门控（draft 空契约不能再进 design）
+
+`advance_stage` / `move_to_stage` 此前只查 `doc_path_of`（文档路径是否注册），从不查 `doc_statuses`——于是 draft / 空契约仍能推进到 design，且 `api` 契约从未被任何阶段门控（生命周期可见性缺口的「后半段」）。
+
+- 新增 `LIFECYCLE_GATE`（`api/task_stages.py`）：目标阶段 → `{kind: 所需最低状态}`。进入 `design` 需 `spec` + `api` 都已 `approved`；进入 `planning` 需 `plan` `approved`；进入 `brainstorming` 需 `requirement` `approved`。
+- **`api` 首次被门控**：此前不在任何阶段 `document_kinds` 里，契约写完（自动落位 draft）就能直接推进；现在未 `approved` 不能进 design。
+- **向后兼容**：仅当 `doc_statuses[kind]` 已显式设过状态才校验；从未设状态的旧任务 / 仅靠 `spec_path` 登记路径（未走 `PUT /doc`）的任务一律放行，不阻断历史数据。
+- **force 绕过 + 留痕**：请求带 `force=true` 可跳过门控，并 emit `task_stage_gate_forced` 事件（与 `set_doc_status` 质量门控绕过同源）。MCP 工具 `taskhub_advance_stage` / `taskhub_move_to_stage` 新增 `force` 参数。
+- `GET /tasks/stages/requirements` 新增返回 `lifecycle_gate`，供前端 / agent 提示「推进到某阶段需要哪些文档达何状态」。
+- 新增 `doc_lifecycle.reached_state(kind, current, required)` 判定线性生命周期是否已达门槛。
+- 测试：`tests/test_stage_lifecycle_gate.py`（10 例）；`test_task_doc_paths.py::test_write_then_advance_design_without_workspace_doc` 改为断言 draft 被门控 + force 绕过。
+
+### Added — 自动更新模块（update/）
+
+- 新增 `mio_taskhub/update/`：`UpdateService` 状态机（idle→checking→up_to_date|needs_manual|available|dismissed|check_failed；available→downloading→ready→applying→done|failed），覆盖版本自检、清单拉取、差量下载、校验（sha）、应用全流程。
+- 新增 `api/update.py`（`/update/status|check|download|apply|dismiss`）与前端 `UpdateBanner`：在 Web UI 提示「更新可用 / 下载进度 / 需手动处理」（如跨大版本或校验不符）。
+- 更新源可配置：环境变量 `MIO_UPDATE_CHANNEL`（默认 `stable`）；`install_dir()` 按 frozen / 开发态自动解析；偏好存 `~/.mio_taskhub/update/prefs.json`，下载暂存 `~/.mio_taskhub/updates`。
+- 配套 `tests/test_update_*.py`（manifest / downloader / apply / runner / service / source / ws / e2e）共 10 套。
+
+### Added — 开发前文档 Consult 强制（pre-push 门控 + ReadEvidence 留痕）
+
+- 新增 `scripts/git-hooks/pre-push` + `pre_push_runner.py` + `install_hooks.py`：push 前校验任务 `spec/api/plan` 已 `approved`、diff 引用的 `FR-n` 真实存在于已批准需求文档；hub 不可达时放行并告警。
+- 新增 `mio_taskhub/read_evidence.py` 与 `taskhub_read_document` 的 ReadEvidence：`claim` 返回 `required_reads` / `required_fr`，动手前必须对每个 required kind 落一条带内容指纹的读证，提交成功路径校验「缺失 / 指纹不符」→ 422。
+- 新增 `tests/test_doc_gate.py` / `test_read_evidence.py`。
+
+### Fixed — 看门狗超时误判（18 个 FAILED 里 12 个是误杀）
+
+排查 2026-09-17 的会话可视化需求时发现：库里 18 个 `FAILED` 任务中有 **12 个是误判**——agent 仍在正常上报 `progress`、随后还成功提交了 `result`（`exit_code=0`），任务却在它奔跑途中被判死。抽样 `c5bb23fd` 事件流：`12:03:33` 判 FAILED，`12:06:26` 成功提交，**判死比成功提交早 2 分 53 秒**。三处根因：
+
+- **`_sweep` 用 agent 级 OFFLINE 旁路了 run 级心跳新鲜度**（`heartbeat.py` / `background.py`）：判死条件是 `run.agent_offline or expired`，而 `agent_offline` 取 agent 表 `last_heartbeat`（`AGENT_TIMEOUT_SECONDS=180`），agent 又往往只在 claim 前心跳一次 —— 于是「agent 心跳过期」单独就能杀死一个正在正常上报 progress 的 run。新增 `HeartbeatSweep.effective_timeout()`：agent OFFLINE **只把有效超时收紧到基线**（`AGENT_OFFLINE_TIMEOUT_SECONDS=120`），绝不跳过 run 级新鲜度判定。既保住「agent 掉了要快速回收」的原意，又消除误杀。
+- **系统侧状态迁移全部丢弃 TaskEvent**（`background.py` 9 处）：`apply_transition()` 会构造 `TaskEvent` 但不负责持久化，而 `background.py` 的 9 处调用**都丢掉了返回值**、从不 `db.add(event)`。后果是超时判死、重入队列、放行依赖等系统动作在 `taskevent` 里**完全不留痕**（实测 `taskevent` 只有 71 行，而 `event` 728 行）——事后根本无法归因。新增 `_apply_event()` / `_try_apply_event()` 统一 add，9 处全部替换。
+- **FAILED 是终态，迟到的成功结果无法回写**：`_on_timeout` 记 `FAILED`，agent 之后提交成功结果时 `_safe_transition` 静默吞掉 `IllegalTransition`，库里留下 `task=FAILED + run=成功/exit0` 的矛盾终态且永不自动纠正。
+
+### Fixed — 三处状态转换在状态机里根本不存在（静默失败）
+
+排查过程中用 `validate_transition()` 实测发现，代码正在调用的三个转换**未在状态机定义**，全部抛 `IllegalTransition`：
+
+- **`RUNNING → QUEUED`**（`_on_timeout` 重试重入分支）：原表只有 `CLAIMED→QUEUED` 的 T21/T20。更糟的是异常会**连带回滚同一事务里的 run 回收** —— 该 run 每轮扫描重复失败、永远回收不掉。新增 **T23** `(RUNNING,IMPLEMENTING)→(QUEUED,READY)`（SYSTEM）。
+- **`RETRYING → QUEUED`**（`_requeue_retries` 退避到期重入）：命中的是 T16，而 T16 的 RETRYING 支 `allowed_actors={USER}`，scheduler 以 SYSTEM 调用直接抛「无权执行 T16」→ **指数退避重试从未真正重入过队列**。状态机索引按 `(from,from_stage,to,to_stage)` 唯一，同一 key 无法再挂第二个 T-id，故直接把 T16 的 RETRYING 支 actor 集合扩为 `{USER, SYSTEM}`（FAILED 各支保持 user-only，`test_t16_only_user` 锁定不变）。
+- **`FAILED → COMPLETED`**（迟到成功纠正）：新增 **T22** `late_result_recovery`，允许 SYSTEM/AGENT，`requires_reason=True`。
+
+`_on_timeout` 同时改为：先无条件落库 run 回收，任务迁移走 `_try_apply_event`（非法只记 warning 不中断），并对已终态任务短路。
+
+### Fixed — 误判会被迟到成功结果悄悄翻案的反向风险
+
+`runs.py` 新增 `_is_system_timeout_failure()` 守卫：只有当任务当前 `FAILED` 且**最近一次 TaskEvent 是系统超时判死**（`actor_type=system` 且 reason 前缀为 `agent_offline:` / `heartbeat_timeout:`）时，才允许 `_handle_success` 走 T22 改判。agent / user 主动报的失败**不接受**迟到的成功结果翻案，必须人工复核。
+
+### Changed — 超时基线与单一事实源
+
+- **`DEFAULT_TIMEOUT_SECONDS` 120 → 300**（可用 `MIO_TASKHUB_TIMEOUT_SECONDS` 覆盖）：实测 agent 心跳间隔 67s~199s，原值 120s 过紧，正常长任务也会被判死。agent 离线基线单独用 `MIO_TASKHUB_AGENT_OFFLINE_SECONDS`（默认 120）。
+- **删除 `background.py` 里重复的 `HeartbeatSweep` / `RunInfo`**，统一从 `heartbeat.py` 导入（单一事实源）。此前两份几乎相同的判死逻辑各自演化，同一个缺陷得修两遍。线程心跳钩子改为可选回调 `on_tick` / `on_error`。
+- **`api/board.py` 的超时告警口径改为复用同一常量**：原先自己硬编码 120s，会提示「将被重置重领」而 sweep 实际要等到 300s，告警与行为不一致。
+- `RunInfo.timeout_seconds` 默认值改为 `None`（= 沿用 sweep 自身超时），否则 dataclass 默认值会覆盖调用方显式配置的 `timeout_seconds`。
+
+### Tests
+
+- 新增 `tests/test_timeout_misjudge.py`（9 例）：覆盖三条防线 —— agent OFFLINE 不旁路 run 新鲜度、系统迁移必须留痕、迟到成功可纠正系统超时判死；并反向验证 agent 自报失败不允许被翻案、正常成功路径不受影响。
+- `tests/test_agent_heartbeat.py` 补 3 例：fresh run 在 agent OFFLINE 下不得判死、心跳落后 71s（实测生产值）仍在基线内不得判死、落后 130s 超出基线仍回收。
+- `tests/test_task_doc_paths.py` 补 1 例：清单条目带 `status`（有生命周期的带 `{state}`、无生命周期的为 `None`）。
+- `tests/test_documents_related.py` 补 1 例：扫描发现的文档不得携带生命周期状态（锁定 13 份同 kind 文档被误标的问题）。
+
+### 数据修复
+
+一次性脚本清洗 12 条历史误判终态：补记缺失的判死事件（`event_type=repair_note`，如实标注为「重建」而非伪造转换），再走 T22 改判回 `(completed, review)` —— 落到 review 队列，人工仍可驳回。改前备份 `~/.mio_taskhub/backups/taskhub.db.bak-*-pre-misjudge-repair`。
+
 ## v0.3.0 (2026-09-17)
 
 ### Added — 接口契约「事无巨细」标准（`api` kind）

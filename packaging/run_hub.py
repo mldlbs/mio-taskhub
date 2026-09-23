@@ -54,6 +54,78 @@ def _res_icon() -> str:
 ICO = _res_icon()
 
 
+def _update_menu_label(_item=None) -> str:
+    """托盘「更新」项的动态文案（按 UpdateService 状态计算）。"""
+    try:
+        from mio_taskhub.update.service import get_service
+        st = get_service().status()
+        state = st.get("state")
+        if state == "available":
+            return "立即更新 (v%s)" % st.get("latest")
+        if state == "ready":
+            return "重启并应用更新"
+        if state == "downloading":
+            return "下载中 %d%%" % st.get("progress", 0)
+        if state == "needs_manual":
+            return "需手动更新 (v%s)" % st.get("latest")
+    except Exception:  # noqa: BLE001
+        pass
+    return "检查更新"
+
+
+def _notify(icon, msg):
+    try:
+        if icon is not None:
+            icon.notify(msg, "mio-taskhub")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+_update_busy = threading.Event()
+
+
+def _on_update_clicked(icon=None, _item=None):
+    """托盘点击：在**工作线程**里跑 check→download→apply，避免冻结托盘消息循环。"""
+    from mio_taskhub.update.service import get_service
+    svc = get_service()
+    try:
+        state = svc.status().get("state")
+    except Exception as e:  # noqa: BLE001
+        _log("tray: update status failed: %r" % e)
+        return
+
+    if state == "ready":
+        steps = ["apply"]
+    elif state in ("available", "check_failed", "up_to_date", "idle", "dismissed"):
+        steps = ["check", "download", "apply"]
+    else:
+        return
+
+    if _update_busy.is_set():      # 防重入：下载/应用中再点不重复触发
+        _notify(icon, "更新正在进行中…")
+        return
+    _update_busy.set()
+
+    def _work():
+        try:
+            if "check" in steps:
+                svc.check()
+            if "download" in steps and svc.status().get("state") == "available":
+                svc.download()
+            if "apply" in steps and svc.status().get("state") == "ready":
+                svc.apply()
+            st = svc.status()
+            if st.get("state") == "failed":
+                _notify(icon, "更新失败：%s" % (st.get("error") or "见 apply.log"))
+        except Exception as e:  # noqa: BLE001
+            _log("tray: update action failed: %r" % e)
+            _notify(icon, "更新失败：%s" % e)
+        finally:
+            _update_busy.clear()
+
+    threading.Thread(target=_work, daemon=True, name="update-action").start()
+
+
 def _start_tray(url: str, server_ref: dict):
     """系统托盘驻留：打开浮动面板 / 退出服务。
 
@@ -230,12 +302,39 @@ def _start_tray(url: str, server_ref: dict):
             "MIO-TASKHUB · 任务中心",
             menu=pystray.Menu(
                 pystray.MenuItem("打开面板", _open_panel, default=True),
+                pystray.MenuItem(
+                    lambda item: _update_menu_label(),
+                    _on_update_clicked),
                 pystray.MenuItem("退出", _quit),
             ),
         )
         t = threading.Thread(target=icon.run, daemon=True)
         t.start()
         _log("tray started")
+
+        def _notify_loop():
+            import time as _t
+            last = None
+            last_label = _update_menu_label()
+            while True:
+                _t.sleep(30)
+                try:
+                    from mio_taskhub.update.service import get_service
+                    st = get_service().status()
+                    if st.get("state") == "available" and st.get("latest") != last:
+                        last = st.get("latest")
+                        icon.notify("发现新版本 v%s，点击托盘图标更新" % st.get("latest"), "mio-taskhub")
+                    # win32 后端菜单只在创建时求值一次，动态文案需主动刷新
+                    label = _update_menu_label()
+                    if label != last_label:
+                        last_label = label
+                        # 已知低概率竞态：若此刻菜单正打开，win32 后端跨线程 update_menu
+                        # 可能短暂异常/失效。pystray 无 marshalling API，暂接受（下轮刷新自愈）。
+                        icon.update_menu()
+                except Exception:  # noqa: BLE001
+                    pass
+
+        threading.Thread(target=_notify_loop, daemon=True).start()
         return icon
     except Exception as e:
         _log(f"tray start failed: {e!r}")
@@ -361,6 +460,16 @@ def main():
 
     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="info")
     current = {"server": None}  # 可变的当前 server 引用，托盘/守卫共用
+
+    from mio_taskhub.update.runner import set_exit_callback
+
+    def _request_hub_exit():
+        srv = current.get("server")
+        if srv is not None:
+            srv.should_exit = True
+
+    set_exit_callback(_request_hub_exit)
+
     tray = _start_tray(url, current)
     try:
         # 守卫循环：uvicorn 崩溃/异常后退 2 秒自动重启，托盘持续驻留

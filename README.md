@@ -11,7 +11,7 @@
 | 对外能力 | **119 个 REST 端点** · **40 个 MCP 工具** · WebSocket 实时广播 · React Web UI |
 | 任务文档 | **22 类文档 kind** · **7 件套文档链** · **9 类生命周期状态机** · 质量 lint + 状态门控 + 修订指令 |
 | 前端 | React 18 + Vite 5 · 40 文件 / 11,694 行 · 10 个视图 |
-| 测试 | **619 个用例**（54 文件 / 8,074 行）· GitHub Actions（windows-latest / py3.12） |
+| 测试 | **641 个用例**（55 文件 / 8,480 行）· GitHub Actions（windows-latest / py3.12） |
 | 部署 | pip 源码 · Docker 多阶段镜像 · Windows 单 EXE 绿色版（免 Python） |
 
 ---
@@ -401,6 +401,9 @@ requirement → architecture → spec → data-model → api → test → runboo
 - 首次写入某类文档时，`doc_statuses` 自动初始化为该类型的初始态
 - 状态推进走 `POST /api/v1/tasks/{id}/doc/{kind}/status`，非法转移被 `validate_transition` 直接拒绝
 - `GET /api/v1/tasks/{id}/doc/statuses` 返回每类的当前态与 `allowed_next`，Agent 不用猜下一步
+- `GET /api/v1/tasks/{id}/documents` 的每条条目带 `status`，但**只有登记的那一份**（`source=field`）携带——扫描发现的文档 kind 只是文件名启发式归类，同一个任务常有十几份文件都被判成 `requirement`，统一套状态会显示成一排假徽标
+- Web UI 的文档面板据此渲染：列表条目带状态徽标，选中文档的 meta bar 显示生命周期赛道（`草稿 → 待审 → 已批准`，当前节点描边高亮）；**尚未落状态的 kind 也显示赛道**（全节点淡化），这样「这个 kind 有生命周期、还没开始推进」本身是可见的
+- **生命周期状态会反向门控阶段推进**：`advance_stage` / `move_to_stage` 进入 `design` 要求 `spec` + `api` 都 `approved`、进入 `planning` 要求 `plan` `approved`（`LIFECYCLE_GATE`，详见 [§6.2](#62-研发阶段生命周期维度) 与 `api/task_stages.py`）。仅当该 kind 已显式设过状态才校验，旧任务向后兼容；带 `force` 可跳过并 emit `task_stage_gate_forced` 事件留痕。门槛清单见 `GET /api/v1/tasks/stages/requirements` 的 `lifecycle_gate` 字段
 
 ### 6.4 质量保证：写时 lint → 状态门控 → 修订指令
 
@@ -584,6 +587,8 @@ OpenTelemetry 自动埋点覆盖 FastAPI、SQLAlchemy、httpx；结构化日志�
 | `MIO_TASKHUB_URL` | `http://127.0.0.1:48620/api/v1` | 客户端侧 hub 地址（MCP、夜间运行器读） |
 | `MIO_TASKHUB_TOKEN` | 空 | Bearer token；服务端与客户端共用 |
 | `MIO_TASKHUB_RATE_LIMIT` | `120` | 全局 API 限流（req/min/IP） |
+| `MIO_TASKHUB_TIMEOUT_SECONDS` | `300` | run 存活基线：任务未配 `timeout_min` 时，看门狗多久未收到 run 心跳即回收（放宽前的 120s 会误杀仍在跑的长任务） |
+| `MIO_TASKHUB_AGENT_OFFLINE_SECONDS` | `120` | agent 已 OFFLINE 时的回收上限：只把上面的基线收紧到这个值，**不会**跳过 run 心跳新鲜度判定 |
 | `MIO_TASKHUB_ADR_DIR` | `<CWD>/docs/adr` | ADR 落盘目录 |
 | `MIO_TASKHUB_WIDGET_NO_TRAY` | — | `1` 时浮动面板不进托盘 |
 
@@ -674,7 +679,7 @@ mio_taskhub/
 └── observability/       # metrics / alerts / dep_metrics / otel / logging_config / report
 
 web/src/                 # React SPA（components/ 含全部视图）
-tests/                   # 603 个用例
+tests/                   # 641 个用例
 docs/                    # 规格、ADR、审计报告、HOWTO
 packaging/               # 构建脚本、setup 脚本、Prometheus 配置、WorkBuddy skill
 ```
@@ -731,6 +736,6 @@ cd web && npm run dev         # 前端热更新开发
 - **SQLite 并发上限**：WAL + QueuePool 足以支撑单机多 Agent，但规模继续增长需迁移 Postgres
 - **God File 残留**：`mcp_server.py`（643 行）与 `background.py`（580 行）仍是最大的两个文件；MCP 层本质是薄代理，理想方案是从 OpenAPI spec 自动生成
 - **文档质量 lint 是启发式的**：靠章节标题与表格行数做结构性校验，判断不了内容是否真的对。真正的内容审查仍需人或 Agent 阅读
-- **阶段推进不校验接口契约**：`api` 已纳入生命周期（`draft → review → approved`），空心的接口契约无法推进到 `review`；但它仍**不在任何阶段的 `document_kinds` 里**，所以 `advance`/`move` 阶段时不会检查接口契约是否已批准。要变成硬约束需把 `api` 挂进阶段门槛（会改变现有任务工作流）
+- **阶段推进已校验接口契约（2026-09-18 已修复）**：`api` 纳入了 `design` 阶段生命周期门控（`spec` + `api` 都必须 `approved` 才能进 design），`plan` 同理。仅当文档已显式设过状态时校验，旧任务向后兼容；带 `force` 可跳过并留痕。详见 [§6.3](#63-九类生命周期状态机) 与 `LIFECYCLE_GATE`
 - **文档 kind 三处同步点**：新增一类 kind 要同时改 `doc_paths.py` / `DOC_PATTERNS` / `KIND_META`，漏改会导致前端不显示（缺自动一致性测试）
 - **Windows 优先**：绿色版打包与 setup 脚本只覆盖 Windows；Docker/源码路径跨平台可用

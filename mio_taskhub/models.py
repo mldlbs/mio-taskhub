@@ -202,6 +202,26 @@ class TaskReview(SQLModel, table=True):
     review_duration_sec: Optional[int] = None  # 从 review_started_at 到本次审阅的秒数
     created_at: datetime = Field(default_factory=_now)
 
+class ReadEvidence(SQLModel, table=True):
+    """Agent 读取任务文档的 Read Evidence（绑定 run）。
+
+    `taskhub_submit_result` 的前置门控依据：证明「**本次 run** 在产出结果前确实
+    获取过规定版本（内容指纹）的规范材料」。绑定 `run_id` 而非 `task_id`——回答的
+    是「这次执行读没读」，不是「这个任务以前有没有人读过」。
+
+    一行对应一个 `(run_id, document_kind)`，重复读取原地更新（upsert）。
+    见 mio_taskhub/read_evidence.py。
+    """
+    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    task_id: str = Field(index=True)
+    run_id: str = Field(index=True)
+    agent_name: str = ""
+    document_kind: str = Field(index=True)     # spec / api / requirement / plan ...
+    document_version: str = ""                 # 内容指纹 "sha256:..."（文件缺失为空）
+    requirement_ids: list = Field(default_factory=list, sa_column=Column(JSON))  # requirement 抽到的 FR-n
+    read_at: datetime = Field(default_factory=_now)
+
+
 class Agent(SQLModel, table=True):
     name: str = Field(primary_key=True)
     agent_type: str = ""
