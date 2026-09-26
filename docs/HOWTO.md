@@ -132,18 +132,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging/release.ps1 -Versi
 
 ## mio-intelligence 创意想法 → taskhub 同步
 
-mio-intelligence 的 `mio.idea.generate` 工具会把生成的创意想法存到 `~/.mio-intelligence/ideas.jsonl`。
-这些想法可以通过两种方式同步到 mio-taskhub 的 Idea 系统：
+**工具沿革**：`mio.idea.generate` 只存在于早期本机副本（`~/.config/opencode/mcp-servers/`，非 LLM 策略展开器），已发布 runtime 0.13.3 **没有**该工具——当前生成统一走 `creativity generate`（≥2 个 sources）。
+历史存量想法在 `~/.mio-intelligence/ideas.jsonl`（12 条），批量同步脚本仍可消费。
 
 ### 方式一：Agent 实时同步（推荐）
 
 Agent 在对话中生成想法后，立即调用 `taskhub_add_idea` 推送到 taskhub：
 
 ```
-1. 调用 mio.idea.generate(goal="...", context="...", numIdeas=3)
-2. 对返回的每个 idea，调用 taskhub_add_idea(title=..., description=..., labels=["mio-intelligence", "strategy:SCAMPER"])
+1. 调用 mio-intelligence_mio_creativity_generate(sources=[{name, content}, ...])（≥2 sources）
+2. 对返回的每个 idea（title/idea/strategy），调用 taskhub_add_idea(title=..., description=..., labels=["mio-intelligence", "strategy:<策略>"])
 3. 后续可在 taskhub 中发酵、讨论、拆解为任务
 ```
+
+前端「模板生成」（`POST /api/v1/ideas/templates/generate`）已同义映射到 `mio --json creativity generate`，`sync_to_hub=true` 时落库为 taskhub Idea；**MCP tools/call 对该长任务回空包，勿经 MCP 调**。
 
 ### 方式二：批量同步脚本
 

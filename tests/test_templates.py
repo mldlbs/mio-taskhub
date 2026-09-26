@@ -128,3 +128,13 @@ def test_template_versions_and_restore():
     # 版本列表应包含回滚记录
     r5 = c.get(f"/api/v1/tasks/templates/{tid}/versions")
     assert any(vr["description"] == f"restored from v{v1}" for vr in r5.json())
+
+
+def test_idea_templates_route_not_shadowed():
+    "静态 /ideas/templates 不得被动态 /ideas/{idea_id} 遮蔽（注册顺序回归）。"
+    r = c.get("/api/v1/ideas/templates")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["count"] >= 1
+    assert body["templates"][0]["id"]
+

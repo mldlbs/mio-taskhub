@@ -1,4 +1,3 @@
-import os
 import subprocess
 import json
 from typing import List, Optional, Dict
@@ -7,7 +6,8 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
 from mio_taskhub.models import Idea
-from mio_taskhub.ideas.idea_prompts import DEFAULT_TEMPLATES, get_template_by_id, get_templates_by_category, render_template_prompt
+from mio_taskhub import mio_runtime
+from mio_taskhub.ideas.idea_prompts import DEFAULT_TEMPLATES, get_template_by_id, get_templates_by_category
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
 
@@ -27,6 +27,58 @@ class TemplateGenerateRequest(BaseModel):
     values: Dict[str, str]
     num_ideas: int = 3
     sync_to_hub: bool = False
+
+
+def _generate_ideas(goal: str, context: str, timeout: float = 120.0) -> list:
+    """经 mio CLI 调 creativity.generate（用户显式触发的 LLM 调用）。
+
+    runtime 已发布版本没有 mio.idea.generate 工具（0.13.3 tools/list 实测），
+    故映射到 creativity 语义；MCP tools/call 对长任务回空包（复现两次），
+    走 CLI 直调。失败一律 HTTPException（502/503/504），不抛裸异常。
+    """
+    cli = mio_runtime.mio_cli()
+    if not cli:
+        raise HTTPException(503, "mio CLI 不可用：无法生成（runtime 未安装或 MIO_CLI 无效）")
+    constraints = "约束：不引入外部依赖；保持本机单用户；复用现有 MCP 工具"
+    args = cli + ["--json", "creativity", "generate",
+                  "--source", f"template-goal: {goal}",
+                  "--source", f"template-context: {context}\n{constraints}"]
+    try:
+        proc = subprocess.run(args, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(504, f"creativity generate 超时（{int(timeout)}s）")
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "")[:400]
+        raise HTTPException(502, f"creativity generate failed: {tail}")
+    try:
+        data = json.loads(proc.stdout or "{}")
+    except Exception:  # noqa: BLE001
+        raise HTTPException(502, "creativity generate 输出非 JSON")
+    ideas = data.get("ideas") if isinstance(data, dict) else None
+    if not isinstance(ideas, list):
+        raise HTTPException(502, "creativity generate 输出缺 ideas 字段")
+    return ideas
+
+
+def _map_hypothesis(h: dict) -> dict:
+    """creativity 假设 → 对外 idea 结构（title / description / provenance.strategy）。"""
+    parts = [str(h.get("idea") or h.get("description") or "").strip()]
+    if h.get("expectedBenefit"):
+        parts.append(f"预期收益：{h['expectedBenefit']}")
+    if h.get("risk"):
+        parts.append(f"风险：{h['risk']}")
+    nfi = "/".join(str(h[k]) for k in ("novelty", "feasibility", "impact") if k in h)
+    if nfi:
+        parts.append(f"N/F/I：{nfi}")
+    out = {"title": str(h.get("title") or "").strip()[:200],
+           "description": "\n\n".join(p for p in parts if p),
+           "provenance": {"strategy": h.get("strategy") or ""}}
+    if isinstance(h.get("novelty"), (int, float)):
+        out["scores"] = {"novelty": h.get("novelty"),
+                         "feasibility": h.get("feasibility"),
+                         "impact": h.get("impact")}
+    return out
 
 
 @router.get("/templates")
@@ -75,66 +127,22 @@ def generate_from_template(request: TemplateGenerateRequest):
     if not template:
         raise HTTPException(404, f"Template not found: {request.template_id}")
 
-    NODE = r"C:\Users\admin\.workbuddy\binaries\node\versions\22.22.2\node.exe"
-    MCP_SCRIPT = r"D:\node_global\node_modules\mio-agent-runtime\server\mio-intelligence-mcp\index.js"
-    DATA_DIR = os.path.join(os.path.expanduser("~"), ".mio-intelligence")
-
-    ENV = {
-        **os.environ,
-        "MIO_DATA_DIR": DATA_DIR,
-        "MIO_CONTEXT": json.dumps({
-            "agentId": "opencode",
-            "project": "2026-08-22-12-13-49",
-            "workspace": r"c:\Users\admin\WorkBuddy\2026-08-22-12-13-49",
-            "sessionId": "opencode-session",
-        }),
-    }
-
-    def call_mcp_tool(tool_name: str, arguments: dict) -> dict:
-        request = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/call",
-            "params": {"name": tool_name, "arguments": arguments},
-        }
-        proc = subprocess.run(
-            [NODE, MCP_SCRIPT],
-            input=json.dumps(request) + "\n",
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            env=ENV,
-            timeout=15,
-        )
-        if proc.returncode != 0:
-            raise HTTPException(500, f"MCP error: {proc.stderr[:500]}")
-        lines = proc.stdout.strip().split("\n")
-        resp = json.loads(lines[0])
-        text = resp["result"]["content"][0]["text"]
-        return json.loads(text, strict=False)
-
-    context = render_template_prompt(template=DEFAULT_TEMPLATES[0], values=request.values)
+    # 可移植解析：mio CLI（env MIO_CLI → which），不再写死 node/脚本绝对路径。
+    # 语义映射：runtime 已发布版本无 mio.idea.generate 工具，改走
+    # `mio --json creativity generate --source ...`（用户显式触发的 LLM 调用）。
     context_parts = []
-    for field in get_template_by_id(request.template_id).fields:
+    for field in template.fields:
         key = field["key"]
         if key in request.values and request.values[key]:
-            label = field["label"]
-            context_parts.append(f"{label}：{request.values[key]}")
+            context_parts.append(f"{field['label']}：{request.values[key]}")
     context = "\n\n".join(context_parts)
-
     goal = request.values.get("title", "生成想法")
+    if request.num_ideas and request.num_ideas > 1:
+        goal = f"{goal}（请给出约 {request.num_ideas} 个不同方向）"
 
-    try:
-        result = call_mcp_tool("mio.idea.generate", {
-            "goal": goal,
-            "context": context,
-            "constraints": ["不引入外部依赖", "保持本机单用户", "复用现有 MCP 工具"],
-            "numIdeas": request.num_ideas,
-        })
-    except Exception as e:
-        raise HTTPException(500, f"MCP generation failed: {e}")
-
-    ideas = result.get("ideas", [])
+    raw_ideas = _generate_ideas(goal, context)
+    ideas = [_map_hypothesis(h)
+             for h in raw_ideas[: max(1, request.num_ideas)]]
 
     created = 0
     synced_ids = []
