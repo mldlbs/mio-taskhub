@@ -101,3 +101,61 @@ def test_move_missing_target_422():
     t = _mk("movemiss", stage="brainstorming")
     r = client.post(f"/api/v1/tasks/{t['id']}/stage/move", json={})
     assert r.status_code == 422
+
+
+# ── 回归：move→done 非 review 源（2026-09-25 修复 500）─────────────────────
+
+def test_move_done_from_ready_via_review():
+    # 原实现按 src 阶段直跳 (completed,ready) → 未定义转换 → 500；
+    # 现经 T18 挪 review + T5 + T6 完成
+    t = _mk("moveready", stage="ready")
+    r = client.post(f"/api/v1/tasks/{t['id']}/stage/move",
+                    json={"target_stage": "done", "review_result": "验收复核"})
+    assert r.status_code == 200, r.text
+    assert r.json()["stage"] == "done"
+    assert r.json()["state"] == "completed"
+
+
+def test_move_done_from_implementing():
+    t = _mk("moveimpl", stage="implementing")
+    r = client.post(f"/api/v1/tasks/{t['id']}/stage/move",
+                    json={"target_stage": "done", "review_result": "ok"})
+    assert r.status_code == 200, r.text
+    assert r.json()["stage"] == "done"
+    assert r.json()["state"] == "completed"
+
+
+def test_move_done_from_completed_implementing():
+    # state=completed 但 stage 停在 implementing：T18 挪到 review 后 T6 收尾
+    from sqlmodel import Session
+    from mio_taskhub.db import engine
+    from mio_taskhub.models import Task, TaskState, TaskStage
+    t = _mk("moveci", stage="implementing")
+    with Session(engine) as s:
+        db_t = s.get(Task, t["id"])
+        db_t.state = TaskState.COMPLETED
+        db_t.stage = TaskStage.IMPLEMENTING
+        s.add(db_t)
+        s.commit()
+    r = client.post(f"/api/v1/tasks/{t['id']}/stage/move",
+                    json={"target_stage": "done", "review_result": "ok"})
+    assert r.status_code == 200, r.text
+    assert r.json()["state"] == "completed"
+    assert r.json()["stage"] == "done"
+
+
+def test_move_done_from_failed_409_not_500():
+    # failed 无 T5 入口：明确 409，不再 500
+    from sqlmodel import Session
+    from mio_taskhub.db import engine
+    from mio_taskhub.models import Task, TaskState
+    t = _mk("movefailed", stage="ready")
+    with Session(engine) as s:
+        db_t = s.get(Task, t["id"])
+        db_t.state = TaskState.FAILED
+        s.add(db_t)
+        s.commit()
+    r = client.post(f"/api/v1/tasks/{t['id']}/stage/move",
+                    json={"target_stage": "done", "review_result": "x"})
+    assert r.status_code == 409, r.text
+    assert "done" in r.json()["detail"]

@@ -393,26 +393,28 @@ def test_write_doc_creates_file_and_registers(tmp_path):
     r = _put_doc(tid, 'spec', content='# 设计\n正文')
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body['kind'] == 'spec' and body['path'] == 'docs/spec.md'
+    assert body['kind'] == 'spec' and body['path'] == f'docs/taskhub/{tid}/spec.md'
     assert body['created'] is True and body['mode'] == 'overwrite'
     assert body['size'] == len('# 设计\n正文'.encode('utf-8'))
     # spec 有生命周期（doc_lifecycle.py）：首次写入自动落初始状态 draft
     assert body['status'] == {'state': 'draft', 'note': 'auto',
                               'at': body['status']['at']}
-    assert (ws / 'docs' / 'spec.md').read_text(encoding='utf-8') == '# 设计\n正文'
+    assert (ws / 'docs' / 'taskhub' / tid / 'spec.md').read_text(encoding='utf-8') == '# 设计\n正文'
 
     assert client.get(f'/api/v1/tasks/{tid}/doc', params={'kind': 'spec'}).json()['content'] == '# 设计\n正文'
     detail = client.get(f'/api/v1/tasks/{tid}').json()
-    assert detail['doc_paths'] == {'spec': 'docs/spec.md'}
+    assert detail['doc_paths'] == {'spec': f'docs/taskhub/{tid}/spec.md'}
 
 
 def test_write_doc_default_path_per_kind(tmp_path):
     ws = _ws(tmp_path)
     tid = _mk(ws)
-    assert _put_doc(tid, 'requirement', content='# 需求').json()['path'] == 'docs/requirement.md'
-    assert _put_doc(tid, 'review', content='# 审查').json()['path'] == 'docs/review.md'
-    assert (ws / 'docs' / 'requirement.md').is_file()
-    assert (ws / 'docs' / 'review.md').is_file()
+    assert (_put_doc(tid, 'requirement', content='# 需求').json()['path']
+            == f'docs/taskhub/{tid}/requirement.md')
+    assert (_put_doc(tid, 'review', content='# 审查').json()['path']
+            == f'docs/taskhub/{tid}/review.md')
+    assert (ws / 'docs' / 'taskhub' / tid / 'requirement.md').is_file()
+    assert (ws / 'docs' / 'taskhub' / tid / 'review.md').is_file()
 
 
 def test_write_doc_honours_explicit_and_existing_path(tmp_path):
@@ -433,11 +435,11 @@ def test_write_doc_overwrite_guard(tmp_path):
 
     r = _put_doc(tid, 'spec', content='v2', overwrite=False)
     assert r.status_code == 409
-    assert (ws / 'docs' / 'spec.md').read_text(encoding='utf-8') == 'v1'
+    assert (ws / 'docs' / 'taskhub' / tid / 'spec.md').read_text(encoding='utf-8') == 'v1'
 
     r = _put_doc(tid, 'spec', content='v3')
     assert r.status_code == 200 and r.json()['created'] is False
-    assert (ws / 'docs' / 'spec.md').read_text(encoding='utf-8') == 'v3'
+    assert (ws / 'docs' / 'taskhub' / tid / 'spec.md').read_text(encoding='utf-8') == 'v3'
 
 
 def test_write_doc_validation_errors(tmp_path):
@@ -458,8 +460,8 @@ def test_write_doc_spec_syncs_legacy_field(tmp_path):
     tid = _mk(ws)
     _put_doc(tid, 'spec', content='# s')
     detail = client.get(f'/api/v1/tasks/{tid}').json()
-    assert detail['doc_paths']['spec'] == 'docs/spec.md'
-    assert detail['spec_path'] == 'docs/spec.md'
+    assert detail['doc_paths']['spec'] == f'docs/taskhub/{tid}/spec.md'
+    assert detail['spec_path'] == f'docs/taskhub/{tid}/spec.md'
 
 
 def test_write_then_advance_design_without_workspace_doc(tmp_path):
@@ -475,13 +477,13 @@ def test_write_then_advance_design_without_workspace_doc(tmp_path):
     # draft 契约不能进 design（生命周期门控，2026-09-18 新增）
     r = client.post(f'/api/v1/tasks/{tid}/stage', json={'target_stage': 'design'})
     assert r.status_code == 422
-    assert r.json()['detail']['gate'][0]['kind'] == 'spec'
+    assert any(g['kind'] == 'spec' for g in r.json()['detail']['gate'])
 
     # force 可绕过（留痕）；或先 set_doc_status approved 再进
     r = client.post(f'/api/v1/tasks/{tid}/stage',
                     json={'target_stage': 'design', 'force': True})
     assert r.status_code == 200, r.text
-    assert r.json()['spec_path'] == 'docs/spec.md'
+    assert r.json()['spec_path'] == f'docs/taskhub/{tid}/spec.md'
 
 
 # ── 写入：append 模式 ──────────────────────────────────────────────────────
@@ -498,7 +500,7 @@ def test_write_doc_append_creates_then_appends_with_newline(tmp_path):
     r = _put_doc(tid, 'changelog', content='- 第二条', mode='append')
     assert r.json()['created'] is False
     # 原文没有结尾换行 → 自动补一个，避免粘成一行
-    assert (ws / 'docs' / 'changelog.md').read_text(encoding='utf-8') == '- 第一条\n- 第二条'
+    assert (ws / 'docs' / 'taskhub' / tid / 'changelog.md').read_text(encoding='utf-8') == '- 第一条\n- 第二条'
 
 
 def test_write_doc_append_no_extra_newline_when_already_terminated(tmp_path):
@@ -506,7 +508,7 @@ def test_write_doc_append_no_extra_newline_when_already_terminated(tmp_path):
     tid = _mk(ws)
     _put_doc(tid, 'changelog', content='# 标题\n', mode='overwrite')
     _put_doc(tid, 'changelog', content='- 条目', mode='append')
-    assert (ws / 'docs' / 'changelog.md').read_text(encoding='utf-8') == '# 标题\n- 条目'
+    assert (ws / 'docs' / 'taskhub' / tid / 'changelog.md').read_text(encoding='utf-8') == '# 标题\n- 条目'
 
 
 def test_write_doc_append_rejects_binary_target(tmp_path):
@@ -544,7 +546,7 @@ def test_write_doc_default_mode_is_overwrite(tmp_path):
     tid = _mk(ws)
     _put_doc(tid, 'spec', content='v1')
     assert _put_doc(tid, 'spec', content='v2').json()['mode'] == 'overwrite'
-    assert (ws / 'docs' / 'spec.md').read_text(encoding='utf-8') == 'v2'
+    assert (ws / 'docs' / 'taskhub' / tid / 'spec.md').read_text(encoding='utf-8') == 'v2'
 
 
 # ── task.deliverables / task.files 纳入文档清单 ──────────────────────────────
@@ -688,3 +690,36 @@ def test_extended_kinds_rejected_if_unknown_still_400(tmp_path):
     assert r.status_code == 400
     assert 'kind must be one of' in r.json()['detail']
     assert 'troubleshooting' in r.json()['detail']
+
+
+def test_discover_skips_worktree_dirs(tmp_path):
+    """扫描排除 *-worktree / *.worktree：工作区里的同名文档不再进清单。"""
+    from mio_taskhub.api.task_documents import discover_task_docs
+    ws = tmp_path / 'ws'
+    (ws / 'docs').mkdir(parents=True)
+    (ws / 'docs' / 'spec.md').write_text('# s', encoding='utf-8')
+    wt = ws / 'srm-web-udsp-arch-worktree' / 'docs'
+    wt.mkdir(parents=True)
+    (wt / 'spec.md').write_text('# dup', encoding='utf-8')
+    (wt / 'architecture-overview.md').write_text('# a', encoding='utf-8')
+    found = {d['rel_path'] for d in discover_task_docs(str(ws))}
+    assert 'docs/spec.md' in found
+    assert not any('worktree' in p for p in found), found
+
+
+def test_documents_have_category_and_counts(tmp_path):
+    """清单条目带 category（doc/deliverable/reference）并返回 counts 汇总。"""
+    ws = _ws(tmp_path)
+    tid = _mk(ws, doc_paths={'spec': 'docs/spec.md'})
+    (ws / 'docs').mkdir(exist_ok=True)
+    (ws / 'docs' / 'spec.md').write_text('# s', encoding='utf-8')
+    r = client.put(f'/api/v1/tasks/{tid}/doc', params={'kind': 'requirement'},
+                   json={'content': '# 需求'})
+    assert r.status_code == 200, r.text
+
+    body = client.get(f'/api/v1/tasks/{tid}/documents').json()
+    cats = {d['kind']: d.get('category') for d in body['documents']}
+    assert cats.get('spec') == 'doc'
+    assert cats.get('requirement') == 'doc'
+    assert set(body['counts']) == {'doc', 'deliverable', 'reference'}
+    assert body['counts']['doc'] >= 2

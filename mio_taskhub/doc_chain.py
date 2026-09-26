@@ -20,6 +20,8 @@ kind 映射（复用 21+1 类文档体系，不新增 kind）：
 """
 
 # 默认存放路径（workspace 相对）；若任务已登记该 kind 的路径则沿用登记值
+import re
+
 DEFAULT_PATH = {
     'requirement':  'docs/requirement.md',
     'architecture': 'docs/architecture.md',
@@ -29,6 +31,15 @@ DEFAULT_PATH = {
     'test':         'docs/test.md',
     'runbook':      'docs/runbook.md',
 }
+
+# 任务级默认目录：每任务一目录，避免通名文件（docs/spec.md）与其它任务/主题混放
+# （2026-09-23 实测：多任务共用 docs/ 导致清单混乱、同名多份无法判断权威）
+TASK_DOC_DIR = 'docs/taskhub'
+
+
+def task_doc_path(task_id: str, kind: str) -> str:
+    """任务级默认文档路径：docs/taskhub/<task_id>/<kind>.md"""
+    return f'{TASK_DOC_DIR}/{task_id}/{kind}.md'
 
 # 链路顺序（上下游即按此相邻追溯）
 DOC_CHAIN = ('requirement', 'architecture', 'spec', 'data-model', 'api', 'test', 'runbook')
@@ -226,15 +237,12 @@ def _tpl_api(up, down):
 ## 1. 文档信息与范围
 | 项 | 值 |
 |----|----|
-| 文档版本 | v0.1 |
 | 契约版本 | v1 |
-| 状态 | 草稿 / 评审中 / 已批准 |
-| 最后更新 | YYYY-MM-DD |
-| 负责人 |  |
 | 适用范围 |  |
 | 明确不含 |  |
 
 <!--
+- 元信息（文档版本/最后更新/状态/负责人）见文档顶部「文档信息」表，此处只写范围
 - 契约版本变更时本表必须同步修改（配合 §20 变更记录）
 - 「适用范围」写清哪些调用方/模块受此契约约束
 - 「明确不含」写清边界（如不含内部 RPC、不含数据库直连），防止被误当全量接口清单
@@ -606,18 +614,91 @@ _KIND_LABEL = {
 }
 
 
-def chain_path_of(kind: str, registered: dict) -> str:
-    """链内文档路径：已登记用登记值，否则默认 docs/<kind>.md。"""
-    return (registered or {}).get(kind) or DEFAULT_PATH[kind]
+def chain_path_of(kind: str, registered: dict, task_id: str = None) -> str:
+    """链内文档路径：已登记用登记值，否则任务级默认 docs/taskhub/<id>/<kind>.md，
+    无 task_id 时退化为 docs/<kind>.md。"""
+    stored = (registered or {}).get(kind)
+    if stored:
+        return stored
+    if task_id:
+        return task_doc_path(task_id, kind)
+    return DEFAULT_PATH[kind]
 
 
-def render_chain(kind: str, registered: dict = None) -> str:
+INFO_TITLE = '文档信息'
+INFO_DATETIME_PLACEHOLDER = 'YYYY-MM-DD HH:MM'
+INFO_DATE_PLACEHOLDER = INFO_DATETIME_PLACEHOLDER   # 兼容旧引用
+
+
+def _now_stamp() -> str:
+    """文档「最后更新」时间戳：本地时间，精确到分钟。"""
+    from datetime import datetime
+    return datetime.now().strftime('%Y-%m-%d %H:%M')
+
+
+def info_block() -> str:
+    """统一的「文档信息」元信息表（文档版本 / 最后更新 / 状态 / 负责人 / 适用范围）。"""
+    return (
+        "\n## " + INFO_TITLE + "\n\n"
+        "| 项 | 值 |\n"
+        "|---|---|\n"
+        "| 文档版本 | v0.1 |\n"
+        "| 最后更新 | " + INFO_DATETIME_PLACEHOLDER + " |\n"
+        "| 状态 | draft |\n"
+        "| 负责人 | TBD |\n"
+        "| 适用范围 | <!-- 本次覆盖的模块 / 接口；明确不含什么 --> |\n"
+    )
+
+
+def _inject_info_block(body: str) -> str:
+    """把「文档信息」块插到首个 H1 之后（已存在则不重复插入）。"""
+    if f'## {INFO_TITLE}' in body:
+        return body
+    lines = body.splitlines(keepends=True)
+    for i, ln in enumerate(lines):
+        if ln.startswith('# '):
+            return ''.join(lines[:i + 1]) + info_block() + ''.join(lines[i + 1:])
+    return info_block() + body
+
+
+def _set_info_row(section: str, label: str, value: str) -> str:
+    """把 section 内「| label | ... |」的第一个值替换为 value（仅首处，规范化空格）。"""
+    pat = re.compile(r'\|\s*' + re.escape(label) + r'\s*\|\s*[^|\n]*?\s*\|')
+    return pat.sub(lambda m: '| %s | %s |' % (label, value), section, count=1)
+
+
+def update_info_section(text: str, state: str = None, bump_version: bool = False,
+                        now: str = None) -> str:
+    """就地更新「文档信息」表的 最后更新（日期+时间）/ 状态（可选递增 文档版本）。
+
+    无该节 → 原样返回。供 set_doc_status 推进状态时自动维护元信息，避免人肉漏填。
+    `now` 可传固定时间戳（测试用）；默认取本地当前时间 `YYYY-MM-DD HH:MM`。
+    """
+    marker = '## ' + INFO_TITLE
+    i = text.find(marker)
+    if i < 0:
+        return text
+    j = text.find('\n## ', i + len(marker))
+    seg = text[i:j] if j != -1 else text[i:]
+    stamp = now or _now_stamp()
+    seg = _set_info_row(seg, '最后更新', stamp)
+    if state:
+        seg = _set_info_row(seg, '状态', state)
+    if bump_version:
+        m = re.search(r'\|\s*文档版本\s*\|\s*v(\d+)\.(\d+)\s*\|', seg)
+        if m:
+            seg = _set_info_row(seg, '文档版本',
+                                'v%s.%d' % (m.group(1), int(m.group(2)) + 1))
+    return text[:i] + seg + (text[j:] if j != -1 else '')
+
+
+def render_chain(kind: str, registered: dict = None, task_id: str = None) -> str:
     """渲染链内某文档的模板正文（含按链路计算的上下游链接）。"""
     if kind not in _TEMPLATE_BUILDERS:
         raise KeyError(f'kind {kind!r} 不在文档链内: {DOC_CHAIN}')
     reg = registered or {}
-    paths = {k: chain_path_of(k, reg) for k in DOC_CHAIN}
+    paths = {k: chain_path_of(k, reg, task_id) for k in DOC_CHAIN}
     idx = DOC_CHAIN.index(kind)
     up = (paths[DOC_CHAIN[idx - 1]], f'{_KIND_LABEL[DOC_CHAIN[idx - 1]]}') if idx > 0 else None
     down = (paths[DOC_CHAIN[idx + 1]], f'{_KIND_LABEL[DOC_CHAIN[idx + 1]]}') if idx < len(DOC_CHAIN) - 1 else None
-    return _TEMPLATE_BUILDERS[kind](up, down)
+    return _inject_info_block(_TEMPLATE_BUILDERS[kind](up, down))

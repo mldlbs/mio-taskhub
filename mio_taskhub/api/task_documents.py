@@ -76,6 +76,9 @@ def discover_task_docs(workspace: str):
         return []
     SKIP = {'node_modules', 'dist', 'build', '.venv', '.git', '.workbuddy',
             '.memory-backup', '__pycache__', '.idea', '.vscode'}
+    # 工作区/临时目录后缀：arch-worktree、srm-web-udsp-arch-worktree 等一律跳过，
+    # 否则同一份文档在多个 worktree 里同名重复，污染清单（2026-09-23 实测）。
+    SKIP_SUFFIXES = ('-worktree', '.worktree', '-worktrees')
     DOC_PATTERNS = {
         'spec':    ['spec'],
         'plan':    ['plan'],
@@ -104,7 +107,8 @@ def discover_task_docs(workspace: str):
     }
     out = []
     for root, dirs, files in os.walk(workspace):
-        dirs[:] = [d for d in dirs if d not in SKIP]
+        dirs[:] = [d for d in dirs
+                   if d not in SKIP and not d.endswith(SKIP_SUFFIXES)]
         for f in files:
             low = f.lower()
             if not low.endswith('.md'):
@@ -147,6 +151,15 @@ def _doc_fs_path(t, rel):
     return p.resolve()
 
 
+def _category_of(kind: str, source: str) -> str:
+    """文档清单分区：doc=链内登记文档；deliverable=交付物；reference=其它参考文件。"""
+    if source == 'deliverable':
+        return 'deliverable'
+    if source == 'field' and kind in DOC_KINDS:
+        return 'doc'
+    return 'reference'
+
+
 def _rel_entry(t, rel, kind, source, dir_=None):
     """构造一条文档清单条目（doc_paths / deliverables / files 共用）。
 
@@ -164,6 +177,7 @@ def _rel_entry(t, rel, kind, source, dir_=None):
             size = 0
     return {'name': os.path.basename(rel), 'rel_path': rel, 'kind': kind,
             'size': size, 'source': source, 'dir': dir_ or '', 'exists': exists,
+            'category': _category_of(kind, source),
             'status': (getattr(t, 'doc_statuses', None) or {}).get(kind)}
 
 
@@ -271,13 +285,17 @@ def list_task_documents(task_id: str, db: Session = Depends(get_session)):
         # 一排假「草稿」徽标（2026-09-18 实测 14/14 误标）。
         docs.append(d)
 
-    # 统一响应形状：发现的文档没有 status 键，补 None（而不是缺字段），
+    # 统一响应形状：发现的文档没有 status/category 键，补齐（而不是缺字段），
     # 让 /documents 的每条条目 schema 一致。
     for d in docs:
         d.setdefault('status', None)
+        d.setdefault('category', _category_of(d.get('kind', ''), d.get('source', '')))
 
     docs.sort(key=lambda x: (SOURCE_RANK.get(x['source'], 9), x['kind'], x.get('rel_path', '')))
-    return {'workspace': ws, 'documents': docs}
+    counts = {'doc': 0, 'deliverable': 0, 'reference': 0}
+    for d in docs:
+        counts[d['category']] = counts.get(d['category'], 0) + 1
+    return {'workspace': ws, 'documents': docs, 'counts': counts}
 
 
 def _workspace_base(t):
@@ -394,7 +412,10 @@ def write_task_doc(task_id: str, body: dict, kind: str = Query(...),
     if not isinstance(content, str):
         raise HTTPException(422, 'content must be a string')
 
-    rel = (payload.get('path') or '').strip() or doc_path_of(t, kind) or f'docs/{kind}.md'
+    rel = (payload.get('path') or '').strip() or doc_path_of(t, kind)
+    if not rel:
+        from mio_taskhub.doc_chain import task_doc_path
+        rel = task_doc_path(t.id, kind)
     target, rel_norm, err = _resolve_within_workspace(base, rel)
     if err:
         raise HTTPException(400, err)
@@ -473,14 +494,14 @@ def scaffold_doc_chain(task_id: str, body: dict = None, db: Session = Depends(ge
 
     created, skipped = [], []
     for kind in kinds:  # 按链路顺序生成，保证上下游链接路径稳定
-        rel = chain_path_of(kind, dict(t.doc_paths or {}))
+        rel = chain_path_of(kind, dict(t.doc_paths or {}), task_id=t.id)
         target, rel_norm, rerr = _resolve_within_workspace(base, rel)
         if rerr:
             raise HTTPException(400, rerr)
         if target.is_file() and not overwrite:
             skipped.append({'kind': kind, 'path': rel_norm, 'reason': 'exists'})
             continue
-        content = render_chain(kind, dict(t.doc_paths or {}))
+        content = render_chain(kind, dict(t.doc_paths or {}), task_id=t.id)
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding='utf-8')
@@ -512,6 +533,20 @@ def _auto_init_doc_status(t: Task, kind: str):
     if kind not in statuses:
         statuses[kind] = {'state': init, 'at': datetime.now(timezone.utc).isoformat(), 'note': 'auto'}
         t.doc_statuses = statuses
+
+
+def _doc_target(t: Task, kind: str):
+    """返回 (workspace_base, target_path 或 None)。供自动维护文档元信息复用。"""
+    base, err = _workspace_base(t)
+    if err:
+        return base, None
+    rel = doc_path_of(t, kind)
+    if not rel:
+        return base, None
+    target, _, rerr = _resolve_within_workspace(base, rel)
+    if rerr:
+        return base, None
+    return base, target
 
 
 def _quality_for(t: Task, kind: str):
@@ -559,16 +594,57 @@ def set_doc_status(task_id: str, kind: str, body: dict, db: Session = Depends(ge
     if err:
         raise HTTPException(422, err)
 
-    # 质量门控：推进到 review/approved/done 时 errors 必须为 0（force 可绕过但留痕）
-    from mio_taskhub.doc_quality import GATED_TARGETS
+    # 系统自动维护「文档信息」的 最后更新 / 状态（approved 时递增文档版本），再跑质量门。
+    # 目的：元信息由机器兜底，人不填也不会缺（2026-09-23）。
+    try:
+        from mio_taskhub.doc_chain import update_info_section
+        _base, _target = _doc_target(t, kind)
+        if _target is not None and _target.is_file():
+            _txt = _target.read_text(encoding='utf-8', errors='replace')
+            _new = update_info_section(_txt, state=state,
+                                       bump_version=(state == 'approved'))
+            if _new != _txt:
+                _target.write_text(_new, encoding='utf-8')
+    except OSError:
+        pass
+
+    # 质量门控：推进到 review/approved/done 时 errors 必须为 0；
+    # 高规格 kind（requirement/spec/api）还须达到 MIN_SCORE 分数底线（force 可绕过但留痕）
+    from mio_taskhub.doc_quality import GATED_TARGETS, MIN_SCORE
     quality, forced = None, bool((body or {}).get('force'))
     if state in GATED_TARGETS:
         quality = _quality_for(t, kind)
-        if quality and quality['errors'] and not forced:
+        if quality and not forced:
+            blockers = list(quality['errors'])
+            floor = MIN_SCORE.get(kind)
+            if floor is not None and quality['score'] < floor:
+                blockers.append(
+                    f"quality score {quality['score']} below required {floor} "
+                    f"for '{kind}' (fix warns or pass force=true)")
+            if blockers:
+                raise HTTPException(422, detail={
+                    'message': f"quality gate: {kind} has {len(blockers)} blocking issue(s); "
+                               f"fix them or pass force=true",
+                    'quality': quality})
+
+    # 棘轮基线：文档质量分 / 用例数等历史最好值只升不降（force 可绕过留痕）
+    from mio_taskhub.ratchet import applies as _ratchet_applies
+    if _ratchet_applies(state):
+        from mio_taskhub.ratchet import check_ratchet
+        _rb, _rt = _doc_target(t, kind)
+        _rc = (_rt.read_text(encoding='utf-8', errors='replace')
+               if (_rt is not None and _rt.is_file()) else None)
+        _blocked, _bumps = check_ratchet(db, t.id, kind, _rc)
+        for _b in _bumps:
+            emit_event(db, type='task_ratchet_baseline', entity='task', entity_id=t.id,
+                       payload=_b)
+        db.commit()          # 先落库：部分指标抬高也应生效
+        if _blocked and not forced:
             raise HTTPException(422, detail={
-                'message': f"quality gate: {kind} has {len(quality['errors'])} blocking issue(s); "
-                           f"fix them or pass force=true",
-                'quality': quality})
+                'message': f"棘轮基线门控：{kind} 指标低于历史最好值，禁止推进"
+                           f"（force=true 可绕过）",
+                'ratchet': _blocked,
+                'hint': '把质量分/用例数补回基线以上；若确为有意下调，用 force=true 并留痕'})
 
     from datetime import datetime as _dt, timezone as _tz
     statuses[kind] = {'state': state, 'at': _dt.now(_tz.utc).isoformat(),
@@ -583,6 +659,17 @@ def set_doc_status(task_id: str, kind: str, body: dict, db: Session = Depends(ge
     db.commit()
     return {'kind': kind, 'status': statuses[kind], 'doc_paths': dict(t.doc_paths or {}),
             'quality': quality}
+
+
+@router.get('/{task_id}/ratchet')
+def get_ratchet(task_id: str, db: Session = Depends(get_session)):
+    """任务级棘轮基线：各 kind/指标的**历史最好值**（只升不降）。"""
+    t = db.get(Task, task_id)
+    if not t:
+        raise HTTPException(404, 'task not found')
+    from mio_taskhub.ratchet import list_baselines, enabled
+    return {'task_id': task_id, 'enabled': enabled(),
+            'baselines': list_baselines(db, task_id)}
 
 
 @router.get('/{task_id}/doc/statuses')

@@ -276,6 +276,13 @@ async def taskhub_read_status(
     return _fmt(await _request("GET", f"/runs/{run_id}/read-evidence"))
 
 
+@_tool(name="taskhub_ratchet_status", title="查看任务棘轮基线", method="GET", path="/tasks/{task_id}/ratchet", read_only=True, destructive=False, desc="查看任务级棘轮基线：各文档 kind 的质量分 / 用例数**历史最好值**。棘轮门控要求后续不得低于基线（回退即 422）；确为有意下调时用 force=true 留痕。")
+async def taskhub_ratchet_status(
+    task_id: str = Field(description="任务唯一标识", min_length=1),
+) -> str:
+    return _fmt(await _request("GET", f"/tasks/{task_id}/ratchet"))
+
+
 @_tool(name="taskhub_write_document", title="写入任务文档", method="PUT", path="/tasks/{task_id}/doc", read_only=False, destructive=False, desc="写入/追加任务文档正文并自动登记到 doc_paths，让 agent 可直接产出设计/计划/审查等文档，无需先手工放文件。缺省写到 workspace 下 docs/<kind>.md。")
 async def taskhub_write_document(
     task_id: str = Field(description="任务唯一标识", min_length=1),

@@ -382,9 +382,9 @@ def test_write_document_tool_roundtrip(mcp_ctx, tmp_path):
     w = _call("taskhub_write_document", {
         "task_id": tid, "kind": "review", "content": "# 审查\n通过",
     })
-    assert w["path"] == "docs/review.md"
+    assert w["path"] == f"docs/taskhub/{tid}/review.md"
     assert w["created"] is True
-    assert (ws / "docs" / "review.md").read_text(encoding="utf-8") == "# 审查\n通过"
+    assert (ws / "docs" / "taskhub" / tid / "review.md").read_text(encoding="utf-8") == "# 审查\n通过"
 
     doc = _call("taskhub_read_document", {"task_id": tid, "kind": "review"})
     assert doc["content"] == "# 审查\n通过"
@@ -403,7 +403,7 @@ def test_write_document_tool_append_mode(mcp_ctx, tmp_path):
               {"task_id": tid, "kind": "changelog", "content": "- b", "mode": "append"})
     assert r["mode"] == "append"
     assert r["created"] is False
-    assert (ws / "docs" / "changelog.md").read_text(encoding="utf-8") == "- a\n- b"
+    assert (ws / "docs" / "taskhub" / tid / "changelog.md").read_text(encoding="utf-8") == "- a\n- b"
 
 
 def test_read_evidence_gate_via_mcp(mcp_ctx, tmp_path, monkeypatch):

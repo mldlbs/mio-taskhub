@@ -222,6 +222,25 @@ class ReadEvidence(SQLModel, table=True):
     read_at: datetime = Field(default_factory=_now)
 
 
+class RatchetBaseline(SQLModel, table=True):
+    """棘轮基线：某任务某 kind 的某指标**历史最好值**（只升不降）。
+
+    见 mio_taskhub/ratchet.py。指标示例：
+    - `score`=文档质量分（所有有质量规格的 kind）
+    - `test_cases`=`test` 文档「用例清单」表格数据行数（用例只增不减）
+
+    后续推进到受控状态（review/approved/done）时，current < baseline → 阻断；
+    current > baseline → 抬高基线（棘轮）。唯一键 (task_id, kind, metric)。
+    """
+    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    task_id: str = Field(index=True)
+    kind: str = Field(index=True)
+    metric: str = ""
+    value: int = 0
+    at: datetime = Field(default_factory=_now)
+    note: str = ""
+
+
 class Agent(SQLModel, table=True):
     name: str = Field(primary_key=True)
     agent_type: str = ""

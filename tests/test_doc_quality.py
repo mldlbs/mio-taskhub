@@ -12,7 +12,14 @@ from mio_taskhub.doc_quality import check_content, traceability
 client = TestClient(app)
 
 GOOD_SPEC = """# Spec
-> 文档链
+## 文档信息
+| 项 | 值 |
+|---|---|
+| 文档版本 | v0.1 |
+| 最后更新 | 2026-09-23 |
+| 状态 | draft |
+| 负责人 | 张三 |
+| 适用范围 | 登录模块 |
 ## 1. 模块职责与边界
 做登录。
 ## 2. 详细设计
@@ -22,6 +29,14 @@ GOOD_SPEC = """# Spec
 # 一份「事无巨细」的接口契约参考样本：21 节齐全，接口明细含完整四子块。
 # 接口契约的质量规格最严（10 必需章节 + 每个接口四子块），这里当基准用。
 GOOD_API = """# 接口契约
+## 文档信息
+| 项 | 值 |
+|---|---|
+| 文档版本 | v0.1 |
+| 最后更新 | 2026-09-23 |
+| 状态 | draft |
+| 负责人 | 张三 |
+| 适用范围 | 算法中心配置接口 |
 ## 1. 文档信息与范围
 | 项 | 值 |
 |----|----|
@@ -369,8 +384,44 @@ def test_api_quality_gate_blocks_status_advance(tmp_path):
     assert st2['state'] == 'approved' and st2['allowed_next'] == []
 
 
-def test_api_recommended_sections_warn_but_do_not_block():
-    """建议章节缺失只记 warn（扣分不阻断）；必需章节缺失才记 error。"""
+def _api_without_recommended():
+    """抽掉 GOOD_API 的全部建议章节 → 0 error 但多个 warn（低分）。"""
+    from mio_taskhub.doc_quality import QUALITY_SPEC
+    trimmed = GOOD_API
+    for sec in QUALITY_SPEC['api']['recommended']:
+        start = next((l for l in trimmed.splitlines()
+                      if l.startswith('## ') and sec in l), None)
+        if not start:
+            continue
+        i = trimmed.index(start)
+        nxt = trimmed.find('\n## ', i + 1)
+        trimmed = trimmed[:i] + (trimmed[nxt + 1:] if nxt != -1 else '')
+    return trimmed
+
+
+def test_api_low_score_blocks_status_advance(tmp_path):
+    """api 有分数底线 MIN_SCORE：0 error 但缺建议章节导致低分 → 不得推进；force 可绕过。"""
+    from mio_taskhub.doc_quality import check_content, MIN_SCORE
+    content = _api_without_recommended()
+    q = check_content('api', content)
+    assert q['errors'] == [], q['errors']
+    assert q['score'] < MIN_SCORE['api'], q['score']
+
+    tid, _ = _mk_with_doc(tmp_path, 'api', content)
+    r = client.post(f'/api/v1/tasks/{tid}/doc/api/status', json={'state': 'review'})
+    assert r.status_code == 422, r.text
+    assert 'score' in str(r.json()['detail']).lower()
+    r2 = client.post(f'/api/v1/tasks/{tid}/doc/api/status',
+                     json={'state': 'review', 'force': True})
+    assert r2.status_code == 200, r2.text
+
+
+def test_api_recommended_sections_warn_at_content_level():
+    """check_content 层面：建议章节缺失只记 warn（扣分不阻断），必需章节缺失记 error。
+
+    注意：状态推进（set_doc_status）另有 MIN_SCORE 分数底线，见
+    test_api_low_score_blocks_status_advance。
+    """
     from mio_taskhub.doc_quality import QUALITY_SPEC
     # 抽掉全部建议章节
     trimmed = GOOD_API
@@ -413,3 +464,55 @@ def test_issues_carry_fix_hints_and_revision_prompt(tmp_path):
     assert q3['revision_prompt'] is None
     # helper 直测
     assert revision_prompt('spec', None, {'score': 100, 'errors': [], 'warns': []}) is None
+
+
+def test_template_injects_info_section():
+    """所有模板都在 H1 之后注入统一「文档信息」表（含版本/最后更新/状态/负责人/范围）。"""
+    from mio_taskhub.doc_chain import render_chain, INFO_TITLE, INFO_DATE_PLACEHOLDER
+    for kind in ('requirement', 'architecture', 'spec', 'data-model', 'api', 'test', 'runbook'):
+        body = render_chain(kind)
+        assert f'## {INFO_TITLE}' in body, kind
+        assert '| 文档版本 |' in body and '| 最后更新 |' in body, kind
+        assert INFO_DATE_PLACEHOLDER in body, kind
+        # 注入位置：在首个 H1 之后
+        assert body.index('# ') < body.index(f'## {INFO_TITLE}'), kind
+
+
+def test_info_date_placeholder_is_error():
+    """『最后更新』仍为占位符（YYYY-MM-DD / YYYY-MM-DD HH:MM）→ error。"""
+    from mio_taskhub.doc_chain import INFO_DATETIME_PLACEHOLDER
+    bad = GOOD_SPEC.replace('| 最后更新 | 2026-09-23 |',
+                           f'| 最后更新 | {INFO_DATETIME_PLACEHOLDER} |')
+    q = check_content('spec', bad)
+    assert any('最后更新' in e and '占位' in e for e in q['errors']), q['errors']
+    # 旧格式（仅日期）也要判 error
+    bad2 = GOOD_SPEC.replace('| 最后更新 | 2026-09-23 |', '| 最后更新 | YYYY-MM-DD |')
+    q1 = check_content('spec', bad2)
+    assert any('最后更新' in e and '占位' in e for e in q1['errors']), q1['errors']
+    # 已填真实日期时间 → 无该错误
+    ok = GOOD_SPEC.replace('| 最后更新 | 2026-09-23 |', '| 最后更新 | 2026-09-23 16:40 |')
+    assert check_content('spec', ok)['errors'] == []
+    assert check_content('spec', GOOD_SPEC)['errors'] == []
+
+
+def test_set_doc_status_autofills_info(tmp_path):
+    """推进状态时系统自动写入 最后更新(日期+时间)/状态；approved 时递增 文档版本。"""
+    import re
+    from mio_taskhub.doc_chain import INFO_DATETIME_PLACEHOLDER
+    content = GOOD_SPEC.replace('| 最后更新 | 2026-09-23 |',
+                               f'| 最后更新 | {INFO_DATETIME_PLACEHOLDER} |')
+    tid, ws = _mk_with_doc(tmp_path, 'spec', content)
+    spec_file = ws / 'docs' / 'taskhub' / tid / 'spec.md'
+
+    # 占位符本身是 error，但 set_doc_status 会先自动写入真实时间再校验 → 放行
+    r = client.post(f'/api/v1/tasks/{tid}/doc/spec/status', json={'state': 'review'})
+    assert r.status_code == 200, r.text
+    txt = spec_file.read_text(encoding='utf-8')
+    assert INFO_DATETIME_PLACEHOLDER not in txt
+    assert re.search(r'\| 最后更新 \|\s*\d{4}-\d{2}-\d{2} \d{2}:\d{2}\s*\|', txt), txt
+    assert '| 状态 | review |' in txt
+
+    # approved → 文档版本 v0.1 → v0.2
+    r2 = client.post(f'/api/v1/tasks/{tid}/doc/spec/status', json={'state': 'approved'})
+    assert r2.status_code == 200, r2.text
+    assert '| 文档版本 | v0.2 |' in spec_file.read_text(encoding='utf-8')

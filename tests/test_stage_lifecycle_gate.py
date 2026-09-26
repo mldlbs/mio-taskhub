@@ -48,7 +48,7 @@ def test_draft_spec_blocks_advance_to_design():
     r = client.post(f"/api/v1/tasks/{tid}/stage",
                     json={"target_stage": "design", "spec_path": "docs/s.md"})
     assert r.status_code == 422
-    assert r.json()["detail"]["gate"][0]["kind"] == "spec"
+    assert any(g["kind"] == "spec" for g in r.json()["detail"]["gate"])
 
 
 def test_review_spec_blocks_advance_to_design():
@@ -63,12 +63,26 @@ def test_review_spec_blocks_advance_to_design():
 
 def test_approved_spec_allows_advance_to_design():
     tid = _mk()
+    _set_status(tid, "requirement", "approved")   # design 门控同时要求 requirement
     _set_status(tid, "spec", "approved")
     _mk_discussion(tid)
     r = client.post(f"/api/v1/tasks/{tid}/stage",
                     json={"target_stage": "design", "spec_path": "docs/s.md"})
     assert r.status_code == 200
     assert r.json()["stage"] == "design"
+
+
+def test_tracked_task_without_requirement_blocks_design():
+    """已进入文档生命周期（有 spec/api 状态）却无 requirement → 阻断进 design。"""
+    tid = _mk()
+    _set_status(tid, "spec", "approved")
+    _set_status(tid, "api", "approved")
+    _mk_discussion(tid)
+    r = client.post(f"/api/v1/tasks/{tid}/stage",
+                    json={"target_stage": "design", "spec_path": "docs/s.md"})
+    assert r.status_code == 422
+    assert any(g["kind"] == "requirement" and g["current"] is None
+               for g in r.json()["detail"]["gate"])
 
 
 def test_draft_api_blocks_advance_to_design():
@@ -128,12 +142,13 @@ def test_move_to_design_also_gated():
     r = client.post(f"/api/v1/tasks/{tid}/stage/move",
                     json={"target_stage": "design", "spec_path": "docs/s.md"})
     assert r.status_code == 422
-    assert r.json()["detail"]["gate"][0]["kind"] == "spec"
+    assert any(g["kind"] == "spec" for g in r.json()["detail"]["gate"])
 
 
 def test_requirements_endpoint_exposes_lifecycle_gate():
     r = client.get("/api/v1/tasks/stages/requirements")
     assert r.status_code == 200
     gates = r.json()["stages"]
-    assert gates["design"]["lifecycle_gate"] == {"spec": "approved", "api": "approved"}
+    assert gates["design"]["lifecycle_gate"] == {
+        "requirement": "approved", "spec": "approved", "api": "approved"}
     assert gates["planning"]["lifecycle_gate"] == {"plan": "approved"}

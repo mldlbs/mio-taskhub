@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
 from mio_taskhub.db import get_session
 from mio_taskhub.events import emit_event
+from mio_taskhub.policy_guard import guard_action
 from mio_taskhub.models import Task, TaskState, TaskStage, Discussion
 from mio_taskhub.workflow.transitions import apply_transition, _orm_to_status_state, _orm_to_status_stage
 from mio_taskhub.api.task_helpers import parse_enum
@@ -66,9 +67,14 @@ STAGE_ARTIFACT_REQUIREMENTS = {
 #   approved 不能进入 planning（设计产物 spec+api 都应先审完再写实现/计划）。
 # changelog / review 无生命周期，不在此表；implementing / done 仅靠上游
 # （design / planning 已门控 spec+api / plan）间接保证。
+# 严格 kind：未显式设状态时，只要任务已进入文档生命周期（doc_statuses 非空）就算缺失并阻断。
+# 目的：堵住「没有 requirement 也能批准 spec/api 进 design」的缺口。
+# 向后兼容：完全未跟踪（doc_statuses 为空）的历史任务仍按旧逻辑放行。
+STRICT_KINDS = {"requirement"}
+
 LIFECYCLE_GATE = {
     "brainstorming": {"requirement": "approved"},
-    "design": {"spec": "approved", "api": "approved"},
+    "design": {"requirement": "approved", "spec": "approved", "api": "approved"},
     "planning": {"plan": "approved"},
 }
 
@@ -84,10 +90,18 @@ def _check_lifecycle_gate(t: Task, dst: TaskStage, force: bool = False):
     if not gate:
         return []
     statuses = dict(getattr(t, "doc_statuses", None) or {})
+    tracked = bool(statuses)                 # 已进入文档生命周期（显式设过任一状态）
     blocked = []
     for kind, required in gate.items():
         entry = statuses.get(kind)
-        if not entry:                       # 从未设置状态：旧任务 / 未跟踪，放行
+        if not entry:                       # 从未设置状态
+            if kind in STRICT_KINDS and tracked:
+                blocked.append({
+                    "kind": kind,
+                    "current": None,
+                    "required": required,
+                    "has_doc": bool(doc_path_of(t, kind)),
+                })
             continue
         cur = (entry or {}).get("state")
         if reached_state(kind, cur, required):
@@ -218,10 +232,12 @@ def stage_requirements():
 
 
 @router.delete("/{task_id}")
-def cancel_task(task_id: str, db: Session = Depends(get_session)):
+def cancel_task(task_id: str, confirm: bool = Query(False),
+                db: Session = Depends(get_session)):
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404)
+    policy = guard_action("taskhub:delete-task", confirm=confirm)
     from mio_taskhub.workflow.transitions import apply_transition
     from mio_taskhub.workflow.state_machine import State, Stage, ActorType, IllegalTransition
     current_stage = t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
@@ -237,7 +253,7 @@ def cancel_task(task_id: str, db: Session = Depends(get_session)):
     event = emit_event(db, type="task_cancelled", entity="task", entity_id=task_id)
     db.add(t)
     db.commit()
-    return {"ok": True, "state": "cancelled"}
+    return {"ok": True, "state": "cancelled", "policy": policy}
 
 
 @router.post("/{task_id}/retry")
@@ -361,25 +377,41 @@ def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
     cur_s = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
     cur_m1 = _orm_to_status_state(cur_s)
     to_st = _orm_to_status_stage(dst)
-    if dst == TaskStage.DONE:
-        if cur_s in (TaskState.CLAIMED, TaskState.QUEUED):
-            from_st_done = _orm_to_status_stage(src)
-            _transition_to_stage(t, M1State.COMPLETED, from_st_done,
-ActorType.USER, "api:move_to_stage",
-                                  "move→done", m1_events)
-        _transition_to_stage(t, M1State.COMPLETED, M1Stage.DONE,
-                              ActorType.SYSTEM, "auto:finalize",
-                              "move→done: finalize", m1_events)
-    elif dst == TaskStage.CANCELLED:
-        from_st = _orm_to_status_stage(src)
-        _transition_to_stage(t, M1State.CANCELLED, from_st,
-                              ActorType.USER, "api:move_to_stage",
-                              "move→cancelled", m1_events)
-    else:
-        actor = ActorType.USER if cur_s == TaskState.QUEUED else ActorType.SYSTEM
-        actor_id = "api:move_to_stage" if cur_s == TaskState.QUEUED else "auto:move"
-        _transition_to_stage(t, cur_m1, to_st, actor, actor_id,
-                              f"move {src.value}→{dst.value}", m1_events)
+    try:
+        if dst == TaskStage.DONE:
+            # 设计锁（is_valid_stage_move）：done 只能从 review 经 T5+T6 进入，
+            # 任何直跳 (s, src)→(completed, done) 都是未定义转换。修复 2026-09-25：
+            # 原实现按 src 阶段直接入 completed，src=ready 时抛 IllegalTransition
+            # →500。现改为非 review 源先同状态 stage-only 挪到 review（T18 兜底），
+            # queued/claimed 走 T5 入 (completed, review)，最后 T6 收尾。
+            if cur_s not in (TaskState.QUEUED, TaskState.CLAIMED, TaskState.COMPLETED):
+                raise HTTPException(
+                    409, f"不可移动到 done：状态 {cur_s.value} 无完成路径"
+                         "（failed/retrying 请先 retry，running 请等待 agent 提交）")
+            if src != TaskStage.REVIEW:
+                _transition_to_stage(t, cur_m1, M1Stage.REVIEW,
+                                     ActorType.USER, "api:move_to_stage",
+                                     f"move→done: pass through review ({src.value})",
+                                     m1_events)
+            if cur_s in (TaskState.CLAIMED, TaskState.QUEUED):
+                _transition_to_stage(t, M1State.COMPLETED, M1Stage.REVIEW,
+                                     ActorType.USER, "api:move_to_stage",
+                                     "move→done: review pass", m1_events)
+            _transition_to_stage(t, M1State.COMPLETED, M1Stage.DONE,
+                                 ActorType.SYSTEM, "auto:finalize",
+                                 "move→done: finalize", m1_events)
+        elif dst == TaskStage.CANCELLED:
+            from_st = _orm_to_status_stage(src)
+            _transition_to_stage(t, M1State.CANCELLED, from_st,
+                                 ActorType.USER, "api:move_to_stage",
+                                 "move→cancelled", m1_events)
+        else:
+            actor = ActorType.USER if cur_s == TaskState.QUEUED else ActorType.SYSTEM
+            actor_id = "api:move_to_stage" if cur_s == TaskState.QUEUED else "auto:move"
+            _transition_to_stage(t, cur_m1, to_st, actor, actor_id,
+                                 f"move {src.value}→{dst.value}", m1_events)
+    except M1Illegal as exc:
+        raise HTTPException(409, f"stage move 被状态机拒绝: {exc}")
     if forced_gate:
         emit_event(db, type="task_stage_gate_forced", entity="task", entity_id=t.id,
                    payload={"target": dst.value, "gate": forced_gate, "move": True})

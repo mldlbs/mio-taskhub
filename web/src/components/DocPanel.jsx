@@ -46,6 +46,16 @@ const KIND_META = {
 }
 const kindMeta = (k) => KIND_META[k] || { label: k.toUpperCase(), group: k, order: 9 }
 
+// 一级分区：链内权威文档 / 交付物 / 参考文件（后端每条带 category，缺省按 source 推断）
+const CATEGORY_META = {
+  doc:         { label: '链内文档', order: 0, hint: '已登记（doc_paths）的权威文档' },
+  deliverable: { label: '交付物', order: 1, hint: 'task.deliverables' },
+  reference:   { label: '参考文件', order: 2, hint: '扫描发现 / 相关文件，非权威' },
+}
+const categoryOf = (d) =>
+  d.category || (d.source === 'deliverable' ? 'deliverable'
+    : d.source === 'field' ? 'doc' : 'reference')
+
 // 文档内相对资源（图片）解析：workspace 相对目录 + 引用路径
 const ABS_SRC_RE = /^(?:[a-z][a-z0-9+.-]*:|\/\/|\/)/i
 const decodeMaybe = (s) => { try { return decodeURIComponent(s) } catch { return s } }
@@ -289,15 +299,28 @@ export default function DocPanel({ task, onClose }) {
       .map(k => ({ kind: k, label: kindMeta(k).label, count: counts[k] }))
   }, [all])
 
-  // 按 kind 分组（受顶部类型筛选影响）
-  const groups = {}
+  // 两级分组：category（链内文档 / 交付物 / 参考文件）→ kind（受顶部类型筛选影响）
+  const catBuckets = {}
   for (const d of filtered) {
     if (activeKind && d.kind !== activeKind) continue
-    const meta = kindMeta(d.kind)
-    if (!groups[d.kind]) groups[d.kind] = { meta, items: [] }
-    groups[d.kind].items.push(d)
+    const ck = categoryOf(d)
+    if (!catBuckets[ck]) catBuckets[ck] = { key: ck, meta: CATEGORY_META[ck] || { label: ck, order: 9 }, kinds: {} }
+    const kg = catBuckets[ck].kinds
+    if (!kg[d.kind]) kg[d.kind] = { meta: kindMeta(d.kind), items: [] }
+    kg[d.kind].items.push(d)
   }
-  const sortedGroups = Object.values(groups).sort((a, b) => a.meta.order - b.meta.order)
+  const sortedCategories = Object.values(catBuckets)
+    .sort((a, b) => a.meta.order - b.meta.order)
+    .map(c => {
+      const kindGroups = Object.values(c.kinds).sort((a, b) => a.meta.order - b.meta.order)
+      return { ...c, kindGroups, count: kindGroups.reduce((n, g) => n + g.items.length, 0) }
+    })
+
+  const catCounts = useMemo(() => {
+    const c = { doc: 0, deliverable: 0, reference: 0 }
+    for (const d of all) { const k = categoryOf(d); c[k] = (c[k] || 0) + 1 }
+    return c
+  }, [all])
 
   const switchKind = (kind) => {
     setActiveKind(kind)
@@ -338,32 +361,40 @@ export default function DocPanel({ task, onClose }) {
               </button>
             ))}
           </div>
-          <span className="docpanel__count">{docs ? `${docs.length} 篇文档` : '加载中…'}{riskCount > 0 && ` · ${riskCount} 处风险标记`}</span>
+          <span className="docpanel__count">{docs ? `${docs.length} 篇 · 文档 ${catCounts.doc} / 交付物 ${catCounts.deliverable} / 参考 ${catCounts.reference}` : '加载中…'}{riskCount > 0 && ` · ${riskCount} 处风险标记`}</span>
         </div>
         <div className="docpanel__body">
           <nav className="docpanel__list">
             {docs === null && <p className="detail-muted">加载中…</p>}
             {docs && docs.length === 0 && <p className="detail-muted">该任务无关联文档</p>}
-            {sortedGroups.map(g => (
-              <div key={g.meta.group} className="docpanel__group">
-                <div className="docpanel__group-title">{g.meta.group}</div>
-                {g.items.map(d => {
-                  const km = kindMeta(d.kind)
-                  const st = stateOfDoc(d)
-                  return (
-                    <button key={d.rel_path} className={`docpanel__item${selected?.rel_path === d.rel_path ? ' is-active' : ''}`} onClick={() => select(d)}>
-                      <span className={`docpanel__kind docpanel__kind--${d.kind}`}>{km.label}</span>
-                      <span className="docpanel__name">
-                        {d.name}
-                        {st && <span className={`docpanel__docstate docpanel__docstate--${docStateTone(st)}`}
-                                     title={`生命周期状态：${docStateLabel(st)}`}>{docStateLabel(st)}</span>}
-                      </span>
-                      {d.exists === false && <span className="docpanel__missing" title="路径已登记但文件不存在">缺失</span>}
-                      <span className="docpanel__src">{sourceLabel(d.source)}</span>
-                      <span className="docpanel__sub mono">{d.rel_path}{d.size != null ? ` · ${fmtSize(d.size)}` : ''}</span>
-                    </button>
-                  )
-                })}
+            {sortedCategories.map(cat => (
+              <div key={cat.key} className="docpanel__cat">
+                <div className="docpanel__cat-title">
+                  {cat.meta.label}<span className="docpanel__cat-count">{cat.count}</span>
+                  {cat.meta.hint && <span className="docpanel__cat-hint">{cat.meta.hint}</span>}
+                </div>
+                {cat.kindGroups.map(g => (
+                  <div key={g.meta.group} className="docpanel__group">
+                    <div className="docpanel__group-title">{g.meta.group}</div>
+                    {g.items.map(d => {
+                      const km = kindMeta(d.kind)
+                      const st = stateOfDoc(d)
+                      return (
+                        <button key={d.rel_path} className={`docpanel__item${selected?.rel_path === d.rel_path ? ' is-active' : ''}`} onClick={() => select(d)}>
+                          <span className={`docpanel__kind docpanel__kind--${d.kind}`}>{km.label}</span>
+                          <span className="docpanel__name">
+                            {d.name}
+                            {st && <span className={`docpanel__docstate docpanel__docstate--${docStateTone(st)}`}
+                                         title={`生命周期状态：${docStateLabel(st)}`}>{docStateLabel(st)}</span>}
+                          </span>
+                          {d.exists === false && <span className="docpanel__missing" title="路径已登记但文件不存在">缺失</span>}
+                          <span className="docpanel__src">{sourceLabel(d.source)}</span>
+                          <span className="docpanel__sub mono">{d.rel_path}{d.size != null ? ` · ${fmtSize(d.size)}` : ''}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                ))}
               </div>
             ))}
             {docs && docs.length > 0 && filtered.length === 0 && <p className="detail-muted">无匹配「{query}」</p>}

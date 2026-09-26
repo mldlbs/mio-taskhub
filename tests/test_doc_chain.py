@@ -35,20 +35,23 @@ def test_scaffold_creates_full_chain(tmp_path):
     assert body['skipped'] == []
 
     for kind in DOC_CHAIN:
-        p = ws / 'docs' / f'{kind}.md'
+        p = ws / 'docs' / 'taskhub' / tid / f'{kind}.md'
         assert p.is_file(), f'{kind} 文件未生成: {p}'
         text = p.read_text(encoding='utf-8')
         assert '软件项目文档链' in text and '# ' in text
-        # 每份都登记进了 doc_paths
-        assert body['doc_paths'][kind] == f'docs/{kind}.md'
+        assert '## 文档信息' in text          # 统一元信息表（版本/最后更新/状态/负责人/范围）
+        # 每份都登记进了 doc_paths（任务级目录 docs/taskhub/<id>/）
+        assert body['doc_paths'][kind] == f'docs/taskhub/{tid}/{kind}.md'
     # 上下游追溯链接：requirement 无上游、runbook 无下游、中间件双向
-    req = (ws / 'docs' / 'requirement.md').read_text(encoding='utf-8')
-    assert '上游：—' in req and '下游：[架构设计](docs/architecture.md)' in req
-    runbook = (ws / 'docs' / 'runbook.md').read_text(encoding='utf-8')
-    assert '下游：—' in runbook and '上游：[测试验收](docs/test.md)' in runbook
-    spec = (ws / 'docs' / 'spec.md').read_text(encoding='utf-8')
-    assert '上游：[架构设计](docs/architecture.md)' in spec
-    assert '下游：[状态模型](docs/data-model.md)' in spec
+    def _read(k):
+        return (ws / 'docs' / 'taskhub' / tid / f'{k}.md').read_text(encoding='utf-8')
+    req = _read('requirement')
+    assert '上游：—' in req and f'下游：[架构设计](docs/taskhub/{tid}/architecture.md)' in req
+    runbook = _read('runbook')
+    assert '下游：—' in runbook and f'上游：[测试验收](docs/taskhub/{tid}/test.md)' in runbook
+    spec = _read('spec')
+    assert f'上游：[架构设计](docs/taskhub/{tid}/architecture.md)' in spec
+    assert f'下游：[状态模型](docs/taskhub/{tid}/data-model.md)' in spec
 
 
 def test_scaffold_never_overwrites_existing(tmp_path):
@@ -56,7 +59,7 @@ def test_scaffold_never_overwrites_existing(tmp_path):
     tid, ws = _mk(tmp_path)
     r1 = client.post(f'/api/v1/tasks/{tid}/docs/scaffold', json={})
     assert r1.status_code == 200
-    spec_file = ws / 'docs' / 'spec.md'
+    spec_file = ws / 'docs' / 'taskhub' / tid / 'spec.md'
     user_content = '# 我自己的 Spec（模板不该覆盖我）'
     spec_file.write_text(user_content, encoding='utf-8')
 
@@ -80,8 +83,8 @@ def test_scaffold_subset_and_validation(tmp_path):
     assert r.status_code == 200
     body = r.json()
     assert [c['kind'] for c in body['created']] == ['api', 'test']
-    assert (ws / 'docs' / 'api.md').is_file()
-    assert not (ws / 'docs' / 'requirement.md').exists()
+    assert (ws / 'docs' / 'taskhub' / tid / 'api.md').is_file()
+    assert not (ws / 'docs' / 'taskhub' / tid / 'requirement.md').exists()
 
     bad = client.post(f'/api/v1/tasks/{tid}/docs/scaffold', json={'kinds': ['readme']})
     assert bad.status_code == 422 and 'readme' in bad.json()['detail']

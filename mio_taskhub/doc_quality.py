@@ -22,26 +22,26 @@ import re
 #   detail_rule: 明细单元完整性（如「接口契约的每个接口」必须写全子块）
 QUALITY_SPEC = {
     'requirement': {
-        'sections': ['背景与问题', '目标与非目标', '功能需求', '非功能需求'],
-        'min_table_rows': {'功能需求': 1},
+        'sections': ['文档信息', '背景与问题', '目标与非目标', '功能需求', '非功能需求'],
+        'min_table_rows': {'文档信息': 2, '功能需求': 1},
     },
     'architecture': {
-        'sections': ['系统上下文', '总体架构', '关键数据流'],
-        'min_table_rows': {},
+        'sections': ['文档信息', '系统上下文', '总体架构', '关键数据流'],
+        'min_table_rows': {'文档信息': 2},
     },
     'spec': {
-        'sections': ['模块职责与边界', '详细设计'],
-        'min_table_rows': {},
+        'sections': ['文档信息', '模块职责与边界', '详细设计'],
+        'min_table_rows': {'文档信息': 2},
     },
     'data-model': {
-        'sections': ['实体与字段', '状态机'],
-        'min_table_rows': {'实体与字段': 1},
+        'sections': ['文档信息', '实体与字段', '状态机'],
+        'min_table_rows': {'文档信息': 2, '实体与字段': 1},
     },
     # 接口契约是唯一一份「必须事无巨细」的文档：字段级、错误码级、示例级都要落地。
     # 因此必需章节数量最多，且额外用 detail_rule 约束「每个接口」都要写全四个子块。
     'api': {
         'sections': [
-            '文档信息与范围', '环境与基础地址', '认证与鉴权', '通用响应结构',
+            '文档信息', '文档信息与范围', '环境与基础地址', '认证与鉴权', '通用响应结构',
             '统一错误码', '字段命名与类型规范', '幂等性与重试',
             '接口清单', '接口明细', '变更记录',
         ],
@@ -50,7 +50,7 @@ QUALITY_SPEC = {
             '限流与配额', '超时与并发', '文件上传与下载', '安全与脱敏',
             '兼容性与废弃策略', '附录',
         ],
-        'min_table_rows': {'通用响应结构': 1, '统一错误码': 1, '接口清单': 1},
+        'min_table_rows': {'文档信息': 2, '通用响应结构': 1, '统一错误码': 1, '接口清单': 1},
         'detail_rule': {
             'section': '接口明细',
             'unit_label': '接口',
@@ -61,17 +61,33 @@ QUALITY_SPEC = {
         },
     },
     'test': {
-        'sections': ['验收标准', '测试范围', '用例清单'],
-        'min_table_rows': {'用例清单': 1},
+        'sections': ['文档信息', '验收标准', '测试范围', '用例清单'],
+        'min_table_rows': {'文档信息': 2, '用例清单': 1},
     },
     'runbook': {
-        'sections': ['环境与依赖', '部署步骤', '回滚'],
-        'min_table_rows': {},
+        'sections': ['文档信息', '环境与依赖', '部署步骤', '回滚'],
+        'min_table_rows': {'文档信息': 2},
     },
 }
 
 # 状态机推进到这些目标状态时做质量门控（errors=0 才放行）
 GATED_TARGETS = ('review', 'approved', 'done')
+
+# 「文档信息」元信息节（模板由 doc_chain.render_chain 统一注入；见 doc_chain.info_block）
+INFO_TITLE = '文档信息'
+INFO_DATETIME_PLACEHOLDER = 'YYYY-MM-DD HH:MM'
+INFO_DATE_PLACEHOLDER = INFO_DATETIME_PLACEHOLDER   # 兼容旧引用
+# 占位判定：同时命中新格式（含时间）与旧格式（仅日期），避免历史文档漏检
+_PLACEHOLDER_RE = re.compile(r'YYYY-MM-DD(?:[ T]HH:MM)?')
+
+# 高规格文档的最低质量分：即使 errors=0，分数低于此线也不得推进（force 可绕过）。
+# 依据：需求/设计/契约是全链里规格最严的三份，「0 error 但一堆章节缺失」不应算达标
+# （2026-09-23：实测某任务 api 45 分、缺 11 个建议章节，仍被批准，故加分数底线）。
+MIN_SCORE = {
+    'requirement': 80,
+    'spec': 80,
+    'api': 80,
+}
 
 # 各章节「该写什么」——把质量问题反哺成写作指引（revision prompt 的素材）
 SECTION_HINTS = {
@@ -258,6 +274,13 @@ def check_content(kind: str, content, ws_dir=None) -> dict:
         body = _section_body(next(b for t, b in sections if req in t))
         if '<!--' in body:
             errors.append(f'必需章节「{hit}」未填写（残留模板指引注释 <!-- -->）')
+
+    # 1a) 「文档信息」的『最后更新』不得留占位符（推进状态时系统会自动写入真实日期时间）
+    info_hit = next(((t, b) for t, b in sections if INFO_TITLE in t), None)
+    if info_hit and _PLACEHOLDER_RE.search(_section_body(info_hit[1])):
+        errors.append('「文档信息」的『最后更新』仍是占位符 %s'
+                      '（修法：填真实日期时间；推进状态时系统会自动写入）'
+                      % INFO_DATETIME_PLACEHOLDER)
 
     # 2) 必需表格数据行
     for tbl, min_rows in spec.get('min_table_rows', {}).items():
