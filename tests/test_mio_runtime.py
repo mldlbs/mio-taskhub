@@ -242,3 +242,59 @@ def test_mio_insight_api(tmp_path, monkeypatch):
     monkeypatch.setattr(mio, "run_mio", fake)
     j = client.get("/api/v1/mio/insight").json()
     assert j["available"] is True and j["items"][0]["score"] == 77
+
+
+# ── MCP 脚本 / Node 可移植解析（替代写死绝对路径）────────────────────────
+
+def test_resolve_mcp_script_env_override(monkeypatch, tmp_path):
+    """env 覆盖优先；指向不存在的路径也不静默回退（缺失交给存在性检查暴露）。"""
+    real = tmp_path / "custom.js"
+    real.write_text("")
+    monkeypatch.setenv("MIO_MCP_SCRIPT", str(real))
+    assert mio.resolve_mcp_script() == str(real)
+
+    gone = tmp_path / "gone.js"
+    monkeypatch.setenv("MIO_MCP_SCRIPT", str(gone))
+    assert mio.resolve_mcp_script() == str(gone)
+
+
+def test_resolve_mcp_script_from_cli_prefix(monkeypatch, tmp_path):
+    """从 mio CLI shim 位置推导 npm prefix → node_modules 定位脚本。"""
+    monkeypatch.delenv("MIO_MCP_SCRIPT", raising=False)
+    prefix = tmp_path / "npmprefix"
+    script = prefix.joinpath(*mio._MCP_SCRIPT_SUFFIX)
+    script.parent.mkdir(parents=True)
+    script.write_text("")
+    shim = prefix / "mio.cmd"
+    shim.write_text("")
+    monkeypatch.setattr(mio, "mio_cli", lambda: [str(shim)])
+    assert mio.resolve_mcp_script() == str(script)
+
+
+def test_resolve_mcp_script_not_found(monkeypatch, tmp_path):
+    """三路全空（env/推导/兜底）→ None，不猜路径。"""
+    monkeypatch.delenv("MIO_MCP_SCRIPT", raising=False)
+    monkeypatch.setattr(mio, "mio_cli", lambda: None)
+    monkeypatch.setattr(mio.shutil, "which", lambda *_a, **_k: None)
+    monkeypatch.setattr(mio, "_MCP_SCRIPT_LEGACY", str(tmp_path / "absent.js"))
+    assert mio.resolve_mcp_script() is None
+
+
+def test_resolve_node_order(monkeypatch, tmp_path):
+    """env MIO_NODE → PATH → 便携硬编码兜底 → 全空 None。"""
+    monkeypatch.setenv("MIO_NODE", str(tmp_path / "n.exe"))
+    assert mio.resolve_node() == str(tmp_path / "n.exe")
+
+    monkeypatch.delenv("MIO_NODE")
+    monkeypatch.setattr(mio.shutil, "which",
+                        lambda name: "/fake/node" if name == "node" else None)
+    assert mio.resolve_node() == "/fake/node"
+
+    monkeypatch.setattr(mio.shutil, "which", lambda *_a, **_k: None)
+    legacy = tmp_path / "portable_node.exe"
+    legacy.write_text("")
+    monkeypatch.setattr(mio, "_NODE_LEGACY", str(legacy))
+    assert mio.resolve_node() == str(legacy)
+
+    monkeypatch.setattr(mio, "_NODE_LEGACY", str(tmp_path / "nope.exe"))
+    assert mio.resolve_node() is None

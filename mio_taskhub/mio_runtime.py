@@ -7,8 +7,11 @@
   2. 可选的 CLI 子进程（白名单 + 超时 + 失败静默降级）。
 - 运行时缺失/换机/未安装 → 一切接口返回 `available: false`，**不影响 taskhub**。
 - 绝不外泄敏感字段：`config.json` 的 `llm`（含明文 apiKey）一律剔除。
-- **契约冒烟**（ContractJob）：定时跑 4 条白名单只读 CLI 并断言关键输出字段——
-  runtime 升级改了 schema → 告警可见，而不是 policy 门控静默失效 / digest 悄悄停更。
+- **契约冒烟**（ContractJob）：定时跑 4 条白名单只读 CLI + 1 条本地 MCP 入口探针
+  并断言关键输出字段——runtime 升级改了 schema / MCP 脚本搬了家 → 告警可见，
+  而不是 policy 门控静默失效 / digest 悄悄停更 / 模板生成 500。
+- **路径可移植**：MCP 脚本与 node 不写死绝对路径，走 env（MIO_MCP_SCRIPT /
+  MIO_NODE）→ mio CLI 前缀 / npm root -g 推导 → 旧硬编码兜底。
 """
 from __future__ import annotations
 
@@ -369,10 +372,87 @@ class MioDigestJob(Scheduler):
                 return
 
 
+# ── MCP 脚本 / Node 可移植解析（替代写死绝对路径）────────────────────────
+# 旧代码在 idea_templates 里写死 D:\node_global\... 与 workbuddy node.exe——换机/
+# npm 前缀变化即断，是耦合评估里的最高风险点。解析顺序：env 显式覆盖 → 从 mio
+# CLI 前缀 / npm root -g 推导 → 旧硬编码兜底。env 覆盖不静默回退（缺失显式暴露）。
+
+_MCP_SCRIPT_SUFFIX = ("node_modules", "mio-agent-runtime",
+                      "server", "mio-intelligence-mcp", "index.js")
+_MCP_SCRIPT_LEGACY = (
+    r"D:\node_global\node_modules\mio-agent-runtime\server"
+    r"\mio-intelligence-mcp\index.js")
+_NODE_LEGACY = r"C:\Users\admin\.workbuddy\binaries\node\versions\22.22.2\node.exe"
+
+
+def _prefix_from_cli(cli: List[str]) -> Optional[Path]:
+    """mio shim（prefix/mio.cmd）或包内 js（.../node_modules/<pkg>/...）→ npm prefix。"""
+    first = (cli[1] if len(cli) >= 2
+             and cli[0].lower().endswith(("node", "node.exe")) else cli[0])
+    p = Path(first)
+    if p.name.lower().startswith("mio"):
+        return p.parent
+    parts = p.parts
+    if "node_modules" in parts:
+        return Path(*parts[: parts.index("node_modules")])
+    return None
+
+
+def _prefix_candidates() -> List[Path]:
+    out: List[Path] = []
+    cli = mio_cli()
+    if cli:
+        pref = _prefix_from_cli(cli)
+        if pref:
+            out.append(pref)
+    if out:
+        return out                      # 已从 mio CLI 推出前缀，不打扰 npm
+    npm = shutil.which("npm") or shutil.which("npm.cmd")
+    if npm:
+        try:
+            root = subprocess.run([npm, "root", "-g"], capture_output=True,
+                                  text=True, timeout=10)
+            if root.returncode == 0:
+                rp = Path((root.stdout or "").strip())
+                if rp.is_dir():
+                    out.append(rp)
+        except Exception:  # noqa: BLE001 —— npm 不可用就走兜底
+            pass
+    return out
+
+
+def resolve_mcp_script() -> Optional[str]:
+    """mio-intelligence MCP 入口脚本（可移植）。
+
+    顺序：env `MIO_MCP_SCRIPT`（显式覆盖，缺失不静默回退，交给存在性检查暴露）
+    → mio CLI 前缀 / npm root -g 推导的 node_modules → 旧硬编码兜底。
+    """
+    override = (os.environ.get("MIO_MCP_SCRIPT") or "").strip()
+    if override:
+        return override
+    for prefix in _prefix_candidates():
+        cand = prefix.joinpath(*_MCP_SCRIPT_SUFFIX)
+        if cand.is_file():
+            return str(cand)
+    return _MCP_SCRIPT_LEGACY if Path(_MCP_SCRIPT_LEGACY).is_file() else None
+
+
+def resolve_node() -> Optional[str]:
+    """node 可执行（可移植）：env `MIO_NODE` → PATH → 便携硬编码兜底。"""
+    override = (os.environ.get("MIO_NODE") or "").strip()
+    if override:
+        return override
+    p = shutil.which("node") or shutil.which("node.exe")
+    if p:
+        return p
+    return _NODE_LEGACY if Path(_NODE_LEGACY).is_file() else None
+
+
 # ── 契约冒烟自检（把"松耦合且失聪"补成"有哨兵"）──────────────────────────
-# 探针 = 白名单只读 CLI + 关键字段断言。契约漂移的典型事故：
+# 探针 = 白名单只读 CLI + 关键字段断言 + 本地 MCP 入口解析。契约漂移的典型事故：
 # policy check 改字段 → 门控永久 unknown=放行无人知晓；
-# digest 改 flag → MIO_CONTEXT 悄悄停更。这里先炸（进告警），不静默。
+# digest 改 flag → MIO_CONTEXT 悄悄停更；MCP 脚本搬家 → 模板生成 500。
+# 这里先炸（进告警），不静默。
 
 CONTRACT_PROBES = (
     {"name": "status", "args": ("--json", "status"),
@@ -384,6 +464,7 @@ CONTRACT_PROBES = (
     {"name": "policy_check", "args": ("--json", "policy", "check",
                                       "mio-taskhub contract smoke self-check"),
      "fields": ("riskLevel", "total", "guidance.hardGate")},
+    {"name": "mcp_script", "args": (), "fields": ("path", "node")},
 )
 
 _contract_lock = threading.Lock()
@@ -425,6 +506,21 @@ def contract_check(timeout: float = 120.0) -> dict:
                   "interval_s": interval, "probes": []}
     else:
         for p in CONTRACT_PROBES:
+            if p["name"] == "mcp_script":
+                # 本地探针（不跑 CLI）：MCP 脚本与 node 必须都解析到且存在
+                script = resolve_mcp_script()
+                node = resolve_node()
+                missing = []
+                if not (script and Path(script).is_file()):
+                    missing.append("script")
+                if not (node and Path(node).is_file()):
+                    missing.append("node")
+                entry = {"name": "mcp_script", "ok": not missing,
+                         "missing": missing}
+                if script:
+                    entry["path"] = script
+                probes_out.append(entry)
+                continue
             args = list(p["args"])
             if p["name"] == "policy_check":
                 args += ["--project", _project_name()]

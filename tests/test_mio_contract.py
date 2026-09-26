@@ -43,6 +43,9 @@ def _patch_cli(monkeypatch, payloads=None):
     monkeypatch.setattr(mio, "available", lambda: True)
     monkeypatch.setattr(mio, "mio_cli", lambda: ["mio"])
     monkeypatch.setattr(mio, "_json_stdout", _fake_json_stdout(payloads or {}))
+    # mcp_script 本地探针确定性化：指向真实存在的文件（mio_runtime 自身）
+    monkeypatch.setattr(mio, "resolve_mcp_script", lambda: mio.__file__)
+    monkeypatch.setattr(mio, "resolve_node", lambda: mio.__file__)
 
 
 # ── 探针断言 ─────────────────────────────────────────────────────────────
@@ -53,7 +56,8 @@ def test_contract_check_all_probes_ok(monkeypatch):
     assert res["ok"] is True
     assert res["available"] is True
     assert [p["name"] for p in res["probes"]] == [
-        "status", "insight_status", "creativity_status", "policy_check"]
+        "status", "insight_status", "creativity_status", "policy_check",
+        "mcp_script"]
     assert all(p["ok"] for p in res["probes"])
     # 结果已缓存
     assert mio.contract_last()["epoch"] == res["epoch"]
@@ -73,15 +77,21 @@ def test_contract_check_detects_schema_drift(monkeypatch):
 
 
 def test_contract_cli_failed_probe_reports_error(monkeypatch):
-    """CLI 非零/无输出 → 探针失败并带 error，而不是抛异常。"""
+    """CLI 非零/无输出 → 4 条 CLI 探针失败带 error；MCP 解析不到 → 本地探针失败。"""
     def broken(args, timeout=300.0):
         return False, None
     monkeypatch.setattr(mio, "available", lambda: True)
     monkeypatch.setattr(mio, "mio_cli", lambda: ["mio"])
     monkeypatch.setattr(mio, "_json_stdout", broken)
+    monkeypatch.setattr(mio, "resolve_mcp_script", lambda: None)
+    monkeypatch.setattr(mio, "resolve_node", lambda: None)
     res = mio.contract_check()
     assert res["ok"] is False
-    assert all(p["ok"] is False and "error" in p for p in res["probes"])
+    cli_probes = [p for p in res["probes"] if p["name"] != "mcp_script"]
+    assert all(p["ok"] is False and "error" in p for p in cli_probes)
+    mcp = next(p for p in res["probes"] if p["name"] == "mcp_script")
+    assert mcp["ok"] is False
+    assert mcp["missing"] == ["script", "node"]
 
 
 def test_contract_runtime_absent_is_quiet(monkeypatch):
@@ -91,6 +101,22 @@ def test_contract_runtime_absent_is_quiet(monkeypatch):
     assert res["ok"] is False
     assert res["available"] is False
     assert res["probes"] == []
+
+
+def test_contract_mcp_script_missing_drift(monkeypatch, tmp_path):
+    """MCP 脚本解析不到（env 指向不存在的路径，不静默回退）→ 探针失败 + 告警。"""
+    _patch_cli(monkeypatch)
+    monkeypatch.setattr(mio, "resolve_mcp_script",
+                        lambda: str(tmp_path / "gone.js"))
+    res = mio.contract_check()
+    probe = next(p for p in res["probes"] if p["name"] == "mcp_script")
+    assert probe["ok"] is False
+    assert probe["missing"] == ["script"]
+    assert res["ok"] is False
+
+    mgr = init_alert_manager()
+    mgr._last_eval = 0
+    assert "MioContractDrift" in {a["name"] for a in mgr.get_active()}
 
 
 # ── 告警接线（AlertManager） ─────────────────────────────────────────────
@@ -145,7 +171,7 @@ def test_contract_route_cached_and_run(monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is True
-    assert len(body["probes"]) == 4
+    assert len(body["probes"]) == 5
 
     # 默认读缓存（不重跑）
     r = client.get("/api/v1/mio/contract")
