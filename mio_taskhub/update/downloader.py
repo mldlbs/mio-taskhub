@@ -20,10 +20,20 @@ def sha256_file(path) -> str:
     return h.hexdigest()
 
 
+def _direct_opener():
+    """不走代理的 opener（ProxyHandler({})）；MIO_UPDATE_USE_PROXY=1 时用默认。"""
+    if (os.environ.get("MIO_UPDATE_USE_PROXY") or "").strip().lower() in ("1", "true", "yes"):
+        return urllib.request.build_opener()
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 def _default_opener(url: str, timeout: float = 60.0):
-    """返回 bytes 迭代器；读取结束/异常时确保关闭响应（防 socket 泄漏）。"""
+    """返回 bytes 迭代器；读取结束/异常时确保关闭响应（防 socket 泄漏）。
+
+    不走代理——本机 WinINET/env 代理常是死的，会直接导致下载失败。
+    """
     req = urllib.request.Request(url, headers={"User-Agent": "mio-taskhub-updater"})
-    resp = urllib.request.urlopen(req, timeout=timeout)
+    resp = _direct_opener().open(req, timeout=timeout)
 
     def gen():
         try:

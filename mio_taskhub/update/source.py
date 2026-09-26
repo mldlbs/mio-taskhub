@@ -19,14 +19,28 @@ class SourceError(RuntimeError):
     """更新源不可用 / 返回非法。"""
 
 
+def _direct_opener():
+    """不走任何代理的 opener（ProxyHandler({})）。
+
+    本机/CI 常配了 WinINET 或 env 代理（如 127.0.0.1:64681）且是死的；urllib 默认
+    会读它们 → latest.json 取不到 → 静默降级到弱校验路径（丢 sha256、吃 API 限额）。
+    需要走代理时设 MIO_UPDATE_USE_PROXY=1。
+    """
+    if (os.environ.get("MIO_UPDATE_USE_PROXY") or "").strip().lower() in ("1", "true", "yes"):
+        return urllib.request.build_opener()
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 def _default_opener(url: str, timeout: float = 10.0) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": "mio-taskhub-updater"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with _direct_opener().open(req, timeout=timeout) as resp:
         return resp.read()
 
 
 class GitHubReleaseSource:
-    def __init__(self, base_url: str = None, timeout: float = 10.0, opener=None):
+    def __init__(self, base_url: str = None, timeout: float = 12.0, opener=None):
+        # 12s：CDN 别名 latest.json 命中通常 1.5~6.5s；失败会挂到 20s+，
+        # 用 12s 封顶后迅速回退到 API 路径（该路径有 digest，可强校验）。
         self.base = (base_url or os.environ.get("MIO_UPDATE_BASE_URL") or DEFAULT_BASE).rstrip("/")
         self.timeout = timeout
         self._opener = opener or (lambda u: _default_opener(u, self.timeout))
@@ -72,6 +86,12 @@ class GitHubReleaseSource:
         size = int(asset.get("size") or 0)
         if size <= 0:
             raise SourceError("release 资产缺少有效 size")
+        # GitHub Releases API 的 asset.digest 形如 "sha256:<hex>"：
+        # 有了它，即使 CDN 别名 latest.json 取不到（本网络偶发），回退路径也能**强校验**。
+        sha = ""
+        digest = str(asset.get("digest") or "")
+        if digest.startswith("sha256:"):
+            sha = digest.split(":", 1)[1].strip().lower()
         pseudo = {
             "schema": 1, "version": tag, "channel": "stable",
             "released_at": str(rel.get("published_at") or ""),
@@ -80,7 +100,7 @@ class GitHubReleaseSource:
             "assets": [{
                 "os": "windows", "arch": "x64",
                 "url": asset.get("browser_download_url"),
-                "sha256": "", "size": size, "format": "zip",
+                "sha256": sha, "size": size, "format": "zip",
             }],
         }
         return manifest_from_dict(pseudo, require_sha=False)
