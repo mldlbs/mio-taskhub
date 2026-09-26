@@ -11,6 +11,7 @@ from threading import Lock
 from mio_taskhub.background import get_thread_health
 from mio_taskhub.middleware import get_http_metrics
 from mio_taskhub.observability.audit import AlertAudit
+from mio_taskhub import mio_runtime as mio_rt
 
 logger = logging.getLogger("mio_taskhub.observability.alerts")
 
@@ -124,6 +125,34 @@ class AlertManager:
 
         return results
 
+    def _check_contract(self) -> list[Alert]:
+        """mio CLI 契约冒烟（只读缓存，不在评估环里跑 CLI）。
+
+        - 未跑过 / runtime 缺失（设计上的正常态）/ 结果过期（>3×间隔，Job 可能死了）
+          → 不告警（fail-open，与 mio_runtime 设计一致）；
+        - 缓存显示探针失败 → fire；恢复 → evaluate 的差分逻辑自动 resolve。
+        """
+        last = mio_rt.contract_last()
+        if not last or not last.get("available") or not last.get("epoch"):
+            return []
+        now = time.time()
+        stale_after = max(float(last.get("interval_s") or 3600) * 3, 6 * 3600)
+        if now - float(last["epoch"]) > stale_after:
+            return []
+        if last.get("ok"):
+            return []
+        failed = [p for p in last.get("probes", []) if not p.get("ok")]
+        parts = [p["name"] + (f"(缺 {','.join(p['missing'])})" if p.get("missing") else "")
+                 for p in failed]
+        return [Alert(
+            name="MioContractDrift",
+            severity="warning",
+            message=f"mio CLI 契约冒烟失败：{'; '.join(parts) or last.get('reason') or 'unknown'}",
+            fired_at=float(last["epoch"]),
+            value=float(len(failed)),
+            labels={"source": "mio-contract"},
+        )]
+
     def evaluate(self) -> list[Alert]:
         now = time.time()
         if now - self._last_eval < self._eval_interval:
@@ -136,6 +165,8 @@ class AlertManager:
             for alert in self._check_threads():
                 new_alerts[alert.name] = alert
             for alert in self._check_http():
+                new_alerts[alert.name] = alert
+            for alert in self._check_contract():
                 new_alerts[alert.name] = alert
 
             currently_active = {n for n in new_alerts if new_alerts[n].active}

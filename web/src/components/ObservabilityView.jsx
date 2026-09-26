@@ -24,6 +24,7 @@ export default function ObservabilityView({ onOpenTask }) {
   const [traces, setTraces] = useState(null)
   const [slo, setSlo] = useState(null)
   const [insights, setInsights] = useState(null)
+  const [mioIns, setMioIns] = useState(null)
   const [proc, setProc] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -35,6 +36,7 @@ export default function ObservabilityView({ onOpenTask }) {
       api.taskTraces(50).then(setTraces).catch(() => setTraces({ traces: [] })),
       api.sloHistory(24).then(setSlo).catch(() => setSlo({ snapshots: [] })),
       api.listInsights(20).then(setInsights).catch(() => setInsights([])),
+      api.mioInsight(20).then(setMioIns).catch(() => setMioIns(null)),
       api.processInfo().then(setProc).catch(() => setProc(null)),
     ]).finally(() => setLoading(false))
   }, [])
@@ -109,6 +111,31 @@ export default function ObservabilityView({ onOpenTask }) {
               </ul>}
         </section>
       </div>
+
+      <section className="stats-section">
+        <h3>
+          洞察 · 来源 Mio Runtime
+          {mioIns?.available && mioIns.status
+            ? `（共 ${mioIns.status.total ?? 0} · 未确认 ${mioIns.status.unreported ?? 0} · 高价值 ${mioIns.status.highValue ?? 0}）`
+            : ''}
+        </h3>
+        {!mioIns || !mioIns.available
+          ? <div className="obs-empty">Mio Runtime 不可用（未检测到 MIO_HOME）</div>
+          : (mioIns.items && mioIns.items.length > 0
+              ? <ul className="obs-list">
+                  {mioIns.items.map((it, i) => (
+                    <li key={it.id || i} className={`obs-insight obs-sev-${it.severity || 'info'}`}>
+                      <span className="obs-insight__title">{it.title || it.kind || '(无标题)'}</span>
+                      <span className="obs-insight__kind mono">{it.detector || it.kind || ''}</span>
+                      {it.score != null && <span className="obs-insight__kind mono">score {it.score}</span>}
+                    </li>
+                  ))}
+                </ul>
+              : <div className="obs-empty">
+                  Mio 尚未产出洞察 —— 生成走 MCP <span className="mono">mio.insight.generate</span>
+                  （本机 CLI <span className="mono">mio insight generate</span> 有上游接线 bug：漏传 chatJson）
+                </div>)}
+      </section>
 
       <section className="stats-section">
         <h3>任务链路 · 最近 {traceList.length}</h3>

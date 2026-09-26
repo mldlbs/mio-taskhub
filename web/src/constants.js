@@ -5,6 +5,7 @@ export const LANES = [
   { id: 'retrying',  label: '重试中', en: 'RETRYING',  tone: 'warn' },
   { id: 'completed', label: '已完成', en: 'COMPLETED', tone: 'dim' },
   { id: 'failed',    label: '失败',   en: 'FAILED',    tone: 'danger' },
+  { id: 'cancelled', label: '已取消', en: 'CANCELLED', tone: 'danger' },
 ]
 
 export const STATE_META = Object.fromEntries(LANES.map(l => [l.id, l]))

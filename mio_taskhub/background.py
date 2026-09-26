@@ -14,6 +14,7 @@ from mio_taskhub.workflow.transitions import apply_transition, _orm_to_status_st
 from mio_taskhub.workflow.state_machine import State as M1State, Stage as M1Stage, ActorType as M1Actor
 from mio_taskhub.workflow.state_machine import IllegalTransition as M1Illegal
 from mio_taskhub.ideas.idea_review import IdeaReviewScanner
+from mio_taskhub.mio_runtime import MioDigestJob, ContractJob
 from mio_taskhub.heartbeat import (
     HeartbeatSweep,
     RunInfo,
@@ -499,13 +500,19 @@ def start_background_jobs():
     )
     scheduler = Scheduler(get_due_tasks=_get_due_tasks, on_enqueue=_on_enqueue)
     idea_scanner = IdeaReviewScanner()
+    digest_job = MioDigestJob()
+    contract_job = ContractJob()
     sweep.start()
     scheduler.start()
     idea_scanner.start()
+    digest_job.start()
+    contract_job.start()
     register_thread("heartbeat", sweep._thread, sweep)
     register_thread("scheduler", scheduler._thread, scheduler)
     register_thread("idea-review", idea_scanner._thread, idea_scanner)
-    return sweep, scheduler, idea_scanner
+    register_thread("mio-digest", digest_job._thread, digest_job)
+    register_thread("mio-contract", contract_job._thread, contract_job)
+    return sweep, scheduler, idea_scanner, digest_job, contract_job
 
 
 # HeartbeatSweep / RunInfo 已统一到 mio_taskhub.heartbeat（单一事实源）。

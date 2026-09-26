@@ -1,9 +1,9 @@
 import uuid
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
-
 from mio_taskhub.db import get_session
 from mio_taskhub.models import Task, TaskStage, TaskTemplate, TaskTemplateVersion
+from mio_taskhub.policy_guard import guard_action
 from mio_taskhub.utils import _now
 from mio_taskhub.dependency import normalize_depends, task_deps
 from mio_taskhub.events import emit_event
@@ -121,16 +121,18 @@ def update_template(tpl_id: str, body: dict, db: Session = Depends(get_session))
 
 
 @router.delete("/templates/{tpl_id}")
-def delete_template(tpl_id: str, db: Session = Depends(get_session)):
+def delete_template(tpl_id: str, confirm: bool = Query(False),
+                    db: Session = Depends(get_session)):
     t = db.get(TaskTemplate, tpl_id)
     if not t:
         raise HTTPException(404, "template not found")
+    policy = guard_action("taskhub:delete-template", confirm=confirm)
     db.delete(t)
     vers = db.exec(select(TaskTemplateVersion).where(TaskTemplateVersion.template_id == tpl_id)).all()
     for v in vers:
         db.delete(v)
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "policy": policy}
 
 
 @router.get("/templates/{tpl_id}/versions")

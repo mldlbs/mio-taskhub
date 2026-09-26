@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { api } from './api'
 import { artifactOf, artifactBody, currentArtifact } from './stageDocs'
 import Rail from './components/Rail'
@@ -16,6 +16,7 @@ import WorkflowView from './components/WorkflowView'
 import StatsView from './components/StatsView'
 import ObservabilityView from './components/ObservabilityView'
 import MemoryView from './components/MemoryView'
+import MioRuntimeView from './components/MioRuntimeView'
 import ScheduledJobsView from './components/ScheduledJobsView'
 import CreateModal from './components/CreateModal'
 import TaskDetail from './components/TaskDetail'
@@ -36,7 +37,8 @@ export default function App() {
     return <EmbedView />
   }
 
-  const [tasks, setTasks] = useState([])
+  const [allTasks, setAllTasks] = useState([])  // 全量（含已取消），展示时按 showCancelled 过滤
+  const [showCancelled, setShowCancelled] = useState(false)
   const [ideas, setIdeas] = useState([])
   const [view, setViewState] = useState(() => {
     try {
@@ -63,6 +65,15 @@ export default function App() {
   const [wsRetryIn, setWsRetryIn] = useState(null)
   const [cmdOpen, setCmdOpen] = useState(false)  // WS 重连倒计时（秒）
 
+  const tasks = useMemo(
+    () => showCancelled ? allTasks : allTasks.filter(t => t.state !== 'cancelled'),
+    [allTasks, showCancelled]
+  )
+  const cancelledCount = useMemo(
+    () => allTasks.reduce((n, t) => n + (t.state === 'cancelled' ? 1 : 0), 0),
+    [allTasks]
+  )
+
   const setView = useCallback((v) => {
     setViewState(v)
     try { localStorage.setItem(VIEW_KEY, v) } catch { /* ignore */ }
@@ -76,8 +87,8 @@ export default function App() {
   const toggleContrast = useCallback(() => setContrast(c => !c), [])
 
   const loadTasks = useCallback(() => {
-    api.listTasks()
-      .then(data => { setTasks(data); setError(null); setLastSync(new Date()) })
+    api.listTasks({ cancelled: 'true' })
+      .then(data => { setAllTasks(data); setError(null); setLastSync(new Date()) })
       .catch(e => setError({ message: '加载失败: ' + e.message, type: 'api', retry: loadTasks }))
       .finally(() => { setLoading(false); setRefreshing(false) })
   }, [])
@@ -232,12 +243,12 @@ export default function App() {
   }
 
   const moveTask = useCallback((taskId, newState) => {
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, state: newState } : t))
+    setAllTasks(prev => prev.map(t => t.id === taskId ? { ...t, state: newState } : t))
     setDetail(prev => prev && prev.id === taskId ? { ...prev, state: newState } : prev)
   }, [])
 
   const moveTaskStage = useCallback(async (taskId, newStage) => {
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, stage: newStage } : t))
+    setAllTasks(prev => prev.map(t => t.id === taskId ? { ...t, stage: newStage } : t))
     setDetail(prev => prev && prev.id === taskId ? { ...prev, stage: newStage } : prev)
     try {
       await api.moveToStage(taskId, { target_stage: newStage })
@@ -355,6 +366,9 @@ export default function App() {
           onFilterChange={setFilter}
           projectOptions={projectOptions}
           workspaceOptions={workspaceOptions}
+          showCancelled={showCancelled}
+          cancelledCount={cancelledCount}
+          onToggleCancelled={() => setShowCancelled(s => !s)}
         />
 
         <ConnectionBanner wsLive={ws} lastSync={lastSync} retryIn={wsRetryIn} />
@@ -431,6 +445,9 @@ export default function App() {
             )}
             {view === 'memory' && (
               <MemoryView liveEvent={memoryEvent} />
+            )}
+            {view === 'mio' && (
+              <MioRuntimeView />
             )}
             {view === 'observability' && (
               <ObservabilityView onOpenTask={(id) => openTask({ id })} />

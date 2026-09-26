@@ -12,6 +12,13 @@ os.environ["MIO_TASKHUB_DB"] = _TEST_DB
 if os.path.exists(_TEST_DB):
     os.remove(_TEST_DB)
 
+# 隔离 Mio policy check：默认指向不存在的 MIO_HOME → fail-open、无子进程。
+# 需要真实/伪造 Mio 的用例（test_mio_runtime / test_policy_guard）自行覆盖。
+os.environ.setdefault(
+    "MIO_HOME",
+    os.path.join(tempfile.gettempdir(), "mio_home_tests_missing"),
+)
+
 from sqlmodel import select  # noqa: E402
 from mio_taskhub.db import engine, init_db  # noqa: E402
 from mio_taskhub.models import SQLModel, Task, Run, Agent  # noqa: E402

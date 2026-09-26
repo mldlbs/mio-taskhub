@@ -44,6 +44,24 @@ async function req(method, path, body) {
   return data
 }
 
+// 危险操作门控：409 policy_risk_high → 弹窗确认后带 confirm=true 重试。
+// 低风险时后端直接放行，此处零开销；Mio 不可用时 fail-open 也不会触发。
+async function gated(method, path, label) {
+  try {
+    return await req(method, path)
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 409 && e.error_code === 'policy_risk_high') {
+      const risk = (e.detail && e.detail.risk) || 'high'
+      const sug = (e.detail && e.detail.policy && e.detail.policy.suggestion) || ''
+      const ok = window.confirm(`【${label}】Mio 历史风险评估：${risk}\n${sug}\n\n仍要继续吗？（confirm=true）`)
+      if (!ok) throw e
+      const sep = path.includes('?') ? '&' : '?'
+      return await req(method, path + sep + 'confirm=true')
+    }
+    throw e
+  }
+}
+
 export const api = {
   listTasks: (params) => req('GET', '/tasks' + (params ? '?' + new URLSearchParams(params).toString() : '')),
   advanceStage: (id, body) => req('POST', `/tasks/${id}/stage`, body),
@@ -64,7 +82,7 @@ export const api = {
   updateSubtask: (id, sid, body) => req('PATCH', `/tasks/${id}/subtasks/${sid}`, body),
   addDiscussion: (id, body) => req('POST', `/tasks/${id}/discussions`, body),
   claim: (agent) => req('POST', `/tasks/claim?agent=${encodeURIComponent(agent)}`),
-  cancelTask: (id) => req('DELETE', `/tasks/${id}`),
+  cancelTask: (id) => gated('DELETE', `/tasks/${id}`, '取消任务'),
   retryTask: (id) => req('POST', `/tasks/${id}/retry`, {}),
   heartbeat: (rid, body) => req('POST', `/runs/${rid}/heartbeat`, body),
   result: (rid, body) => req('POST', `/runs/${rid}/result`, body),
@@ -124,7 +142,7 @@ export const api = {
   getTemplate: (id) => req('GET', `/tasks/templates/${id}`),
   createTemplate: (body) => req('POST', '/tasks/templates', body),
   updateTemplate: (id, body) => req('PATCH', `/tasks/templates/${id}`, body),
-  deleteTemplate: (id) => req('DELETE', `/tasks/templates/${id}`),
+  deleteTemplate: (id) => gated('DELETE', `/tasks/templates/${id}`, '删除模板'),
   createTemplateFromTask: (taskId, body) => req('POST', `/tasks/templates/from-task/${taskId}`, body),
   createTaskFromTemplate: (tplId, body) => req('POST', `/tasks/from-template/${tplId}`, body),
   listTemplateVersions: (tplId) => req('GET', `/tasks/templates/${tplId}/versions`),
@@ -158,7 +176,7 @@ export const api = {
   getScheduledJob: (id) => req('GET', `/scheduled-jobs/${id}`),
   createScheduledJob: (body) => req('POST', '/scheduled-jobs', body),
   updateScheduledJob: (id, body) => req('PATCH', `/scheduled-jobs/${id}`, body),
-  deleteScheduledJob: (id) => req('DELETE', `/scheduled-jobs/${id}`),
+  deleteScheduledJob: (id) => gated('DELETE', `/scheduled-jobs/${id}`, '删除定时任务'),
   triggerScheduledJob: (id) => req('POST', `/scheduled-jobs/${id}/trigger`),
   pauseScheduledJob: (id) => req('POST', `/scheduled-jobs/${id}/pause`),
   resumeScheduledJob: (id) => req('POST', `/scheduled-jobs/${id}/resume`),
@@ -175,6 +193,14 @@ export const api = {
   updateStatus: () => req('GET', '/update/status'),
   updateCheck: () => req('POST', '/update/check'),
   updateDownload: () => req('POST', '/update/download'),
-  updateApply: () => req('POST', '/update/apply'),
+  updateApply: () => gated('POST', '/update/apply', '应用更新并重启 Hub'),
   updateDismiss: () => req('POST', '/update/dismiss'),
+  // Mio Agent Runtime (read-only)
+  mioStatus: () => req('GET', '/mio/status'),
+  mioTraces: (limit = 20) => req('GET', `/mio/traces?limit=${limit}`),
+  mioMemory: (limit = 20) => req('GET', `/mio/memory?limit=${limit}`),
+  mioCreativity: (limit = 20) => req('GET', `/mio/creativity?limit=${limit}`),
+  mioInsight: (limit = 20) => req('GET', `/mio/insight?limit=${limit}`),
+  mioFerment: () => req('GET', '/mio/ferment'),
+  mioFermentSync: (id) => req('POST', `/mio/ferment/${id}/sync`),
 }

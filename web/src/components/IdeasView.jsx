@@ -71,6 +71,13 @@ const ADR_STATUS_META = {
   superseded: { label: '已取代', tone: 'dim' },
 }
 const NEXT_STATUS = { new: 'fermenting', fermenting: 'formed', formed: 'broken_down' }
+// Mio creativity 假设状态（发酵由 Mio 管，生命周期由 taskhub 管）
+const MIO_HYP_META = {
+  draft:     { label: '草稿' },
+  active:    { label: '发酵中' },
+  validated: { label: '已验证' },
+  rejected:  { label: '已否决' },
+}
 const ROLE_LABEL = { user: '你', agent: 'agent', ask: 'agent 提问' }
 const KIND_LABEL = { review: '评审', status: '状态流转', discussion: '讨论', operation: '操作' }
 
@@ -102,6 +109,8 @@ export default function IdeasView({ ideas, onReload }) {
   const [adrMd, setAdrMd] = useState(null)
   const [mdLoading, setMdLoading] = useState(false)
   const [suggesting, setSuggesting] = useState(false)
+  // Mio 发酵映射（只读；同步/推进均需显式点击确认）
+  const [ferment, setFerment] = useState(null)
 
   const fail = useCallback((e) => setErr(e.message || '操作失败'), [])
 
@@ -137,6 +146,22 @@ export default function IdeasView({ ideas, onReload }) {
 
   const advance = async (status) => {
     try { await api.advanceIdea(detail.id, status); await reloadDetail(); onReload() }
+    catch (e) { fail(e) }
+  }
+
+  const loadFerment = useCallback(async () => {
+    try { setFerment(await api.mioFerment()) } catch (e) { setFerment(null) }
+  }, [])
+
+  useEffect(() => { loadFerment() }, [loadFerment])
+
+  const syncHyp = async (hid) => {
+    try { await api.mioFermentSync(hid); await loadFerment(); onReload(); setErr(null) }
+    catch (e) { fail(e) }
+  }
+
+  const advanceFromFerm = async (h) => {
+    try { await api.advanceIdea(h.action.idea_id, h.action.to); await loadFerment(); onReload() }
     catch (e) { fail(e) }
   }
 
@@ -333,6 +358,48 @@ export default function IdeasView({ ideas, onReload }) {
             <input className="inp" placeholder="项目（可选）" value={form.project}
                    onChange={e => setForm({ ...form, project: e.target.value })} />
             <button className="btn btn--primary" onClick={submitIdea} disabled={!form.title.trim()}>保存</button>
+          </div>
+        </div>
+      )}
+
+      {ferment && ferment.available && ferment.items.length > 0 && (
+        <div className="ideas__mio">
+          <div className="ideas__mio-head">
+            <span className="ideas__mio-h">Mio 发酵</span>
+            <span className="ideas__mio-hint">
+              假设状态 → taskhub 生命周期（只读映射；{ferment.counts?.linked ?? 0}/{ferment.counts?.total ?? 0} 已关联
+              {ferment.counts?.pending_actions ? ` · ${ferment.counts.pending_actions} 个可推进` : ''}）
+            </span>
+          </div>
+          <div className="ideas__mio-list">
+            {ferment.items.map(h => {
+              const mm = MIO_HYP_META[h.status] || { label: h.status || '?' }
+              const sm = h.suggested_status && (IDEA_META[h.suggested_status] || { label: h.suggested_status })
+              return (
+                <div key={h.id} className="ideas__mio-item">
+                  <span className={`ideas__mio-chip ideas__mio-chip--${h.status}`}>{mm.label}</span>
+                  <span className="ideas__mio-name" title={h.title}>{h.title}</span>
+                  <span className="ideas__mio-score mono" title="novelty / feasibility / impact / score">
+                    N{h.novelty} F{h.feasibility} I{h.impact} Σ{h.score}
+                  </span>
+                  <span className="ideas__mio-map">→ {sm ? sm.label : '—'}</span>
+                  {h.linked ? (
+                    <span className="ideas__mio-idea">
+                      <span className="ideas__mio-idea-name" title={h.idea.title}>{h.idea.title}</span>
+                      <span className="ideas__mio-idea-status">{(IDEA_META[h.idea.status] || {}).label || h.idea.status}</span>
+                      {h.action && (
+                        <button className="btn btn--ghost btn--sm"
+                          onClick={() => advanceFromFerm(h)}>
+                          推进 → {(IDEA_META[h.action.to] || {}).label || h.action.to}
+                        </button>
+                      )}
+                    </span>
+                  ) : (
+                    <button className="btn btn--ghost btn--sm" onClick={() => syncHyp(h.id)}>同步为想法</button>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}

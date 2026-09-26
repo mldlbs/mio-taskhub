@@ -12,7 +12,8 @@ function useClock() {
 }
 
 export default function MissionBar({ tasks, ws, lastSync, refreshing, onRefresh, onOpenModal,
-                                     filter, onFilterChange, projectOptions, workspaceOptions }) {
+                                     filter, onFilterChange, projectOptions, workspaceOptions,
+                                     showCancelled, cancelledCount, onToggleCancelled }) {
   const now = useClock()
   const total = tasks.length
   const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
@@ -61,6 +62,16 @@ export default function MissionBar({ tasks, ws, lastSync, refreshing, onRefresh,
         </select>
         {filter?.workspace && (
           <button className="filter-clear" onClick={() => onFilterChange({ ...filter, workspace: '' })} title="清除工作区筛选">✕</button>
+        )}
+        {cancelledCount > 0 && (
+          <button
+            className={`btn btn--ghost btn--sm${showCancelled ? ' is-on' : ''}`}
+            onClick={onToggleCancelled}
+            aria-pressed={showCancelled}
+            title="显示/隐藏已取消任务"
+          >
+            {showCancelled ? '▾ 已取消' : `▸ 已取消（${cancelledCount}）`}
+          </button>
         )}
       </div>
 

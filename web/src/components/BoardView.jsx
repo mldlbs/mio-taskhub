@@ -125,7 +125,7 @@ export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, fo
                 )}
               </div>
 
-              {lane.id !== 'failed' && (
+              {lane.id !== 'failed' && lane.id !== 'cancelled' && (
                 <div className="lane__flow" aria-hidden="true">
                   <svg width="26" height="10" viewBox="0 0 26 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
                     <path d="M1 5h22M19 1l4 4-4 4" />

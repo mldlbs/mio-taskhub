@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """更新 REST API。"""
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
+from mio_taskhub.policy_guard import guard_action
 from mio_taskhub.update.service import get_service
 
 router = APIRouter(prefix="/update", tags=["update"])
@@ -30,8 +31,13 @@ def download():
 
 
 @router.post("/apply")
-def apply():
-    return _svc().apply()
+def apply(confirm: bool = Query(False)):
+    """应用更新（替换二进制 + 重启 Hub）——最危险的调用点，先过 Mio 风险评估。"""
+    policy = guard_action("taskhub:update-apply", confirm=confirm)
+    result = _svc().apply()
+    if isinstance(result, dict):
+        return {**result, "policy": policy}
+    return result
 
 
 @router.post("/dismiss")

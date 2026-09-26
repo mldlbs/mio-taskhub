@@ -5,8 +5,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
-
 from mio_taskhub.db import get_session
+from mio_taskhub.policy_guard import guard_action
 from mio_taskhub.models import (
     ScheduledJob, ScheduledJobActionType, ScheduledJobStatus, ScheduledJobExecution,
 )
@@ -143,13 +143,15 @@ def update_job(job_id: str, body: dict, db: Session = Depends(get_session)):
 
 
 @router.delete("/{job_id}")
-def delete_job(job_id: str, db: Session = Depends(get_session)):
+def delete_job(job_id: str, confirm: bool = Query(False),
+               db: Session = Depends(get_session)):
     job = db.get(ScheduledJob, job_id)
     if not job:
         raise HTTPException(404, "scheduled job not found")
+    policy = guard_action("taskhub:delete-job", confirm=confirm)
     db.delete(job)
     db.commit()
-    return {"deleted": True}
+    return {"deleted": True, "policy": policy}
 
 
 @router.post("/{job_id}/trigger")

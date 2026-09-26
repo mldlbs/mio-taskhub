@@ -1,11 +1,12 @@
 """Observability API: alerts, SLO history, task tracing, custom rules."""
 import json
 import time
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional
 from sqlmodel import Session, text
 from mio_taskhub.db import engine
+from mio_taskhub.policy_guard import guard_action
 
 router = APIRouter(prefix="/api/v1", tags=["observability"])
 
@@ -123,12 +124,13 @@ def create_alert_rule(body: AlertRuleCreate):
 
 
 @router.delete("/alert-rules/{rule_id}")
-def delete_alert_rule(rule_id: str):
+def delete_alert_rule(rule_id: str, confirm: bool = Query(False)):
+    policy = guard_action("taskhub:delete-alert-rule", confirm=confirm)
     try:
         with Session(engine) as db:
             db.execute(text("DELETE FROM alertrule WHERE id = :id"), {"id": rule_id})
             db.commit()
-            return {"ok": True}
+            return {"ok": True, "policy": policy}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
