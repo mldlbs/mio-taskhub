@@ -248,7 +248,7 @@ async def idea_cockpit(idea_id: str, user: str = Query("local"), db: Session = D
         "generated_at": _now().isoformat(),
         "sections": sections,
         "next_action": next_action,
-        "high_risk": is_high_risk(idea),  # FR-8：供前端红队默认值等使用
+        "high_risk": is_high_risk(idea, db=db),  # FR-8：供前端红队默认值等使用（FR-20 词表 env>DB>默认）
     }
 
 

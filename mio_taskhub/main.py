@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 import secrets
 from fastapi.responses import JSONResponse
 from mio_taskhub.db import get_session, init_db
-from mio_taskhub.api import tasks, task_stages, task_graph, task_subtasks, templates, agents, runs, plans, board, ideas, idea_templates, idea_scoring, adr, discussions, events, nightrun, memory, scheduled_jobs, task_documents, reviews, ideas_breakdown, ideas_discussion, cockpit, observability, update, mio_runtime
+from mio_taskhub.api import tasks, task_stages, task_graph, task_subtasks, templates, agents, runs, plans, board, ideas, idea_templates, idea_scoring, adr, discussions, events, nightrun, memory, scheduled_jobs, task_documents, reviews, ideas_breakdown, ideas_discussion, cockpit, observability, update, mio_runtime, config as app_config
 from mio_taskhub.api.insights import router as insights_router
 from mio_taskhub.api.board import board_summary as _board_summary
 from mio_taskhub.observability.logging_config import setup_logging
@@ -211,6 +211,7 @@ app.include_router(idea_scoring.router, prefix="/api/v1", tags=["ideas"])
 app.include_router(cockpit.router, prefix="/api/v1", tags=["ideas"])
 app.include_router(adr.router, prefix="/api/v1", tags=["ideas"])
 app.include_router(discussions.router, prefix="/api/v1", tags=["discussions"])
+app.include_router(app_config.router, prefix="/api/v1", tags=["config"])
 app.include_router(events.router, prefix="/api/v1", tags=["events"])
 app.include_router(events.task_events_router, prefix="/api/v1", tags=["tasks"])
 app.include_router(nightrun.router, prefix="/api/v1", tags=["nightrun"])

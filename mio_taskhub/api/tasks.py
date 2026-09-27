@@ -242,7 +242,11 @@ def add_discussion(task_id: str, body: dict, db: Session = Depends(get_session))
     return {"id": d.id, "task_id": d.task_id, "topic": d.topic, "agent": d.agent,
             "status": d.status, "summary": d.summary, "conclusions": d.conclusions,
             "stage": d.stage, "started_at": d.started_at.isoformat(),
-            "ended_at": d.ended_at.isoformat() if d.ended_at else None}
+            "ended_at": d.ended_at.isoformat() if d.ended_at else None,
+            # P2（FR-18）：只增键；此路径仅创建 free 讨论（无 mode 入参）
+            "mode": d.mode or "free", "roles": d.roles if isinstance(d.roles, list) else [],
+            "review": d.review if isinstance(d.review, dict) else None,
+            "prompt_snapshot": d.prompt_snapshot if isinstance(d.prompt_snapshot, dict) else None}
 
 @router.get("/{task_id}/discussions")
 def list_discussions(task_id: str, db: Session = Depends(get_session)):
@@ -258,6 +262,10 @@ def list_discussions(task_id: str, db: Session = Depends(get_session)):
             "summary": d.summary, "conclusions": d.conclusions,
             "stage": d.stage, "started_at": d.started_at.isoformat(),
             "ended_at": d.ended_at.isoformat() if d.ended_at else None,
+            # P2（FR-18）：只增键
+            "mode": d.mode or "free", "roles": d.roles if isinstance(d.roles, list) else [],
+            "review": d.review if isinstance(d.review, dict) else None,
+            "prompt_snapshot": d.prompt_snapshot if isinstance(d.prompt_snapshot, dict) else None,
             "messages": [{"author": m.author, "role": m.role, "content": m.content,
                           "at": m.at.isoformat()} for m in msgs],
         })

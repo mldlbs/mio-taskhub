@@ -60,6 +60,11 @@ def get_idea(idea_id: str, include_changes: bool = Query(True),
             "summary": d.summary, "conclusions": d.conclusions, "stage": d.stage,
             "started_at": d.started_at.isoformat(),
             "ended_at": d.ended_at.isoformat() if d.ended_at else None,
+            # P2（FR-18/FR-24）：只增键，供前端模式徽章与评审行动项渲染
+            "mode": d.mode or "free",
+            "roles": d.roles if isinstance(d.roles, list) else [],
+            "review": d.review if isinstance(d.review, dict) else None,
+            "prompt_snapshot": d.prompt_snapshot if isinstance(d.prompt_snapshot, dict) else None,
             "messages": [{"author": m.author, "role": m.role, "content": m.content,
                           "at": m.at.isoformat()} for m in msgs],
         })

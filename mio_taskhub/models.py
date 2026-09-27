@@ -294,8 +294,30 @@ class Discussion(SQLModel, table=True):
     summary: str = ""
     conclusions: str = ""
     stage: str = "brainstorming"
+    # 想法落地闭环 P2 包 C（FR-18）：讨论双模式 + 评审结构 + prompt 快照，全部可空/默认值兼容旧行
+    mode: str = "free"                                          # free=自由讨论 / review=结构化评审
+    roles: Optional[list] = Field(default=None, sa_column=Column(JSON))            # ["产品","技术","红队",...]
+    review: Optional[dict] = Field(default=None, sa_column=Column(JSON))            # 评审关闭五段结构
+    prompt_snapshot: Optional[dict] = Field(default=None, sa_column=Column(JSON))   # 创建时 roles+prompt 版本快照
     started_at: datetime = Field(default_factory=_now)
     ended_at: Optional[datetime] = None
+
+
+class RolePrompt(SQLModel, table=True):
+    """Agent 角色 prompt（FR-19）：数据库+缓存，创建评审时按 roles 快照 version。"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    role: str = Field(index=True, unique=True)
+    prompt: str = ""
+    version: int = 1
+    updated_at: datetime = Field(default_factory=_now)
+
+
+class AppConfig(SQLModel, table=True):
+    """通用应用配置（FR-20：高风险词表等，key -> JSON value）。"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    key: str = Field(index=True, unique=True)
+    value: Optional[list] = Field(default=None, sa_column=Column(JSON))
+    updated_at: datetime = Field(default_factory=_now)
 
 class DiscussionMessage(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)

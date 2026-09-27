@@ -24,11 +24,19 @@ DISMISS_TTL = timedelta(days=7)
 RISK_TAGS_DEFAULT = ("高风险", "合规", "用户数据", "花钱")
 
 
-def risk_tag_vocab() -> list:
-    """高风险词表：环境变量逗号分隔覆盖，否则默认常量（P0 不入 DB，见设计注记 #1）。"""
+def risk_tag_vocab(db: Session = None) -> list:
+    """高风险词表（FR-20 迁 DB）：env `MIO_IDEA_RISK_TAGS` > DB 配置 > 默认常量。
+
+    db 未传时跳过 DB 层（保持 P0 直调语义）；DB 未配置时回落默认常量。
+    """
     env = os.environ.get("MIO_IDEA_RISK_TAGS", "")
     if env.strip():
         return [t.strip() for t in env.split(",") if t.strip()]
+    if db is not None:
+        from mio_taskhub.role_prompts import load_risk_vocab_db
+        words = load_risk_vocab_db(db)
+        if words:
+            return words
     return list(RISK_TAGS_DEFAULT)
 
 
@@ -40,9 +48,9 @@ def next_action_order() -> list:
     return list(DEFAULT_ORDER)
 
 
-def is_high_risk(idea: Idea) -> bool:
+def is_high_risk(idea: Idea, db: Session = None) -> bool:
     tags = [t for t in (idea.tags if isinstance(idea.tags, list) else []) if isinstance(t, str)]
-    vocab = risk_tag_vocab()
+    vocab = risk_tag_vocab(db)
     return any(t in vocab for t in tags)
 
 
@@ -70,6 +78,8 @@ def _build_ctx(db: Session, idea: Idea) -> dict:
         "blocked": blocked,
         "closed_empty_reviews": closed_empty_reviews,
         "unverified_assumptions": unverified,
+        # FR-20：ctx 级词表（env > DB > 默认），规则层不再直查
+        "risk_vocab": risk_tag_vocab(db),
     }
 
 
@@ -110,7 +120,9 @@ def _rule_blocked_task(idea: Idea, ctx: dict):
 
 
 def _rule_unverified_high_risk(idea: Idea, ctx: dict):
-    if not is_high_risk(idea) or not ctx["unverified_assumptions"]:
+    tags = [t for t in (idea.tags if isinstance(idea.tags, list) else []) if isinstance(t, str)]
+    high = any(t in ctx["risk_vocab"] for t in tags)
+    if not high or not ctx["unverified_assumptions"]:
         return None
     return {
         "snapshot": {"rule_id": "unverified_high_risk_assumption", "high_risk": True,

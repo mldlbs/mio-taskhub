@@ -211,12 +211,21 @@ def _migrate_ideahistory(conn):
 
 
 def _migrate_discussion(conn):
-    """Discussion table migrations: stage/idea_id columns."""
+    """Discussion table migrations: stage/idea_id + P2 双模式四列（FR-18）。"""
     dcols = {c["name"] for c in inspect(conn).get_columns("discussion")}
     if "stage" not in dcols:
         conn.execute(text("ALTER TABLE discussion ADD COLUMN stage VARCHAR NOT NULL DEFAULT 'brainstorming'"))
     if "idea_id" not in dcols:
         conn.execute(text("ALTER TABLE discussion ADD COLUMN idea_id VARCHAR NOT NULL DEFAULT ''"))
+    # 想法落地闭环 P2 包 C（FR-18）：mode 默认 free 兼容旧行，三个 JSON 列可空
+    if "mode" not in dcols:
+        conn.execute(text("ALTER TABLE discussion ADD COLUMN mode VARCHAR NOT NULL DEFAULT 'free'"))
+    if "roles" not in dcols:
+        conn.execute(text("ALTER TABLE discussion ADD COLUMN roles JSON"))
+    if "review" not in dcols:
+        conn.execute(text("ALTER TABLE discussion ADD COLUMN review JSON"))
+    if "prompt_snapshot" not in dcols:
+        conn.execute(text("ALTER TABLE discussion ADD COLUMN prompt_snapshot JSON"))
 
 
 def _migrate_event(conn):
