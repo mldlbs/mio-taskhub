@@ -424,6 +424,9 @@ class ThreadRegistry:
             if obj is not None and hasattr(obj, "stop"):
                 obj.stop()
             thread.join(timeout=5)
+        # 清空注册表：注册发生在 lifespan 启动时，退出后旧条目不应残留在
+        # 下一次 lifespan 的 stop_all 里被重复 join（多轮启动会指数拖慢关闭）。
+        self._entries.clear()
 
     def health_check(self) -> dict:
         """返回所有线程的健康状态。"""
@@ -466,6 +469,10 @@ class ThreadRegistry:
             if obj is not None and hasattr(obj, "stop"):
                 obj.stop()
             thread.join(timeout=5)
+        # 清空注册表：lifespan 每次启动都会重新 register，旧条目若残留，
+        # 下一轮 stop_all 会对早已泄漏的存活线程重复 join(timeout=5)，
+        # 多轮启动（测试多次进出 lifespan）会把关闭拖成平方级。
+        self._entries.clear()
 
     def health_check(self) -> dict:
         """返回所有线程的健康状态（含心跳）。"""

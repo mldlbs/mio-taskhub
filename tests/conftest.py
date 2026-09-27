@@ -38,3 +38,12 @@ def _reset_rate_limiter():
     _rate_buckets.clear()
     yield
     _rate_buckets.clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_role_prompt_cache():
+    """P2（FR-19/FR-20）：模块级 prompt/词表缓存随每测试失效，防 drop_all 后读到陈旧数据。"""
+    from mio_taskhub import role_prompts as rp
+    rp.invalidate()
+    yield
+    rp.invalidate()
