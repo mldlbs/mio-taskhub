@@ -27,26 +27,38 @@ def test_validate_cron_invalid():
     assert validate_cron("60 * * * *") is False  # minute > 59
 
 
-def test_compute_next_run():
+def test_compute_next_run_local_interpretation():
     from mio_taskhub.scheduling.cron_engine import compute_next_run
     now = datetime(2026, 9, 7, 8, 0, 0, tzinfo=timezone.utc)
     nxt = compute_next_run("0 9 * * *", after=now)
-    assert nxt.hour == 9
-    assert nxt.minute == 0
+    # 返回 UTC aware，但 9:00 指**本机时区**的 9 点（2026-09-27 起 cron 按本地解释）
+    assert nxt.tzinfo is not None and nxt.utcoffset() == timedelta(0)
+    local = nxt.astimezone()
+    assert local.hour == 9
+    assert local.minute == 0
     assert nxt > now
 
 
-def test_compute_next_runs():
+def test_compute_next_runs_local_interpretation():
     from mio_taskhub.scheduling.cron_engine import compute_next_runs
     now = datetime(2026, 9, 7, 8, 0, 0, tzinfo=timezone.utc)
     runs = compute_next_runs("0 9 * * *", count=3, after=now)
     assert len(runs) == 3
     for r in runs:
-        assert r.hour == 9
-        assert r.minute == 0
+        assert r.astimezone().hour == 9
+        assert r.astimezone().minute == 0
     # 应该严格递增
     for i in range(1, len(runs)):
         assert runs[i] > runs[i - 1]
+
+
+def test_compute_next_run_naive_after_treated_as_utc():
+    """SQLite 往返会丢 tz：naive 的 last_run_at 应按 UTC 解释而不是本机时区。"""
+    from mio_taskhub.scheduling.cron_engine import compute_next_run
+    after = datetime(2026, 9, 7, 8, 0, 0)          # naive == UTC 08:00
+    nxt = compute_next_run("0 9 * * *", after=after)
+    assert nxt > after.replace(tzinfo=timezone.utc)
+    assert nxt.astimezone().hour == 9
 
 
 def test_cron_engine_start_stop():

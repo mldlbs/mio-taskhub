@@ -38,18 +38,24 @@ def validate_cron(expr: str) -> bool:
         return False
 
 
+def _to_utc_aware(dt: datetime) -> datetime:
+    """统一为 UTC aware：SQLite 往返丢 tz（naive 按 UTC 解释），aware 直接转换。"""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def compute_next_run(cron_expr: str, after: Optional[datetime] = None) -> datetime:
-    """计算下一次执行时间。"""
-    base = after or datetime.now(timezone.utc)
-    cron = croniter(cron_expr, base)
-    return cron.get_next(datetime)
+    """下一次执行时间。**cron 按本机时区解释**（0 8 * * * = 本地早 8 点），返回 UTC。"""
+    local = _to_utc_aware(after or datetime.now(timezone.utc)).astimezone()
+    return croniter(cron_expr, local).get_next(datetime).astimezone(timezone.utc)
 
 
 def compute_next_runs(cron_expr: str, count: int = 5, after: Optional[datetime] = None) -> list:
-    """计算未来 N 次执行时间。"""
-    base = after or datetime.now(timezone.utc)
-    cron = croniter(cron_expr, base)
-    return [cron.get_next(datetime) for _ in range(count)]
+    """未来 N 次执行时间。同上：本机时区解释，返回 UTC。"""
+    local = _to_utc_aware(after or datetime.now(timezone.utc)).astimezone()
+    cron = croniter(cron_expr, local)
+    return [cron.get_next(datetime).astimezone(timezone.utc) for _ in range(count)]
 
 
 class CronEngine:
