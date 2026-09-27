@@ -34,12 +34,18 @@ def main():
         saw_task = True
         sys.stderr.write("[doc-gate] 分支 %s → 任务 %s\n" % (branch, task_id))
 
-        allow1, reason1 = check_doc_approved(task_id)
+        try:
+            allow1, reason1 = check_doc_approved(task_id)
+        except Exception as e:  # noqa: BLE001 — 方案 §7：解析异常一律放行并告警
+            allow1, reason1 = True, "check_doc_approved 异常（已放行）：%s" % e
         sys.stderr.write("  [docs]    " + reason1 + "\n")
         if not allow1:
             block = True
 
-        allow2, reason2 = check_fr_trace(task_id, local_sha, remote_sha)
+        try:
+            allow2, reason2 = check_fr_trace(task_id, local_sha, remote_sha)
+        except Exception as e:  # noqa: BLE001 — 同上，工具崩溃不得卡死推送
+            allow2, reason2 = True, "check_fr_trace 异常（已放行）：%s" % e
         sys.stderr.write("  [FR-n]    " + reason2 + "\n")
         if not allow2:
             block = True

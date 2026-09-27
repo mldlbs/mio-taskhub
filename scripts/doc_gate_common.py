@@ -16,6 +16,14 @@ import subprocess
 import urllib.request
 import urllib.error
 
+# Windows GBK 控制台：结论信息含 ✅ 等非 GBK 字符，print/write 会 UnicodeEncodeError
+# 直接炸掉钩子（2026-09-27 实测）。统一按 UTF-8 输出，坏字符替换不中断。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:  # noqa: BLE001 — reconfigure 不可用时维持原样
+        pass
+
 HUB_BASE = os.environ.get("MIO_TASKHUB_BASE", "http://127.0.0.1:48620/api/v1")
 TIMEOUT = float(os.environ.get("MIO_TASKHUB_TIMEOUT", "3"))
 
@@ -33,7 +41,11 @@ def block(msg):
 
 
 def run_git(*args):
-    return subprocess.run(["git", *args], capture_output=True, text=True)
+    # Windows 下 text=True 默认按 locale（GBK）解码，git 的 UTF-8 中文输出会抛
+    # UnicodeDecodeError（reader 线程炸掉 → p.stdout=None → 钩子崩溃误拦 push，
+    # 2026-09-27 实测）。显式按 UTF-8 解码，坏字节替换不中断。
+    return subprocess.run(["git", *args], capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
 
 
 # taskhub 的真实任务 id 是 8 位十六进制（如 b3f970b4），旧正则只认数字会把
