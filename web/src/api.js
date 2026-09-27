@@ -122,6 +122,8 @@ export const api = {
   listDiscussions: (refType, refId) => req('GET', `/discussions?ref_type=${refType}&ref_id=${refId}`),
   replyDiscussion: (id, body) => req('POST', `/discussions/${id}/messages`, body),
   closeDiscussion: (id, body) => req('POST', `/discussions/${id}/close`, body),
+  // FR-22：行动项幂等转任务（body: {item_ids?}）
+  convertActionItems: (id, body) => req('POST', `/discussions/${id}/convert`, body || {}),
   breakdownIdea: (id, body) => req('POST', `/ideas/${id}/breakdown`, body),
   suggestTasks: (id, body) => req('POST', `/ideas/${id}/suggest-tasks`, body),
   ideaHistory: (id, page = 1, pageSize = 20) =>

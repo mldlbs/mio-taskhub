@@ -433,7 +433,8 @@ export default function App() {
               <GanttView tasks={filteredTasks} onOpen={openTask} />
             )}
             {view === 'ideas' && (
-              <IdeasView ideas={filteredIdeas} onReload={loadIdeas} />
+                <IdeasView ideas={filteredIdeas} onReload={loadIdeas}
+                           onOpenTask={(id) => { setView('workflow'); openTask({ id }) }} />
             )}
             {view === 'templates' && (
               <TemplatesView />

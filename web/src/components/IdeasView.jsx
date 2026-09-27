@@ -80,6 +80,9 @@ const MIO_HYP_META = {
   rejected:  { label: '已否决' },
 }
 const ROLE_LABEL = { user: '你', agent: 'agent', ask: 'agent 提问' }
+// FR-24：评审会可用视角（与后端种子角色一致）
+const REVIEW_ROLES = ['产品', '技术', '商业', '合规', '红队']
+const ITEM_STATUS_LABEL = { pending: '待办', doing: '进行中', done: '已完成' }
 const KIND_LABEL = { review: '评审', status: '状态流转', discussion: '讨论', operation: '操作' }
 
 // 驾驶舱分节（FR-5）：下一步动作置顶 + 7 区块，顺序即渲染顺序
@@ -281,7 +284,7 @@ function renderCockpitBody(key, data, ctx = {}) {
   }
 }
 
-export default function IdeasView({ ideas, onReload }) {
+export default function IdeasView({ ideas, onReload, onOpenTask }) {
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState({ title: '', description: '', project: '' })
   const [detail, setDetail] = useState(null)
@@ -325,8 +328,25 @@ export default function IdeasView({ ideas, onReload }) {
   const [hypImport, setHypImport] = useState(null)   // { loading, items[], selected[], saving }
   const [hypWrite, setHypWrite] = useState(null)      // { hid, status, note } 正在回写的条目
   const [hypWriteSaving, setHypWriteSaving] = useState(false)
+  // 想法落地闭环 P2（FR-24：讨论双模式入口 + 评审关闭五段表单 + 行动项转任务）
+  const [discMode, setDiscMode] = useState('')          // '' = 跟随推荐（free/review）
+  const [discRoles, setDiscRoles] = useState(null)      // null = 未自定义（高风险默认含红队）
+  const [rvClosing, setRvClosing] = useState(null)      // 正在填写关闭表单的讨论 id
+  const [rvForm, setRvForm] = useState(null)            // 五段表单草稿
+  const [rvSubmitting, setRvSubmitting] = useState(false)
+  const [converting, setConverting] = useState({})      // 行动项 id -> 转换中
 
   const fail = useCallback((e) => setErr(e.message || '操作失败'), [])
+
+  // FR-24 模式推荐：formed 或已有 goal → review；否则 free。cockpit 高风险 → 角色默认含红队（可取消）
+  const recMode = !detail ? 'free'
+    : ((detail.status === 'formed' || (typeof detail.goal === 'string' && detail.goal.trim())) ? 'review' : 'free')
+  const effMode = discMode || recMode
+  const effRoles = discRoles !== null ? discRoles : (cockpit?.high_risk ? ['红队'] : [])
+  const toggleRole = (r) => setDiscRoles((prev) => {
+    const base = prev !== null ? prev : (cockpit?.high_risk ? ['红队'] : [])
+    return base.includes(r) ? base.filter((x) => x !== r) : [...base, r]
+  })
 
   const openDetail = useCallback(async (id) => {
     setBreaking(false)
@@ -339,6 +359,12 @@ export default function IdeasView({ ideas, onReload }) {
     setHypImport(null)
     setHypWrite(null)
     setCockpit(null)
+    // P2（FR-24）：切换详情时重置讨论模式草稿，避免把上一个想法的表单带过去
+    setDiscMode('')
+    setDiscRoles(null)
+    setRvClosing(null)
+    setRvForm(null)
+    setConverting({})
     try {
       const [d, h] = await Promise.all([api.getIdea(id), api.ideaHistory(id)])
       setDetail(d); setHist(h); setErr(null)
@@ -554,8 +580,14 @@ export default function IdeasView({ ideas, onReload }) {
   const newDiscussion = async () => {
     const topic = discTopic.trim()
     if (!topic || !detail) return
+    if (effMode === 'review' && effRoles.length === 0) {
+      setErr('评审会至少需要一个评审视角——勾选「产品/技术/…」后再开会')
+      return
+    }
     try {
-      await api.openDiscussion({ idea_id: detail.id, topic, agent: 'me', stage: 'brainstorming' })
+      const body = { idea_id: detail.id, topic, agent: 'me', stage: 'brainstorming', mode: effMode }
+      if (effMode === 'review') body.roles = effRoles
+      await api.openDiscussion(body)
       setDiscTopic(''); await reloadDetail()
     } catch (e) { fail(e) }
   }
@@ -570,13 +602,61 @@ export default function IdeasView({ ideas, onReload }) {
     } catch (e) { fail(e) }
   }
 
+  const initRvForm = (d) => setRvForm({
+    conclusions: d.conclusions || '',
+    risks: '', divergences: '', suggestions: '', decisions: '',
+    items: [{ owner: '', action: '', due: '' }],
+  })
+
   const closeDisc = async (d) => {
+    // FR-18：review 模式走五段结构化表单；free 模式保持原 prompt 行为不变
+    if ((d.mode || 'free') === 'review') {
+      setRvClosing(d.id); initRvForm(d)
+      return
+    }
     const conclusions = window.prompt(`关闭讨论「${d.topic}」——写下结论：`, d.conclusions || '')
     if (conclusions === null) return
     try {
       await api.closeDiscussion(d.id, { conclusions, summary: d.summary })
       await reloadDetail()
     } catch (e) { fail(e) }
+  }
+
+  const submitReviewClose = async (d) => {
+    if (!rvForm || rvSubmitting) return
+    const lines = (s) => s.split('\n').map((x) => x.trim()).filter(Boolean)
+    const review = {
+      risks: lines(rvForm.risks),
+      divergences: rvForm.divergences.trim(),
+      suggestions: rvForm.suggestions.trim(),
+      decisions: lines(rvForm.decisions),
+      action_items: rvForm.items
+        .filter((it) => it.owner.trim() || it.action.trim())
+        .map((it, i) => ({
+          id: `ai_${Date.now().toString(36)}_${i}`,
+          owner: it.owner.trim(), action: it.action.trim(), due: it.due,
+          status: 'pending', task_id: null,
+        })),
+    }
+    setRvSubmitting(true)
+    try {
+      // FR-21：缺段由服务端 422 拦截，detail 直接展示给用户
+      await api.closeDiscussion(d.id, {
+        conclusions: rvForm.conclusions, summary: d.summary || '', review,
+      })
+      setRvClosing(null); setRvForm(null)
+      await reloadDetail()
+    } catch (e) { fail(e) }
+    finally { setRvSubmitting(false) }
+  }
+
+  const convertItem = async (d, itemId) => {
+    setConverting((c) => ({ ...c, [itemId]: true }))
+    try {
+      await api.convertActionItems(d.id, { item_ids: [itemId] })
+      await reloadDetail()
+    } catch (e) { fail(e) }
+    finally { setConverting((c) => ({ ...c, [itemId]: false })) }
   }
 
   const addBreakRow = () =>
@@ -1138,18 +1218,37 @@ export default function IdeasView({ ideas, onReload }) {
                   <span>讨论会话（{detail.discussions?.length || 0}）</span>
                 </div>
                 <div className="idea-detail__newdisc">
+                  <select className="inp idea-detail__disc-mode" value={effMode}
+                          onChange={e => setDiscMode(e.target.value)} title="会议模板（按阶段与目标自动推荐，可改）">
+                    <option value="free">讨论会（自由）</option>
+                    <option value="review">评审会（结构化）</option>
+                  </select>
                   <input className="inp" placeholder="开个会：讨论主题（如「这个想法怎么落地」）" value={discTopic}
                          onChange={e => setDiscTopic(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') newDiscussion() }} />
                   <button className="btn btn--primary" onClick={newDiscussion} disabled={!discTopic.trim()}>开会</button>
                 </div>
+                {effMode === 'review' && (
+                  <div className="idea-detail__roles">
+                    <span className="idea-detail__roles-label">评审视角：</span>
+                    {REVIEW_ROLES.map(r => (
+                      <button key={r} type="button"
+                              className={`chip${effRoles.includes(r) ? ' is-on' : ''}`}
+                              onClick={() => toggleRole(r)}>{r}</button>
+                    ))}
+                    {cockpit?.high_risk && (
+                      <span className="tag tag--warn" title="cockpit high_risk=true：默认勾选红队，可取消">高风险 · 建议含红队</span>
+                    )}
+                  </div>
+                )}
 
                 {(detail.discussions || []).map(d => (
                   <div key={d.id} className={`disc${d.status === 'closed' ? ' is-closed' : ''}`}>
                     <div className="disc__head">
                       <strong>{d.topic}</strong>
+                      {(d.mode || 'free') === 'review' && <span className="tag tag--review">评审会</span>}
                       <span className="tag">{d.status === 'closed' ? '已结束' : '进行中'}</span>
                     </div>
-                    {d.agent && <div className="disc__sub">发起：{d.agent} · {d.stage}</div>}
+                    {d.agent && <div className="disc__sub">发起：{d.agent} · {d.stage}{d.mode === 'review' && d.roles?.length ? ` · 视角：${d.roles.join('、')}` : ''}</div>}
                     <div className="disc__msgs">
                       {(d.messages || []).map((m, idx) => (
                         <div key={idx} className={`msg msg--${m.role}`}>
@@ -1168,8 +1267,69 @@ export default function IdeasView({ ideas, onReload }) {
                       </div>
                     )}
                     {d.conclusions && <div className="disc__concl">结论：{d.conclusions}</div>}
-                    {d.status !== 'closed' && (
-                      <button className="btn btn--ghost" onClick={() => closeDisc(d)}>结束讨论</button>
+                    {(d.mode === 'review') && d.status === 'closed' && d.review && (
+                      <div className="disc__review">
+                        <div className="disc__review-seg"><b>风险清单</b>
+                          <ul>{(d.review.risks || []).map((r, i) => <li key={i}>{r}</li>)}</ul></div>
+                        <div className="disc__review-seg"><b>分歧点</b><p>{d.review.divergences}</p></div>
+                        <div className="disc__review-seg"><b>建议</b><p>{d.review.suggestions}</p></div>
+                        <div className="disc__review-seg"><b>决策选项</b>
+                          <ul>{(d.review.decisions || []).map((x, i) => <li key={i}>{x}</li>)}</ul></div>
+                        <div className="disc__review-seg"><b>行动项</b>
+                          {(d.review.action_items || []).map(it => (
+                            <div key={it.id} className="disc__item">
+                              <span className={`tag tag--item-${it.status}`}>{ITEM_STATUS_LABEL[it.status] || it.status}</span>
+                              <span className="disc__item-action">{it.action}</span>
+                              <span className="disc__item-meta">{it.owner} · 截止 {it.due}</span>
+                              {it.task_id
+                                ? <button className="btn btn--ghost disc__item-btn"
+                                          onClick={() => onOpenTask && onOpenTask(it.task_id)}>查看任务</button>
+                                : <button className="btn btn--primary disc__item-btn" disabled={!!converting[it.id]}
+                                          onClick={() => convertItem(d, it.id)}>{converting[it.id] ? '转换中…' : '一键转任务'}</button>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {d.status !== 'closed' && rvClosing === d.id && rvForm && (
+                      <div className="disc__rvform">
+                        <label>结论（conclusions）<textarea className="inp" rows={2} value={rvForm.conclusions}
+                          onChange={e => setRvForm({ ...rvForm, conclusions: e.target.value })} /></label>
+                        <label>风险清单（每行 ≥1 条，必填）<textarea className="inp" rows={3} placeholder={'权限模型未定\n数据合规待确认'}
+                          value={rvForm.risks} onChange={e => setRvForm({ ...rvForm, risks: e.target.value })} /></label>
+                        <label>分歧点（必填，「无分歧」也写依据）<textarea className="inp" rows={2}
+                          value={rvForm.divergences} onChange={e => setRvForm({ ...rvForm, divergences: e.target.value })} /></label>
+                        <label>建议（必填）<textarea className="inp" rows={2}
+                          value={rvForm.suggestions} onChange={e => setRvForm({ ...rvForm, suggestions: e.target.value })} /></label>
+                        <label>决策选项（每行 ≥2 条，必填）<textarea className="inp" rows={3} placeholder={'方案A：先只读\n方案B：直接上写'}
+                          value={rvForm.decisions} onChange={e => setRvForm({ ...rvForm, decisions: e.target.value })} /></label>
+                        <div className="disc__rvitems">
+                          <span className="disc__rvitems-h">行动项（≥1 条：负责人 / 事项 / 截止日期）</span>
+                          {rvForm.items.map((it, i) => (
+                            <div key={i} className="disc__rvitem-row">
+                              <input className="inp disc__rvitem-in" placeholder="负责人" value={it.owner}
+                                     onChange={e => { const a = [...rvForm.items]; a[i] = { ...it, owner: e.target.value }; setRvForm({ ...rvForm, items: a }) }} />
+                              <input className="inp disc__rvitem-in disc__rvitem-in--action" placeholder="行动事项" value={it.action}
+                                     onChange={e => { const a = [...rvForm.items]; a[i] = { ...it, action: e.target.value }; setRvForm({ ...rvForm, items: a }) }} />
+                              <input className="inp disc__rvitem-in" type="date" value={it.due}
+                                     onChange={e => { const a = [...rvForm.items]; a[i] = { ...it, due: e.target.value }; setRvForm({ ...rvForm, items: a }) }} />
+                              <button className="btn btn--ghost" title="删除该行动项"
+                                      onClick={() => setRvForm({ ...rvForm, items: rvForm.items.filter((_, j) => j !== i) })}>×</button>
+                            </div>
+                          ))}
+                          <button className="btn btn--ghost" onClick={() => setRvForm({ ...rvForm, items: [...rvForm.items, { owner: '', action: '', due: '' }] })}>+ 加一行</button>
+                        </div>
+                        <div className="disc__rvform-actions">
+                          <button className="btn btn--ghost" onClick={() => { setRvClosing(null); setRvForm(null) }}>取消</button>
+                          <button className="btn btn--primary" disabled={rvSubmitting}
+                                  onClick={() => submitReviewClose(d)}>{rvSubmitting ? '提交中…' : '完成评审并关闭'}</button>
+                        </div>
+                      </div>
+                    )}
+                    {d.status !== 'closed' && rvClosing !== d.id && (
+                      <button className="btn btn--ghost" onClick={() => closeDisc(d)}>
+                        {(d.mode || 'free') === 'review' ? '结束评审…' : '结束讨论'}
+                      </button>
                     )}
                   </div>
                 ))}
