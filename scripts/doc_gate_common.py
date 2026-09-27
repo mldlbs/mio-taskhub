@@ -96,11 +96,50 @@ def extract_frs_from_text(text):
     return {"FR-" + m.group(1) for m in re.finditer(r"FR-(\d+)", text)}
 
 
+def _commit_ts(sha):
+    out = run_git("show", "-s", "--format=%ct", sha).stdout.strip()
+    try:
+        return int(out)
+    except ValueError:
+        return -1
+
+
+def _stacked_task_base(local_sha, master_base):
+    """叠分支基准修正：本任务建立在其他 task-* 分支之上且上游未并入主线时，
+    首推 remote_sha 全 0，以 merge-base(main/master) 为基准会把上游分期提交
+    的 FR-n 一并计入本任务 diff → 误报（AGENTS.md 语义是 diff 引用的 FR 真实
+    存在于已批准需求文档，各分期需求本就是独立已批准文档）。
+    取所有上游 task-* 分支切点中晚于主干基准的最新一个作为基准，门控只检查
+    本分支自己的改动；无叠分支（切点不晚于主干基准）时维持原行为。"""
+    if not master_base:
+        return None
+    # 归一为 40 位 sha，避免 'HEAD' 等符号引用导致 mb == local_sha 比较失效
+    local = run_git("rev-parse", "--verify", local_sha).stdout.strip() or local_sha
+    refs = run_git("for-each-ref", "--format=%(refname)",
+                   "refs/heads/task-*", "refs/remotes/origin/task-*")
+    best, best_ts = None, _commit_ts(master_base)
+    for ref in refs.stdout.splitlines():
+        ref = ref.strip()
+        if not ref:
+            continue
+        mb = run_git("merge-base", local, ref).stdout.strip()
+        # mb == local：该 ref 即待推分支自身（或其上无新提交），跳过
+        if not mb or mb == local:
+            continue
+        ts = _commit_ts(mb)
+        if ts > best_ts:
+            best, best_ts = mb, ts
+    return best
+
+
 def collect_diff_frs(local_sha, remote_sha):
     """从待推送提交的新增行里抽取 FR-n；返回 set，取不到 diff 时返回 None。"""
     if re.fullmatch(r"0+", remote_sha or ""):
         base = run_git("merge-base", local_sha, "main").stdout.strip() \
             or run_git("merge-base", local_sha, "master").stdout.strip()
+        stacked = _stacked_task_base(local_sha, base)
+        if stacked:
+            base = stacked
         if not base or base == local_sha:
             return set()
         range_spec = [base, local_sha]
