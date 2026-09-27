@@ -92,6 +92,16 @@ def _ferment_items(hypotheses: list, ideas: list) -> list:
             "linked": linked is not None,
             "idea": idea_json,
             "action": action,
+            # 详情透传（前端展开用）：正文/收益/风险/来源/时间，字段缺省为 None
+            "detail": {
+                "idea": h.get("idea"),
+                "expectedBenefit": h.get("expectedBenefit"),
+                "risk": h.get("risk"),
+                "strategy": h.get("strategy"),
+                "rejectionReason": h.get("rejectionReason"),
+                "sourceLabels": h.get("sourceLabels") or [],
+                "createdAt": h.get("createdAt"),
+            },
         })
     return items
 

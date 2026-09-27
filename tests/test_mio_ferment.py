@@ -151,3 +151,26 @@ def test_sync_unknown_hyp_404(monkeypatch):
 def test_sync_creativity_unavailable_404(monkeypatch):
     _patch_cr(monkeypatch, [], available=False)
     assert client.post("/api/v1/mio/ferment/h11/sync").status_code == 404
+
+# ── 详情透传（前端展开） ──────────────────────────────────────────────────────
+
+def test_ferment_items_pass_detail_fields():
+    h = _hyp("hd", "D1", "active")
+    h.update(expectedBenefit="收益X", risk="风险Y", strategy="explore",
+             rejectionReason=None, createdAt=1790400000000)
+    items = _ferment_items([h], [])
+    d = items[0]["detail"]
+    assert d["idea"] == "the idea body"
+    assert d["expectedBenefit"] == "收益X" and d["risk"] == "风险Y"
+    assert d["strategy"] == "explore" and d["createdAt"] == 1790400000000
+    assert d["sourceLabels"] == ["mio"]
+    assert d["rejectionReason"] is None
+
+
+def test_ferment_items_detail_defaults_when_absent():
+    items = _ferment_items([_hyp("hx", "D2", "draft")], [])
+    d = items[0]["detail"]
+    assert d["expectedBenefit"] is None and d["risk"] is None
+    assert d["strategy"] is None and d["createdAt"] is None
+    assert d["idea"] == "the idea body"  # _hyp 自带正文
+    assert d["sourceLabels"] == ["mio"]  # _hyp 自带来源

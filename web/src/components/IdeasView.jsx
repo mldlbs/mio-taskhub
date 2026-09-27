@@ -111,6 +111,7 @@ export default function IdeasView({ ideas, onReload }) {
   const [suggesting, setSuggesting] = useState(false)
   // Mio 发酵映射（只读；同步/推进均需显式点击确认）
   const [ferment, setFerment] = useState(null)
+  const [fermOpen, setFermOpen] = useState(null)
 
   const fail = useCallback((e) => setErr(e.message || '操作失败'), [])
 
@@ -376,9 +377,12 @@ export default function IdeasView({ ideas, onReload }) {
               const mm = MIO_HYP_META[h.status] || { label: h.status || '?' }
               const sm = h.suggested_status && (IDEA_META[h.suggested_status] || { label: h.suggested_status })
               return (
-                <div key={h.id} className="ideas__mio-item">
+                <div key={h.id} className={`ideas__mio-item${fermOpen === h.id ? ' is-open' : ''}`}>
                   <span className={`ideas__mio-chip ideas__mio-chip--${h.status}`}>{mm.label}</span>
-                  <span className="ideas__mio-name" title={h.title}>{h.title}</span>
+                  <span className="ideas__mio-name ideas__mio-name--click" title={h.title}
+                        onClick={() => setFermOpen(fermOpen === h.id ? null : h.id)}>
+                    {fermOpen === h.id ? '▾' : '▸'} {h.title}
+                  </span>
                   <span className="ideas__mio-score mono" title="novelty / feasibility / impact / score">
                     N{h.novelty} F{h.feasibility} I{h.impact} Σ{h.score}
                   </span>
@@ -396,6 +400,19 @@ export default function IdeasView({ ideas, onReload }) {
                     </span>
                   ) : (
                     <button className="btn btn--ghost btn--sm" onClick={() => syncHyp(h.id)}>同步为想法</button>
+                  )}
+                  {fermOpen === h.id && (
+                    <div className="ideas__mio-detail">
+                      {h.detail?.idea && <p className="ideas__mio-detail-p"><b>假设正文</b>{h.detail.idea}</p>}
+                      {h.detail?.expectedBenefit && <p className="ideas__mio-detail-p"><b>预期收益</b>{h.detail.expectedBenefit}</p>}
+                      {h.detail?.risk && <p className="ideas__mio-detail-p"><b>风险</b>{h.detail.risk}</p>}
+                      {h.detail?.rejectionReason && <p className="ideas__mio-detail-p"><b>被拒原因</b>{h.detail.rejectionReason}</p>}
+                      <div className="ideas__mio-detail-meta mono">
+                        {h.detail?.strategy && <span>strategy: {h.detail.strategy}</span>}
+                        {h.detail?.createdAt && <span>createdAt: {new Date(h.detail.createdAt).toLocaleString()}</span>}
+                        {h.detail?.sourceLabels?.length > 0 && <span>sources: {h.detail.sourceLabels.join(' | ')}</span>}
+                      </div>
+                    </div>
                   )}
                 </div>
               )
