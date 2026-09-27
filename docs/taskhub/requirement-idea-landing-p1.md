@@ -114,8 +114,8 @@ P0 已交付 Idea 8 结构化字段、驾驶舱与下一步动作，但「🔬 �
 
 | FR | 设计稿章节 | 测试用例 |
 |---|---|---|
-| FR-11/FR-12 | 包 B 真源策略-导入 | 实施时回填 |
-| FR-13/FR-14 | 包 B 展示、断链 | 实施时回填 |
-| FR-15 | 包 B 回写契约、验收清单-并发 | 实施时回填 |
-| FR-16 | 包 B 降级契约、P0 注记-超时预算 | 实施时回填 |
-| FR-17 | 实施分期 P1、验收清单 | 实施时回填 |
+| FR-11/FR-12 | 包 B 真源策略-导入 | `tests/test_idea_assumptions.py::test_hypotheses_import_happy_dedupe_idempotent`、`::test_hypotheses_import_merges_existing`、`::test_hypotheses_import_unknown_id_422`、`::test_hypotheses_import_mio_unavailable_503`、`::test_hypotheses_import_validation_422`、`::test_hypotheses_import_empty_noop_skips_mio`；`tests/test_ideas_api.py::test_idea_hypotheses_null_normalize`、`::test_idea_hypotheses_create_and_patch_diff`、`::test_idea_hypotheses_must_be_string_list` |
+| FR-13/FR-14 | 包 B 展示、断链 | `tests/test_idea_cockpit.py::test_cockpit_hypotheses_scores_and_broken`、`::test_cockpit_hypotheses_empty_skips_mio` |
+| FR-15 | 包 B 回写契约、验收清单-并发 | `tests/test_idea_assumptions.py::test_patch_assumption_single_entry_and_diff`、`::test_patch_assumption_hid_not_found_404`、`::test_patch_assumption_validation_422`、`::test_patch_assumption_replay_is_noop`、`::test_patch_assumption_concurrent_no_lost_update` |
+| FR-16 | 包 B 降级契约、P0 注记-超时预算 | `tests/test_idea_cockpit.py::test_cockpit_hypotheses_mio_fail_degrades_only_section`、`::test_cockpit_hypotheses_mio_unavailable_degrades`、`::test_cockpit_hypotheses_exception_degrades`、`::test_cockpit_hypotheses_timeout_budget`、`::test_cockpit_hypotheses_scores_and_broken`（缓存命中断言） |
+| FR-17 | 实施分期 P1、验收清单 | 全量 `pytest` 回归（基线 885 只增不减） |
