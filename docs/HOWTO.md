@@ -146,6 +146,7 @@ Agent 在对话中生成想法后，立即调用 `taskhub_add_idea` 推送到 ta
 ```
 
 前端「模板生成」（`POST /api/v1/ideas/templates/generate`）已同义映射到 `mio --json creativity generate`，`sync_to_hub=true` 时落库为 taskhub Idea；**MCP tools/call 对该长任务回空包，勿经 MCP 调**。
+端点自动注入 observer 近期洞察（`mio --json observer insights`，top2，fail-open）作为额外 sources，把观察→趋势→洞察链的产出带进创意环节；输出强制简体中文（上游 system 为英文，语言门禁只能随 sources 下发）。
 
 ### 方式二：批量同步脚本
 
