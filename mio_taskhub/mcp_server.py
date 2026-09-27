@@ -561,16 +561,20 @@ async def taskhub_update_idea(
     return _fmt(await _request("PATCH", f"/ideas/{idea_id}", body=body))
 
 
-@_tool(name="taskhub_open_discussion", title="打开讨论会话", method="POST", path="/discussions", read_only=False, destructive=False, desc="针对某个想法或任务开启一个讨论会话，用户与 agent 可双向发消息。")
+@_tool(name="taskhub_open_discussion", title="打开讨论会话", method="POST", path="/discussions", read_only=False, destructive=False, desc="针对某个想法或任务开启一个讨论会话，用户与 agent 可双向发消息。可指定 mode=review 开结构化评审（roles 必填）。")
 async def taskhub_open_discussion(
     topic: str = Field(description="讨论主题", min_length=1, max_length=200),
     idea_id: str = Field(default="", description="绑定想法 id（idea 或 task 至少一个）", max_length=64),
     task_id: str = Field(default="", description="绑定任务 id（idea 或 task 至少一个）", max_length=64),
     agent: str = Field(default="", description="发起方 agent 名称", max_length=64),
     stage: str = Field(default="brainstorming", description="研发阶段：brainstorming/design/planning/review/..."),
+    mode: str = Field(default="free", description="讨论模式：free=自由讨论 / review=结构化评审（roles 必填）"),
+    roles: Optional[List[str]] = Field(default=None, description="评审视角标签，如 [\"产品\",\"技术\",\"红队\"]（mode=review 时必填）"),
 ) -> str:
     body = {"topic": topic, "idea_id": idea_id, "task_id": task_id,
-            "agent": agent, "stage": stage}
+            "agent": agent, "stage": stage, "mode": mode}
+    if roles is not None:
+        body["roles"] = roles
     return _fmt(await _request("POST", "/discussions", body=body))
 
 
@@ -600,13 +604,16 @@ async def taskhub_reply_discussion(
     return _fmt(await _request("POST", f"/discussions/{discussion_id}/messages", body=body))
 
 
-@_tool(name="taskhub_close_discussion", title="关闭讨论", method="POST", path="/discussions/{discussion_id}/close", read_only=False, destructive=False, desc="结束讨论并回写结论，供后续拆解任务参考。")
+@_tool(name="taskhub_close_discussion", title="关闭讨论", method="POST", path="/discussions/{discussion_id}/close", read_only=False, destructive=False, desc="结束讨论并回写结论，供后续拆解任务参考。mode=review 的讨论须传结构化 review（风险/分歧/建议/决策/行动项），缺项 422。")
 async def taskhub_close_discussion(
     discussion_id: str = Field(description="讨论唯一标识", min_length=1),
     conclusions: str = Field(description="讨论结论", max_length=4000),
     summary: str = Field(default="", description="讨论摘要"),
+    review: Optional[dict] = Field(default=None, description="结构化评审结果（mode=review 必填）：{risks:[...], divergences:'...', suggestions:'...', decisions:[...], action_items:[{id,owner,action,due,status,task_id}]}"),
 ) -> str:
     body = {"conclusions": conclusions, "summary": summary}
+    if review is not None:
+        body["review"] = review
     return _fmt(await _request("POST", f"/discussions/{discussion_id}/close", body=body))
 
 
