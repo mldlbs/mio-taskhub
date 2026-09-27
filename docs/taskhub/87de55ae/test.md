@@ -24,10 +24,10 @@
 
 | FR | 验收标准 | 对应用例 | 结果 |
 |---|---|---|---|
-| FR-34 | 200 且 8 字段齐全；零写库（version/IdeaChange 不变）；503/504/502/404/422 可复现 | TC-34-1~TC-34-8 | ✅ 待回填全量后确认 |
+| FR-34 | 200 且 8 字段齐全；零写库（version/IdeaChange 不变）；503/504/502/404/422 可复现 | TC-34-1~TC-34-8 | ✅ 8 例绿 + 活体真 LLM 200 |
 | FR-35 | 前端：按钮 → 草稿填表 → 不覆盖已有 → 草稿提示 | TC-35-1（构建+代码断言） | ✅ build 绿 |
 | FR-36 | 整表 PATCH 后假设条目均有 hid；既有 hid 不变；补后可回写 200 | TC-36-1、TC-36-2 | ✅ |
-| FR-37 | 定点绿；全量 pytest ≥924+1；文档链 approved；push 过双门 | TC-37-1 | ✅ 定点 11 passed |
+| FR-37 | 定点绿；全量 pytest ≥924+1；文档链 approved；push 过双门 | TC-37-1 | ✅ 定点 11 passed；全量 **935 passed + 1 skipped** |
 
 ## 用例清单
 
@@ -55,4 +55,4 @@
 ## 全量回归（FR-37）
 
 - 命令：`.venv\Scripts\python.exe -m pytest -q --tb=short`
-- 结果：待回填（基线 924 passed + 1 skipped 只增不减）
+- 结果：**935 passed, 1 skipped, 1 warning in 358.47s** ✅（基线 924+1 → +11 本任务新增，零回归）
