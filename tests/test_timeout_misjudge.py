@@ -154,6 +154,49 @@ def test_late_success_on_unfinished_task_unaffected():
         assert task.stage == TaskStage.REVIEW
 
 
+# ── 防线 4：回队列后的迟到成功提交（2026-09-27 task 2fe56e6a 实测） ──────
+
+def test_late_success_after_requeue_completes_task():
+    """T21 回队列 (queued,ready) 后 agent 迟到成功提交：必须真正完成，
+    而非 _safe_transition 静默吞掉转换 + 硬编码返回 completed 的矛盾态
+    （run=成功 + task=queued，且任务可被重复领取）。"""
+    tid, rid = _claim("requeue-late-agent", "requeue-late-task", max_retries=3)
+    _timeout_kill(rid, tid, "requeue-late-agent")
+    with Session(engine) as s:
+        task = s.get(Task, tid)
+        assert task.state == TaskState.QUEUED
+        assert task.stage == TaskStage.READY
+
+    r = client.post(f"/api/v1/runs/{rid}/result",
+                    json={"success": True, "result": "实际干完了"})
+    assert r.status_code == 200
+    assert r.json()["task_state"] == "completed", (
+        "回队列后的成功提交应通过 T24 边真正完成，而非谎报")
+    with Session(engine) as s:
+        task = s.get(Task, tid)
+        assert task.state == TaskState.COMPLETED, "曾留下 run=成功 + task=queued 矛盾态"
+        assert task.stage == TaskStage.REVIEW
+        events = [e for e in s.exec(
+            select(TaskEvent).where(TaskEvent.task_id == tid)
+        ).all() if e.to_state == "completed"]
+    assert events, "完成必须留痕（T24）"
+
+
+def test_late_success_on_cancelled_task_reports_truthful_state():
+    """任务已被取消时，迟到成功提交不得谎报 completed，应返回真实状态。"""
+    tid, rid = _claim("cancel-late-agent", "cancel-late-task")
+    r = client.delete(f"/api/v1/tasks/{tid}", params={"confirm": "true"})
+    assert r.status_code == 200
+
+    r2 = client.post(f"/api/v1/runs/{rid}/result",
+                     json={"success": True, "result": "做完了但任务已取消"})
+    assert r2.status_code == 200
+    assert r2.json()["task_state"] == "cancelled", "状态机拒绝时必须回真实状态"
+    with Session(engine) as s:
+        task = s.get(Task, tid)
+        assert task.state == TaskState.CANCELLED, "迟到成功不得复活已取消任务"
+
+
 # ── 防线 1：agent OFFLINE 不得旁路 run 心跳新鲜度（单元层） ──────────────
 
 def test_effective_timeout_capped_when_agent_offline():

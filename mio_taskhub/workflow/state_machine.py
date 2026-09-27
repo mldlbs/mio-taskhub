@@ -246,6 +246,19 @@ _EXPLICIT: list = [
                {ActorType.SYSTEM}, event_type="requeued"),
 ]
 
+# T24 late_success_after_requeue：看门狗回队列（T20/T21/T23 → (QUEUED,*)）后，
+# 原 run 仍可迟到提交成功结果（agent 实际干完了）。此前 (QUEUED,READY/…)
+# →(COMPLETED,*) 无任何边，_handle_success 的转换被 _safe_transition 静默吞掉、
+# 仍硬编码返回 completed，留下 run=成功 + task=queued 的矛盾态且任务可被重复领取
+# （2026-09-27 实测 task 2fe56e6a，trace submit-after-requeue-stuck-queued-20260927）。
+# 目标统一落 (COMPLETED, IMPLEMENTING)，随后由既有 T4 自动送 REVIEW。
+for _st in (Stage.BRAINSTORMING, Stage.DESIGN, Stage.PLANNING, Stage.READY,
+            Stage.IMPLEMENTING, Stage.REVIEW):
+    _EXPLICIT.append(Transition(
+        "T24", State.QUEUED, _st, State.COMPLETED, Stage.IMPLEMENTING,
+        {ActorType.AGENT, ActorType.SYSTEM, ActorType.USER},
+        event_type="completed"))
+
 
 def _gen_cancel() -> list:
     out = []

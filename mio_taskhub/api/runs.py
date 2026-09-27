@@ -233,6 +233,14 @@ def _handle_success(task, run, m1_events, db=None):
     _, e2 = _safe_transition(task, State.COMPLETED, Stage.REVIEW,
                              ActorType.SYSTEM, "auto:send-to-review", reason="T4")
     if e2: m1_events.append(e2)
+    # 状态机拒绝时返回真实状态，不再谎报 completed（_safe_transition 会静默吞掉
+    # IllegalTransition；曾导致 requeue 后迟到提交 task 实为 queued 却回 completed）。
+    if task.state != TaskState.COMPLETED:
+        actual = task.state.value if hasattr(task.state, "value") else str(task.state)
+        return actual, {
+            "success": True, "state": actual,
+            "note": "状态机拒绝转入 completed，返回真实 task 状态",
+        }
     payload = {"success": True, "state": "completed"}
     if recovered:
         payload["recovered_from_failed"] = True
