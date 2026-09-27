@@ -246,6 +246,10 @@ export default function IdeasView({ ideas, onReload }) {
   const [fermRunning, setFermRunning] = useState(false)
   const [fermNote, setFermNote] = useState('')
   const [cockpit, setCockpit] = useState(null)
+  // 结构化字段编辑（FR-1：8 字段一次定型，P0 前端可写；此前仅 API 可改）
+  const [fieldEdit, setFieldEdit] = useState(false)
+  const [fieldForm, setFieldForm] = useState(null)
+  const [fieldSaving, setFieldSaving] = useState(false)
 
   const fail = useCallback((e) => setErr(e.message || '操作失败'), [])
 
@@ -255,6 +259,8 @@ export default function IdeasView({ ideas, onReload }) {
     setSubmitting(false)
     setShowHistory(false)
     setEditing(false)
+    setFieldEdit(false)
+    setFieldForm(null)
     setCockpit(null)
     try {
       const [d, h] = await Promise.all([api.getIdea(id), api.ideaHistory(id)])
@@ -278,6 +284,57 @@ export default function IdeasView({ ideas, onReload }) {
       await api.dismissIdeaNextAction(detail.id, cockpit.next_action.rule_id)
       setCockpit(await api.getIdeaCockpit(detail.id))
     } catch (e) { fail(e) }
+  }
+
+  const openFieldEdit = () => {
+    const d = detail || {}
+    const toLines = (v) => Array.isArray(v)
+      ? v.map(x => (x && typeof x === 'object' ? (x.text || x.title || JSON.stringify(x)) : String(x))).join('\n')
+      : ''
+    setFieldForm({
+      goal: d.goal || '',
+      success_metric: d.success_metric || '',
+      constraints: d.constraints || '',
+      out_of_scope: d.out_of_scope || '',
+      mvp_scope: d.mvp_scope || '',
+      tags: (Array.isArray(d.tags) ? d.tags : []).join(', '),
+      assumptions: toLines(d.assumptions),
+      risks: JSON.stringify(Array.isArray(d.risks) ? d.risks : [], null, 2),
+    })
+    setFieldEdit(true)
+  }
+
+  const saveFieldEdit = async () => {
+    if (!detail || !fieldForm) return
+    let risks
+    try { risks = JSON.parse(fieldForm.risks || '[]') } catch (e) { setErr(`风险 JSON 解析失败：${e.message}`); return }
+    if (!Array.isArray(risks)) { setErr('风险必须是 JSON 数组，形如 [{"text":"...","level":"low","mitigation":"..."}]'); return }
+    // 假设按行编辑：与原条目按下标合并，保留 hid 等既有属性（FR-2 单条写回依赖 hid）
+    const orig = Array.isArray(detail.assumptions) ? detail.assumptions : []
+    const rows = fieldForm.assumptions.split('\n').map(s => s.trim()).filter(Boolean)
+    const assumptions = rows.map((text, idx) => {
+      const old = orig[idx]
+      if (old && typeof old === 'object') return { ...old, text }
+      return typeof old === 'string' ? text : { text }
+    })
+    const tags = fieldForm.tags.split(',').map(s => s.trim()).filter(Boolean)
+    setFieldSaving(true)
+    try {
+      await api.updateIdea(detail.id, {
+        goal: fieldForm.goal,
+        success_metric: fieldForm.success_metric,
+        constraints: fieldForm.constraints,
+        out_of_scope: fieldForm.out_of_scope,
+        mvp_scope: fieldForm.mvp_scope,
+        tags,
+        assumptions,
+        risks,
+      })
+      setFieldEdit(false); setFieldForm(null)
+      await reloadDetail()
+      onReload()
+      setErr(null)
+    } catch (e) { fail(e) } finally { setFieldSaving(false) }
   }
 
   const submitIdea = async () => {
@@ -652,6 +709,61 @@ export default function IdeasView({ ideas, onReload }) {
                         </div>
                       )
                       : <div className="cockpit-empty">暂无建议的下一步动作</div>}
+                  </div>
+                  <div className="cockpit-block cockpit-block--fields">
+                    <div className="cockpit-block__h">
+                      ✏️ 结构化字段
+                      {!fieldEdit && (
+                        <button className="btn btn--ghost cockpit-fields__btn" onClick={openFieldEdit}>编辑</button>
+                      )}
+                    </div>
+                    {fieldEdit && fieldForm ? (
+                      <div className="cockpit-fields">
+                        {[
+                          ['goal', '目标', '给【谁】解决【什么问题】，因为【为什么现在】'],
+                          ['success_metric', '成功标准', '【指标】从【现状】到【目标】，在【期限】内'],
+                          ['constraints', '约束', '时间 / 预算 / 人手 / 合规底线'],
+                          ['out_of_scope', '不做什么', '明确边界，防范围蔓延'],
+                          ['mvp_scope', 'MVP 范围', '最小可用的交付边界'],
+                        ].map(([k, label, hint]) => (
+                          <label key={k} className="cockpit-fields__item">
+                            <span>{label}</span>
+                            <textarea className="cockpit-fields__ta" placeholder={hint}
+                                      value={fieldForm[k]}
+                                      onChange={e => setFieldForm(f => ({ ...f, [k]: e.target.value }))} />
+                          </label>
+                        ))}
+                        <label className="cockpit-fields__item">
+                          <span>标签（逗号分隔；命中高风险词表会标 ⚠）</span>
+                          <input className="cockpit-fields__in" placeholder="如：高风险, 合规"
+                                 value={fieldForm.tags}
+                                 onChange={e => setFieldForm(f => ({ ...f, tags: e.target.value }))} />
+                        </label>
+                        <label className="cockpit-fields__item">
+                          <span>关键假设（一行一条，原条目属性保留）</span>
+                          <textarea className="cockpit-fields__ta" placeholder="用户会每天看驾驶舱"
+                                    value={fieldForm.assumptions}
+                                    onChange={e => setFieldForm(f => ({ ...f, assumptions: e.target.value }))} />
+                        </label>
+                        <label className="cockpit-fields__item">
+                          <span>风险（JSON 数组）</span>
+                          <textarea className="cockpit-fields__ta cockpit-fields__ta--json" spellCheck={false}
+                                    placeholder='[{"text":"字段为填而填","level":"low","mitigation":"门控只做结构校验"}]'
+                                    value={fieldForm.risks}
+                                    onChange={e => setFieldForm(f => ({ ...f, risks: e.target.value }))} />
+                        </label>
+                        <div className="cockpit-fields__actions">
+                          <button className="btn btn--primary" disabled={fieldSaving} onClick={saveFieldEdit}>
+                            {fieldSaving ? '保存中…' : '保存'}
+                          </button>
+                          <button className="btn btn--ghost" onClick={() => { setFieldEdit(false); setFieldForm(null) }}>
+                            取消
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="cockpit-empty">目标、成功标准等 8 个结构化字段——点「编辑」补全后，下一步动作会随之更新</div>
+                    )}
                   </div>
                   {COCKPIT_SECTIONS.map(([key, title]) => {
                     const sec = cockpit.sections?.[key]

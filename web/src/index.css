@@ -2395,6 +2395,31 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
 .cockpit-task__down { font-size: 11px; color: var(--ink-faint); }
 .cockpit-fold summary { font-size: 12px; color: var(--ink-dim); cursor: pointer; }
 
+/* 结构化字段编辑（FR-1：8 字段前端可写） */
+.cockpit-block--fields .cockpit-block__h { display: flex; align-items: center; }
+.cockpit-fields__btn { margin-left: auto; font-size: 11px; padding: 2px 10px; }
+.cockpit-fields { display: flex; flex-direction: column; gap: 8px; }
+.cockpit-fields__item { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-dim); }
+.cockpit-fields__item > span { font-weight: 600; color: var(--ink); }
+.cockpit-fields__ta,
+.cockpit-fields__in {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  font-size: 12.5px;
+  font-family: inherit;
+  color: var(--ink);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+}
+.cockpit-fields__ta { min-height: 54px; line-height: 1.55; }
+.cockpit-fields__ta--json { min-height: 76px; font-family: var(--font-mono); font-size: 11.5px; }
+.cockpit-fields__ta:focus,
+.cockpit-fields__in:focus { outline: none; border-color: var(--accent); }
+.cockpit-fields__actions { display: flex; gap: 8px; align-items: center; }
+
 /* mio-intelligence 结构化想法显示 */
 .mio-idea-struct {
   font-size: 13px;
