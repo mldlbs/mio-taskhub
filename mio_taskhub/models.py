@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import Column, JSON
+from sqlalchemy import Column, JSON, UniqueConstraint
 from sqlmodel import SQLModel, Field
 from mio_taskhub.utils import _now
 
@@ -469,6 +469,25 @@ class IdeaUserPref(SQLModel, table=True):
     rule_id: str = Field(index=True)
     dismissed_at: datetime = Field(default_factory=_now)
     condition_snapshot: dict = Field(default_factory=dict, sa_column=Column(JSON))  # 结构化布尔位，不存文本
+
+
+class IdeaAssumptionLink(SQLModel, table=True):
+    """假设关联表（P3 FR-28）：idea × hypothesis 的回写状态真源。
+
+    与 `Idea.hypotheses`/`Idea.assumptions` **双写兼容**——读路径零改动，
+    本表按 (idea_id, hypothesis_id) 唯一，供复盘/后续按假设反查。
+    """
+    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    idea_id: str = Field(index=True)
+    hypothesis_id: str = Field(index=True)
+    status: str = "unverified"       # unverified / active / validated / rejected ...
+    note: str = ""
+    confirmed_by: str = ""
+    updated_at: datetime = Field(default_factory=_now)
+
+    __table_args__ = (
+        UniqueConstraint("idea_id", "hypothesis_id", name="uq_idea_assumption_link"),
+    )
 
 
 class ScheduledJobActionType(str, enum.Enum):

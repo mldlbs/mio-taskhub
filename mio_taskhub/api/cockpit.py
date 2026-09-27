@@ -107,74 +107,147 @@ async def _build_mvp(idea: Idea, db: Session) -> dict:
 
 
 async def _build_tasks(idea: Idea, db: Session) -> dict:
-    """任务图 P0（FR-9）：直接关联 + 一层下游（谁依赖我）；有环降级列表；>20 折叠。"""
+    """任务图（P0 FR-9 + P3 FR-26）：直接关联为根，多层上游/下游闭包；
+    节点上限 100 截断置 truncated；含环返回环路径 cycles 并按 P0 降级列表；>20 折叠保留。"""
     from sqlmodel import select
     from mio_taskhub.models import Task
 
     rows = db.exec(select(Task.id, Task.title, Task.state, Task.stage,
                           Task.block_reason, Task.idea_id, Task.depends_on)).all()
-    direct = [r for r in rows if r.idea_id == idea.id]
-    direct_ids = {r.id for r in direct}
-    downstream = [r for r in rows
-                  if r.id not in direct_ids
-                  and any(d in direct_ids for d in (r.depends_on or []))]
-    node_ids = direct_ids | {r.id for r in downstream}
+    by_id = {r.id: r for r in rows}
+    direct_ids = {r.id for r in rows if r.idea_id == idea.id}
+    CAP = 100
+
+    node_ids = set(direct_ids)
+    upstream_ids: set = set()
+    downstream_ids: set = set()
+    truncated = False
+
+    def _absorb(candidates: set, into: set) -> set:
+        """按批加入候选（超出 CAP 截断），返回实际新入集节点。"""
+        nonlocal truncated, node_ids
+        fresh = {c for c in candidates if c in by_id and c not in node_ids}
+        if not fresh:
+            return set()
+        room = CAP - len(node_ids)
+        if len(fresh) > room:
+            added = {c for c in sorted(fresh)[:max(0, room)]}
+            node_ids |= added
+            into |= added
+            truncated = True
+            return added
+        node_ids |= fresh
+        into |= fresh
+        return fresh
+
+    # 上游闭包：我依赖谁（depends_on 传递，层序 BFS）
+    frontier = set(direct_ids)
+    while frontier:
+        nxt = set()
+        for tid in frontier:
+            nxt.update(d for d in (by_id[tid].depends_on or []))
+        added = _absorb(nxt, upstream_ids)
+        if truncated or not added:
+            break
+        frontier = added
+
+    # 下游闭包：谁依赖我（反向边传递）
+    if not truncated:
+        rev: dict = {}
+        for r in rows:
+            for d in (r.depends_on or []):
+                rev.setdefault(d, set()).add(r.id)
+        frontier = set(direct_ids)
+        while frontier:
+            nxt = set()
+            for tid in frontier:
+                nxt.update(rev.get(tid, ()))
+            added = _absorb(nxt, downstream_ids)
+            if truncated or not added:
+                break
+            frontier = added
 
     edges = []
-    for r in direct + downstream:
+    for r in rows:
+        if r.id not in node_ids:
+            continue
         for d in (r.depends_on or []):
             if d in node_ids and d != r.id:
                 edges.append({"from": d, "to": r.id})
 
-    has_cycle = _has_cycle(node_ids, edges)
+    cycles = _find_cycles(node_ids, edges)
+    has_cycle = bool(cycles)
 
-    def _item(r, is_downstream):
+    def _kind(r):
+        if r.id in direct_ids:
+            return "direct"
+        return "upstream" if r.id in upstream_ids else "downstream"
+
+    def _item(r):
+        kind = _kind(r)
         return {"id": r.id, "title": r.title,
                 "state": r.state.value if hasattr(r.state, "value") else str(r.state),
                 "stage": r.stage.value if hasattr(r.stage, "value") else str(r.stage),
                 "blocked": bool(r.block_reason) or str(getattr(r.state, "value", r.state)) == "blocked_failed",
-                "downstream": is_downstream}
+                "downstream": kind == "downstream",  # P0 键保留（upstream/downstream 皆非 direct）
+                "kind": kind}
 
-    items = [_item(r, False) for r in direct] + [_item(r, True) for r in downstream]
+    items = [_item(r) for r in rows if r.id in node_ids]
     graph = None
     warning = None
     if has_cycle:
         warning = "检测到依赖环，已降级为任务列表"
     else:
-        graph = {"nodes": [{"id": r.id, "title": r.title,
-                            "kind": "downstream" if r in downstream else "direct"}
-                           for r in direct + downstream],
+        graph = {"nodes": [{"id": r.id, "title": r.title, "kind": _kind(r)}
+                           for r in rows if r.id in node_ids],
                  "edges": edges}
     return {"data": {
         "items": items,
         "graph": graph,
         "has_cycle": has_cycle,
+        "cycles": cycles,
+        "truncated": truncated,
+        "upstream_total": len(upstream_ids),
+        "downstream_total": len(downstream_ids),
         "warning": warning,
         "total": len(items),
         "folded": len(items) > 20,
     }}
 
 
-def _has_cycle(node_ids, edges) -> bool:
-    """DFS 染色检测依赖环（P0 简化：只看节点集内边）。"""
+def _find_cycles(node_ids, edges, limit: int = 5) -> list:
+    """DFS 染色找依赖环，返回环路径列表（节点序列，回边不入列，至多 limit 个去重）。"""
     graph = {n: [] for n in node_ids}
     for e in edges:
-        if e["from"] in graph and e["to"] in graph:
+        if e["from"] in graph and e["to"] in graph and e["from"] != e["to"]:
             graph[e["from"]].append(e["to"])
     WHITE, GRAY, BLACK = 0, 1, 2
     color = {n: WHITE for n in node_ids}
+    cycles: list = []
+    seen: set = set()
+    stack: list = []
 
     def dfs(u):
         color[u] = GRAY
+        stack.append(u)
         for v in graph.get(u, ()):
             if color[v] == GRAY:
-                return True
-            if color[v] == WHITE and dfs(v):
-                return True
+                cyc = tuple(stack[stack.index(v):])  # 回边 v→u，环段从 v 起
+                key = frozenset(cyc)
+                if key not in seen:
+                    seen.add(key)
+                    cycles.append(list(cyc))
+            elif color[v] == WHITE:
+                dfs(v)
+                if len(cycles) >= limit:
+                    break
+        stack.pop()
         color[u] = BLACK
-        return False
 
-    return any(color[n] == WHITE and dfs(n) for n in node_ids)
+    for n in node_ids:
+        if color[n] == WHITE and len(cycles) < limit:
+            dfs(n)
+    return cycles
 
 
 async def _build_risks(idea: Idea, db: Session) -> dict:
@@ -187,8 +260,70 @@ async def _build_approvals(idea: Idea, db: Session) -> dict:
 
 
 async def _build_retrospective(idea: Idea, db: Session) -> dict:
-    # P0 空壳；P3 复盘区（task_outcome + 评审记录）
-    return {"data": {"items": []}}
+    """P3 FR-27：复盘区真实聚合——关联任务 run 成败 + 最近明细 + P2 结构化评审记录。
+
+    数据源全本地（Run/Discussion），单区异常照走 SectionDegraded；空数据 status=ok。
+    """
+    from sqlmodel import select
+    from mio_taskhub.models import Discussion, Run, Task
+
+    task_rows = db.exec(select(Task.id, Task.title)
+                        .where(Task.idea_id == idea.id)).all()
+    task_titles = {r.id: r.title for r in task_rows}
+
+    def _ts(dt):
+        if dt is None:
+            return datetime.min
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
+
+    summary = {"success": 0, "failure": 0, "pending": 0, "total": 0}
+    items: list = []
+    if task_titles:
+        runs = db.exec(select(Run).where(
+            Run.task_id.in_(set(task_titles)))).all()
+        finished = []
+        for r in runs:
+            st = r.state.value if hasattr(r.state, "value") else str(r.state)
+            if st == "finished":
+                summary["success" if r.exit_code == 0 else "failure"] += 1
+                finished.append(r)
+            else:  # claimed / running / retrying
+                summary["pending"] += 1
+        summary["total"] = len(runs)
+        finished.sort(key=lambda r: _ts(r.finished_at), reverse=True)
+        for r in finished[:5]:
+            items.append({
+                "task_id": r.task_id,
+                "task_title": task_titles.get(r.task_id, ""),
+                "run_id": r.id,
+                "exit_code": r.exit_code,
+                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+                "result_excerpt": (r.result or "")[:200],
+            })
+
+    reviews = db.exec(select(Discussion).where(
+        Discussion.idea_id == idea.id,
+        Discussion.mode == "review",
+        Discussion.status == "closed")).all()
+    reviews = sorted(reviews, key=lambda d: _ts(d.ended_at), reverse=True)
+    review_items = []
+    for d in reviews[:5]:
+        rv = d.review if isinstance(d.review, dict) else {}
+        decisions = rv.get("decisions") if isinstance(rv.get("decisions"), list) else []
+        actions = rv.get("action_items") if isinstance(rv.get("action_items"), list) else []
+        review_items.append({
+            "id": d.id,
+            "topic": d.topic,
+            "ended_at": d.ended_at.isoformat() if d.ended_at else None,
+            "decision_count": len(decisions),
+            "action_item_count": len(actions),
+            "converted_count": sum(1 for a in actions
+                                   if isinstance(a, dict) and a.get("task_id")),
+        })
+
+    return {"data": {"summary": summary, "items": items, "reviews": review_items}}
 
 
 SECTION_BUILDERS = {

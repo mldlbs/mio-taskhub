@@ -6,7 +6,8 @@ from sqlmodel import Session, select
 from mio_taskhub import mio_runtime
 from mio_taskhub.db import get_session
 from mio_taskhub.models import (Idea, IdeaChange, IdeaStatus, IdeaType, Task,
-                                IdeaHistory, TaskKind, TaskStage, TaskState)
+                                IdeaHistory, TaskKind, TaskStage, TaskState,
+                                IdeaAssumptionLink)
 from mio_taskhub.utils import _now
 from mio_taskhub.events import emit_event
 
@@ -211,6 +212,9 @@ def update_idea(idea_id: str, body: dict, db: Session = Depends(get_session)):
             if "[" in f:
                 continue  # assumptions[hid] 单条写回已在 _apply_assumption_entry_diff 中应用
             setattr(i, f, d["new"])
+        if any(k == "hypotheses" or k == "assumptions"
+               or k.startswith(_ASSUMPTION_KEY_PREFIX) for k in diff):
+            _sync_link_rows(db, i)  # P3 FR-28：关联/回写字段变化同步关联表
         if versioning == "full":
             i.version += 1
         if versioning in ("full", "history_only"):
@@ -249,6 +253,49 @@ def _build_description(i: Idea, diff: dict, reason: str = "") -> str:
 
 # 进程内串行化「读-改-写」：并发导入/回写均进 diff、无丢更新（FR-15）
 _ASSOC_LOCK = threading.Lock()
+
+
+def _sync_link_rows(db: Session, i: Idea) -> None:
+    """P3 FR-28：把 idea 关联/回写状态 reconcile 进 idea_assumption_link（幂等）。
+
+    行集合 = hypotheses[] ∪ assumptions 条目 hid（双写兼容，读路径零改动）：
+    - 新 hid → 建行（status/note/confirmed_by 取 assumptions 匹配条目，缺省 unverified）
+    - 值变化 → 原地更新 updated_at
+    - 两边都移除 → 删行
+    调用方负责 commit（与 idea 变更同事务）。
+    """
+    hyps = [h for h in (i.hypotheses if isinstance(i.hypotheses, list) else [])
+            if isinstance(h, str) and h]
+    asms = i.assumptions if isinstance(i.assumptions, list) else []
+    asm_by_hid = {}
+    for e in asms:
+        if isinstance(e, dict):
+            k = e.get("hid") or e.get("id")
+            if k:
+                asm_by_hid[str(k)] = e
+    want = set(hyps) | set(asm_by_hid)
+
+    rows = db.exec(select(IdeaAssumptionLink).where(
+        IdeaAssumptionLink.idea_id == i.id)).all()
+    by_hid = {r.hypothesis_id: r for r in rows}
+    now = _now()
+    for hid in want:
+        entry = asm_by_hid.get(hid, {})
+        status = str(entry.get("status") or "unverified")
+        note = str(entry.get("note") or "")
+        cb = str(entry.get("confirmed_by") or "")
+        r = by_hid.get(hid)
+        if r is None:
+            db.add(IdeaAssumptionLink(idea_id=i.id, hypothesis_id=hid,
+                                      status=status, note=note, confirmed_by=cb,
+                                      updated_at=now))
+        elif (r.status, r.note, r.confirmed_by) != (status, note, cb):
+            r.status, r.note, r.confirmed_by = status, note, cb
+            r.updated_at = now
+            db.add(r)
+    for hid, r in by_hid.items():
+        if hid not in want:
+            db.delete(r)
 
 
 def _mio_fetch_hypotheses(timeout: float = 10.0) -> dict | None:
@@ -300,6 +347,7 @@ def import_idea_hypotheses(idea_id: str, body: dict, db: Session = Depends(get_s
         i.updated_at = _now()
         emit_event(db, type="idea_updated", entity="idea", entity_id=i.id,
                    payload={"version": i.version, "field": "hypotheses"})
+        _sync_link_rows(db, i)  # P3 FR-28：新增关联建行（双写）
         db.add(i)
         db.commit()
         db.refresh(i)
@@ -342,10 +390,28 @@ def patch_idea_assumption(idea_id: str, hid: str, body: dict, db: Session = Depe
         i.updated_at = _now()
         emit_event(db, type="idea_updated", entity="idea", entity_id=i.id,
                    payload={"version": i.version, "field": f"assumptions[{hid}]"})
+        _sync_link_rows(db, i)  # P3 FR-28：回写 upsert 关联行（双写）
         db.add(i)
         db.commit()
         db.refresh(i)
     return _idea_json(i)
+
+
+@router.get("/{idea_id}/assumption-links")
+def list_idea_assumption_links(idea_id: str, db: Session = Depends(get_session)):
+    """P3 FR-28：返回该想法全部假设关联行（按 hypothesis_id 排序）。"""
+    if not db.get(Idea, idea_id):
+        raise HTTPException(404, "idea not found")
+    rows = db.exec(select(IdeaAssumptionLink)
+                   .where(IdeaAssumptionLink.idea_id == idea_id)
+                   .order_by(IdeaAssumptionLink.hypothesis_id)).all()
+    return {"idea_id": idea_id,
+            "links": [{"id": r.id, "idea_id": r.idea_id,
+                       "hypothesis_id": r.hypothesis_id, "status": r.status,
+                       "note": r.note, "confirmed_by": r.confirmed_by,
+                       "updated_at": r.updated_at.isoformat() if r.updated_at else None}
+                      for r in rows],
+            "total": len(rows)}
 
 
 def _upsert_change_tracking_task(i: Idea, diff: dict, db: Session, reason: str = ""):

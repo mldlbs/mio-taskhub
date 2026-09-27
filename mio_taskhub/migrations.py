@@ -16,6 +16,7 @@ def run_migrations(target_engine=None):
             _migrate_task(conn)
         if "idea" in tables:
             _migrate_idea(conn)
+            _migrate_idea_assumption_link(conn)
         if "ideahistory" in tables:
             _migrate_ideahistory(conn)
         if "discussion" in tables:
@@ -199,6 +200,87 @@ def _migrate_idea(conn):
     ):
         if col not in icols:
             conn.execute(text(f"ALTER TABLE idea ADD COLUMN {col} {ddl}"))
+
+
+def _migrate_idea_assumption_link(conn):
+    """P3 FR-28：假设关联表建表 + 幂等回填。
+
+    行来源 = Idea.hypotheses[]（关联本身）；status/note/confirmed_by 从
+    Idea.assumptions JSON 按 hid 匹配回填（容忍 {hid: {...}} 与含 id/hid 对象两种形态）。
+    已有 (idea_id, hypothesis_id) 行跳过 —— 可重复启动。
+    """
+    import json
+    import uuid
+    from datetime import datetime, timezone
+
+    conn.execute(text(
+        "CREATE TABLE IF NOT EXISTS ideaassumptionlink ("
+        "id VARCHAR PRIMARY KEY, "
+        "idea_id VARCHAR NOT NULL, "
+        "hypothesis_id VARCHAR NOT NULL, "
+        "status VARCHAR NOT NULL DEFAULT 'unverified', "
+        "note VARCHAR NOT NULL DEFAULT '', "
+        "confirmed_by VARCHAR NOT NULL DEFAULT '', "
+        "updated_at DATETIME)"
+    ))
+    try:
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_idea_assumption_link "
+            "ON ideaassumptionlink (idea_id, hypothesis_id)"
+        ))
+    except Exception:
+        pass  # 历史重复行不阻塞启动；写入端按 upsert 保证唯一
+
+    rows = conn.execute(text(
+        "SELECT id, hypotheses, assumptions FROM idea"
+    )).fetchall()
+    existing = {}
+    for r in conn.execute(text(
+        "SELECT idea_id, hypothesis_id FROM ideaassumptionlink"
+    )).fetchall():
+        existing.setdefault(r[0], set()).add(r[1])
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for idea_id, hyp_raw, asm_raw in rows:
+        try:
+            hyps = json.loads(hyp_raw) if hyp_raw else []
+        except Exception:
+            hyps = []
+        if not isinstance(hyps, list):
+            continue
+        try:
+            asms = json.loads(asm_raw) if asm_raw else []
+        except Exception:
+            asms = []
+        # 假设缓存两种形态 → {hid: entry}
+        asm_by_hid: dict = {}
+        if isinstance(asms, dict):
+            asm_by_hid = {k: (v if isinstance(v, dict) else {}) for k, v in asms.items()}
+        elif isinstance(asms, list):
+            for e in asms:
+                if isinstance(e, dict):
+                    key = e.get("hid") or e.get("id")
+                    if key:
+                        asm_by_hid[str(key)] = e
+
+        have = existing.get(idea_id, set())
+        for hid in hyps:
+            if not isinstance(hid, str) or not hid or hid in have:
+                continue
+            entry = asm_by_hid.get(hid, {})
+            conn.execute(text(
+                "INSERT INTO ideaassumptionlink "
+                "(id, idea_id, hypothesis_id, status, note, confirmed_by, updated_at) "
+                "VALUES (:id, :idea_id, :hid, :status, :note, :cb, :at)"
+            ), {
+                "id": str(uuid.uuid4())[:8],
+                "idea_id": idea_id,
+                "hid": hid,
+                "status": str(entry.get("status") or "unverified"),
+                "note": str(entry.get("note") or ""),
+                "cb": str(entry.get("confirmed_by") or ""),
+                "at": now_iso,
+            })
 
 
 def _migrate_ideahistory(conn):
