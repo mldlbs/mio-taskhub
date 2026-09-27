@@ -11,6 +11,7 @@ Config: MIO_TASKHUB_URL (default http://127.0.0.1:48620/api/v1)
 
 import json
 import os
+import sys
 import time
 from typing import List, Optional
 import httpx
@@ -117,7 +118,7 @@ async def taskhub_agent_heartbeat(
     return _fmt(await _request("POST", "/agents/heartbeat", body={"name": name}))
 
 
-@_tool(name="taskhub_claim", title="领取一个任务", method="POST", path="/tasks/claim", read_only=False, destructive=False, desc="按关联度 + 优先级 + FIFO 领取一个排队任务，或按 task_id 直接认领指定任务，返回 Run id + task 详情，并内联 branch / required_reads / required_fr / documents（预览）。**内联预览不等于已读**：动手前必须对 required_reads 逐一调用 taskhub_read_document(task_id, kind, run_id=<本 run>) 产生 ReadEvidence，否则 taskhub_submit_result 会被 422 拦截。")
+@_tool(name="taskhub_claim", title="领取一个任务", method="POST", path="/tasks/claim", read_only=False, destructive=False, desc="按关联度 + 优先级 + FIFO 领取一个排队任务，或按 task_id 直接认领指定任务，返回 Run id + task 详情，并内联 branch / required_reads / required_fr / documents（预览）。**必须领指定任务时务必传 task_id**：不传将按相关度挑选，可能领到其他任务（trace claim-taskid-mcp-drop-20260927）。**内联预览不等于已读**：动手前必须对 required_reads 逐一调用 taskhub_read_document(task_id, kind, run_id=<本 run>) 产生 ReadEvidence，否则 taskhub_submit_result 会被 422 拦截。")
 async def taskhub_claim(
     agent: str = Field(description="当前 agent 名称，需先注册", min_length=1, max_length=64),
     agent_type: Optional[str] = Field(default=None, description="若设置，只领取匹配该类型的任务；不传则自动回查注册 agent_type", max_length=32),
@@ -126,6 +127,9 @@ async def taskhub_claim(
     workspace: Optional[str] = Field(default=None, description="工作区根路径", max_length=500),
     files: Optional[str] = Field(default=None, description="逗号分隔的文件路径列表", max_length=2000),
 ) -> str:
+    # 取证日志：opencode 会把 MCP stderr 收进其 log，点名/相关度挑选争议可据此定责
+    sys.stderr.write("[mcp-claim] agent=%s task_id=%r agent_type=%r\n" % (agent, task_id, agent_type))
+    sys.stderr.flush()
     query = {"agent": agent}
     if agent_type: query["agent_type"] = agent_type
     if task_id: query["task_id"] = task_id

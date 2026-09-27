@@ -434,3 +434,22 @@ def test_read_evidence_gate_via_mcp(mcp_ctx, tmp_path, monkeypatch):
 
     ok = _call("taskhub_submit_result", {"run_id": rid, "success": True, "result": "done"})
     assert ok.get("task_state") == "completed"
+
+
+def test_claim_named_task_beats_relevance(mcp_ctx):
+    """点名 claim（task_id）：队列存在更高优先级 ready 任务时，仍必须领到指定任务，
+    不得被相关性挑选顶掉（trace claim-taskid-mcp-drop-20260927 回归）。"""
+    _call("taskhub_create_task", {"title": "Decoy p3", "priority": 3, "stage": "ready"})
+    target = _call("taskhub_create_task", {"title": "Target p0", "priority": 0, "stage": "ready"})
+    claim = _call("taskhub_claim", {"agent": "mcp-agent", "task_id": target["id"]})
+    assert claim.get("task_id") == target["id"], claim
+    assert claim["task"]["title"] == "Target p0"
+
+
+def test_claim_named_task_not_claimable_returns_error(mcp_ctx):
+    """点名 claim 不可领取任务（已取消）→ 返回 error，绝不静默改领其他任务。"""
+    created = _call("taskhub_create_task", {"title": "Cancelled target", "stage": "ready"})
+    _call("taskhub_cancel_task", {"task_id": created["id"]})
+    _call("taskhub_create_task", {"title": "Alternative p2", "priority": 2, "stage": "ready"})
+    claim = _call("taskhub_claim", {"agent": "mcp-agent", "task_id": created["id"]})
+    assert "error" in claim and "409" in claim["error"], claim
