@@ -2481,6 +2481,16 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
 .cockpit-task__down { font-size: 11px; color: var(--ink-faint); }
 .cockpit-fold summary { font-size: 12px; color: var(--ink-dim); cursor: pointer; }
 
+/* P3 FR-26/FR-27：多层任务拓扑（上下游标签/环路径/截断）+ 复盘区（run 成败/评审记录） */
+.tag--ok { color: #86efac; border-color: rgba(134,239,172,.4); background: rgba(134,239,172,.08); }
+.cockpit-task__up { font-size: 11px; color: var(--ink-faint); }
+.cockpit-task--up > .cockpit-task__title { color: var(--ink-dim); }
+.cockpit-cycle-path { font-family: ui-monospace, monospace; font-size: 11px; color: var(--warn); }
+.cockpit-retro__sum { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.cockpit-retro__runs, .cockpit-retro__reviews { margin-bottom: 6px; }
+.cockpit-retro__time { font-size: 11px; color: var(--ink-faint); }
+.cockpit-retro__excerpt { font-size: 11px; color: var(--ink-dim); overflow-wrap: anywhere; flex-basis: 100%; }
+
 /* 结构化字段编辑（FR-1：8 字段前端可写） */
 .cockpit-block--fields .cockpit-block__h { display: flex; align-items: center; }
 .cockpit-fields__btn { margin-left: auto; font-size: 11px; padding: 2px 10px; }

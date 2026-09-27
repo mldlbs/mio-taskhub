@@ -213,7 +213,7 @@ function renderCockpitBody(key, data, ctx = {}) {
           seen.add(t.id)
           const children = (kids[t.id] || []).map(id => node(byId[id])).filter(Boolean)
           return (
-            <li key={t.id} className={`cockpit-task${t.blocked ? ' cockpit-task--blocked' : ''}${t.downstream ? ' cockpit-task--down' : ''}`}>
+            <li key={t.id} className={`cockpit-task${t.blocked ? ' cockpit-task--blocked' : ''}${t.downstream ? ' cockpit-task--down' : ''}${t.kind === 'upstream' ? ' cockpit-task--up' : ''}`}>
               <span className="cockpit-task__title">{t.title}</span>
               <span className="tag">{t.stage}</span>
               {t.blocked && <span className="tag">blocked</span>}
@@ -231,6 +231,7 @@ function renderCockpitBody(key, data, ctx = {}) {
             <li key={t.id} className={`cockpit-task${t.blocked ? ' cockpit-task--blocked' : ''}`}>
               <span className="cockpit-task__title">{t.title}</span>
               <span className="tag">{t.stage}</span>
+              {t.kind === 'upstream' && <span className="cockpit-task__up">上游</span>}
               {t.downstream && <span className="cockpit-task__down">下游</span>}
               {t.blocked && <span className="tag">blocked</span>}
             </li>
@@ -239,7 +240,30 @@ function renderCockpitBody(key, data, ctx = {}) {
       )
       const body = (
         <>
-          {data.warning && <div className="cockpit-degraded">⚠ {data.warning}</div>}
+          {data.truncated && (
+            <div className="cockpit-degraded">
+              依赖链较长，已截断至 100 个节点（直接关联 + 上下游闭包）
+            </div>
+          )}
+          {data.warning && (
+            <div className="cockpit-degraded">
+              ⚠ {data.warning}
+              {Array.isArray(data.cycles) && data.cycles.length > 0 && (
+                <span className="cockpit-cycles">
+                  {' '}环路径：
+                  {data.cycles.map((cyc, ci) => {
+                    const titles = cyc.map(id => (items.find(t => t.id === id)?.title) || id)
+                    return (
+                      <span key={ci} className="cockpit-cycle-path">
+                        {titles.join(' → ')} → {titles[0]}
+                        {ci < data.cycles.length - 1 ? '；' : ''}
+                      </span>
+                    )
+                  })}
+                </span>
+              )}
+            </div>
+          )}
           {tree
             ? <ul className="cockpit-list cockpit-tasks">{tree}</ul>
             : list}
@@ -273,12 +297,56 @@ function renderCockpitBody(key, data, ctx = {}) {
           {data.items.map((a, i) => <li key={i}>{a.title || a.kind || JSON.stringify(a)}</li>)}
         </ul>
       ) : <div className="cockpit-empty">暂无待办审批</div>
-    case 'retrospective':
-      return (data.items || []).length ? (
-        <ul className="cockpit-list">
-          {data.items.map((r, i) => <li key={i}>{r.title || r.summary || JSON.stringify(r)}</li>)}
-        </ul>
-      ) : <div className="cockpit-empty">还没有复盘记录</div>
+    case 'retrospective': {
+      // P3 FR-27：run 成败汇总 + 最近执行明细 + 结构化评审记录
+      const summary = data.summary || { success: 0, failure: 0, pending: 0, total: 0 }
+      const runs = data.items || []
+      const reviews = data.reviews || []
+      if (!summary.total && !runs.length && !reviews.length) {
+        return <div className="cockpit-empty">还没有复盘记录——任务有执行结果或评审有结论后在此聚合</div>
+      }
+      return (
+        <>
+          <div className="cockpit-retro__sum">
+            <span className="tag">执行 {summary.total}</span>
+            <span className="tag tag--ok">成功 {summary.success}</span>
+            <span className="tag tag--warn">失败 {summary.failure}</span>
+            <span className="tag">进行中 {summary.pending}</span>
+          </div>
+          {runs.length > 0 && (
+            <ul className="cockpit-list cockpit-retro__runs">
+              {runs.map((r, i) => (
+                <li key={r.run_id || i}>
+                  <span className="cockpit-task__title">{r.task_title || r.task_id}</span>
+                  <span className={`tag ${r.exit_code === 0 ? 'tag--ok' : 'tag--warn'}`}>
+                    {r.exit_code === 0 ? '成功' : `退出码 ${r.exit_code}`}
+                  </span>
+                  <span className="cockpit-retro__time">{r.finished_at || ''}</span>
+                  {r.result_excerpt && (
+                    <span className="cockpit-retro__excerpt" title={r.result_excerpt}>
+                      {r.result_excerpt}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {reviews.length > 0 && (
+            <ul className="cockpit-list cockpit-retro__reviews">
+              {reviews.map((rv, i) => (
+                <li key={rv.id || i}>
+                  <span className="cockpit-task__title">{rv.topic}</span>
+                  <span className="tag">决策 {rv.decision_count}</span>
+                  <span className="tag">行动项 {rv.action_item_count}</span>
+                  <span className="tag">已转任务 {rv.converted_count}</span>
+                  <span className="cockpit-retro__time">{rv.ended_at || ''}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )
+    }
     default:
       return null
   }
