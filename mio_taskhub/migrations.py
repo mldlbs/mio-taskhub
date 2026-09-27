@@ -194,6 +194,8 @@ def _migrate_idea(conn):
         ("risks", "JSON"),
         ("mvp_scope", "TEXT"),
         ("tags", "JSON"),
+        # 想法落地闭环 P1 包 B（FR-11）：Mio 假设 id 引用列表，可空旧行 NULL
+        ("hypotheses", "JSON"),
     ):
         if col not in icols:
             conn.execute(text(f"ALTER TABLE idea ADD COLUMN {col} {ddl}"))

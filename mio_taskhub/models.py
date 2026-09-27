@@ -407,6 +407,8 @@ class Idea(SQLModel, table=True):
     risks: Optional[list] = Field(default=None, sa_column=Column(JSON))        # [{text,level,mitigation}]
     mvp_scope: str = ""                     # MVP 范围
     tags: Optional[list] = Field(default=None, sa_column=Column(JSON))         # ["高风险","合规",...]
+    # 想法落地闭环 P1 包 B（FR-11）：Mio 假设 id 引用列表（真源=Mio，只存引用不存分数）
+    hypotheses: Optional[list] = Field(default=None, sa_column=Column(JSON))   # ["hyp_id",...]
 
 class ChangeType(str, enum.Enum):
     FIELD_CHANGE = "field_change"      # 普通字段变更

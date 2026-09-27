@@ -1,7 +1,9 @@
+import threading
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
+from mio_taskhub import mio_runtime
 from mio_taskhub.db import get_session
 from mio_taskhub.models import (Idea, IdeaChange, IdeaStatus, IdeaType, Task,
                                 IdeaHistory, TaskKind, TaskStage, TaskState)
@@ -11,23 +13,30 @@ from mio_taskhub.events import emit_event
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
 
-# 想法落地闭环 P0（FR-1/FR-2）：结构化字段白名单
+# 想法落地闭环 P0（FR-1/FR-2）+ P1（FR-11 hypotheses 引用）：结构化字段白名单
 IDEA_STR_FIELDS = ("goal", "success_metric", "constraints", "out_of_scope", "mvp_scope")
-IDEA_JSON_FIELDS = ("assumptions", "risks", "tags")
+IDEA_JSON_FIELDS = ("assumptions", "risks", "tags", "hypotheses")
 IDEA_NEW_FIELDS = IDEA_STR_FIELDS + IDEA_JSON_FIELDS
 
 
+def _validate_json_field(field: str, value):
+    """JSON 白名单字段统一校验（FR-11：hypotheses 必须是字符串 id 列表）。"""
+    if not isinstance(value, list):
+        raise HTTPException(422, f"{field} must be a list")
+    if field == "hypotheses" and any(not isinstance(x, str) for x in value):
+        raise HTTPException(422, "hypotheses must be a list of strings")
+    return value
+
+
 def _collect_new_fields(body: dict) -> dict:
-    """从请求体收集 P0 新字段并校验类型（strings → str，JSON 字段必须是 list）。"""
+    """从请求体收集 P0/P1 新字段并校验类型（strings → str，JSON 字段必须是 list）。"""
     out = {}
     for f in IDEA_STR_FIELDS:
         if f in body and body[f] is not None:
             out[f] = str(body[f])
     for f in IDEA_JSON_FIELDS:
         if f in body and body[f] is not None:
-            if not isinstance(body[f], list):
-                raise HTTPException(422, f"{f} must be a list")
-            out[f] = body[f]
+            out[f] = _validate_json_field(f, body[f])
     return out
 
 
@@ -118,6 +127,7 @@ def _idea_json(i: Idea) -> dict:
         "risks": _normalized("risks", i.risks),
         "mvp_scope": _normalized("mvp_scope", i.mvp_scope),
         "tags": _normalized("tags", i.tags),
+        "hypotheses": _normalized("hypotheses", i.hypotheses),
     }
 
 
@@ -188,8 +198,8 @@ def update_idea(idea_id: str, body: dict, db: Session = Depends(get_session)):
         if f in body and body[f] is not None:
             if f in IDEA_STR_FIELDS and not isinstance(body[f], str):
                 body[f] = str(body[f])
-            if f in IDEA_JSON_FIELDS and not isinstance(body[f], list):
-                raise HTTPException(422, f"{f} must be a list")
+            if f in IDEA_JSON_FIELDS:
+                _validate_json_field(f, body[f])
             old = getattr(i, f)
             if _normalized(f, old) != _normalized(f, body[f]):
                 diff[f] = {"old": old, "new": body[f]}
@@ -233,6 +243,109 @@ def _build_description(i: Idea, diff: dict, reason: str = "") -> str:
     if reason:
         desc += f"\n变更原因：{reason}"
     return desc
+
+
+# ---------- 想法落地闭环 P1 包 B（FR-12/FR-15）：假设导入与单条人工回写 ----------
+
+# 进程内串行化「读-改-写」：并发导入/回写均进 diff、无丢更新（FR-15）
+_ASSOC_LOCK = threading.Lock()
+
+
+def _mio_fetch_hypotheses(timeout: float = 10.0) -> dict | None:
+    """拉取 Mio 发酵假设库；Mio 不可用/CLI 失败 → None（调用方转 503）。"""
+    try:
+        cr = mio_runtime.creativity(limit=100, timeout=timeout, with_status=False)
+    except Exception:  # noqa: BLE001 —— Mio 跨服务失败一律降级为不可用
+        return None
+    if not cr.get("available") or not cr.get("ok", True):
+        return None
+    return cr
+
+
+@router.post("/{idea_id}/hypotheses/import")
+def import_idea_hypotheses(idea_id: str, body: dict, db: Session = Depends(get_session)):
+    """FR-12：从 Mio 发酵假设库导入 id 引用（集合合并去重、幂等；未知 id 422、Mio 不可用 503）。"""
+    ids = body.get("ids")
+    if not isinstance(ids, list) or any(not isinstance(x, str) or not x.strip() for x in ids):
+        raise HTTPException(422, "ids must be a list of non-empty strings")
+    i = db.get(Idea, idea_id)
+    if not i:
+        raise HTTPException(404, "idea not found")
+    uniq: list[str] = []
+    for x in ids:
+        s = x.strip()
+        if s and s not in uniq:
+            uniq.append(s)
+    if not uniq:
+        return {"ok": True, "added": [], "hypotheses": i.hypotheses or [], "idea": _idea_json(i)}
+    cr = _mio_fetch_hypotheses()
+    if cr is None:
+        raise HTTPException(503, "Mio creativity unavailable, try again later")
+    known = {h.get("id") for h in (cr.get("items") or []) if isinstance(h, dict)}
+    missing = [x for x in uniq if x not in known]
+    if missing:
+        raise HTTPException(422, f"unknown hypothesis ids: {', '.join(missing)}")
+    with _ASSOC_LOCK:
+        db.refresh(i)
+        cur = list(i.hypotheses) if isinstance(i.hypotheses, list) else []
+        added = [x for x in uniq if x not in cur]
+        if not added:
+            return {"ok": True, "added": [], "hypotheses": cur, "idea": _idea_json(i)}
+        new = cur + added
+        i.hypotheses = new
+        i.version += 1
+        db.add(IdeaChange(idea_id=i.id, version=i.version,
+                          diff={"hypotheses": {"old": cur, "new": new}},
+                          reason=body.get("change_reason", "")))
+        i.updated_at = _now()
+        emit_event(db, type="idea_updated", entity="idea", entity_id=i.id,
+                   payload={"version": i.version, "field": "hypotheses"})
+        db.add(i)
+        db.commit()
+        db.refresh(i)
+    return {"ok": True, "added": added, "hypotheses": new, "idea": _idea_json(i)}
+
+
+@router.patch("/{idea_id}/assumptions/{hid}")
+def patch_idea_assumption(idea_id: str, hid: str, body: dict, db: Session = Depends(get_session)):
+    """FR-15：单条假设人工回写（独立端点，只改一条，diff 键 assumptions[hid]；hid 不存在 404）。"""
+    patch = {}
+    for f in ("status", "note", "confirmed_by"):
+        if f in body and body[f] is not None:
+            if not isinstance(body[f], str):
+                raise HTTPException(422, f"{f} must be a string")
+            patch[f] = body[f]
+    if not patch:
+        raise HTTPException(422, "nothing to update (status/note/confirmed_by)")
+    with _ASSOC_LOCK:
+        i = db.get(Idea, idea_id)
+        if not i:
+            raise HTTPException(404, "idea not found")
+        db.refresh(i)
+        cur = list(i.assumptions) if isinstance(i.assumptions, list) else []
+        idx, old = -1, None
+        for n, e in enumerate(cur):
+            if isinstance(e, dict) and (e.get("hid") == hid or e.get("id") == hid):
+                idx, old = n, e
+                break
+        if idx < 0:
+            raise HTTPException(404, "assumption not found")
+        if all(old.get(k) == v for k, v in patch.items()):
+            return _idea_json(i)  # 幂等重放：值全同 → 不 bump 版本、不追加 diff
+        new_entry = {**old, **patch}
+        cur[idx] = new_entry
+        i.assumptions = cur
+        i.version += 1
+        db.add(IdeaChange(idea_id=i.id, version=i.version,
+                          diff={f"assumptions[{hid}]": {"old": old, "new": new_entry}},
+                          reason=body.get("change_reason", "")))
+        i.updated_at = _now()
+        emit_event(db, type="idea_updated", entity="idea", entity_id=i.id,
+                   payload={"version": i.version, "field": f"assumptions[{hid}]"})
+        db.add(i)
+        db.commit()
+        db.refresh(i)
+    return _idea_json(i)
 
 
 def _upsert_change_tracking_task(i: Idea, diff: dict, db: Session, reason: str = ""):

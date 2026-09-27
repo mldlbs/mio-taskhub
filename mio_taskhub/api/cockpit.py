@@ -1,15 +1,19 @@
-"""想法驾驶舱聚合端点（想法落地闭环 P0，FR-3/FR-4）。
+"""想法驾驶舱聚合端点（想法落地闭环 P0 FR-3/FR-4，P1 FR-13~FR-16）。
 
 - 每区块独立超时（默认 1s，hypotheses 3s 预留给 Mio 跨服务调用）；
 - 总预算 5s：未就绪区块裁剪为 degraded，已就绪照常返回；
 - 单区块失败仅该区块 status=degraded，接口整体不 500；
-- 禁止整包 degraded 字段——前端按 sections[x].status 只灰对应区块。
+- 禁止整包 degraded 字段——前端按 sections[x].status 只灰对应区块；
+- P1：hypotheses 接 Mio creativity（进程内 TTL 5min 缓存；断链 hyp 标 broken 不静默移除）。
 """
 import asyncio
+import time
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
 
+from mio_taskhub import mio_runtime
 from mio_taskhub.db import get_session
 from mio_taskhub.models import Idea
 from mio_taskhub.next_action import compute_next_action, dismiss_rule, is_high_risk
@@ -17,9 +21,21 @@ from mio_taskhub.utils import _now
 
 router = APIRouter(prefix="/ideas", tags=["cockpit"])
 
-# 区块级超时预算（秒）；缺省键 "default" 兜底。P1 接入 Mio 时 hypotheses 已预留 3s。
+# 区块级超时预算（秒）；缺省键 "default" 兜底。hypotheses 3s = Mio 跨服务预算（FR-16）。
 SECTION_TIMEOUTS = {"default": 1.0, "hypotheses": 3.0}
 TOTAL_BUDGET = 5.0
+
+
+class SectionDegraded(Exception):
+    """单区块显式降级（reason 透传到 sections[x].reason，而非异常类名）。"""
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+# 假设区进程内缓存：key=关联 hyp id 集合 → (epoch, iso, items)；TTL 5min，重启失效属预期（FR-16）
+HYP_TTL = 300.0
+_HYP_CACHE: dict = {}
 
 
 # ---------- P0 区块构建器（FR-3：仅 idea 字段区真实聚合，其余空壳 status=ok） ----------
@@ -34,8 +50,56 @@ async def _build_goal(idea: Idea, db: Session) -> dict:
 
 
 async def _build_hypotheses(idea: Idea, db: Session) -> dict:
-    # P0 空壳；P1 关联 Mio creativity 假设 + 分数（超时 3s / 缓存 5min）
-    return {"data": {"items": [], "source": "stub"}}
+    """FR-13/FR-14/FR-16：透传关联假设的三元分 + 断链 broken 标记 + 3s 超时/5min 缓存。
+
+    Mio 不可用/CLI 失败 → SectionDegraded（仅本区 degraded，接口不 500）。
+    """
+    raw = idea.hypotheses if isinstance(idea.hypotheses, list) else []
+    ids = [x for x in raw if isinstance(x, str) and x.strip()]
+    if not ids:
+        return {"data": {"items": [], "source": "none", "total": 0}}
+
+    key = tuple(sorted(set(ids)))
+    now = time.time()
+    hit = _HYP_CACHE.get(key)
+    if hit and now - hit[0] < HYP_TTL:
+        _, iso, items = hit
+        return {"data": {"items": items, "source": "mio", "total": len(items)},
+                "cached_at": iso}
+
+    try:
+        cr = await asyncio.to_thread(mio_runtime.creativity,
+                                     limit=100, timeout=2.5, with_status=False)
+    except Exception:  # noqa: BLE001 —— 跨服务异常一律按超时降级
+        raise SectionDegraded("mio_timeout")
+    if not cr.get("available"):
+        raise SectionDegraded("mio_unavailable")
+    if not cr.get("ok", True):
+        raise SectionDegraded("mio_timeout" if cr.get("reason") == "cli_failed"
+                              else "mio_unavailable")
+
+    by_id = {h.get("id"): h for h in (cr.get("items") or []) if isinstance(h, dict)}
+    items = []
+    for hid in ids:  # 保 idea 关联顺序
+        h = by_id.get(hid)
+        if h is None:
+            items.append({"id": hid, "broken": True})  # FR-14：断链标 broken，不静默移除
+        else:
+            items.append({
+                "id": hid,
+                "title": h.get("title") or "",
+                "status": h.get("status") or "",
+                "novelty": h.get("novelty"),
+                "feasibility": h.get("feasibility"),
+                "impact": h.get("impact"),
+                "score": h.get("score"),
+                "broken": False,
+            })
+
+    iso = datetime.now(timezone.utc).isoformat()
+    _HYP_CACHE[key] = (now, iso, items)
+    return {"data": {"items": items, "source": "mio", "total": len(items)},
+            "cached_at": iso}
 
 
 async def _build_mvp(idea: Idea, db: Session) -> dict:
@@ -163,7 +227,9 @@ async def build_sections(idea: Idea, db: Session) -> dict:
         except asyncio.TimeoutError:
             results[name] = {"status": "degraded", "reason": "timeout"}
         except Exception as e:  # noqa: BLE001 —— 单区失败不拖垮整包（FR-4）
-            results[name] = {"status": "degraded", "reason": type(e).__name__}
+            # SectionDegraded 透传业务 reason（mio_timeout/mio_unavailable），其余用异常类名
+            results[name] = {"status": "degraded",
+                             "reason": getattr(e, "reason", None) or type(e).__name__}
     return results
 
 

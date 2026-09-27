@@ -228,15 +228,27 @@ def _json_stdout(args: List[str], timeout: float = 300.0) -> tuple:
         return False, None
 
 
-def creativity(limit: int = 20) -> dict:
-    """创意假设（只读）：status 计数 + 假设列表（含 novelty/feasibility/impact/score）。"""
+def creativity(limit: int = 20, timeout: float = 300.0,
+               with_status: bool = True) -> dict:
+    """假设库（只读 status 概览 + 假设列表：novelty/feasibility/impact/score）。
+
+    P1（FR-11/FR-12）：`ok=False` 表示 CLI 调用失败（调用方可转 503）；
+    `with_status=False` 只打 list（导入等只要列表的调用省一次 CLI）。
+    """
     if not available():
-        return {"available": False, "status": {}, "items": []}
-    _, status = _json_stdout(["--json", "creativity", "status"])
-    _, items = _json_stdout(["--json", "creativity", "list",
-                             "--limit", str(max(1, min(int(limit), 100)))])
-    return {"available": True, "status": status or {},
-            "items": items if isinstance(items, list) else []}
+        return {"available": False, "ok": False, "reason": "runtime_unavailable",
+                "status": {}, "items": []}
+    status: dict = {}
+    if with_status:
+        _, status = _json_stdout(["--json", "creativity", "status"], timeout=timeout)
+    ok, items = _json_stdout(["--json", "creativity", "list",
+                              "--limit", str(max(1, min(int(limit), 100)))],
+                             timeout=timeout)
+    out = {"available": True, "ok": bool(ok), "status": status or {},
+           "items": items if isinstance(items, list) else []}
+    if not ok:
+        out["reason"] = "cli_failed"
+    return out
 
 
 def insight(limit: int = 20) -> dict:
