@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../api'
-import { fmtAgo } from '../constants'
+import { fmtAgo, parseUtc } from '../constants'
 
 export default function ScheduledJobsView({ onNavigateToTask }) {
   const [jobs, setJobs] = useState([])
@@ -89,7 +89,7 @@ export default function ScheduledJobsView({ onNavigateToTask }) {
                 </div>
                 <div className="sj-card__row">
                   <span className="sj-card__label">下次执行</span>
-                  <span>{job.next_run_at ? new Date(job.next_run_at).toLocaleString('zh-CN') : '—'}</span>
+                  <span>{job.next_run_at ? parseUtc(job.next_run_at).toLocaleString('zh-CN') : '—'}</span>
                 </div>
                 <div className="sj-card__row">
                   <span className="sj-card__label">执行次数</span>
@@ -148,7 +148,7 @@ export default function ScheduledJobsView({ onNavigateToTask }) {
                   <tbody>
                     {executions.map(e => (
                       <tr key={e.id}>
-                        <td>{new Date(e.started_at).toLocaleString('zh-CN')}</td>
+                        <td>{parseUtc(e.started_at).toLocaleString('zh-CN')}</td>
                         <td><span className={`sj-badge sj-badge--${e.status}`}>{e.status === 'ok' ? '成功' : '失败'}</span></td>
                         <td className="sj-table__result">{e.error || e.result || '—'}</td>
                       </tr>
@@ -239,7 +239,7 @@ function ScheduledJobModal({ editJob, onClose, onSaved }) {
                   <span className="cron-preview__label">下次执行：</span>
                   {cronPreview.map((t, i) => (
                     <span key={i} className="cron-preview__time">
-                      {new Date(t).toLocaleString('zh-CN', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' })}
+                      {parseUtc(t).toLocaleString('zh-CN', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' })}
                     </span>
                   ))}
                 </div>

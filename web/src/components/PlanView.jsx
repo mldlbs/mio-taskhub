@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import { fmtDur, prio } from '../constants'
+import { fmtDur, prio, parseUtc } from '../constants'
 import { api } from '../api'
+import { confirm } from '../confirm'
 
 const WINDOW_MIN = 540
 const WINDOW_START_MIN = 22 * 60
@@ -279,7 +280,7 @@ function CronTasksPanel({ tasks, loading, onRefresh }) {
       )}
 
       {tasks.map(t => {
-        const nextRun = t.cron_expr ? parseNextCron(t.cron_expr) : (t.run_at ? new Date(t.run_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : null)
+        const nextRun = t.cron_expr ? parseNextCron(t.cron_expr) : (t.run_at ? parseUtc(t.run_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : null)
         return (
           <div key={t.id} className="np-cron-row">
             <span className="np-cron-row__cron" title={t.cron_expr || t.run_at}>
@@ -355,7 +356,9 @@ export default function PlanView({ onSchedule }) {
   }
 
   const handleStopAll = async () => {
-    if (!window.confirm('确定停止所有运行中的 agent？')) return
+    const ok = await confirm('确定停止所有运行中的 agent？',
+                             { title: '停止全部 agent', danger: true, okText: '全部停止' })
+    if (!ok) return
     try { await api.nrStop(); await loadNrStatus(); } catch { /* silent */ }
   }
 

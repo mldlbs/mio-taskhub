@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { PRIORITY } from '../constants'
+import { PRIORITY, parseUtc } from '../constants'
 import { api } from '../api'
 
 const EMPTY = {
@@ -205,7 +205,7 @@ export default function CreateModal({ onClose, onCreate }) {
                     <span className="cron-preview__label">下次执行：</span>
                     {cronPreview.map((t, i) => (
                       <span key={i} className="cron-preview__time">
-                        {new Date(t).toLocaleString('zh-CN', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' })}
+                        {parseUtc(t).toLocaleString('zh-CN', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' })}
                       </span>
                     ))}
                   </div>

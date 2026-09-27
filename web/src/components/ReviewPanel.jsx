@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { fmtDate } from '../constants'
 import { api } from '../api'
+import { confirm } from '../confirm'
 
 const CHECKLIST_ITEMS = [
   { key: '功能完整', label: '功能完整', desc: '实现了需求描述的所有功能' },
@@ -79,7 +80,9 @@ export default function ReviewPanel({ task, onSubmit }) {
     if (decision === 'approve') {
       const passCount = Object.values(checklist).filter(Boolean).length
       if (passCount < 3) {
-        if (!window.confirm(`仅 ${passCount}/${CHECKLIST_ITEMS.length} 项通过，确定要批准？`)) return
+        const ok = await confirm(`仅 ${passCount}/${CHECKLIST_ITEMS.length} 项通过，确定要批准？`,
+                                 { title: '批准确认', danger: true, okText: '仍要批准' })
+        if (!ok) return
       }
     }
     setLoading(true)

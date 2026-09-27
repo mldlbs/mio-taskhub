@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { LANES, STATE_META, prio, fmtDur, fmtDate, compositeLabel } from '../constants'
+import { LANES, STATE_META, prio, fmtDur, fmtDate, compositeLabel, parseUtc } from '../constants'
 import { api } from '../api'
 import DependencyGraph from './DependencyGraph'
 
@@ -82,7 +82,7 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
       return
     }
     const tick = () => {
-      const rt = new Date(task.retry_at)
+      const rt = parseUtc(task.retry_at)
       const diff = Math.max(0, Math.floor((rt - new Date()) / 1000))
       setRetryCountdown(diff)
     }
@@ -90,7 +90,7 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
     const id = setInterval(tick, 1000)
     return () => clearInterval(id)
   }, [task.retry_at, task.state])
-  const due = task.due_at ? new Date(task.due_at) : null
+  const due = task.due_at ? parseUtc(task.due_at) : null
   const overdue = !!due && !Number.isNaN(+due) && due < new Date()
   const hasCtx = task.project || task.workspace || (task.files && task.files.length) || (task.deliverables && task.deliverables.length)
   const discGroups = task.discussions

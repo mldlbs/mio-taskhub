@@ -75,23 +75,36 @@ export const fmtDur = (min) => {
   return m ? `${h}h${m}m` : `${h}h`
 }
 
+// 服务端时间戳为 naive UTC（如 2026-09-27T01:44:45，无 Z/偏移）。
+// JS 会把无时区字符串当本地解析 → 显示差一个时区。统一按 UTC 解析，
+// 再经 toLocaleString/getHours 等输出本机时间；带时区/数字时间戳原样处理。
+export const parseUtc = (iso) => {
+  if (iso == null || iso === '') return null
+  if (iso instanceof Date) return iso
+  if (typeof iso === 'number') return new Date(iso)
+  const s = String(iso)
+  if (/[zZ]$/.test(s) || /[+-]\d{2}:?\d{2}$/.test(s)) return new Date(s)
+  if (/^\d+$/.test(s)) return new Date(Number(s))
+  return new Date(s + 'Z')
+}
+
 export const fmtTime = (iso) => {
   if (!iso) return '—'
-  const d = new Date(iso)
+  const d = parseUtc(iso)
   if (Number.isNaN(+d)) return '—'
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 export const fmtDate = (iso) => {
   if (!iso) return '—'
-  const d = new Date(iso)
+  const d = parseUtc(iso)
   if (Number.isNaN(+d)) return '—'
   return `${d.getMonth() + 1}-${String(d.getDate()).padStart(2, '0')} ${fmtTime(iso)}`
 }
 
 export const fmtAgo = (iso) => {
   if (!iso) return '—'
-  const d = new Date(iso)
+  const d = parseUtc(iso)
   if (Number.isNaN(+d)) return '—'
   const s = (Date.now() - +d) / 1000
   if (s < 45) return '刚刚'

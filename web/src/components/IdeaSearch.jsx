@@ -1,6 +1,7 @@
 // Enhanced Idea Search Component with Filters and Scoring
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { api } from '../api'
+import { parseUtc } from '../constants'
 
 export default function IdeaSearch({ ideas: initialIdeas, onSelect, onRefresh }) {
   const [query, setQuery] = useState('')
@@ -304,7 +305,7 @@ export default function IdeaSearch({ ideas: initialIdeas, onSelect, onRefresh })
                     <div className="idea-search__item-meta">
                       {idea.project && <span className="tag tag--project">{idea.project}</span>}
                       {idea.labels?.map(l => <span key={l} className="tag">{l}</span>)}
-                      <span className="mono">{new Date(idea.updated_at).toLocaleDateString()}</span>
+                      <span className="mono">{parseUtc(idea.updated_at).toLocaleDateString()}</span>
                     </div>
                     {showScores && scoreInfo.factors && (
                       <div className="score-breakdown">

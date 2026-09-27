@@ -27,6 +27,7 @@ import ConnectionBanner from './components/ConnectionBanner'
 import UpdateBanner from './components/UpdateBanner'
 
 import CommandPalette from './components/CommandPalette'
+import ConfirmDialog from './components/ConfirmDialog'
 
 const VIEW_KEY = 'mio.view'
 const CONTRAST_KEY = 'mio.contrast'
@@ -481,6 +482,7 @@ export default function App() {
         onNavigate={handleCmdNavigate}
         tasks={tasks}
       />
+      <ConfirmDialog />
     </div>
   )
 }
