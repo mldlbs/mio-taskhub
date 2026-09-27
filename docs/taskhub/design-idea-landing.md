@@ -332,25 +332,27 @@ close（`mode=review`）做**结构校验**（不假装校验质量）：
 
 ## ✅ 验收清单
 
-- [ ] 旧 idea 数据（NULL 新字段）全页面无异常
-- [ ] `PATCH` 新字段产生 IdeaChange diff（含 `assumptions[hid]` 键）
-- [ ] Mio 超时/报错时仅假设区灰显，其余区块正常渲染
-- [ ] hypothesis 已删除 → 灰显 + 可解除关联
-- [ ] 并发两次 `PATCH .../assumptions/{hid}`，两条都进 IdeaChange，无丢更新
-- [ ] 行动项转任务重复点击不产生重复任务（幂等）
-- [ ] `mode=review` 缺段或条目不足（风险<1、选项<2、行动项<1）→ 422
-- [ ] 行动项「一键转任务」生成含验收标准的任务
-- [ ] 「下一步动作」dismiss 后条件变化自动复活（服务端）
-- [ ] 优先级序生效：同时命中多条件只显示最高序一条
-- [ ] 高风险标签（tags ∩ 词表）→ 评审入口默认勾选红队（可取消）
-- [ ] 评审创建时快照 roles + prompt 版本，进行中会话不受配置热更新影响
-- [ ] 任务图：有环降级列表+警告；>20 折叠
-- [ ] 任务图（P3 FR-26）：多层上下游闭包 kind 正确；含环返回 `cycles` 环路径且降级不回退；>100 节点截断 `truncated=true`
-- [ ] 复盘区（P3 FR-27）：run 成败 summary + 最近明细 + 评审三计数；空数据 ok 全 0；单区异常仅本区 degraded
-- [ ] 假设关联表（P3 FR-28）：迁移幂等回填；import/PATCH 双写且 P1 端点响应逐键不变
-- [ ] `mode=free` 行为与现状完全一致（回归）
-- [ ] MCP `taskhub_open_discussion` 透传 mode/roles
-- [ ] 全量 pytest 绿
+- [x] 旧 idea 数据（NULL 新字段）全页面无异常
+- [x] `PATCH` 新字段产生 IdeaChange diff（含 `assumptions[hid]` 键）
+- [x] Mio 超时/报错时仅假设区灰显，其余区块正常渲染
+- [x] hypothesis 已删除 → 灰显 + 可解除关联
+- [x] 并发两次 `PATCH .../assumptions/{hid}`，两条都进 IdeaChange，无丢更新
+- [x] 行动项转任务重复点击不产生重复任务（幂等）
+- [x] `mode=review` 缺段或条目不足（风险<1、选项<2、行动项<1）→ 422
+- [x] 行动项「一键转任务」生成含验收标准的任务
+- [x] 「下一步动作」dismiss 后条件变化自动复活（服务端）
+- [x] 优先级序生效：同时命中多条件只显示最高序一条
+- [x] 高风险标签（tags ∩ 词表）→ 评审入口默认勾选红队（可取消）
+- [x] 评审创建时快照 roles + prompt 版本，进行中会话不受配置热更新影响
+- [x] 任务图：有环降级列表+警告；>20 折叠
+- [x] 任务图（P3 FR-26）：多层上下游闭包 kind 正确；含环返回 `cycles` 环路径且降级不回退；>100 节点截断 `truncated=true`
+- [x] 复盘区（P3 FR-27）：run 成败 summary + 最近明细 + 评审三计数；空数据 ok 全 0；单区异常仅本区 degraded
+- [x] 假设关联表（P3 FR-28）：迁移幂等回填；import/PATCH 双写且 P1 端点响应逐键不变
+- [x] `mode=free` 行为与现状完全一致（回归）
+- [x] MCP `taskhub_open_discussion` 透传 mode/roles
+- [x] 全量 pytest 绿
+
+> 本清单 19 项于 2026-09-27 经 P4（task `eb248b6a`）逐项核对通过，证据与实跑记录见 [`acceptance-audit-p4.md`](acceptance-audit-p4.md)（19 行证据表 + 全量回归 924 passed, 1 skipped）。
 
 ---
 
