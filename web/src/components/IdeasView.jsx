@@ -93,7 +93,7 @@ const COCKPIT_SECTIONS = [
   ['retrospective', '🕳️ 复盘'],
 ]
 
-function renderCockpitBody(key, data) {
+function renderCockpitBody(key, data, ctx = {}) {
   switch (key) {
     case 'goal': {
       const fields = [
@@ -109,14 +109,83 @@ function renderCockpitBody(key, data) {
         </div>
       ))
     }
-    case 'hypotheses':
-      return (data.items || []).length ? (
-        <ul className="cockpit-list">
-          {data.items.map((it, i) => (
-            <li key={it.hid || i}>{it.text || it.title || JSON.stringify(it)}</li>
-          ))}
-        </ul>
-      ) : <div className="cockpit-empty">暂无关联假设（接入 Mio 发酵后显示分数与状态）</div>
+    case 'hypotheses': {
+      // FR-13 三元分徽章 / FR-14 断链灰显+解除关联 / FR-15 本地假设人工回写
+      const items = data.items || []
+      const linked = Array.isArray(ctx.detail?.hypotheses) ? ctx.detail.hypotheses : []
+      const local = Array.isArray(ctx.detail?.assumptions) ? ctx.detail.assumptions : []
+      return (
+        <>
+          {items.length ? (
+            <ul className="cockpit-list cockpit-hyp">
+              {items.map((it, i) => (
+                <li key={it.id || i} className={`cockpit-hyp__row${it.broken ? ' cockpit-hyp__row--broken' : ''}`}>
+                  <span className="cockpit-hyp__title" title={it.id || ''}>{it.title || it.id}</span>
+                  {it.broken ? (
+                    <>
+                      <span className="cockpit-hyp__broken">已失效（Mio 中已删除）</span>
+                      <button className="btn btn--ghost cockpit-hyp__unlink"
+                              onClick={() => ctx.onUnlink?.(it.id)}>解除关联</button>
+                    </>
+                  ) : (
+                    <span className="cockpit-hyp__scores"
+                          title={`N=${it.novelty} F=${it.feasibility} I=${it.impact} · 分数只读，真源=Mio`}>
+                      <span className="cockpit-hyp__badge">N{it.novelty}</span>
+                      <span className="cockpit-hyp__badge">F{it.feasibility}</span>
+                      <span className="cockpit-hyp__badge">I{it.impact}</span>
+                      <span className="cockpit-hyp__status">{it.status}</span>
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="cockpit-empty">
+              暂无关联假设——点右上「从发酵假设导入」接入 Mio 发酵（{linked.length ? '当前引用均已失效' : '当前 0 条引用'}）
+            </div>
+          )}
+          <div className="cockpit-hyp__local">
+            <div className="cockpit-hyp__local-h">本地录入（人工确认回写，仅同步状态不回写分数）</div>
+            {local.length ? local.map((a, i) => {
+              const hid = a.hid || a.id || `local-${i}`
+              const editing = ctx.hypWrite && ctx.hypWrite.hid === hid
+              if (editing) {
+                return (
+                  <div key={hid} className="cockpit-hyp__wb">
+                    <span className="mono cockpit-hyp__wb-hid">{hid}</span>
+                    <select className="inp cockpit-hyp__wb-sel" value={ctx.hypWrite.status}
+                            onChange={e => ctx.onWriteField?.('status', e.target.value)}>
+                      {['open', 'active', 'validated', 'rejected'].map(s => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                    <input className="inp cockpit-hyp__wb-note" placeholder="备注（可选）"
+                           value={ctx.hypWrite.note}
+                           onChange={e => ctx.onWriteField?.('note', e.target.value)} />
+                    <button className="btn btn--primary" disabled={ctx.writeSaving}
+                            onClick={ctx.onWriteSave}>
+                      {ctx.writeSaving ? '回写中…' : '确认回写'}
+                    </button>
+                    <button className="btn btn--ghost" disabled={ctx.writeSaving}
+                            onClick={ctx.onWriteCancel}>取消</button>
+                  </div>
+                )
+              }
+              return (
+                <div key={hid} className="cockpit-hyp__local-row">
+                  <span className="cockpit-hyp__local-text">{a.text || a.title || JSON.stringify(a)}</span>
+                  <span className={`cockpit-hyp__status cockpit-hyp__status--${a.status || 'open'}`}>
+                    {a.status || 'open'}
+                  </span>
+                  <button className="btn btn--ghost cockpit-hyp__write"
+                          onClick={() => ctx.onWriteBack?.(a)} title="人工确认回写 status/note">回写…</button>
+                </div>
+              )
+            }) : <div className="cockpit-empty">暂无本地假设——在「编辑」里按行录入后可在此回写状态</div>}
+          </div>
+        </>
+      )
+    }
     case 'mvp':
       return data.mvp_scope
         ? <p className="cockpit-text">{data.mvp_scope}</p>
@@ -252,6 +321,10 @@ export default function IdeasView({ ideas, onReload }) {
   const [fieldEdit, setFieldEdit] = useState(false)
   const [fieldForm, setFieldForm] = useState(null)
   const [fieldSaving, setFieldSaving] = useState(false)
+  // 想法落地闭环 P1（FR-12 导入弹层 / FR-14 解除关联 / FR-15 本地假设人工回写）
+  const [hypImport, setHypImport] = useState(null)   // { loading, items[], selected[], saving }
+  const [hypWrite, setHypWrite] = useState(null)      // { hid, status, note } 正在回写的条目
+  const [hypWriteSaving, setHypWriteSaving] = useState(false)
 
   const fail = useCallback((e) => setErr(e.message || '操作失败'), [])
 
@@ -263,6 +336,8 @@ export default function IdeasView({ ideas, onReload }) {
     setEditing(false)
     setFieldEdit(false)
     setFieldForm(null)
+    setHypImport(null)
+    setHypWrite(null)
     setCockpit(null)
     try {
       const [d, h] = await Promise.all([api.getIdea(id), api.ideaHistory(id)])
@@ -337,6 +412,72 @@ export default function IdeasView({ ideas, onReload }) {
       onReload()
       setErr(null)
     } catch (e) { fail(e) } finally { setFieldSaving(false) }
+  }
+
+  // FR-12：打开导入弹层——复用 GET /mio/ferment 数据源，只列 active 假设
+  const openHypImport = async () => {
+    if (!detail) return
+    setHypImport({ loading: true, items: [], selected: [], saving: false })
+    try {
+      const fm = await api.mioFerment()
+      const items = (fm.available === false ? [] : (fm.items || []))
+        .filter(h => h.status === 'active')
+      setHypImport({ loading: false, items, selected: [], saving: false })
+    } catch (e) {
+      setHypImport({ loading: false, items: [], selected: [], saving: false })
+      fail(e)
+    }
+  }
+
+  const toggleHypSel = (hid) => {
+    setHypImport(m => {
+      if (!m) return m
+      const has = m.selected.includes(hid)
+      return { ...m, selected: has ? m.selected.filter(x => x !== hid) : [...m.selected, hid] }
+    })
+  }
+
+  // FR-12：勾选导入——集合合并幂等（已关联的在弹层里禁用，服务端再兜底）
+  const doImportHyp = async () => {
+    if (!detail || !hypImport || !hypImport.selected.length) return
+    setHypImport(m => ({ ...m, saving: true }))
+    try {
+      await api.importIdeaHypotheses(detail.id, hypImport.selected)
+      setHypImport(null)
+      await reloadDetail()
+      onReload(); setErr(null)
+    } catch (e) { setHypImport(m => (m ? { ...m, saving: false } : m)); fail(e) }
+  }
+
+  // FR-14：断链解除关联——从 hypotheses 移除（进 IdeaChange diff，可重新导入）
+  const unlinkHyp = async (hid) => {
+    if (!detail) return
+    if (!window.confirm(`解除与假设 ${hid} 的关联？（可随时重新导入）`)) return
+    try {
+      const cur = Array.isArray(detail.hypotheses) ? detail.hypotheses : []
+      await api.updateIdea(detail.id, { hypotheses: cur.filter(x => x !== hid) })
+      await reloadDetail(); onReload(); setErr(null)
+    } catch (e) { fail(e) }
+  }
+
+  // FR-15：人工确认回写单条本地假设（status/note/confirmed_by，不回写分数）
+  const openHypWrite = (a) => {
+    setHypWrite({ hid: a.hid || a.id || '', status: a.status || 'open', note: a.note || '' })
+  }
+
+  const saveHypWrite = async () => {
+    if (!detail || !hypWrite || !hypWrite.hid) return
+    if (!window.confirm(`人工确认回写假设「${hypWrite.hid}」→ ${hypWrite.status}？`)) return
+    setHypWriteSaving(true)
+    try {
+      await api.patchIdeaAssumption(detail.id, hypWrite.hid, {
+        status: hypWrite.status,
+        note: hypWrite.note,
+        confirmed_by: 'local',
+      })
+      setHypWrite(null)
+      await reloadDetail(); onReload(); setErr(null)
+    } catch (e) { fail(e) } finally { setHypWriteSaving(false) }
   }
 
   const submitIdea = async () => {
@@ -793,10 +934,32 @@ export default function IdeasView({ ideas, onReload }) {
                     const degraded = sec.status === 'degraded'
                     return (
                       <div key={key} className={`cockpit-block${degraded ? ' cockpit-block--degraded' : ''}`}>
-                        <div className="cockpit-block__h">{title}</div>
+                        <div className="cockpit-block__h">
+                          {title}
+                          {key === 'hypotheses' && (
+                            <button className="btn btn--ghost cockpit-fields__btn" onClick={openHypImport}>
+                              + 从发酵假设导入
+                            </button>
+                          )}
+                        </div>
                         {degraded
-                          ? <div className="cockpit-degraded">区块暂不可用（{sec.reason || '未知原因'}），其余内容不受影响</div>
-                          : renderCockpitBody(key, sec.data || {})}
+                          ? (
+                            <div className="cockpit-degraded">
+                              {key === 'hypotheses'
+                                ? `分数暂不可用（${sec.reason || '未知原因'}）${sec.cached_at ? `，最近同步 ${parseUtc(sec.cached_at).toLocaleString()}` : ''}——其余内容不受影响`
+                                : `区块暂不可用（${sec.reason || '未知原因'}），其余内容不受影响`}
+                            </div>
+                          )
+                          : renderCockpitBody(key, sec.data || {}, {
+                            detail,
+                            hypWrite,
+                            writeSaving: hypWriteSaving,
+                            onUnlink: unlinkHyp,
+                            onWriteBack: openHypWrite,
+                            onWriteField: (f, v) => setHypWrite(w => (w ? { ...w, [f]: v } : w)),
+                            onWriteSave: saveHypWrite,
+                            onWriteCancel: () => setHypWrite(null),
+                          })}
                       </div>
                     )
                   })}
@@ -1144,6 +1307,74 @@ export default function IdeasView({ ideas, onReload }) {
             </div>
             {adrMd.path && <p className="adr-md-path">{adrMd.path}</p>}
             <div className="md adr-md-body" dangerouslySetInnerHTML={{ __html: marked(adrMd.content) }} />
+          </div>
+        </div>
+      )}
+      {/* FR-12：从发酵假设导入弹层（active 列表勾选，幂等导入） */}
+      {hypImport && (
+        <div className="overlay" onClick={() => { if (!hypImport.saving) setHypImport(null) }}>
+          <div className="modal hyp-import-modal" role="dialog" aria-modal="true"
+               aria-label="从发酵假设导入" onClick={e => e.stopPropagation()}>
+            <div className="modal__head">
+              <h3>从发酵假设导入 <span className="tag">active · 勾选写入引用</span></h3>
+              <button className="modal__close" aria-label="关闭" disabled={hypImport.saving}
+                      onClick={() => setHypImport(null)}>×</button>
+            </div>
+            {hypImport.loading ? (
+              <div className="cockpit-empty">正在拉取 Mio 发酵列表…</div>
+            ) : hypImport.items.length ? (
+              <>
+                <div className="hyp-import__tools">
+                  <label className="hyp-import__all">
+                    <input type="checkbox"
+                           checked={hypImport.selected.length > 0 &&
+                                    hypImport.selected.length ===
+                                      hypImport.items.filter(h => !(detail?.hypotheses || []).includes(h.id)).length}
+                           disabled={hypImport.saving}
+                           onChange={e => setHypImport(m => ({
+                             ...m,
+                             selected: e.target.checked
+                               ? m.items.filter(h => !(detail?.hypotheses || []).includes(h.id)).map(h => h.id)
+                               : [],
+                           }))} />
+                    全选未关联
+                  </label>
+                  <span className="hyp-import__count">已选 {hypImport.selected.length} / {hypImport.items.length}</span>
+                </div>
+                <ul className="hyp-import__list">
+                  {hypImport.items.map(h => {
+                    const already = (detail?.hypotheses || []).includes(h.id)
+                    const checked = hypImport.selected.includes(h.id)
+                    return (
+                      <li key={h.id} className={`hyp-import__row${already ? ' hyp-import__row--linked' : ''}`}>
+                        <label className="hyp-import__label">
+                          <input type="checkbox" checked={checked} disabled={already || hypImport.saving}
+                                 onChange={() => toggleHypSel(h.id)} />
+                          <span className="hyp-import__title" title={h.id}>{h.title || h.id}</span>
+                        </label>
+                        <span className="cockpit-hyp__scores" title="novelty / feasibility / impact">
+                          <span className="cockpit-hyp__badge">N{h.novelty}</span>
+                          <span className="cockpit-hyp__badge">F{h.feasibility}</span>
+                          <span className="cockpit-hyp__badge">I{h.impact}</span>
+                        </span>
+                        {already && <span className="tag">已关联</span>}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </>
+            ) : (
+              <div className="cockpit-empty">Mio 暂无 active 假设（或 Mio 不可用——稍后重试）</div>
+            )}
+            <div className="modal__foot">
+              <button className="btn btn--ghost" disabled={hypImport.saving} onClick={() => setHypImport(null)}>
+                取消
+              </button>
+              <button className="btn btn--primary" disabled={hypImport.saving || !hypImport.selected.length}
+                      onClick={doImportHyp}>
+                {hypImport.saving ? '导入中…' : `导入 ${hypImport.selected.length} 条`}
+              </button>
+            </div>
           </div>
         </div>
       )}

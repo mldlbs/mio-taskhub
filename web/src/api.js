@@ -113,6 +113,9 @@ export const api = {
   dismissIdeaNextAction: (id, ruleId) => req('POST', `/ideas/${id}/next-action/dismiss`, { rule_id: ruleId }),
   createIdea: (body) => req('POST', '/ideas', body),
   updateIdea: (id, body) => req('PATCH', `/ideas/${id}`, body),
+  // 想法落地闭环 P1（FR-12/FR-15）：假设导入 + 单条人工回写
+  importIdeaHypotheses: (id, ids) => req('POST', `/ideas/${id}/hypotheses/import`, { ids }),
+  patchIdeaAssumption: (id, hid, body) => req('PATCH', `/ideas/${id}/assumptions/${hid}`, body),
   advanceIdea: (id, status) => req('POST', `/ideas/${id}/status`, { status }),
   openDiscussion: (body) => req('POST', '/discussions', body),
   getDiscussion: (id) => req('GET', `/discussions/${id}`),
