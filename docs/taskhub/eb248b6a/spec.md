@@ -82,7 +82,8 @@ flowchart TD
 
 | 场景 | 处理方式 |
 |------|---------|
-| 常驻 hub 无存量想法（NULL 老数据不可复现） | 活体改为「新建最小 idea → 读回归一结果」，NULL 归一断言由单测直接构造 NULL 行覆盖；报告中显式说明该分工 |
+| 常驻 hub 存量老数据可复现 NULL 场景（复核确认） | 活体实测 8 月创建（P0 字段入库前）的旧 idea `f0dcab69`：GET 归一 8 字段全为 `""`/`[]`（`goal`/`success_metric`/`constraints`/`out_of_scope`/`mvp_scope` 为 `""`，`assumptions`/`risks`/`tags`/`hypotheses` 为 `[]`），cockpit 7 区 `status=ok`；另建最小 idea `f6304130` 复核新建路径（核对后已归档）。NULL 行的直接构造仍由单测覆盖 |
+| 初次列表读取键名误判（`items` vs `ideas`） | 曾把 `GET /ideas` 响应的 `ideas` 键误读为 `items` 而误判「库为空」；修正以真实键 `{count, ideas}` 为准并复跑活体核对（见报告修订记录） |
 | MCP 工具不可用 | 该项（FR-23）改用 API 层等价断言 + 记录 MCP 不可用告警；若工具可用则必须活体取证 |
 | 活体探测产生脏数据（探测 idea / 探测讨论） | 核对后清理：idea 置 `archived`（`change_reason=p4-audit-probe-cleanup`）；讨论以合法结构化 review 关闭（留痕可回读，不删除） |
 | 定点测试与全量回归并发抢测试库 | 串行执行：定点批次完成后才启动全量（同一 SQLite 测试库，不并发） |

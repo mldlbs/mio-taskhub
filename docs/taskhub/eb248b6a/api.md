@@ -65,7 +65,7 @@
 例：`{"detail": "review is required when mode=review (missing review payload)"}`、`{"detail": "review gate: risks：风险清单至少 1 条；decisions：决策选项至少 2 个；action_items：行动项至少 1 条"}`（均为本次活体实际返回）。
 
 - `GET .../cockpit` 返回顶层对象（`sections` 为 map）；单区异常不改结构：仍 200，仅该区 `status=degraded`；
-- `GET /ideas` 返回 `{items: [...], total}` 包装体；`GET /ideas/{id}` 与各写端点返回单一 idea 资源（裸对象）。
+- `GET /ideas` 返回 `{count, ideas}` 包装体（键名实测为 `count`/`ideas`，非 `items`/`total`）；`GET /ideas/{id}` 与各写端点返回单一 idea 资源（裸对象）。
 
 ## 统一错误码
 
@@ -136,7 +136,7 @@
 |---|---|
 | 时间 | ISO8601 UTC；`created_at`/`updated_at`/`ended_at` 等为 naive UTC `isoformat()`，未完成时为 `null` |
 | 数值 | `total` 等为非负整数；`exit_code` 整数（0=成功） |
-| 空值 | 字符串空=`""`；JSON 空=`null`；无数据数组 `[]`；`GET /ideas` 无数据 → `{items: [], total: 0}` |
+| 空值 | 字符串空=`""`；JSON 空=`null`；无数据数组 `[]`；`GET /ideas` 无数据 → `{count: 0, ideas: []}` |
 | 归一化 | 旧数据 `NULL` 新字段在读取端归一为 `""`（字符串类）或 `[]`（数组类），保证前端空态可渲染（FR-1） |
 
 ## 文件上传与下载
@@ -194,10 +194,10 @@
 
 | 字段 | 类型 | 必填 | 说明 | 示例 |
 |---|---|---|---|---|
-| `items[]` | array | 是 | 想法列表；空库为 `[]` | `[{"id":"f6304130","status":"new"}]` |
-| `items[].id` | string | 是 | 8 位十六进制 | f6304130 |
-| `items[].status` | string | 是 | 取值见 §枚举全集 | new |
-| `total` | integer | 是 | 条数 | 0 |
+| `count` | integer | 是 | 条数（实测键名，非 `total`） | 36 |
+| `ideas[]` | array | 是 | 想法列表；空库为 `[]`（实测键名，非 `items`） | `[{"id":"f6304130","status":"archived"}]` |
+| `ideas[].id` | string | 是 | 8 位十六进制 | f6304130 |
+| `ideas[].status` | string | 是 | 取值见 §枚举全集 | archived |
 
 #### 错误码
 
@@ -211,8 +211,8 @@
 GET /api/v1/ideas
 ```
 ```json
-// 200（核对开始时本机库为空）
-{"items": [], "total": 0}
+// 200（实测：本机存量 36 个想法，含 8 月创建的旧数据 f0dcab69）
+{"count": 36, "ideas": [{"id": "f0dcab69", "title": "…", "status": "cancelled", "version": 1}]}
 ```
 
 ### POST /api/v1/ideas

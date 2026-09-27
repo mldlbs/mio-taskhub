@@ -63,7 +63,7 @@ FR-1~FR-29（核对对象）全部被证据表「关联 FR」列与用例清单�
 
 | # | 验收项 | 结论 | 证据 | 关联 FR |
 |---|---|---|---|---|
-| 1 | 旧 idea 数据（NULL 新字段）全页面无异常 | ✅ 通过 | 测试 `test_idea_p0_null_fields_normalize`、`test_idea_hypotheses_null_normalize`、`test_cockpit_null_fields_safe`；活体：POST /ideas 建 `f6304130` → GET 归一 `goal=""`/`assumptions=[]`/`hypotheses=[]`，cockpit 7 区 status=ok（已归档清理）；前端 IdeasView.jsx:103-104 文本插值、:193-194 三元渲染对 null 安全（按计划以代码断言+P3 构建绿为证） | FR-1、FR-5、FR-11 |
+| 1 | 旧 idea 数据（NULL 新字段）全页面无异常 | ✅ 通过 | 测试 `test_idea_p0_null_fields_normalize`、`test_idea_hypotheses_null_normalize`、`test_cockpit_null_fields_safe`；**活体（真实旧数据）**：存量 8 月创建（P0 字段入库前）的 `f0dcab69` → GET 归一 8 字段：`goal`/`success_metric`/`constraints`/`out_of_scope`/`mvp_scope`=`""`、`assumptions`/`risks`/`tags`/`hypotheses`=`[]`（无 NULL/缺键），cockpit 7 区 `status=ok`（tasks.total=1）；另建最小 idea `f6304130` 复核新建路径（已归档）；前端 IdeasView.jsx:103-104 文本插值、:193-194 三元渲染对 null 安全（按计划以代码断言+构建绿为证） | FR-1、FR-5、FR-11 |
 | 2 | PATCH 新字段产生 IdeaChange diff（含 `assumptions[hid]` 键） | ✅ 通过 | `test_idea_p0_fields_create_patch_diff`、`test_idea_p0_assumption_single_entry_diff`（断言 `{"assumptions[h1]"}`/`{"assumptions[h2]"}`）、`test_idea_hypotheses_create_and_patch_diff` | FR-2、FR-11、FR-15 |
 | 3 | Mio 超时/报错时仅假设区灰显，其余区块正常渲染 | ✅ 通过 | `test_cockpit_hypotheses_mio_unavailable_degrades`、`test_cockpit_hypotheses_timeout_budget`、`test_cockpit_hypotheses_exception_degrades`、`test_cockpit_hypotheses_mio_fail_degrades_only_section`、`test_cockpit_single_section_error_degrades_only_that_section` | FR-4、FR-16 |
 | 4 | hypothesis 已删除 → 灰显 + 可解除关联 | ✅ 通过 | `test_cockpit_hypotheses_scores_and_broken`（broken 灰显）+ `test_import_and_patch_dual_write_p1_contract_unchanged`（移除 hid → link 行删除，不阻塞其余条目） | FR-13、FR-14 |
@@ -95,5 +95,12 @@ FR-1~FR-29（核对对象）全部被证据表「关联 FR」列与用例清单�
 ## 过程留痕
 
 - 定点批次：`pytest tests/test_ideas_api.py test_idea_cockpit.py test_idea_assumptions.py test_review_mode.py test_next_action.py test_idea_topology_p3.py test_idea_retrospective_p3.py test_assumption_links_p3.py -q` → 98 passed in 160.67s
-- 活体：hub PID 27560；探测 idea `f6304130`（已归档 `change_reason=p4-audit-probe-cleanup`）；探测讨论 `f69ff749`（已以合法结构化 review 关闭，review/prompt_snapshot 落库可回读）
+- 活体：hub `127.0.0.1:48620`（核对期 PID 27560，修订复核期 PID 21176 为重建后新 exe）；**真实旧数据** `f0dcab69`（8 月创建）NULL 归一 + cockpit 7 区 ok；探测 idea `f6304130`（已归档 `change_reason=p4-audit-probe-cleanup`）；探测讨论 `f69ff749`（已以合法结构化 review 关闭，review/prompt_snapshot 落库可回读）
 - 勾选与链接：design-idea-landing.md 19 复选框 + 清单尾「本清单由 P4 核对通过，证据见 …」
+
+## 修订记录
+
+| 版本 | 日期 | 修订内容 | 触发 |
+|---|---|---|---|
+| v1.1 | 2026-09-27 | 初版：19 项证据表 + 无缺陷声明 + 全量回归 | FR-30~FR-33 |
+| v1.2 | 2026-09-28 | 两处事实性更正：① 原写「常驻 hub 无存量想法」系**键名误读**（把 `GET /ideas` 的 `ideas` 键当成 `items`，导致条数误判为 0）——实测库内 36 个想法，已用真实旧数据 `f0dcab69` 复跑 item 1 活体并升级为硬证据；② `GET /ideas` 响应契约按实测更正为 `{count, ideas}`（api.md 同步修正），并补本修订记录。**产品结论不变**（19/19 通过、无缺陷），修正的是本报告的取证描述与 api 文档的响应键名 | 重建 exe 后复核 hub API 时发现 |
