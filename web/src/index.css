@@ -2300,29 +2300,46 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
 .ideas__cols { flex: 1; display: grid; grid-template-columns: 300px 1fr; gap: 14px; min-height: 0; }
 
 /* Mio 发酵映射（只读面板） */
-.ideas__mio { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-soft); }
-.ideas__mio-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.ideas__mio-h { font-size: 13px; font-weight: 700; }
-.ideas__mio-hint { font-size: 11px; color: var(--ink-faint); }
-.ideas__mio-list { display: flex; flex-direction: column; gap: 6px; }
-.ideas__mio-item { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 8px; border: 1px dashed var(--line); border-radius: 8px; font-size: 13px; }
-.ideas__mio-chip { flex: none; padding: 1px 8px; border-radius: 10px; font-size: 11px; background: var(--bg-2); color: var(--ink-dim); }
+.ideas__mio { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-soft); }
+.ideas__mio-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ideas__mio-h { font-size: 13px; font-weight: 700; white-space: nowrap; }
+.ideas__mio-hint { font-size: 11px; color: var(--ink-faint); flex: 1; min-width: 160px; }
+.ideas__mio-head .btn { margin-left: auto; flex: none; }
+.ideas__mio-list { display: flex; flex-direction: column; gap: 6px; max-height: 132px; overflow-y: auto; padding-right: 3px; }
+.ideas__mio-list::-webkit-scrollbar { width: 6px; }
+.ideas__mio-list::-webkit-scrollbar-thumb { background: var(--line-strong, var(--line)); border-radius: 3px; }
+.ideas__mio-list::-webkit-scrollbar-track { background: transparent; }
+.ideas__mio-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 3px 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.015);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.ideas__mio-item:hover { border-color: var(--line-strong, var(--line)); }
+.ideas__mio-chip { justify-self: start; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--bg-2); color: var(--ink-dim); white-space: nowrap; }
 .ideas__mio-chip--active { background: color-mix(in srgb, var(--accent) 22%, var(--bg-2)); color: var(--ink); }
 .ideas__mio-chip--validated { background: color-mix(in srgb, #22c55e 24%, var(--bg-2)); color: var(--ink); }
 .ideas__mio-chip--rejected { background: color-mix(in srgb, #ef4444 24%, var(--bg-2)); color: var(--ink); }
-.ideas__mio-name { flex: 1 1 200px; min-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ideas__mio-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; min-width: 0; }
 .ideas__mio-name--click { cursor: pointer; }
-.ideas__mio-name--click:hover { color: var(--accent); text-decoration: underline; }
-.ideas__mio-item.is-open { border-style: solid; }
-.ideas__mio-detail { flex: 1 1 100%; margin-top: 4px; padding: 8px 10px; background: var(--bg-2); border-radius: 6px; font-size: 12px; line-height: 1.6; }
+.ideas__mio-name--click:hover { color: var(--accent); }
+.ideas__mio-item.is-open { border-style: solid; border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.ideas__mio-detail { grid-column: 1 / -1; margin-top: 4px; padding: 9px 11px; background: var(--bg-2); border-radius: 8px; font-size: 12px; line-height: 1.6; }
 .ideas__mio-detail-p { margin: 0 0 6px; color: var(--ink-dim); }
 .ideas__mio-detail-p b { color: var(--ink); margin-right: 8px; }
 .ideas__mio-detail-meta { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: var(--ink-faint); font-family: var(--font-mono); }
-.ideas__mio-score { flex: none; font-size: 11px; color: var(--ink-faint); font-family: var(--font-mono); }
-.ideas__mio-map { flex: none; font-size: 12px; color: var(--ink-dim); }
-.ideas__mio-idea { display: flex; align-items: center; gap: 6px; margin-left: auto; }
-.ideas__mio-idea-name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-dim); }
-.ideas__mio-idea-status { flex: none; font-size: 11px; padding: 1px 6px; border-radius: 8px; background: var(--bg-2); color: var(--ink-dim); }
+.ideas__mio-score { width: 104px; text-align: right; font-size: 10.5px; color: var(--ink-faint); font-family: var(--font-mono); letter-spacing: 0.01em; white-space: nowrap; }
+.ideas__mio-map { width: 74px; text-align: right; font-size: 12px; color: var(--ink-dim); white-space: nowrap; }
+.ideas__mio-idea { display: flex; align-items: center; gap: 6px; justify-self: end; min-width: 0; }
+.ideas__mio-idea-name { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-dim); }
+.ideas__mio-idea-status { flex: none; font-size: 11px; padding: 1px 6px; border-radius: 8px; background: var(--bg-2); color: var(--ink-dim); white-space: nowrap; }
+.ideas__mio-item > .btn { justify-self: end; }
 .ideas__list { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
 .ideas__empty { color: var(--ink-faint); font-size: 13px; padding: 24px 8px; text-align: center; }
 .idea-card {
@@ -2340,6 +2357,43 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
 .idea-detail__head { display: flex; align-items: center; gap: 10px; }
 .idea-detail__head h3 { margin: 0; font-size: 15px; overflow-wrap: anywhere; }
 .idea-detail__desc { margin: 0; font-size: 13px; color: var(--ink-dim); white-space: pre-wrap; }
+
+/* 想法驾驶舱（FR-5）：下一步动作置顶 + 7 区块 */
+.idea-cockpit { display: flex; flex-direction: column; gap: 8px; }
+.cockpit-block {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  padding: 10px 12px;
+}
+.cockpit-block--next { border-color: var(--accent); background: var(--accent-soft); }
+.cockpit-block--degraded { opacity: 0.72; border-style: dashed; }
+.cockpit-block__h { font-size: 12px; font-weight: 600; color: var(--ink-dim); margin-bottom: 6px; }
+.cockpit-field { display: flex; gap: 10px; font-size: 13px; padding: 3px 0; }
+.cockpit-field__label { flex: 0 0 72px; color: var(--ink-faint); font-size: 12px; }
+.cockpit-field__value { color: var(--ink); overflow-wrap: anywhere; }
+.cockpit-field--empty .cockpit-field__value { color: var(--ink-faint); font-style: italic; }
+.cockpit-empty { font-size: 12px; color: var(--ink-faint); font-style: italic; }
+.cockpit-text { margin: 0; font-size: 13px; color: var(--ink); white-space: pre-wrap; }
+.cockpit-degraded {
+  font-size: 12px;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+}
+.cockpit-list { margin: 0; padding-left: 18px; font-size: 13px; color: var(--ink); }
+.cockpit-list li { padding: 2px 0; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.cockpit-list--risks .cockpit-mit { color: var(--ink-faint); font-size: 12px; }
+.cockpit-next__body { font-size: 13px; color: var(--ink); display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.cockpit-next__dismiss { font-size: 11px; padding: 2px 8px; flex: 0 0 auto; }
+.cockpit-tasks { list-style: none; padding-left: 0; }
+.cockpit-tasks ul { list-style: none; padding-left: 16px; border-left: 1px dashed var(--line-strong); margin-left: 6px; }
+.cockpit-task { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; padding: 3px 0; }
+.cockpit-task__title { color: var(--ink); overflow-wrap: anywhere; }
+.cockpit-task--blocked .cockpit-task__title { color: var(--warn); }
+.cockpit-task__down { font-size: 11px; color: var(--ink-faint); }
+.cockpit-fold summary { font-size: 12px; color: var(--ink-dim); cursor: pointer; }
 
 /* mio-intelligence 结构化想法显示 */
 .mio-idea-struct {

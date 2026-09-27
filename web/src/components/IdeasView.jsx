@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { marked } from 'marked'
 import { api } from '../api'
-import { fmtAgo, fmtDate } from '../constants'
+import { confirm } from '../confirm'
+import { fmtAgo, fmtDate, parseUtc } from '../constants'
 
 // 解析 mio.idea.generate 生成的 description，提取结构化字段
 function parseIdeaDescription(desc = '') {
@@ -81,6 +82,136 @@ const MIO_HYP_META = {
 const ROLE_LABEL = { user: '你', agent: 'agent', ask: 'agent 提问' }
 const KIND_LABEL = { review: '评审', status: '状态流转', discussion: '讨论', operation: '操作' }
 
+// 驾驶舱分节（FR-5）：下一步动作置顶 + 7 区块，顺序即渲染顺序
+const COCKPIT_SECTIONS = [
+  ['goal', '🎯 目标与成功标准'],
+  ['hypotheses', '🔬 关键假设与验证'],
+  ['mvp', '🗺️ MVP 范围'],
+  ['tasks', '📋 任务图'],
+  ['risks', '⚠️ 风险与依赖'],
+  ['approvals', '🔔 审批点'],
+  ['retrospective', '🕳️ 复盘'],
+]
+
+function renderCockpitBody(key, data) {
+  switch (key) {
+    case 'goal': {
+      const fields = [
+        ['目标', data.goal, '给【谁】解决【什么问题】，因为【为什么现在】'],
+        ['成功标准', data.success_metric, '【指标】从【现状】到【目标】，在【期限】内'],
+        ['约束', data.constraints, '时间 / 预算 / 人手 / 合规底线'],
+        ['不做什么', data.out_of_scope, '明确边界，防范围蔓延'],
+      ]
+      return fields.map(([label, val, hint]) => (
+        <div key={label} className={`cockpit-field${val ? '' : ' cockpit-field--empty'}`}>
+          <span className="cockpit-field__label">{label}</span>
+          <span className="cockpit-field__value">{val || hint}</span>
+        </div>
+      ))
+    }
+    case 'hypotheses':
+      return (data.items || []).length ? (
+        <ul className="cockpit-list">
+          {data.items.map((it, i) => (
+            <li key={it.hid || i}>{it.text || it.title || JSON.stringify(it)}</li>
+          ))}
+        </ul>
+      ) : <div className="cockpit-empty">暂无关联假设（接入 Mio 发酵后显示分数与状态）</div>
+    case 'mvp':
+      return data.mvp_scope
+        ? <p className="cockpit-text">{data.mvp_scope}</p>
+        : <div className="cockpit-empty">还没圈定 MVP 范围——写下最小可用的交付边界</div>
+    case 'tasks': {
+      const items = data.items || []
+      if (!items.length) {
+        return <div className="cockpit-empty">暂无关联任务。用「行为拆解」拆成任务后这里展示任务图</div>
+      }
+      const tree = (() => {
+        if (data.has_cycle) return null // FR-9：有环不做拓扑
+        const edges = data.graph?.edges || []
+        const hasIn = new Set(edges.map(e => e.to))
+        const kids = {}
+        edges.forEach(e => { (kids[e.from] = kids[e.from] || []).push(e.to) })
+        const byId = Object.fromEntries(items.map(t => [t.id, t]))
+        const roots = items.filter(t => !hasIn.has(t.id))
+        if (!roots.length) return null
+        const seen = new Set()
+        const node = (t) => {
+          if (!t || seen.has(t.id)) return null
+          seen.add(t.id)
+          const children = (kids[t.id] || []).map(id => node(byId[id])).filter(Boolean)
+          return (
+            <li key={t.id} className={`cockpit-task${t.blocked ? ' cockpit-task--blocked' : ''}${t.downstream ? ' cockpit-task--down' : ''}`}>
+              <span className="cockpit-task__title">{t.title}</span>
+              <span className="tag">{t.stage}</span>
+              {t.blocked && <span className="tag">blocked</span>}
+              {children.length > 0 && <ul>{children}</ul>}
+            </li>
+          )
+        }
+        const out = roots.map(node).filter(Boolean)
+        const flat = items.filter(t => !seen.has(t.id)).map(t => node(t)).filter(Boolean)
+        return out.length ? [...out, ...flat] : null
+      })()
+      const list = (
+        <ul className="cockpit-list cockpit-tasks">
+          {items.map(t => (
+            <li key={t.id} className={`cockpit-task${t.blocked ? ' cockpit-task--blocked' : ''}`}>
+              <span className="cockpit-task__title">{t.title}</span>
+              <span className="tag">{t.stage}</span>
+              {t.downstream && <span className="cockpit-task__down">下游</span>}
+              {t.blocked && <span className="tag">blocked</span>}
+            </li>
+          ))}
+        </ul>
+      )
+      const body = (
+        <>
+          {data.warning && <div className="cockpit-degraded">⚠ {data.warning}</div>}
+          {tree
+            ? <ul className="cockpit-list cockpit-tasks">{tree}</ul>
+            : list}
+        </>
+      )
+      if (data.folded) {
+        return (
+          <details className="cockpit-fold">
+            <summary>共 {data.total} 个任务，展开查看{data.has_cycle ? '（已降级列表）' : '任务图'}</summary>
+            {body}
+          </details>
+        )
+      }
+      return body
+    }
+    case 'risks':
+      return (data.items || []).length ? (
+        <ul className="cockpit-list cockpit-list--risks">
+          {data.items.map((r, i) => (
+            <li key={i}>
+              <span>{r.text || String(r)}</span>
+              {r.level && <span className="tag">{r.level}</span>}
+              {r.mitigation && <span className="cockpit-mit">→ {r.mitigation}</span>}
+            </li>
+          ))}
+        </ul>
+      ) : <div className="cockpit-empty">暂无登记的风险与依赖</div>
+    case 'approvals':
+      return (data.items || []).length ? (
+        <ul className="cockpit-list">
+          {data.items.map((a, i) => <li key={i}>{a.title || a.kind || JSON.stringify(a)}</li>)}
+        </ul>
+      ) : <div className="cockpit-empty">暂无待办审批</div>
+    case 'retrospective':
+      return (data.items || []).length ? (
+        <ul className="cockpit-list">
+          {data.items.map((r, i) => <li key={i}>{r.title || r.summary || JSON.stringify(r)}</li>)}
+        </ul>
+      ) : <div className="cockpit-empty">还没有复盘记录</div>
+    default:
+      return null
+  }
+}
+
 export default function IdeasView({ ideas, onReload }) {
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState({ title: '', description: '', project: '' })
@@ -112,6 +243,9 @@ export default function IdeasView({ ideas, onReload }) {
   // Mio 发酵映射（只读；同步/推进均需显式点击确认）
   const [ferment, setFerment] = useState(null)
   const [fermOpen, setFermOpen] = useState(null)
+  const [fermRunning, setFermRunning] = useState(false)
+  const [fermNote, setFermNote] = useState('')
+  const [cockpit, setCockpit] = useState(null)
 
   const fail = useCallback((e) => setErr(e.message || '操作失败'), [])
 
@@ -121,10 +255,12 @@ export default function IdeasView({ ideas, onReload }) {
     setSubmitting(false)
     setShowHistory(false)
     setEditing(false)
+    setCockpit(null)
     try {
       const [d, h] = await Promise.all([api.getIdea(id), api.ideaHistory(id)])
       setDetail(d); setHist(h); setErr(null)
     } catch (e) { fail(e) }
+    try { setCockpit(await api.getIdeaCockpit(id)) } catch (e) { setCockpit(null) }
   }, [fail])
 
   const reloadDetail = useCallback(async () => {
@@ -133,7 +269,16 @@ export default function IdeasView({ ideas, onReload }) {
       const [d, h] = await Promise.all([api.getIdea(detail.id), api.ideaHistory(detail.id)])
       setDetail(d); setHist(h)
     } catch (e) { /* 静默 */ }
+    try { setCockpit(await api.getIdeaCockpit(detail.id)) } catch (e) { /* 静默：驾驶舱降级不阻塞详情 */ }
   }, [detail])
+
+  const dismissNextAction = async () => {
+    if (!detail || !cockpit?.next_action) return
+    try {
+      await api.dismissIdeaNextAction(detail.id, cockpit.next_action.rule_id)
+      setCockpit(await api.getIdeaCockpit(detail.id))
+    } catch (e) { fail(e) }
+  }
 
   const submitIdea = async () => {
     const title = form.title.trim()
@@ -164,6 +309,25 @@ export default function IdeasView({ ideas, onReload }) {
   const advanceFromFerm = async (h) => {
     try { await api.advanceIdea(h.action.idea_id, h.action.to); await loadFerment(); onReload() }
     catch (e) { fail(e) }
+  }
+
+  // 跑一次 Mio 发酵：调 LLM 复审 active 假设（10-60s、消耗额度），成功后刷新映射
+  const runFerment = async () => {
+    if (fermRunning) return
+    const ok = await confirm('跑一次发酵会调用 LLM（约 10-60 秒、消耗额度），可能晋升/打回假设。继续？',
+                             { title: '跑一次发酵', okText: '开始发酵' })
+    if (!ok) return
+    setFermRunning(true); setFermNote('')
+    try {
+      const res = await api.mioFermentRun(5)
+      if (res.error) { fail(new Error(res.error)) } else {
+        const rs = Array.isArray(res.results) ? res.results : []
+        const promote = rs.filter(r => r.verdict === 'promote').length
+        setFermNote(` · 刚发酵 ${res.fermented ?? rs.length} 条${promote ? ` · ${promote} 晋升` : ''}`)
+        await loadFerment()
+      }
+    } catch (e) { fail(e) }
+    finally { setFermRunning(false) }
   }
 
   const handleSuggest = async () => {
@@ -370,10 +534,18 @@ export default function IdeasView({ ideas, onReload }) {
             <span className="ideas__mio-hint">
               假设状态 → taskhub 生命周期（只读映射；{ferment.counts?.linked ?? 0}/{ferment.counts?.total ?? 0} 已关联
               {ferment.counts?.pending_actions ? ` · ${ferment.counts.pending_actions} 个可推进` : ''}）
+              {fermNote}
             </span>
+            <button className="btn btn--ghost btn--sm" onClick={runFerment}
+                    disabled={fermRunning}
+                    title="调用 LLM 复审 active 假设：重打分、晋升/打回（约 10-60 秒）">
+              {fermRunning ? '发酵中…' : '跑一次发酵'}
+            </button>
           </div>
           <div className="ideas__mio-list">
-            {ferment.items.map(h => {
+            {[...ferment.items]
+              .sort((a, b) => (b.detail?.createdAt || 0) - (a.detail?.createdAt || 0))
+              .map(h => {
               const mm = MIO_HYP_META[h.status] || { label: h.status || '?' }
               const sm = h.suggested_status && (IDEA_META[h.suggested_status] || { label: h.suggested_status })
               return (
@@ -465,6 +637,38 @@ export default function IdeasView({ ideas, onReload }) {
               {detail.last_reviewed_at && (
                 <div className="idea-card__project">上次评审：{fmtDate(detail.last_reviewed_at)}</div>
               )}
+
+              {cockpit && (
+                <div className="idea-cockpit">
+                  <div className="cockpit-block cockpit-block--next">
+                    <div className="cockpit-block__h">⏭️ 下一步动作</div>
+                    {cockpit.next_action
+                      ? (
+                        <div className="cockpit-next__body">
+                          <span title={cockpit.next_action.reason || ''}>{cockpit.next_action.action}</span>
+                          <button className="btn btn--ghost cockpit-next__dismiss"
+                                  onClick={dismissNextAction}
+                                  title="忽略 7 天；条件变化后自动重现">忽略</button>
+                        </div>
+                      )
+                      : <div className="cockpit-empty">暂无建议的下一步动作</div>}
+                  </div>
+                  {COCKPIT_SECTIONS.map(([key, title]) => {
+                    const sec = cockpit.sections?.[key]
+                    if (!sec) return null
+                    const degraded = sec.status === 'degraded'
+                    return (
+                      <div key={key} className={`cockpit-block${degraded ? ' cockpit-block--degraded' : ''}`}>
+                        <div className="cockpit-block__h">{title}</div>
+                        {degraded
+                          ? <div className="cockpit-degraded">区块暂不可用（{sec.reason || '未知原因'}），其余内容不受影响</div>
+                          : renderCockpitBody(key, sec.data || {})}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
               <div className="idea-detail__desc">
                 {(() => {
                   const parsed = parseIdeaDescription(detail.description)
@@ -531,7 +735,7 @@ export default function IdeasView({ ideas, onReload }) {
                     {(detail.changes || []).map(ch => (
                       <div key={ch.id} className="change-row">
                         <span className="tag tag--version">v{ch.version}</span>
-                        <span className="change-row__at">{new Date(ch.created_at).toLocaleString()}</span>
+                        <span className="change-row__at">{parseUtc(ch.created_at).toLocaleString()}</span>
                         {ch.reason && <span className="change-row__reason">{ch.reason}</span>}
                         <span className="change-row__fields">{Object.keys(ch.diff || {}).join(', ')}</span>
                       </div>

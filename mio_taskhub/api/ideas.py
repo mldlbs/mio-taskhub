@@ -11,6 +11,75 @@ from mio_taskhub.events import emit_event
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
 
+# 想法落地闭环 P0（FR-1/FR-2）：结构化字段白名单
+IDEA_STR_FIELDS = ("goal", "success_metric", "constraints", "out_of_scope", "mvp_scope")
+IDEA_JSON_FIELDS = ("assumptions", "risks", "tags")
+IDEA_NEW_FIELDS = IDEA_STR_FIELDS + IDEA_JSON_FIELDS
+
+
+def _collect_new_fields(body: dict) -> dict:
+    """从请求体收集 P0 新字段并校验类型（strings → str，JSON 字段必须是 list）。"""
+    out = {}
+    for f in IDEA_STR_FIELDS:
+        if f in body and body[f] is not None:
+            out[f] = str(body[f])
+    for f in IDEA_JSON_FIELDS:
+        if f in body and body[f] is not None:
+            if not isinstance(body[f], list):
+                raise HTTPException(422, f"{f} must be a list")
+            out[f] = body[f]
+    return out
+
+
+def _normalized(field: str, value):
+    """NULL（旧数据）按空值参与比较与输出，保证全页面无异常。"""
+    if field in IDEA_JSON_FIELDS:
+        return value if isinstance(value, list) else []
+    return value or ""
+
+
+_ASSUMPTION_KEY_PREFIX = "assumptions["
+
+
+def _apply_assumption_entry_diff(i: Idea, body: dict, diff: dict) -> None:
+    """支持 `assumptions[hid]` 单条写回（FR-2）：只改一条不整表覆盖，diff 键即原文。
+
+    值为 dict 时按字段合并到该条；为 null 时删除该条；匹配 hid/id。
+    """
+    for key in list(body.keys()):
+        if not key.startswith(_ASSUMPTION_KEY_PREFIX) or not key.endswith("]"):
+            continue
+        hid = key[len(_ASSUMPTION_KEY_PREFIX):-1]
+        if not hid:
+            continue
+        val = body[key]
+        cur = list(i.assumptions) if isinstance(i.assumptions, list) else []
+        idx = -1
+        old = None
+        for n, e in enumerate(cur):
+            if isinstance(e, dict) and (e.get("hid") == hid or e.get("id") == hid):
+                idx, old = n, e
+                break
+        if val is None:
+            if idx < 0:
+                continue
+            new_entry = None
+            cur.pop(idx)
+        elif idx < 0:
+            new_entry = dict(val) if isinstance(val, dict) else {"text": val}
+            new_entry.setdefault("hid", hid)
+            cur.append(new_entry)
+        else:
+            if isinstance(val, dict):
+                new_entry = dict(old)
+                new_entry.update(val)
+            else:
+                new_entry = dict(old)
+                new_entry["text"] = val
+            cur[idx] = new_entry
+        diff[key] = {"old": old, "new": new_entry}
+        i.assumptions = cur
+
 
 def _get_next_adr_number(db: Session) -> int:
     """获取下一个 ADR 序号"""
@@ -41,6 +110,14 @@ def _idea_json(i: Idea) -> dict:
         "madr_consequences": i.madr_consequences,
         "madr_alternatives": i.madr_alternatives,
         "adr_file_path": i.adr_file_path,
+        "goal": _normalized("goal", i.goal),
+        "success_metric": _normalized("success_metric", i.success_metric),
+        "constraints": _normalized("constraints", i.constraints),
+        "out_of_scope": _normalized("out_of_scope", i.out_of_scope),
+        "assumptions": _normalized("assumptions", i.assumptions),
+        "risks": _normalized("risks", i.risks),
+        "mvp_scope": _normalized("mvp_scope", i.mvp_scope),
+        "tags": _normalized("tags", i.tags),
     }
 
 
@@ -84,6 +161,7 @@ def create_idea(body: dict, db: Session = Depends(get_session)):
         description=body.get("description", ""),
         project=body.get("project", ""),
         labels=body.get("labels", []) or [],
+        **_collect_new_fields(body),
     )
     db.add(i)
     event = emit_event(db, type="idea_created", entity="idea", entity_id=i.id,
@@ -106,14 +184,22 @@ def update_idea(idea_id: str, body: dict, db: Session = Depends(get_session)):
         track_change = str(track_change).lower() not in ("false", "0", "no", "")
 
     diff = {}
-    for f in ("title", "description", "project", "labels"):
+    for f in ("title", "description", "project", "labels") + IDEA_NEW_FIELDS:
         if f in body and body[f] is not None:
+            if f in IDEA_STR_FIELDS and not isinstance(body[f], str):
+                body[f] = str(body[f])
+            if f in IDEA_JSON_FIELDS and not isinstance(body[f], list):
+                raise HTTPException(422, f"{f} must be a list")
             old = getattr(i, f)
-            if old != body[f]:
+            if _normalized(f, old) != _normalized(f, body[f]):
                 diff[f] = {"old": old, "new": body[f]}
+    # 单条假设写回：diff 键 `assumptions[hid]`（FR-2），与整表替换互不覆盖
+    _apply_assumption_entry_diff(i, body, diff)
 
     if diff:
         for f, d in diff.items():
+            if "[" in f:
+                continue  # assumptions[hid] 单条写回已在 _apply_assumption_entry_diff 中应用
             setattr(i, f, d["new"])
         if versioning == "full":
             i.version += 1

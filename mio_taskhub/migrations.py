@@ -24,6 +24,8 @@ def run_migrations(target_engine=None):
             _migrate_event(conn)
         if "ideachange" in tables:
             _migrate_ideachange(conn)
+        if "ideauserpref" in tables:
+            _migrate_idea_user_pref(conn)
         if "readevidence" in tables:
             _migrate_read_evidence(conn)
         if "ratchetbaseline" in tables:
@@ -182,6 +184,19 @@ def _migrate_idea(conn):
         conn.execute(text("ALTER TABLE idea ADD COLUMN madr_alternatives TEXT"))
     if "adr_file_path" not in icols:
         conn.execute(text("ALTER TABLE idea ADD COLUMN adr_file_path VARCHAR"))
+    # 想法落地闭环 P0 结构化字段（FR-1）：可空列，旧行保持 NULL
+    for col, ddl in (
+        ("goal", "TEXT"),
+        ("success_metric", "TEXT"),
+        ("constraints", "TEXT"),
+        ("out_of_scope", "TEXT"),
+        ("assumptions", "JSON"),
+        ("risks", "JSON"),
+        ("mvp_scope", "TEXT"),
+        ("tags", "JSON"),
+    ):
+        if col not in icols:
+            conn.execute(text(f"ALTER TABLE idea ADD COLUMN {col} {ddl}"))
 
 
 def _migrate_ideahistory(conn):
@@ -219,6 +234,18 @@ def _migrate_ideachange(conn):
     iccols = {c["name"] for c in inspect(conn).get_columns("ideachange")}
     if "change_type" not in iccols:
         conn.execute(text("ALTER TABLE ideachange ADD COLUMN change_type VARCHAR NOT NULL DEFAULT 'FIELD_CHANGE'"))
+
+
+def _migrate_idea_user_pref(conn):
+    """IdeaUserPref：一个 (idea_id, user, rule_id) 只保留一行（dismiss upsert 幂等）。"""
+    try:
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_idea_user_pref "
+            "ON ideauserpref (idea_id, user, rule_id)"
+        ))
+    except Exception:
+        # 历史重复行不阻塞启动；写入端 upsert 保证唯一
+        pass
 
 
 def _migrate_observability(conn):

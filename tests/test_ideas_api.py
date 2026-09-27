@@ -625,3 +625,95 @@ def test_git_sync_render_readme():
     assert "ADR-002" in md
     assert "ADR One" in md
     assert "ADR Two" in md
+
+def test_idea_p0_fields_create_patch_diff():
+    """FR-1/FR-2：8 字段创建/编辑 + IdeaChange diff。"""
+    async def k(c):
+        r = await c.post("/api/v1/ideas", json={
+            "title": "落地测试",
+            "goal": "给运营解决周报耗时问题",
+            "success_metric": "周报耗时从 4h 到 0.5h，2 周内",
+            "constraints": "预算 0",
+            "out_of_scope": "不做移动端",
+            "risks": [{"text": "数据源不稳", "level": "high", "mitigation": "双源"}],
+            "mvp_scope": "只做自动汇总",
+            "tags": ["合规", "用户数据"],
+            "assumptions": [{"hid": "h1", "text": "用户愿意授权"}],
+        })
+        assert r.status_code == 200
+        i = r.json()
+        assert i["goal"] == "给运营解决周报耗时问题"
+        assert i["tags"] == ["合规", "用户数据"]
+        assert i["assumptions"][0]["hid"] == "h1"
+
+        r = await c.patch(f"/api/v1/ideas/{i['id']}", json={"goal": "新目标"})
+        assert r.status_code == 200
+        assert r.json()["version"] == 2
+        d = await c.get(f"/api/v1/ideas/{i['id']}")
+        changes = d.json()["changes"]
+        assert changes[0]["diff"]["goal"] == {"old": "给运营解决周报耗时问题", "new": "新目标"}
+    _with_client(k)
+
+
+def test_idea_p0_null_fields_normalize():
+    """FR-1：旧数据 NULL 新字段 → 输出空值，全页面无异常。"""
+    async def k(c):
+        r = await c.post("/api/v1/ideas", json={"title": "旧行为"})
+        i = r.json()
+        assert i["goal"] == ""
+        assert i["success_metric"] == ""
+        assert i["constraints"] == ""
+        assert i["out_of_scope"] == ""
+        assert i["mvp_scope"] == ""
+        assert i["assumptions"] == []
+        assert i["risks"] == []
+        assert i["tags"] == []
+        r = await c.patch(f"/api/v1/ideas/{i['id']}", json={"goal": ""})
+        assert r.status_code == 200
+        assert r.json()["version"] == 1  # NULL vs "" 归一后无变化不进版本
+    _with_client(k)
+
+
+def test_idea_p0_assumption_single_entry_diff():
+    """FR-2：assumptions[hid] 单条写回 —— 两条都进 diff、互不覆盖（无丢更新）。"""
+    async def k(c):
+        iid = (await c.post("/api/v1/ideas", json={
+            "title": "t",
+            "assumptions": [{"hid": "h1", "text": "假设一", "status": "open"},
+                            {"hid": "h2", "text": "假设二", "status": "open"}],
+        })).json()["id"]
+
+        r = await c.patch(f"/api/v1/ideas/{iid}", json={"assumptions[h1]": {"status": "validated"}})
+        assert r.status_code == 200
+        i = r.json()
+        assert i["assumptions"][0]["status"] == "validated"
+        assert i["assumptions"][1]["status"] == "open"  # h2 未被覆盖
+
+        r = await c.patch(f"/api/v1/ideas/{iid}", json={"assumptions[h2]": {"note": "已验证来源"}})
+        assert r.status_code == 200
+        i = r.json()
+        assert i["assumptions"][0]["status"] == "validated"  # h1 保留
+
+        d = await c.get(f"/api/v1/ideas/{iid}")
+        changes = d.json()["changes"]
+        assert len(changes) == 2
+        keys = [set(ch["diff"].keys()) for ch in changes]
+        assert {"assumptions[h2]"} in keys
+        assert {"assumptions[h1]"} in keys
+
+        # 单条删除
+        r = await c.patch(f"/api/v1/ideas/{iid}", json={"assumptions[h1]": None})
+        assert r.status_code == 200
+        assert [e["hid"] for e in r.json()["assumptions"]] == ["h2"]
+    _with_client(k)
+
+
+def test_idea_p0_new_field_validation():
+    """FR-2：JSON 字段必须是 list。"""
+    async def k(c):
+        iid = (await c.post("/api/v1/ideas", json={"title": "t"})).json()["id"]
+        r = await c.patch(f"/api/v1/ideas/{iid}", json={"tags": "not-a-list"})
+        assert r.status_code == 422
+        r = await c.post("/api/v1/ideas", json={"title": "t2", "risks": "bad"})
+        assert r.status_code == 422
+    _with_client(k)

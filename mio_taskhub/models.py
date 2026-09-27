@@ -398,6 +398,15 @@ class Idea(SQLModel, table=True):
     madr_consequences: Optional[str] = None # MADR: 后果（正面/负面）
     madr_alternatives: Optional[list] = Field(default=None, sa_column=Column(JSON))  # MADR: 备选方案
     adr_file_path: Optional[str] = None     # Git 中的 ADR 文件路径
+    # 想法落地闭环 P0 结构化字段（FR-1，字段模型一次定型；旧数据 NULL 兼容）
+    goal: str = ""                          # 模板：给【谁】解决【什么问题】，因为【为什么现在】
+    success_metric: str = ""                # 模板：【指标】从【现状】到【目标】，在【期限】内
+    constraints: str = ""                   # 外部约束：时间/预算/人手/合规底线
+    out_of_scope: str = ""                  # 明确不做什么，防范围蔓延
+    assumptions: Optional[list] = Field(default=None, sa_column=Column(JSON))  # P0 录入缓存 [{hid,text,status,note}]
+    risks: Optional[list] = Field(default=None, sa_column=Column(JSON))        # [{text,level,mitigation}]
+    mvp_scope: str = ""                     # MVP 范围
+    tags: Optional[list] = Field(default=None, sa_column=Column(JSON))         # ["高风险","合规",...]
 
 class ChangeType(str, enum.Enum):
     FIELD_CHANGE = "field_change"      # 普通字段变更
@@ -426,6 +435,16 @@ class IdeaHistory(SQLModel, table=True):
     reasoning: Optional[str] = None           # 决策摘要（非完整 CoT）
     extra: dict = Field(default_factory=dict, sa_column=Column(JSON))  # 结构化上下文
     at: datetime = Field(default_factory=_now, index=True)
+
+
+class IdeaUserPref(SQLModel, table=True):
+    """想法驾驶舱用户偏好（FR-7：dismiss 服务端存储，条件变化即复活）。"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    idea_id: str = Field(index=True)
+    user: str = Field(default="local", index=True)
+    rule_id: str = Field(index=True)
+    dismissed_at: datetime = Field(default_factory=_now)
+    condition_snapshot: dict = Field(default_factory=dict, sa_column=Column(JSON))  # 结构化布尔位，不存文本
 
 
 class ScheduledJobActionType(str, enum.Enum):

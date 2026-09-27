@@ -1,3 +1,5 @@
+import { confirm } from './confirm'
+
 const BASE = '/api/v1'
 
 const ERROR_MESSAGES = {
@@ -53,7 +55,8 @@ async function gated(method, path, label) {
     if (e instanceof ApiError && e.status === 409 && e.error_code === 'policy_risk_high') {
       const risk = (e.detail && e.detail.risk) || 'high'
       const sug = (e.detail && e.detail.policy && e.detail.policy.suggestion) || ''
-      const ok = window.confirm(`【${label}】Mio 历史风险评估：${risk}\n${sug}\n\n仍要继续吗？（confirm=true）`)
+      const ok = await confirm(`【${label}】Mio 历史风险评估：${risk}\n${sug}\n\n仍要继续吗？`,
+                               { title: '危险操作', danger: true, okText: '仍要继续' })
       if (!ok) throw e
       const sep = path.includes('?') ? '&' : '?'
       return await req(method, path + sep + 'confirm=true')
@@ -106,6 +109,8 @@ export const api = {
   submitReview: (taskId, body) => req('POST', `/tasks/${taskId}/reviews`, body),
   listIdeas: (params) => req('GET', '/ideas' + (params ? '?' + new URLSearchParams(params).toString() : '')),
   getIdea: (id, params) => req('GET', `/ideas/${id}` + (params ? '?' + new URLSearchParams(params).toString() : '')),
+  getIdeaCockpit: (id) => req('GET', `/ideas/${id}/cockpit`),
+  dismissIdeaNextAction: (id, ruleId) => req('POST', `/ideas/${id}/next-action/dismiss`, { rule_id: ruleId }),
   createIdea: (body) => req('POST', '/ideas', body),
   updateIdea: (id, body) => req('PATCH', `/ideas/${id}`, body),
   advanceIdea: (id, status) => req('POST', `/ideas/${id}/status`, { status }),
@@ -203,4 +208,5 @@ export const api = {
   mioInsight: (limit = 20) => req('GET', `/mio/insight?limit=${limit}`),
   mioFerment: () => req('GET', '/mio/ferment'),
   mioFermentSync: (id) => req('POST', `/mio/ferment/${id}/sync`),
+  mioFermentRun: (limit = 5) => req('POST', `/mio/creativity/ferment?limit=${limit}`),
 }
