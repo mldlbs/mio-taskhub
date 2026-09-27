@@ -75,6 +75,30 @@ def config_sanitized() -> dict:
             "createdAt": cfg.get("createdAt"), "agents": safe_agents}
 
 
+def llm_config() -> dict:
+    """原始 LLM 配置（**含明文 apiKey**）——仅供服务端进程内调用，禁止外泄/落日志。
+
+    P5（FR-34）：优先级 env `MIO_LLM_URL`/`MIO_LLM_KEY`/`MIO_LLM_MODEL`
+    > config.json 的 `llm` 段（由 `mio config llm` 写入）。
+    返回 `{apiUrl, apiKey, model}`，缺项为空串。
+    """
+    cfg = _read_json(home() / "config.json")
+    llm = cfg.get("llm")
+    if not isinstance(llm, dict):
+        llm = {}
+    return {
+        "apiUrl": str(os.environ.get("MIO_LLM_URL") or llm.get("apiUrl") or "").strip(),
+        "apiKey": str(os.environ.get("MIO_LLM_KEY") or llm.get("apiKey") or "").strip(),
+        "model": str(os.environ.get("MIO_LLM_MODEL") or llm.get("model") or "").strip(),
+    }
+
+
+def llm_enabled() -> bool:
+    """LLM 是否可用（具备 apiUrl + apiKey）。"""
+    c = llm_config()
+    return bool(c["apiUrl"] and c["apiKey"])
+
+
 def _tail_jsonl(name: str, limit: int = 20) -> List[dict]:
     """容错读取 JSONL 末尾 limit 条（坏行跳过）。返回**新的在前**。"""
     p = home() / name

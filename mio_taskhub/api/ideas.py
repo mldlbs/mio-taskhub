@@ -38,6 +38,8 @@ def _collect_new_fields(body: dict) -> dict:
     for f in IDEA_JSON_FIELDS:
         if f in body and body[f] is not None:
             out[f] = _validate_json_field(f, body[f])
+            if f == "assumptions":
+                out[f] = _ensure_assumption_hids(out[f])
     return out
 
 
@@ -49,6 +51,29 @@ def _normalized(field: str, value):
 
 
 _ASSUMPTION_KEY_PREFIX = "assumptions["
+
+
+def _ensure_assumption_hids(rows: list) -> list:
+    """P5（FR-36）：为缺 hid/id 的假设条目补稳定 hid（as-<8hex>，同一请求内去重）。
+
+    既有 hid/id 原样保留；非 dict 条目（字符串）保持原样，避免改变既有语义。
+    补全后单条回写 `PATCH /ideas/{id}/assumptions/{hid}`（FR-15）对新数据可用。
+    """
+    out = []
+    seen = set()
+    for e in rows:
+        if not isinstance(e, dict):
+            out.append(e)
+            continue
+        row = dict(e)
+        if not (row.get("hid") or row.get("id")):
+            hid = "as-" + uuid.uuid4().hex[:8]
+            while hid in seen:
+                hid = "as-" + uuid.uuid4().hex[:8]
+            row["hid"] = hid
+        seen.add(str(row.get("hid") or row.get("id") or ""))
+        out.append(row)
+    return out
 
 
 def _apply_assumption_entry_diff(i: Idea, body: dict, diff: dict) -> None:
@@ -201,6 +226,8 @@ def update_idea(idea_id: str, body: dict, db: Session = Depends(get_session)):
                 body[f] = str(body[f])
             if f in IDEA_JSON_FIELDS:
                 _validate_json_field(f, body[f])
+                if f == "assumptions":
+                    body[f] = _ensure_assumption_hids(body[f])
             old = getattr(i, f)
             if _normalized(f, old) != _normalized(f, body[f]):
                 diff[f] = {"old": old, "new": body[f]}

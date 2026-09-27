@@ -113,6 +113,8 @@ export const api = {
   dismissIdeaNextAction: (id, ruleId) => req('POST', `/ideas/${id}/next-action/dismiss`, { rule_id: ruleId }),
   createIdea: (body) => req('POST', '/ideas', body),
   updateIdea: (id, body) => req('PATCH', `/ideas/${id}`, body),
+  // P5 FR-34：LLM 生成驾驶舱 8 字段草稿（不落库，返回 {draft, source, model, elapsed_ms}）
+  draftIdeaFields: (id, body) => req('POST', `/ideas/${id}/draft-fields`, body || {}),
   // 想法落地闭环 P1（FR-12/FR-15）：假设导入 + 单条人工回写
   importIdeaHypotheses: (id, ids) => req('POST', `/ideas/${id}/hypotheses/import`, { ids }),
   patchIdeaAssumption: (id, hid, body) => req('PATCH', `/ideas/${id}/assumptions/${hid}`, body),

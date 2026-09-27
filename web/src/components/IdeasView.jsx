@@ -392,6 +392,9 @@ export default function IdeasView({ ideas, onReload, onOpenTask }) {
   const [fieldEdit, setFieldEdit] = useState(false)
   const [fieldForm, setFieldForm] = useState(null)
   const [fieldSaving, setFieldSaving] = useState(false)
+  const [drafting, setDrafting] = useState(false)        // P5 FR-35：生成草稿中
+  const [draftNote, setDraftNote] = useState(false)      // 表单来自 AI 草稿（提示核对）
+  const [draftOverwrite, setDraftOverwrite] = useState(false)  // 生成草稿是否覆盖已填内容
   // 想法落地闭环 P1（FR-12 导入弹层 / FR-14 解除关联 / FR-15 本地假设人工回写）
   const [hypImport, setHypImport] = useState(null)   // { loading, items[], selected[], saving }
   const [hypWrite, setHypWrite] = useState(null)      // { hid, status, note } 正在回写的条目
@@ -459,6 +462,7 @@ export default function IdeasView({ ideas, onReload, onOpenTask }) {
 
   const openFieldEdit = () => {
     const d = detail || {}
+    setDraftNote(false)  // P5 FR-35：手动编辑时清掉「AI 草稿」提示
     const toLines = (v) => Array.isArray(v)
       ? v.map(x => (x && typeof x === 'object' ? (x.text || x.title || JSON.stringify(x)) : String(x))).join('\n')
       : ''
@@ -473,6 +477,56 @@ export default function IdeasView({ ideas, onReload, onOpenTask }) {
       risks: JSON.stringify(Array.isArray(d.risks) ? d.risks : [], null, 2),
     })
     setFieldEdit(true)
+  }
+
+  // P5 FR-35：一键生成草稿——LLM 起草 → 填入编辑表单 → 人工核对后保存（生成本身不落库）
+  const _draftToLines = (v) => Array.isArray(v)
+    ? v.map(x => (x && typeof x === 'object' ? (x.text || x.title || JSON.stringify(x)) : String(x))).join('\n')
+    : ''
+
+  const genDraftFields = async (overwrite) => {
+    if (!detail || drafting) return
+    setDrafting(true)
+    try {
+      const res = await api.draftIdeaFields(detail.id, { overwrite: !!overwrite })
+      const d = res?.draft || {}
+      const d0 = detail || {}
+      const cur = fieldForm || {
+        goal: d0.goal || '', success_metric: d0.success_metric || '',
+        constraints: d0.constraints || '', out_of_scope: d0.out_of_scope || '',
+        mvp_scope: d0.mvp_scope || '',
+        tags: (Array.isArray(d0.tags) ? d0.tags : []).join(', '),
+        assumptions: _draftToLines(d0.assumptions),
+        risks: JSON.stringify(Array.isArray(d0.risks) ? d0.risks : [], null, 2),
+      }
+      const pick = (curVal, draftVal) => {
+        const empty = curVal == null || curVal === ''
+          || (Array.isArray(curVal) && curVal.length === 0)
+        return (overwrite || empty) ? draftVal : curVal
+      }
+      setFieldForm({
+        goal: pick(cur.goal, d.goal || ''),
+        success_metric: pick(cur.success_metric, d.success_metric || ''),
+        constraints: pick(cur.constraints, d.constraints || ''),
+        out_of_scope: pick(cur.out_of_scope, d.out_of_scope || ''),
+        mvp_scope: pick(cur.mvp_scope, d.mvp_scope || ''),
+        tags: pick(cur.tags, (d.tags || []).join(', ')),
+        assumptions: pick(cur.assumptions, _draftToLines(d.assumptions)),
+        risks: pick(cur.risks, JSON.stringify(d.risks || [], null, 2)),
+      })
+      setDraftNote(true)
+      setFieldEdit(true)
+      setErr(null)
+    } catch (e) {
+      if (e?.status === 503) setErr('LLM 未配置或不可用，可手动填写')
+      else if (e?.status === 504) setErr('生成超时，请重试或手动填写')
+      else fail(e)
+    } finally { setDrafting(false) }
+  }
+
+  const handleGenDraft = async () => {
+    if (draftOverwrite && !window.confirm('生成草稿将覆盖已填的目标/成功标准等字段，确定继续？')) return
+    await genDraftFields(draftOverwrite)
   }
 
   const saveFieldEdit = async () => {
@@ -501,7 +555,7 @@ export default function IdeasView({ ideas, onReload, onOpenTask }) {
         assumptions,
         risks,
       })
-      setFieldEdit(false); setFieldForm(null)
+      setFieldEdit(false); setFieldForm(null); setDraftNote(false)
       await reloadDetail()
       onReload()
       setErr(null)
@@ -1025,11 +1079,27 @@ export default function IdeasView({ ideas, onReload, onOpenTask }) {
                     <div className="cockpit-block__h">
                       ✏️ 结构化字段
                       {!fieldEdit && (
-                        <button className="btn btn--ghost cockpit-fields__btn" onClick={openFieldEdit}>编辑</button>
+                        <>
+                          <label className="cockpit-fields__ov" title="勾选后生成草稿会覆盖已填内容（默认只填空字段）">
+                            <input type="checkbox" checked={draftOverwrite}
+                                   onChange={e => setDraftOverwrite(e.target.checked)} /> 覆盖已有
+                          </label>
+                          <button className="btn btn--ghost cockpit-fields__btn" disabled={drafting}
+                                  onClick={handleGenDraft}
+                                  title="用想法标题与描述由 LLM 起草 8 个字段，填入表单后核对保存">
+                            {drafting ? '生成中…' : '✨ 生成草稿'}
+                          </button>
+                          <button className="btn btn--ghost cockpit-fields__btn" onClick={openFieldEdit}>编辑</button>
+                        </>
                       )}
                     </div>
                     {fieldEdit && fieldForm ? (
                       <div className="cockpit-fields">
+                        {draftNote && (
+                          <div className="cockpit-fields__draft-note">
+                            ✨ AI 草稿，请核对后保存（生成本身未落库；点「取消」可丢弃）
+                          </div>
+                        )}
                         {[
                           ['goal', '目标', '给【谁】解决【什么问题】，因为【为什么现在】'],
                           ['success_metric', '成功标准', '【指标】从【现状】到【目标】，在【期限】内'],
@@ -1067,7 +1137,7 @@ export default function IdeasView({ ideas, onReload, onOpenTask }) {
                           <button className="btn btn--primary" disabled={fieldSaving} onClick={saveFieldEdit}>
                             {fieldSaving ? '保存中…' : '保存'}
                           </button>
-                          <button className="btn btn--ghost" onClick={() => { setFieldEdit(false); setFieldForm(null) }}>
+                          <button className="btn btn--ghost" onClick={() => { setFieldEdit(false); setFieldForm(null); setDraftNote(false) }}>
                             取消
                           </button>
                         </div>
