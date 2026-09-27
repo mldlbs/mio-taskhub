@@ -35,9 +35,10 @@ _TRUE = ("1", "true", "yes", "on")
 _MAX_READ = 8 * 1024 * 1024          # 单文件读取上限（防超大文件拖垮）
 # 允许经 CLI 调用的命令白名单（只读或低风险；不含任何写密钥/删除/LLM 消耗类）
 CLI_WHITELIST = ("status", "digest", "traces", "recall", "observe", "policy")
-# 需两级判定的只读子命令（creativity/insight 的 generate/ferment 会烧 LLM，故不放行）
+# 需两级判定的只读子命令（insight generate、creativity generate 会烧 LLM 不放行；
+# creativity ferment 烧 LLM 但仅由「跑一次发酵」按钮显式触发，2026-09-27 起放行）
 CLI_SUBCOMMANDS = {
-    ("creativity", "status"), ("creativity", "list"),
+    ("creativity", "status"), ("creativity", "list"), ("creativity", "ferment"),
     ("insight", "status"), ("insight", "list"),
 }
 
@@ -247,6 +248,22 @@ def insight(limit: int = 20) -> dict:
                              "--limit", str(max(1, min(int(limit), 100)))])
     return {"available": True, "status": status or {},
             "items": items if isinstance(items, list) else []}
+
+
+def ferment(limit: int = 5) -> dict:
+    """跑一次 Mio 创意发酵（**会调 LLM**，显式按钮触发）：
+    复审 active 假设 → 重打 N/F/I 分 → promote/keep/reject。
+    调用方（前端）在拿到结果后应重新 GET /mio/ferment 刷新映射。
+    """
+    if not available():
+        return {"available": False, "fermented": 0, "results": []}
+    ok, data = _json_stdout(["--json", "creativity", "ferment",
+                             "--limit", str(max(1, min(int(limit), 20)))],
+                            timeout=120.0)
+    if not ok or not isinstance(data, dict):
+        return {"available": True, "fermented": 0, "results": [],
+                "error": "ferment failed (CLI error or non-JSON output)"}
+    return {"available": True, **data}
 
 
 def _project_name() -> str:

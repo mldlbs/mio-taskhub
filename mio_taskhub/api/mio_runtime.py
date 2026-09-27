@@ -7,6 +7,7 @@
 - GET  /api/v1/mio/creativity — 创意假设（status + 三维评分）
 - GET  /api/v1/mio/insight    — 洞察（生成走 MCP）
 - GET  /api/v1/mio/ferment    — 发酵映射：Mio 假设 → taskhub idea 生命周期建议（只读）
+- POST /api/v1/mio/creativity/ferment — 手动跑一次发酵（会调 LLM，显式按钮触发）
 - POST /api/v1/mio/ferment/{hyp_id}/sync — 把假设同步为 taskhub 想法（幂等，带 mio-hyp 关联标签）
 - GET  /api/v1/mio/contract   — 契约冒烟自检结果（缓存；ContractJob 每 60min 跑一次；?run=1 立即重跑）
 """
@@ -183,6 +184,13 @@ def mio_ferment(limit: int = Query(50, ge=1, le=100),
             "pending_actions": sum(1 for x in items if x["action"]),
         },
     }
+
+
+@router.post("/creativity/ferment")
+def mio_creativity_ferment_run(limit: int = Query(5, ge=1, le=20)):
+    """手动跑一次 Mio 发酵（**会调 LLM**，耗时约 10-60s；跑完前端应重新
+    GET /ferment 刷新映射）。结果含 fermented 数与每条的 verdict/reason。"""
+    return mio.ferment(limit)
 
 
 @router.post("/ferment/{hyp_id}/sync")

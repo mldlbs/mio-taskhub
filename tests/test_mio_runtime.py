@@ -140,11 +140,11 @@ def test_mio_api_endpoints(tmp_path, monkeypatch):
 
 # ── creativity（只读并入）────────────────────────────────────────────────
 
-def test_whitelist_allows_readonly_creativity_only():
+def test_whitelist_creativity_policy():
     assert mio._check_allowed(["--json", "creativity", "list", "--limit", "5"]) is None
     assert mio._check_allowed(["--json", "creativity", "status"]) is None
     assert mio._check_allowed(["creativity", "generate"]) is not None      # 烧 LLM → 拒
-    assert mio._check_allowed(["creativity", "ferment"]) is not None
+    assert mio._check_allowed(["creativity", "ferment"]) is None           # 发酵按钮显式触发（2026-09-27 放行）
     assert mio._check_allowed(["--json", "insight", "list"]) is None
     assert mio._check_allowed(["--json", "insight", "generate"]) is not None
     assert mio._check_allowed(["rm", "-rf", "/"]) is not None

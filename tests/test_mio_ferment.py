@@ -174,3 +174,54 @@ def test_ferment_items_detail_defaults_when_absent():
     assert d["strategy"] is None and d["createdAt"] is None
     assert d["idea"] == "the idea body"  # _hyp 自带正文
     assert d["sourceLabels"] == ["mio"]  # _hyp 自带来源
+
+
+# ── 跑一次发酵（POST /creativity/ferment 执行体，烧 LLM） ──────────────────
+
+def test_runner_ferment_parses_json(monkeypatch):
+    monkeypatch.setattr(mio_rt, "available", lambda: True)
+    monkeypatch.setattr(
+        mio_rt, "_json_stdout",
+        lambda args, timeout=300.0: (True, {"fermented": 2,
+                                            "results": [{"verdict": "promote"},
+                                                        {"verdict": "keep"}]}))
+    out = mio_rt.ferment(5)
+    assert out["available"] and out["fermented"] == 2
+    assert len(out["results"]) == 2
+
+
+def test_runner_ferment_cli_error(monkeypatch):
+    monkeypatch.setattr(mio_rt, "available", lambda: True)
+    monkeypatch.setattr(mio_rt, "_json_stdout", lambda args, timeout=300.0: (False, None))
+    out = mio_rt.ferment(5)
+    assert out["available"] and out["fermented"] == 0 and "error" in out
+
+
+def test_runner_ferment_unavailable(monkeypatch):
+    monkeypatch.setattr(mio_rt, "available", lambda: False)
+    out = mio_rt.ferment()
+    assert out["available"] is False and out["fermented"] == 0
+
+
+def test_runner_ferment_clamps_limit(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(mio_rt, "available", lambda: True)
+
+    def fake(args, timeout=300.0):
+        seen["args"] = args
+        return True, {"fermented": 0, "results": []}
+
+    monkeypatch.setattr(mio_rt, "_json_stdout", fake)
+    mio_rt.ferment(999)
+    i = seen["args"].index("--limit")
+    assert seen["args"][i + 1] == "20"          # 上限钳到 20
+    assert seen["args"][:3] == ["--json", "creativity", "ferment"]
+
+
+def test_post_creativity_ferment(monkeypatch):
+    monkeypatch.setattr(mio_rt, "ferment",
+                        lambda limit=5: {"available": True, "fermented": 1,
+                                         "results": [{"verdict": "keep"}]})
+    r = client.post("/api/v1/mio/creativity/ferment?limit=3")
+    assert r.status_code == 200
+    assert r.json()["fermented"] == 1 and r.json()["available"]
