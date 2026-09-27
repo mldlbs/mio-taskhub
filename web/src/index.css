@@ -2300,6 +2300,39 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
 .ideas__cols { flex: 1; display: grid; grid-template-columns: 300px 1fr; gap: 14px; min-height: 0; }
 
 /* Mio 发酵映射（只读面板） */
+/* 视图 tabs：想法列表 / Mio 发酵（切换后列表视图零占用） */
+.ideas__tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); }
+.ideas__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  margin-bottom: -1px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-dim);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+.ideas__tab:hover { color: var(--ink); }
+.ideas__tab.is-active { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+.ideas__tab-badge {
+  min-width: 16px;
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  color: #fff;
+  background: var(--danger);
+  border-radius: 999px;
+}
+
+/* 发酵独立视图：占满主区，不再限 3 行 */
+.ideas__mio--pane { flex: 1; min-height: 0; }
+.ideas__mio--pane .ideas__mio-list { max-height: none; flex: 1; min-height: 0; }
+
 .ideas__mio { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-soft); }
 .ideas__mio-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ideas__mio-h { font-size: 13px; font-weight: 700; white-space: nowrap; }

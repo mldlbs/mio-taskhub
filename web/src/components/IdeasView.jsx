@@ -245,6 +245,8 @@ export default function IdeasView({ ideas, onReload }) {
   const [fermOpen, setFermOpen] = useState(null)
   const [fermRunning, setFermRunning] = useState(false)
   const [fermNote, setFermNote] = useState('')
+  // 视图 tab：list=想法列表（默认）/ ferment=Mio 发酵独立视图（列表视图零占用）
+  const [ideasTab, setIdeasTab] = useState('list')
   const [cockpit, setCockpit] = useState(null)
   // 结构化字段编辑（FR-1：8 字段一次定型，P0 前端可写；此前仅 API 可改）
   const [fieldEdit, setFieldEdit] = useState(false)
@@ -539,6 +541,9 @@ export default function IdeasView({ ideas, onReload }) {
   const visible = showCancelled ? filtered : filtered.filter(i => i.status !== 'cancelled')
   const adrCount = ideas.filter(i => i.idea_type === 'adr').length
   const cancelledCount = ideas.filter(i => i.status === 'cancelled').length
+  const fermentOn = !!(ferment && ferment.available && Array.isArray(ferment.items) && ferment.items.length > 0)
+  const fermentPending = ferment?.counts?.pending_actions || 0
+  const showList = !fermentOn || ideasTab === 'list'
 
   return (
     <div className="ideas">
@@ -549,6 +554,21 @@ export default function IdeasView({ ideas, onReload }) {
         <button className="btn btn--primary" onClick={() => setCreating(c => !c)}>{creating ? '取消' : '+ 记个想法'}</button>
       </div>
 
+      {fermentOn && (
+        <div className="ideas__tabs" role="tablist" aria-label="想法视图切换">
+          <button className={`ideas__tab${showList ? ' is-active' : ''}`} role="tab" aria-selected={showList}
+                  onClick={() => setIdeasTab('list')}>想法</button>
+          <button className={`ideas__tab${showList ? '' : ' is-active'}`} role="tab" aria-selected={!showList}
+                  onClick={() => setIdeasTab('ferment')}>
+            Mio 发酵
+            {fermentPending > 0 && (
+              <span className="ideas__tab-badge" title={`${fermentPending} 个可推进`}>{fermentPending}</span>
+            )}
+          </button>
+        </div>
+      )}
+
+      {showList && (<>
       <div className="ideas__filter">
         {[
           { k: 'all', label: `全部 ${ideas.length}` },
@@ -583,9 +603,10 @@ export default function IdeasView({ ideas, onReload }) {
           </div>
         </div>
       )}
+      </>)}
 
-      {ferment && ferment.available && ferment.items.length > 0 && (
-        <div className="ideas__mio">
+      {fermentOn && ideasTab === 'ferment' && (
+        <div className="ideas__mio ideas__mio--pane">
           <div className="ideas__mio-head">
             <span className="ideas__mio-h">Mio 发酵</span>
             <span className="ideas__mio-hint">
@@ -650,6 +671,7 @@ export default function IdeasView({ ideas, onReload }) {
         </div>
       )}
 
+      {showList && (
       <div className="ideas__cols">
         <div className="ideas__list">
           {visible.length === 0 && <div className="ideas__empty">{typeFilter === 'adr' ? '还没有 ADR。把想法推进到「已成形」后可演化为 ADR。' : '还没有想法。点右上角「记个想法」，随手把需求、点子、改进记下来。'}</div>}
@@ -1110,6 +1132,7 @@ export default function IdeasView({ ideas, onReload }) {
           )}
         </div>
       </div>
+      )}
 
       {/* ADR 原始 Markdown 弹层 */}
       {adrMd && (
