@@ -717,3 +717,46 @@ def test_idea_p0_new_field_validation():
         r = await c.post("/api/v1/ideas", json={"title": "t2", "risks": "bad"})
         assert r.status_code == 422
     _with_client(k)
+
+
+# ---------- P1 包 B（FR-11）：hypotheses 引用字段 ----------
+
+def test_idea_hypotheses_null_normalize():
+    """FR-11：旧行 hypotheses NULL → 输出 []，空值安全。"""
+    async def k(c):
+        r = await c.post("/api/v1/ideas", json={"title": "旧行为"})
+        i = r.json()
+        assert i["hypotheses"] == []
+        r2 = await c.get(f"/api/v1/ideas/{i['id']}")
+        assert r2.json()["hypotheses"] == []
+    _with_client(k)
+
+
+def test_idea_hypotheses_create_and_patch_diff():
+    """FR-11：创建/编辑 hypotheses 进白名单 + IdeaChange diff 可回溯。"""
+    async def k(c):
+        r = await c.post("/api/v1/ideas", json={"title": "t", "hypotheses": ["h1"]})
+        assert r.status_code == 200
+        i = r.json()
+        assert i["hypotheses"] == ["h1"]
+
+        r = await c.patch(f"/api/v1/ideas/{i['id']}", json={"hypotheses": ["h1", "h2"]})
+        assert r.status_code == 200
+        assert r.json()["version"] == 2
+        d = await c.get(f"/api/v1/ideas/{i['id']}")
+        changes = d.json()["changes"]
+        assert changes[0]["diff"]["hypotheses"] == {"old": ["h1"], "new": ["h1", "h2"]}
+    _with_client(k)
+
+
+def test_idea_hypotheses_must_be_string_list():
+    """FR-11：hypotheses 必须是字符串 id 列表（非 list / 混入非字符串 → 422）。"""
+    async def k(c):
+        r = await c.post("/api/v1/ideas", json={"title": "t", "hypotheses": "h1"})
+        assert r.status_code == 422
+        r = await c.post("/api/v1/ideas", json={"title": "t", "hypotheses": [123]})
+        assert r.status_code == 422
+        iid = (await c.post("/api/v1/ideas", json={"title": "t2"})).json()["id"]
+        r = await c.patch(f"/api/v1/ideas/{iid}", json={"hypotheses": ["ok", 5]})
+        assert r.status_code == 422
+    _with_client(k)

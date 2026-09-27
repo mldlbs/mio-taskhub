@@ -189,3 +189,138 @@ def test_cockpit_tasks_fold_over_20():
         assert data["total"] == 21
         assert len(data["items"]) == 21
     _with_client(k)
+
+
+# ---------- P1 包 B（FR-13/FR-14/FR-16）：假设区真实聚合 ----------
+
+@pytest.fixture(autouse=True)
+def _clear_hyp_cache():
+    cockpit._HYP_CACHE.clear()
+    yield
+    cockpit._HYP_CACHE.clear()
+
+
+def test_cockpit_hypotheses_scores_and_broken(monkeypatch):
+    """FR-13/FR-14：三元分透传 + 断链标 broken 不移除 + cached_at + source=mio。"""
+    calls = []
+
+    def fake(**kw):
+        calls.append(kw)
+        return {"available": True, "ok": True, "items": [
+            {"id": "h1", "title": "假设一", "status": "active",
+             "novelty": 9, "feasibility": 8, "impact": 7, "score": 8.0},
+        ]}
+
+    monkeypatch.setattr(cockpit.mio_runtime, "creativity", fake)
+
+    async def k(c):
+        iid = await _make_idea(c, hypotheses=["h1", "gone"])
+        r = await c.get(f"/api/v1/ideas/{iid}/cockpit")
+        assert r.status_code == 200
+        sec = r.json()["sections"]["hypotheses"]
+        assert sec["status"] == "ok"
+        assert sec["cached_at"]
+        assert sec["data"]["source"] == "mio"
+        items = sec["data"]["items"]
+        assert [x["id"] for x in items] == ["h1", "gone"]  # 保关联顺序
+        assert items[0]["novelty"] == 9 and items[0]["feasibility"] == 8
+        assert items[0]["impact"] == 7 and items[0]["score"] == 8.0
+        assert items[0]["broken"] is False
+        assert items[1] == {"id": "gone", "broken": True}  # 断链：标记但不静默删除
+        # FR-16：5min TTL 内缓存命中，第二次请求不再打 Mio
+        assert len(calls) == 1
+        r2 = await c.get(f"/api/v1/ideas/{iid}/cockpit")
+        assert r2.status_code == 200
+        assert r2.json()["sections"]["hypotheses"]["status"] == "ok"
+        assert len(calls) == 1
+    _with_client(k)
+
+
+def test_cockpit_hypotheses_empty_skips_mio(monkeypatch):
+    """未关联假设 → items 空 + source=none，不打 Mio。"""
+
+    def boom(**kw):
+        raise AssertionError("不应调用 Mio")
+
+    monkeypatch.setattr(cockpit.mio_runtime, "creativity", boom)
+
+    async def k(c):
+        iid = await _make_idea(c)
+        r = await c.get(f"/api/v1/ideas/{iid}/cockpit")
+        assert r.status_code == 200
+        sec = r.json()["sections"]["hypotheses"]
+        assert sec["status"] == "ok"
+        assert sec["data"] == {"items": [], "source": "none", "total": 0}
+    _with_client(k)
+
+
+def test_cockpit_hypotheses_mio_fail_degrades_only_section(monkeypatch):
+    """FR-16：Mio CLI 失败 → 仅 hypotheses degraded reason=mio_timeout，其余 ok、接口 200。"""
+    monkeypatch.setattr(cockpit.mio_runtime, "creativity",
+                        lambda **kw: {"available": True, "ok": False,
+                                      "reason": "cli_failed", "items": []})
+
+    async def k(c):
+        iid = await _make_idea(c, hypotheses=["h1"])
+        r = await c.get(f"/api/v1/ideas/{iid}/cockpit")
+        assert r.status_code == 200
+        secs = r.json()["sections"]
+        assert secs["hypotheses"]["status"] == "degraded"
+        assert secs["hypotheses"]["reason"] == "mio_timeout"
+        assert secs["goal"]["status"] == "ok"
+        assert secs["tasks"]["status"] == "ok"
+    _with_client(k)
+
+
+def test_cockpit_hypotheses_mio_unavailable_degrades(monkeypatch):
+    """FR-16：Mio 运行时不可用 → degraded reason=mio_unavailable（分层于 timeout）。"""
+    monkeypatch.setattr(cockpit.mio_runtime, "creativity",
+                        lambda **kw: {"available": False, "ok": False,
+                                      "reason": "runtime_unavailable", "items": []})
+
+    async def k(c):
+        iid = await _make_idea(c, hypotheses=["h1"])
+        r = await c.get(f"/api/v1/ideas/{iid}/cockpit")
+        assert r.status_code == 200
+        secs = r.json()["sections"]
+        assert secs["hypotheses"]["status"] == "degraded"
+        assert secs["hypotheses"]["reason"] == "mio_unavailable"
+    _with_client(k)
+
+
+def test_cockpit_hypotheses_exception_degrades(monkeypatch):
+    """跨服务调用抛异常 → 降级 mio_timeout，不 500。"""
+    def boom(**kw):
+        raise RuntimeError("conn refused")
+
+    monkeypatch.setattr(cockpit.mio_runtime, "creativity", boom)
+
+    async def k(c):
+        iid = await _make_idea(c, hypotheses=["h1"])
+        r = await c.get(f"/api/v1/ideas/{iid}/cockpit")
+        assert r.status_code == 200
+        secs = r.json()["sections"]
+        assert secs["hypotheses"]["status"] == "degraded"
+        assert secs["hypotheses"]["reason"] == "mio_timeout"
+    _with_client(k)
+
+
+def test_cockpit_hypotheses_timeout_budget(monkeypatch):
+    """区块级 3s 预算兜底：Mio 调用拖死 → hypotheses degraded timeout（注入小预算）。"""
+    import time
+
+    def slow_mio(**kw):
+        time.sleep(1.0)  # 同步拖死在线程里，等 wait_for 超时
+        return {"available": True, "ok": True, "items": []}
+
+    monkeypatch.setattr(cockpit.mio_runtime, "creativity", slow_mio)
+    monkeypatch.setitem(cockpit.SECTION_TIMEOUTS, "hypotheses", 0.05)
+
+    async def k(c):
+        iid = await _make_idea(c, hypotheses=["h1"])
+        r = await c.get(f"/api/v1/ideas/{iid}/cockpit")
+        assert r.status_code == 200
+        secs = r.json()["sections"]
+        assert secs["hypotheses"]["status"] == "degraded"
+        assert secs["hypotheses"]["reason"] == "timeout"
+    _with_client(k)
