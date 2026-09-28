@@ -94,7 +94,8 @@ class NightRunner:
         cwd = agent_cfg.get("cwd") or None
         try:
             proc = subprocess.Popen(cmd, shell=True, cwd=cwd,
-                                    env={**os.environ, "MIO_TASKHUB_URL": url})
+                                    env={**os.environ, "MIO_TASKHUB_URL": url},
+                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             self._procs[name] = proc
             logger.info(f"spawned {name}: pid={proc.pid}")
             return True

@@ -102,6 +102,33 @@ def test_run_mio_invokes_cli(monkeypatch):
     assert calls["cmd"] == ["mio", "digest", "--days", "7", "--write-back"]
 
 
+def test_run_mio_passes_create_no_window(monkeypatch):
+    """热修 9b3c0a6f：CLI 是 .cmd 批处理，subprocess 必须带 CREATE_NO_WINDOW，否则 UI 点
+    「运行时/发酵/观测台」就弹 cmd 窗口（Windows）；POSIX 恒为 0。"""
+    import os
+    import subprocess as sp
+
+    captured = {}
+
+    class R:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    def fake_run(cmd, **kw):
+        captured.update(kw)
+        return R()
+
+    monkeypatch.setattr(mio, "mio_cli", lambda: ["mio.cmd"])
+    monkeypatch.setattr(mio.subprocess, "run", fake_run)
+    res = mio.run_mio(["--json", "status"])
+    assert res["ok"] is True
+    if os.name == "nt":
+        assert captured.get("creationflags") == sp.CREATE_NO_WINDOW
+    else:
+        assert captured.get("creationflags", 0) == 0
+
+
 # ── digest 定时 ───────────────────────────────────────────────────────────
 
 def test_digest_job_ticks_when_enabled(monkeypatch):

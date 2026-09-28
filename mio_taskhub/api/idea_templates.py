@@ -1,6 +1,9 @@
 import subprocess
 import json
 from typing import List, Optional, Dict
+
+# Windows：隐藏子进程控制台窗口（观测台 insights / creativity generate 走 mio.cmd）
+_CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
@@ -40,7 +43,8 @@ def _fetch_observer_insights(limit: int = 2, timeout: float = 15.0) -> list:
     try:
         proc = subprocess.run(cli + ["--json", "observer", "insights"],
                               capture_output=True, text=True,
-                              encoding="utf-8", errors="replace", timeout=timeout)
+                              encoding="utf-8", errors="replace", timeout=timeout,
+                              creationflags=_CREATE_NO_WINDOW)
         if proc.returncode != 0:
             return []
         data = json.loads(proc.stdout or "[]")
@@ -88,7 +92,8 @@ def _generate_ideas(goal: str, context: str, timeout: float = 120.0) -> list:
     for attempt in range(2):
         try:
             proc = subprocess.run(args, capture_output=True, text=True,
-                                  encoding="utf-8", errors="replace", timeout=timeout)
+                                  encoding="utf-8", errors="replace", timeout=timeout,
+                                  creationflags=_CREATE_NO_WINDOW)
         except subprocess.TimeoutExpired:
             raise HTTPException(504, f"creativity generate 超时（{int(timeout)}s）")
         if proc.returncode != 0:

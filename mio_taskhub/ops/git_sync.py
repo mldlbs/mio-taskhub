@@ -45,6 +45,7 @@ def _run_git(*args: str) -> bool:
             text=True,
             encoding='utf-8',
             timeout=30,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         elapsed_ms = (time.perf_counter() - start) * 1000
         op = args[0] if args else "unknown"

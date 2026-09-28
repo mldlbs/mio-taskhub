@@ -20,6 +20,9 @@ import logging
 import os
 import shutil
 import subprocess
+
+# Windows：隐藏子进程控制台窗口（.cmd/.bat 经 cmd.exe 宿主会开可见窗口）
+_CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 import threading
 import time
 from datetime import datetime, timezone
@@ -366,7 +369,8 @@ def run_mio(args: List[str], timeout: float = 300.0) -> dict:
         return {"ok": False, "code": None, "stdout": "", "stderr": "mio CLI not found"}
     try:
         r = subprocess.run(cmd + list(args), capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=timeout)
+                           encoding="utf-8", errors="replace", timeout=timeout,
+                           creationflags=_CREATE_NO_WINDOW)
         return {"ok": r.returncode == 0, "code": r.returncode,
                 "stdout": r.stdout or "", "stderr": r.stderr or ""}
     except subprocess.TimeoutExpired:
@@ -464,7 +468,8 @@ def _prefix_candidates() -> List[Path]:
     if npm:
         try:
             root = subprocess.run([npm, "root", "-g"], capture_output=True,
-                                  text=True, timeout=10)
+                                  text=True, timeout=10,
+                                  creationflags=_CREATE_NO_WINDOW)
             if root.returncode == 0:
                 rp = Path((root.stdout or "").strip())
                 if rp.is_dir():
