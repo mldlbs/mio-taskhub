@@ -1,4 +1,4 @@
-"""OpenTelemetry configuration for mio-taskhub."""
+﻿"""OpenTelemetry configuration for mio-taskhub."""
 import os
 import logging
 from opentelemetry import trace
@@ -19,7 +19,7 @@ _tracer_provider: trace.TracerProvider | None = None
 _meter_provider = None
 
 
-def init_otel(service_name: str = "mio-taskhub", service_version: str = "0.4.0") -> None:
+def init_otel(service_name: str = "mio-taskhub", service_version: str = "0.5.0") -> None:
     """Initialize OpenTelemetry tracing and metrics."""
     global _tracer_provider, _meter_provider
 
