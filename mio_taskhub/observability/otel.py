@@ -1,4 +1,4 @@
-﻿"""OpenTelemetry configuration for mio-taskhub."""
+"""OpenTelemetry configuration for mio-taskhub."""
 import os
 import logging
 from opentelemetry import trace
