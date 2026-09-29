@@ -3222,7 +3222,8 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
   .topo__edge { fill: none; stroke: var(--line); stroke-width: 1.2; opacity: .75; transition: stroke .15s, stroke-width .15s, opacity .15s; }
   .topo__edge.is-crit { stroke: var(--accent); stroke-width: 1.8; opacity: .95; }
   .topo__edge.is-hl { stroke: var(--accent); stroke-width: 2.4; opacity: 1; }
-  .topo-node.is-dim { opacity: .35; }
+  .topo__edge.is-dim { stroke: var(--line); opacity: .22; }
+  .topo-node.is-dim { opacity: .3; filter: grayscale(.7); }
   .topo-node.is-focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   .topo__legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 8px 0 4px; font-size: 11.5px; color: var(--ink-faint); align-items: center; }
   .topo__legend .lg { display: inline-block; width: 18px; height: 3px; border-radius: 2px; margin-right: 5px; vertical-align: middle; background: var(--line); }
@@ -3230,6 +3231,16 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
   .topo__legend .lg--block { background: rgba(220,80,80,.8); }
   .topo__legend .lg--norm { background: var(--line); }
   .topo__chain { margin: 6px 0 0; padding: 8px 12px; font-size: 12px; line-height: 1.7; background: var(--bg-soft); border-left: 3px solid var(--accent); border-radius: 6px; color: var(--ink); }
+  /* 链簇卡片 + 搜索定位（task d4671b14） */
+  .topo__clusters { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-top: 12px; }
+  .topo-cluster { display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer; }
+  .topo-cluster:hover { border-color: var(--accent); }
+  .topo-cluster__title { font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1.4; }
+  .topo-cluster__stats { display: flex; flex-wrap: wrap; gap: 8px; font-size: 11.5px; color: var(--ink-dim); }
+  .topo-cluster__warn { color: rgba(220,80,80,.9); }
+  .topo-cluster__sub { font-size: 11px; color: var(--ink-faint); line-height: 1.5; }
+  .topo__search { width: 170px; }
+  .topo__search-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
 
   .obs-view { max-width: none; } /* observability deck: full width */
   .stats-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 22px; }
