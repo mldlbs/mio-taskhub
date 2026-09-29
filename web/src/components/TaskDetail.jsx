@@ -49,6 +49,12 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
   const [saveErr, setSaveErr] = useState(null)
   const [events, setEvents] = useState([])
   const [eventsLoading, setEventsLoading] = useState(false)
+  // 依赖编辑（前端手工建依赖；成环/自依赖由后端 check_cycle → 422 拦截）
+  const [depEdit, setDepEdit] = useState(false)
+  const [depList, setDepList] = useState([])
+  const [depPick, setDepPick] = useState('')
+  const [depBusy, setDepBusy] = useState(false)
+  const [depErr, setDepErr] = useState(null)
 
   useEffect(() => {
     closeRef.current?.focus()
@@ -238,6 +244,56 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
               })}
             </ul>
           )}
+          <div className="dep-edit">
+            {!depEdit ? (
+              <button className="btn btn--ghost btn--xs"
+                      onClick={() => { setDepList([...(task.depends_on || [])]); setDepPick(''); setDepErr(null); setDepEdit(true) }}>
+                编辑依赖
+              </button>
+            ) : (
+              <div className="dep-edit__box">
+                <ul className="dep-list">
+                  {depList.length === 0 && <li className="detail-muted">（无前置）</li>}
+                  {depList.map(did => (
+                    <li key={did}>
+                      <span>{(tasks || []).find(x => x.id === did)?.title || did}</span>
+                      <button className="btn btn--ghost btn--xs"
+                              onClick={() => setDepList(l => l.filter(x => x !== did))}>移除</button>
+                    </li>
+                  ))}
+                </ul>
+                <div className="dep-edit__add">
+                  <select className="inp inp--xs" value={depPick} onChange={e => setDepPick(e.target.value)}>
+                    <option value="">选择前置任务…</option>
+                    {(tasks || [])
+                      .filter(x => x.id !== task.id && !depList.includes(x.id))
+                      .map(x => <option key={x.id} value={x.id}>{x.title}</option>)}
+                  </select>
+                  <button className="btn btn--ghost btn--xs" disabled={!depPick}
+                          onClick={() => { if (depPick) { setDepList(l => [...l, depPick]); setDepPick('') } }}>
+                    添加
+                  </button>
+                </div>
+                {depErr && <p className="dep-edit__err">{depErr}</p>}
+                <div className="dep-edit__actions">
+                  <button className="btn btn--primary btn--xs" disabled={depBusy}
+                          onClick={async () => {
+                            setDepBusy(true); setDepErr(null)
+                            try {
+                              await api.updateTask(task.id, { depends_on: depList })
+                              setDepEdit(false)
+                            } catch (e) {
+                              setDepErr(e?.message || String(e))
+                            } finally { setDepBusy(false) }
+                          }}>
+                    {depBusy ? '保存中…' : '保存依赖'}
+                  </button>
+                  <button className="btn btn--ghost btn--xs" onClick={() => setDepEdit(false)}>取消</button>
+                </div>
+                <p className="detail-muted dep-edit__hint">引用自身或构成依赖环会被后端拒绝（422）；保存后列表自动刷新。</p>
+              </div>
+            )}
+          </div>
           <div style={{ marginTop: 12 }}>
             <DependencyGraph task={task} tasks={tasks} onOpen={onOpenTask} />
           </div>

@@ -55,6 +55,10 @@ export default function TopoView({ tasks, onOpen }) {
   const [showAll, setShowAll] = useState(false)
   const { layers } = useMemo(() => kahnLayers(tasks), [tasks])
   const cpm = useMemo(() => computeCPM(tasks), [tasks])
+  // 无依赖 = 平拓扑（只有 L1）；成环节点游离在分层外（Kahn 无法安置）
+  const depCount = tasks.filter(t => (t.depends_on || []).length > 0).length
+  const placed = useMemo(() => new Set(layers.flat().map(t => t.id)), [layers])
+  const dropped = tasks.filter(t => !placed.has(t.id))
   const critIds = useMemo(() => {
     if (showAll) {
       const s = new Set()
@@ -98,6 +102,22 @@ export default function TopoView({ tasks, onOpen }) {
         <span>阻塞 {tasks.filter(isBlocked).length}</span>
       </div>
       {layers.length === 0 && <div className="topo__empty">还没有任务。</div>}
+      {tasks.length > 0 && depCount === 0 && (
+        <div className="topo__hint">
+          当前任务之间<b>还没有依赖关系</b> —— 拓扑是平的（全部落在 L1），
+          关键路径与阻塞都显示不出来。依赖的三种来源：
+          ① 想法详情「行为拆解」拆出的子任务自带依赖；
+          ② agent 建任务时带 <span className="mono">depends_on</span>；
+          ③ 打开任务 →「依赖」区 →「编辑依赖」手工添加。
+        </div>
+      )}
+      {dropped.length > 0 && (
+        <div className="topo__hint topo__hint--warn">
+          ⚠ {dropped.length} 个任务因依赖成环未参与分层（L 序列里看不到）——
+          请打开这些任务检查依赖：{dropped.slice(0, 3).map(t => t.title).join('、')}
+          {dropped.length > 3 ? ' 等' : ''}
+        </div>
+      )}
       {layers.map((layer, i) => (
         <div key={i} className="topo__layer">
           <div className="topo__layer-tag">L{i + 1}</div>

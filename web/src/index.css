@@ -3200,6 +3200,23 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
 
   /* --- stats dashboard --- */
   .stats-view { max-width: none; } /* stats panel: full width */
+  /* topology hints (task 6eecdad8) */
+  .topo__hint {
+    margin: 10px 0 0; padding: 10px 12px; font-size: 12px; line-height: 1.6;
+    color: var(--ink-dim); background: var(--bg-soft);
+    border: 1px dashed var(--line); border-radius: var(--radius-sm);
+  }
+  .topo__hint--warn { color: var(--ink); border-style: solid; }
+  /* task dependency editor (task 6eecdad8) */
+  .dep-edit { margin-top: 10px; }
+  .dep-edit__box { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--bg-soft); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+  .dep-edit__add { display: flex; gap: 8px; align-items: center; }
+  .dep-edit__add .inp { flex: 1 1 auto; min-width: 0; }
+  .dep-edit__actions { display: flex; gap: 8px; }
+  .dep-edit__err { margin: 0; font-size: 12px; color: var(--ink); background: rgba(220,80,80,.12); border: 1px solid rgba(220,80,80,.4); border-radius: 6px; padding: 6px 10px; }
+  .dep-edit__hint { margin: 0; font-size: 11px; }
+  .inp--xs { font-size: 12px; padding: 3px 8px; }
+
   .obs-view { max-width: none; } /* observability deck: full width */
   .stats-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 22px; }
   .stats-header h2 { margin: 0; font-size: 18px; }
