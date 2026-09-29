@@ -31,7 +31,7 @@ def test_cockpit_structure():
         body = r.json()
         assert body["idea_id"] == iid
         assert "degraded" not in body  # 禁止整包 degraded 字段
-        assert body["next_action"] is None  # 步骤④ 接规则引擎
+        assert body["next_action"]["rule_id"] == "stage_default"  # never empty (v1.4 fallback)  # 步骤④ 接规则引擎
         assert set(body["sections"].keys()) == {
             "goal", "hypotheses", "mvp", "tasks", "risks", "approvals", "retrospective",
         }
