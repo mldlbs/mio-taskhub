@@ -74,9 +74,10 @@ function Section({ title, icon, badge, badgeClass, children, defaultOpen = false
   )
 }
 
-function ConfigPanel({ config, onSave, onToggleEnabled, enabled, saving, agents, onAgentsChange }) {
+function ConfigPanel({ config, onSave, onToggleEnabled, enabled, saving, agents, onAgentsChange, projects }) {
   const [winStart, setWinStart] = useState(config?.window_start || DEFAULT_START)
   const [winEnd, setWinEnd] = useState(config?.window_end || DEFAULT_END)
+  const [scopeProjects, setScopeProjects] = useState(config?.projects || [])
   const [draftAgents, setDraftAgents] = useState(agents || [])
   const [editingIdx, setEditingIdx] = useState(null)
   const [editForm, setEditForm] = useState({})
@@ -88,12 +89,16 @@ function ConfigPanel({ config, onSave, onToggleEnabled, enabled, saving, agents,
   }, [agents])
 
   useEffect(() => {
+    setScopeProjects(config?.projects || [])
+  }, [config?.projects])
+
+  useEffect(() => {
     setWinStart(config?.window_start || DEFAULT_START)
     setWinEnd(config?.window_end || DEFAULT_END)
   }, [config?.window_start, config?.window_end])
 
   const save = () => {
-    onSave({ window_start: winStart, window_end: winEnd, agents: draftAgents, enabled })
+    onSave({ window_start: winStart, window_end: winEnd, agents: draftAgents, projects: scopeProjects, enabled })
   }
 
   const startEdit = (i) => {
@@ -139,9 +144,9 @@ function ConfigPanel({ config, onSave, onToggleEnabled, enabled, saving, agents,
         <button
           className={`btn ${enabled ? 'btn--ok' : 'btn--ghost'} np__nr-toggle`}
           onClick={onToggleEnabled}
-          title={enabled ? '夜班执行中' : '开启后按窗口自动执行'}
+          title={enabled ? '空闲计划执行中' : '开启后按窗口自动执行'}
         >
-          {enabled ? '● 夜班 ON' : '○ 夜班 OFF'}
+          {enabled ? '● 空闲 ON' : '○ 空闲 OFF'}
         </button>
         <button className="btn btn--accent np-cfg__save" onClick={save} disabled={saving}>
           {saving ? '保存中…' : '✓ 保存配置'}
@@ -164,9 +169,24 @@ function ConfigPanel({ config, onSave, onToggleEnabled, enabled, saving, agents,
               <input placeholder="名称 (agent)" value={addForm.agent} onChange={e => setAddForm(f => ({ ...f, agent: e.target.value }))} />
               <input placeholder="类型 (agent_type)" value={addForm.agent_type} onChange={e => setAddForm(f => ({ ...f, agent_type: e.target.value }))} />
             </div>
-            <input placeholder="命令模板，支持 {url} {token} 占位符" value={addForm.command} onChange={e => setAddForm(f => ({ ...f, command: e.target.value }))} />
+            <input placeholder="命令模板，支持 {url} {token} {project} 占位符" value={addForm.command} onChange={e => setAddForm(f => ({ ...f, command: e.target.value }))} />
             <input placeholder="工作目录 cwd (可选)" value={addForm.cwd} onChange={e => setAddForm(f => ({ ...f, cwd: e.target.value }))} />
-            <button className="btn btn--accent btn--xs" onClick={addAgent} disabled={!addForm.command}>确认添加</button>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <button className="btn btn--ghost btn--xs" type="button"
+                      title="填入「空闲执行 worker」模板：领任务 → 调 agent CLI 执行 → 回写结果"
+                      onClick={() => setAddForm({
+                        agent: 'idle-worker', agent_type: 'cli',
+                        command: 'python idle_worker.py idle-worker --cli "opencode run {prompt}"',
+                        cwd: '',
+                      })}>
+                模板：空闲执行 worker
+              </button>
+              <button className="btn btn--accent btn--xs" onClick={addAgent} disabled={!addForm.command}>确认添加</button>
+            </div>
+            <p className="detail-muted" style={{ fontSize: '11px', margin: 0 }}>
+              `idle_worker.py` 随安装包发布（在安装目录下），cwd 建议填安装目录；命令里可用 {'{url}'}/{' '}
+              {'{token}'}/{' '}{'{project}'} 占位符。也可直接用任意 agent CLI（如 <span className="mono">opencode run</span>）。
+            </p>
           </div>
         )}
 
@@ -203,6 +223,25 @@ function ConfigPanel({ config, onSave, onToggleEnabled, enabled, saving, agents,
             )}
           </div>
         ))}
+      </div>
+
+      <div className="np-scope">
+        <span className="np-scope__label">项目范围（不选 = 全部项目）</span>
+        <div className="np-scope__list">
+          {(projects || []).length === 0 && <span className="detail-muted">未发现项目</span>}
+          {(projects || []).map(p => (
+            <label key={p} className={`np-scope__item${scopeProjects.includes(p) ? ' is-on' : ''}`}>
+              <input type="checkbox" checked={scopeProjects.includes(p)}
+                     onChange={e => setScopeProjects(list => e.target.checked
+                       ? [...list, p] : list.filter(x => x !== p))} />
+              {p}
+            </label>
+          ))}
+        </div>
+        <p className="np-scope__hint">
+          只领取所选项目的任务（避免把不适合空闲做的项目丢进来）；命令模板里用
+          <span className="mono"> {'{project}'} </span>占位符把范围传给 worker。
+        </p>
       </div>
     </div>
   )
@@ -440,6 +479,7 @@ export default function PlanView({ onSchedule }) {
             enabled={nrEnabled}
             saving={nrSaving}
             agents={nrConfig?.agents}
+            projects={projects}
           />
         </Section>
 

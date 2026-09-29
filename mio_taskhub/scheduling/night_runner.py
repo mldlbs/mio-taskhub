@@ -24,8 +24,11 @@ DEFAULT_CONFIG = {
     "window_start": "22:00",
     "window_end": "07:00",
     # 每项: {"agent": "opencode", "agent_type": "opencode", "command": "...", "cwd": ""}
-    # command 支持 {url} {token} 占位符
+    # command 支持 {url} {token} {project} 占位符
+    #   {project} = 下方 projects 逗号拼接（空 = 全部项目，适合没有范围限制的场景）
     "agents": [],
+    # 空闲执行范围：只领取这些项目的任务；空数组 = 全部项目
+    "projects": [],
 }
 
 
@@ -60,11 +63,19 @@ def load_config() -> dict:
 
 
 def save_config(cfg: dict) -> dict:
+    projects = []
+    for p in (cfg.get("projects") or []):
+        if p is None:
+            continue
+        s = str(p).strip()
+        if s:
+            projects.append(s)
     clean = {
         "enabled": bool(cfg.get("enabled", False)),
         "window_start": str(cfg.get("window_start", DEFAULT_CONFIG["window_start"])),
         "window_end": str(cfg.get("window_end", DEFAULT_CONFIG["window_end"])),
         "agents": [a for a in cfg.get("agents", []) if isinstance(a, dict) and a.get("command")],
+        "projects": projects,
     }
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -91,6 +102,9 @@ class NightRunner:
         url = os.environ.get("MIO_TASKHUB_URL", "http://127.0.0.1:48620")
         token = os.environ.get("MIO_TASKHUB_TOKEN", "")
         cmd = cmd.replace("{url}", url).replace("{token}", token)
+        # {project} = 空闲执行范围（顶层 projects；空 = 全部项目）
+        scope = load_config().get("projects") or []
+        cmd = cmd.replace("{project}", ",".join(str(p).strip() for p in scope if str(p).strip()))
         cwd = agent_cfg.get("cwd") or None
         try:
             proc = subprocess.Popen(cmd, shell=True, cwd=cwd,

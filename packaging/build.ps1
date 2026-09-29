@@ -94,7 +94,8 @@ Write-Host '[5/6] 复制分发文件 ...'
 $distFiles = @(
     'setup-agent.bat', 'setup-agent.ps1',
     'setup-opencode.bat', 'setup-opencode.ps1',
-    '使用说明.txt', 'mio-taskhub-widget.bat'
+    '使用说明.txt', 'mio-taskhub-widget.bat',
+    'agent_wrapper.py', 'idle_worker.py'
 )
 foreach ($f in $distFiles) {
     $src = Join-Path $root "packaging\$f"
