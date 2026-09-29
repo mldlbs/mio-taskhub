@@ -123,7 +123,8 @@ def test_rule_doc_unapproved():
         t.doc_statuses = {"spec": {"state": "approved"}}
         s.add(t)
         s.commit()
-        assert compute_next_action(s, s.get(Idea, iid)) is None
+        na2 = compute_next_action(s, s.get(Idea, iid))
+        assert na2["rule_id"] == "stage_default"  # 兜底生效，永不为空
 
 
 def test_rule_missing_action_items():
@@ -140,11 +141,12 @@ def test_rule_missing_action_items():
     assert na["rule_id"] == "missing_action_items"
 
 
-def test_no_rule_returns_none():
+def test_no_specific_rule_falls_back_to_stage():
     async def k(c):
         iid = await _make(c, goal="g", success_metric="m")
         with Session(engine) as s:
-            assert compute_next_action(s, s.get(Idea, iid)) is None
+            na2 = compute_next_action(s, s.get(Idea, iid))
+        assert na2["rule_id"] == "stage_default"  # 兜底生效，永不为空
     _with_client(k)
 
 
@@ -165,7 +167,8 @@ def test_dismiss_then_revival_on_snapshot_change():
         assert na["rule_id"] == "missing_goal"
         dismiss_rule(s, idea, "missing_goal")
         # 条件未变 → dismiss 生效
-        assert compute_next_action(s, idea) is None
+        na_fallback = compute_next_action(s, idea)
+        assert na_fallback["rule_id"] == "stage_default"  # 兜底生效，永不为空
         # 只补 goal → snapshot 变化 → 立即复活（仍缺 metric）
         idea = s.get(Idea, iid)
         idea.goal = "目标"
@@ -222,7 +225,7 @@ def test_dismiss_endpoint_and_revival_via_api():
                          json={"rule_id": "missing_goal"})
         assert r.status_code == 200
         r = await c.get(f"/api/v1/ideas/{iid}/cockpit")
-        assert r.json()["next_action"] is None
+        assert r.json()["next_action"]["rule_id"] == "stage_default"  # 兜底生效
         # 未命中规则 dismiss → 409
         r = await c.post(f"/api/v1/ideas/{iid}/next-action/dismiss",
                          json={"rule_id": "blocked_task"})
@@ -284,7 +287,8 @@ def test_high_risk_drives_unverified_assumption_rule():
         idea.assumptions = [{"hid": "h1", "text": "假设", "status": "validated"}]
         s.add(idea)
         s.commit()
-        assert compute_next_action(s, s.get(Idea, iid)) is None
+        na2 = compute_next_action(s, s.get(Idea, iid))
+        assert na2["rule_id"] == "stage_default"  # 兜底生效，永不为空
 
 
 def test_cockpit_outputs_high_risk_flag():
@@ -296,3 +300,91 @@ def test_cockpit_outputs_high_risk_flag():
         r = await c.get(f"/api/v1/ideas/{iid2}/cockpit")
         assert r.json()["high_risk"] is False
     _with_client(k)
+
+
+# ---------- 下一步动作永不为空（task fe156b05，用户裁决 2026-09-29）----------
+
+def _make_db(**kw):
+    with Session(engine) as s:
+        idea = Idea(title=kw.pop("title", "想法"), **kw)
+        s.add(idea)
+        s.commit()
+        return idea.id
+
+
+def _add_review(iid, items):
+    """closed + mode=review + 结构化 review（action_items）。"""
+    with Session(engine) as s:
+        d = Discussion(idea_id=iid, topic="结构化评审", status="closed",
+                       mode="review", conclusions="评审通过",
+                       review={"action_items": items})
+        s.add(d)
+        s.commit()
+        return d.id
+
+
+def _set_status(iid, status):
+    from mio_taskhub.models import IdeaStatus
+    with Session(engine) as s:
+        idea = s.get(Idea, iid)
+        idea.status = IdeaStatus(status)
+        s.add(idea)
+        s.commit()
+
+
+def _na(iid):
+    with Session(engine) as s:
+        return compute_next_action(s, s.get(Idea, iid))
+
+
+def test_rule_review_items_unconverted():
+    """评审行动项未转任务 → 一键转任务提示；已转（有 task_id）的不计数。"""
+    iid = _make_db(title="待转想法", goal="G", success_metric="M")
+    _add_review(iid, [
+        {"id": "a1", "action": "甲", "task_id": ""},
+        {"id": "a2", "action": "乙", "task_id": "t1"},
+        {"id": "a3", "action": "丙", "task_id": ""},
+    ])
+    na = _na(iid)
+    assert na is not None
+    assert na["rule_id"] == "review_items_unconverted"
+    assert "2 条待转" in na["action"]
+    assert na["snapshot"]["unconverted_action_items"] == 2
+
+
+def test_stage_default_fires_for_new():
+    """字段齐全、无任务无评审的 new → 兜底建议「推进为发酵中」。"""
+    iid = _make_db(title="兜底想法", goal="G", success_metric="M")
+    na = _na(iid)
+    assert na is not None
+    assert na["rule_id"] == "stage_default"
+    assert "发酵中" in na["action"]
+
+
+def test_stage_default_by_status():
+    """各阶段兜底文案。"""
+    for status, kw in (("formed", "拆解"), ("broken_down", "复盘"),
+                       ("archived", "恢复"), ("cancelled", "归档")):
+        iid = _make_db(title=f"阶段-{status}", goal="G", success_metric="M")
+        _set_status(iid, status)
+        na = _na(iid)
+        assert na is not None and na["rule_id"] == "stage_default"
+        assert kw in na["action"], (status, na["action"])
+
+
+def test_never_empty_with_unconverted_even_after_rules_grow():
+    """字段齐 + 有评审 + 行动项未转 → 必有建议（永不为空）。"""
+    iid = _make_db(title="永不空", goal="G", success_metric="M")
+    _add_review(iid, [{"id": "a1", "action": "做事", "task_id": ""}])
+    na = _na(iid)
+    assert na is not None  # review_items_unconverted 或 stage_default，必须有一条
+
+
+def test_stage_default_dismissable_then_none():
+    """唯一兜底被 dismiss → 允许为空（那是用户显式说「别催我」）。"""
+    iid = _make_db(title="可忽略", goal="G", success_metric="M")
+    na = _na(iid)
+    assert na["rule_id"] == "stage_default"
+    with Session(engine) as s:
+        dismiss_rule(s, s.get(Idea, iid), "stage_default")
+    assert _na(iid) is None

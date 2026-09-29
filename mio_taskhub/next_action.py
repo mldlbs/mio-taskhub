@@ -1,6 +1,9 @@
-"""下一步动作规则引擎（想法落地闭环 P0，FR-6/FR-7/FR-8）。
+"""下一步动作规则引擎（想法落地闭环 P0，FR-6/FR-7/FR-8；2026-09-29 用户裁决扩展）。
 
-- 5 级默认优先级序，按序取第一条命中；MIO_NEXT_ACTION_ORDER 逗号分隔可覆盖（NFR-4）；
+- 7 级默认优先级序，按序取第一条命中；MIO_NEXT_ACTION_ORDER 逗号分隔可覆盖（NFR-4）；
+- **下一步动作永不为空**（用户裁决 2026-09-29）：第 6 位 review_items_unconverted
+  提示「评审行动项待转任务」，第 7 位 stage_default 按想法阶段恒给一条兜底建议
+  （仅当用户 dismiss 后 7 天内才允许为空——那是显式的「别催我」）；
 - dismiss 存服务端 IdeaUserPref：condition_snapshot 为结构化布尔位（不存文本）；
   未过期且 snapshot 相同 → 跳过；snapshot 变化 → 立即复活；7 天自然过期（FR-7）；
 - 高风险 = idea.tags ∩ 词表（默认 高风险/合规/用户数据/花钱，MIO_IDEA_RISK_TAGS 覆盖），不做正文匹配（FR-8）。
@@ -19,6 +22,8 @@ DEFAULT_ORDER = (
     "blocked_task",
     "unverified_high_risk_assumption",
     "missing_action_items",
+    "review_items_unconverted",
+    "stage_default",
 )
 DISMISS_TTL = timedelta(days=7)
 RISK_TAGS_DEFAULT = ("高风险", "合规", "用户数据", "花钱")
@@ -41,7 +46,7 @@ def risk_tag_vocab(db: Session = None) -> list:
 
 
 def next_action_order() -> list:
-    """优先级序：环境变量覆盖默认 5 级序（顺序原则：先补方向，再解阻断，再验证假设，最后补记录）。"""
+    """优先级序：环境变量覆盖默认 7 级序（原则：先补方向，再解阻断，再验证假设，然后消费评审产出，最后阶段兜底）。"""
     env = os.environ.get("MIO_NEXT_ACTION_ORDER", "")
     if env.strip():
         return [s.strip() for s in env.split(",") if s.strip()]
@@ -69,6 +74,16 @@ def _build_ctx(db: Session, idea: Idea) -> dict:
     closed_empty_reviews = [d for d in discussions
                             if d.status == "closed" and not (d.conclusions or "").strip()]
 
+    # 已关闭评审（mode=review）中未转任务的行动项计数（task_id 为空即待转）
+    unconverted_action_items = 0
+    for d in discussions:
+        if d.status != "closed" or d.mode != "review":
+            continue
+        review = d.review if isinstance(d.review, dict) else {}
+        for it in (review.get("action_items") or []):
+            if isinstance(it, dict) and not str(it.get("task_id") or "").strip():
+                unconverted_action_items += 1
+
     assumptions = idea.assumptions if isinstance(idea.assumptions, list) else []
     unverified = [a for a in assumptions
                   if not (isinstance(a, dict) and a.get("status") in ("validated", "rejected"))]
@@ -77,6 +92,7 @@ def _build_ctx(db: Session, idea: Idea) -> dict:
         "unapproved_docs": unapproved_docs,
         "blocked": blocked,
         "closed_empty_reviews": closed_empty_reviews,
+        "unconverted_action_items": unconverted_action_items,
         "unverified_assumptions": unverified,
         # FR-20：ctx 级词表（env > DB > 默认），规则层不再直查
         "risk_vocab": risk_tag_vocab(db),
@@ -143,12 +159,46 @@ def _rule_missing_action_items(idea: Idea, ctx: dict):
     }
 
 
+def _rule_review_items_unconverted(idea: Idea, ctx: dict):
+    n = ctx["unconverted_action_items"]
+    if n <= 0:
+        return None
+    return {
+        "snapshot": {"rule_id": "review_items_unconverted",
+                     "unconverted_action_items": n},
+        "action": f"一键转任务（评审行动项 {n} 条待转）",
+        "reason": "评审产出待消费——转成任务才能进入执行",
+    }
+
+
+_STAGE_DEFAULT = {
+    "new": "推进为「发酵中」，开始验证关键假设",
+    "fermenting": "验证关键假设，成熟后推进为「已成形」",
+    "formed": "行为拆解建任务，或开评审会定行动项",
+    "broken_down": "跟进关联任务执行，跑完看复盘",
+    "archived": "想法已归档——如需继续，先恢复状态",
+    "cancelled": "想法已取消——确认后可归档留档",
+}
+
+
+def _rule_stage_default(idea: Idea, ctx: dict):
+    """兜底规则（恒命中）：具体规则全不命中时按想法阶段给建议，保证下一步动作永不为空。"""
+    status = idea.status.value if hasattr(idea.status, "value") else str(idea.status)
+    return {
+        "snapshot": {"rule_id": "stage_default", "status": status},
+        "action": _STAGE_DEFAULT.get(status, "回顾这条想法并更新状态"),
+        "reason": "当前阶段的常规推进建议",
+    }
+
+
 RULES = {
     "missing_goal": _rule_missing_goal,
     "doc_unapproved": _rule_doc_unapproved,
     "blocked_task": _rule_blocked_task,
     "unverified_high_risk_assumption": _rule_unverified_high_risk,
     "missing_action_items": _rule_missing_action_items,
+    "review_items_unconverted": _rule_review_items_unconverted,
+    "stage_default": _rule_stage_default,
 }
 
 
