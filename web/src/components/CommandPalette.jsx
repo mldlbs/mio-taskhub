@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 const VIEWS = [
   { id: 'workflow', label: '工作流', icon: '⬡' },
   { id: 'list', label: '列表', icon: '☰' },
-  { id: 'plan', label: '夜间计划', icon: '🌙' },
+  { id: 'plan', label: '空闲计划', icon: '🌙' },
   { id: 'topo', label: '拓扑', icon: '◎' },
   { id: 'gantt', label: '甘特', icon: '▬' },
   { id: 'ideas', label: '想法', icon: '💡' },

@@ -11,7 +11,7 @@ const VIEWS = [
       <path d="M4 6h16M4 12h16M4 18h10" />
     </svg>
   )},
-  { id: 'plan', label: '夜间计划', icon: (
+  { id: 'plan', label: '空闲计划', icon: (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
       <circle cx="12" cy="12" r="8.5" />
       <path d="M12 7.5V12l3 2" />

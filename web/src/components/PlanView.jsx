@@ -384,7 +384,7 @@ export default function PlanView({ onSchedule }) {
     try {
       const data = await api.nightPlan(DEFAULT_START, DEFAULT_END, selectedProject || null)
       _render(data)
-    } catch { setError('夜间计划接口调用失败，请稍后重试') }
+    } catch { setError('空闲计划接口调用失败，请稍后重试') }
     finally { setLoading(false) }
   }
 
@@ -401,7 +401,7 @@ export default function PlanView({ onSchedule }) {
     <div className="np">
       <div className="np__head">
         <div>
-          <h2>夜间计划 <span className="np__accent">NIGHT SHIFT</span></h2>
+          <h2>空闲计划 <span className="np__accent">IDLE SHIFT</span></h2>
           <p className="np__sub">
             {DEFAULT_START} – {DEFAULT_END} · 同 agent 串行 / 跨 agent 并行
             {plan?.parallel > 1 && <span> · 峰值并行 {plan.parallel}</span>}

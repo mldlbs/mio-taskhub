@@ -1,4 +1,4 @@
-"""Night Runner: 按夜间计划窗口自动拉起/回收 agent 进程。
+"""Night Runner: 按空闲计划窗口自动拉起/回收 agent 进程。
 
 职责边界：
 - hub 只负责进程生命周期（spawn/kill），不注入业务逻辑

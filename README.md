@@ -298,10 +298,10 @@ python packaging/agent_wrapper.py opencode list
 
 `TaskTemplate` 把重复性任务固化成模板，每次修改生成一条 `TaskTemplateVersion` 快照，支持按版本回滚（`POST /tasks/templates/{id}/restore/{version}`）。模板可反向从已有任务沉淀（`POST /tasks/templates/from-task/{task_id}`），也可从模板实例化任务（`POST /tasks/from-template/{id}`）。
 
-### 5.5 定时与夜间计划
+### 5.5 定时与空闲计划
 
 - **ScheduledJob**：标准 cron 表达式（`croniter`），支持启停/暂停/恢复/手动触发/执行记录，`GET /scheduled-jobs/validate-cron` 可离线校验表达式
-- **夜间计划（plan）**：`GET /api/v1/plans/night` 汇总夜间可执行任务，`POST /nightrun/spawn-now` 立即拉起夜间批处理，`NightRunner` 在夜间窗口把计划落成实际任务
+- **空闲计划（plan）**：`GET /api/v1/plans/night` 汇总空闲可执行任务，`POST /nightrun/spawn-now` 立即拉起空闲批处理，`NightRunner` 在空闲窗口把计划落成实际任务
 
 ### 5.6 记忆网关（Memory Gateway）
 
@@ -500,7 +500,7 @@ React 18 + Vite 5，单页应用，10 个视图用左侧图标栏切换。生产
 |------|--------|
 | **工作流** | 7 阶段泳道，任务随阶段流动 |
 | **列表** | 表格化清单，批量查看/筛选 |
-| **夜间计划** | 夜间批处理计划与执行情况 |
+| **空闲计划** | 空闲批处理计划与执行情况 |
 | **拓扑** | 依赖 DAG，链路关系一目了然 |
 | **甘特** | 时间轴 + 关键路径（CPM）+ 资源占用 |
 | **想法** | 想法池、评分、发酵与拆解入口 |
@@ -584,7 +584,7 @@ OpenTelemetry 自动埋点覆盖 FastAPI、SQLAlchemy、httpx；结构化日志�
 |------|------|------|
 | `MIO_TASKHUB_DB` | `~/.mio_taskhub/taskhub.db` | SQLite 数据库路径 |
 | `MIO_TASKHUB_PORT` | `48620` | 监听端口（绿色版/hub/widget 均读） |
-| `MIO_TASKHUB_URL` | `http://127.0.0.1:48620/api/v1` | 客户端侧 hub 地址（MCP、夜间运行器读） |
+| `MIO_TASKHUB_URL` | `http://127.0.0.1:48620/api/v1` | 客户端侧 hub 地址（MCP、空闲运行器读） |
 | `MIO_TASKHUB_TOKEN` | 空 | Bearer token；服务端与客户端共用 |
 | `MIO_TASKHUB_RATE_LIMIT` | `120` | 全局 API 限流（req/min/IP） |
 | `MIO_TASKHUB_TIMEOUT_SECONDS` | `300` | run 存活基线：任务未配 `timeout_min` 时，看门狗多久未收到 run 心跳即回收（放宽前的 120s 会误杀仍在跑的长任务） |
@@ -628,7 +628,7 @@ OpenTelemetry 自动埋点覆盖 FastAPI、SQLAlchemy、httpx；结构化日志�
 | `idea-review` | 想法发酵到期自动生成评审任务 |
 | `backup` | SQLite 在线备份，默认每小时一次，保留 31 份 |
 | `git-sync` | ADR Outbox 投影到 Git 目录 |
-| `night-runner` | 夜间计划窗口拉起 |
+| `night-runner` | 空闲计划窗口拉起 |
 | `cron-engine` | 定时任务调度 |
 
 ### 备份与恢复
@@ -664,7 +664,7 @@ mio_taskhub/
 ├── background.py        # 心跳扫描 / 调度器 / ThreadRegistry
 ├── dependency.py        # 依赖满足判定 + depends_on 归一化
 ├── composite.py         # 状态×阶段合成展示（含 block_reason 标签）
-├── planner.py           # detect_cycle 环检测 + 夜间计划编排
+├── planner.py           # detect_cycle 环检测 + 空闲计划编排
 ├── doc_paths.py         # 22 类文档 kind 唯一事实源
 ├── doc_chain.py         # 七件套文档链 + 骨架模板
 ├── doc_lifecycle.py     # 9 类文档生命周期状态机（8 类文档 + Task）
