@@ -117,3 +117,26 @@ def test_idle_worker_claim_path_includes_project(monkeypatch):
     assert seen["method"] == "POST"
     assert "/tasks/claim?agent=worker-1" in seen["path"]
     assert "project=agent-dev" in seen["path"]
+
+
+# ---------- --cli-prefix 免引号模式（task 86e7cda0）----------
+
+def test_wire_argv_prefix_mode():
+    mod = _load_idle_worker()
+    argv, shell = mod.wire_argv("PROMPT-BODY", "", "codex exec --skip-git-repo-check")
+    assert argv == ["codex", "exec", "--skip-git-repo-check", "PROMPT-BODY"]
+    assert shell is False
+    argv2, shell2 = mod.wire_argv("P", "", "hermes -z")
+    assert argv2 == ["hermes", "-z", "P"] and shell2 is False
+
+
+def test_wire_argv_template_mode():
+    mod = _load_idle_worker()
+    cmd, shell = mod.wire_argv("P", "echo hi", "")
+    assert cmd == "echo hi" and shell is True
+
+
+def test_wire_argv_neither_returns_none():
+    mod = _load_idle_worker()
+    spec, shell = mod.wire_argv("P", "", "")
+    assert spec is None and shell is False

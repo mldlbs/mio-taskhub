@@ -171,21 +171,30 @@ function ConfigPanel({ config, onSave, onToggleEnabled, enabled, saving, agents,
             </div>
             <input placeholder="命令模板，支持 {url} {token} {project} 占位符" value={addForm.command} onChange={e => setAddForm(f => ({ ...f, command: e.target.value }))} />
             <input placeholder="工作目录 cwd (可选)" value={addForm.cwd} onChange={e => setAddForm(f => ({ ...f, cwd: e.target.value }))} />
-            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-              <button className="btn btn--ghost btn--xs" type="button"
-                      title="填入「空闲执行 worker」模板：领任务 → 调 agent CLI 执行 → 回写结果"
-                      onClick={() => setAddForm({
-                        agent: 'idle-worker', agent_type: 'cli',
-                        command: 'python idle_worker.py idle-worker --cli "opencode run {prompt}"',
-                        cwd: '',
-                      })}>
-                模板：空闲执行 worker
-              </button>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+              <span className="detail-muted" style={{ fontSize: '11px' }}>模板（需本机已装该 CLI）：</span>
+              {[
+                ['codex', 'codex exec --skip-git-repo-check'],
+                ['hermes', 'hermes -z'],
+                ['claude', 'claude -p'],
+                ['opencode', 'opencode run'],
+              ].map(([name, prefix]) => (
+                <button key={name} type="button" className="btn btn--ghost btn--xs"
+                        title={`填入：python idle_worker.py idle-worker-${name} --cli-prefix "${prefix}"`}
+                        onClick={() => setAddForm({
+                          agent: `idle-worker-${name}`, agent_type: 'cli',
+                          command: `python idle_worker.py idle-worker-${name} --cli-prefix "${prefix}"`,
+                          cwd: '',
+                        })}>
+                  {name}
+                </button>
+              ))}
               <button className="btn btn--accent btn--xs" onClick={addAgent} disabled={!addForm.command}>确认添加</button>
             </div>
             <p className="detail-muted" style={{ fontSize: '11px', margin: 0 }}>
-              `idle_worker.py` 随安装包发布（在安装目录下），cwd 建议填安装目录；命令里可用 {'{url}'}/{' '}
-              {'{token}'}/{' '}{'{project}'} 占位符。也可直接用任意 agent CLI（如 <span className="mono">opencode run</span>）。
+              `idle_worker.py` 随安装包发布（在安装目录下），cwd 建议填安装目录。<br />
+              {`推荐 --cli-prefix（免引号，提示词作为最后一个参数传入）；高级用法 --cli "…{prompt}…"（走 shell）。`}<br />
+              {`命令里可用 {url} / {token} / {project} 占位符；不同 CLI 需支持非交互模式（codex exec / hermes -z / claude -p / opencode run）。`}
             </p>
           </div>
         )}
