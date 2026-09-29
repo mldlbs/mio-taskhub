@@ -137,7 +137,8 @@ export default function TopoView({ tasks, onOpen }) {
   const active = clusterKey
     ? (clusters.find(c => c.key === clusterKey) || null)
     : (clusters.length === 1 ? clusters[0] : null)
-  const detailTasks = active ? active.tasks : []
+  // 必须 memo：否则 [] 每次渲染都是新引用 → useLayoutEffect 反复触发 → setEdges 死循环（React #185）
+  const detailTasks = useMemo(() => (active ? active.tasks : []), [active])
 
   const { layers } = useMemo(() => kahnLayers(detailTasks), [detailTasks])
   const cpm = useMemo(() => computeCPM(detailTasks), [detailTasks])
