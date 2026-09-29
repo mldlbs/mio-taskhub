@@ -174,16 +174,117 @@ def _pid_alive(pid: int) -> bool:
         return False
 
 
-def observer_state() -> dict:
-    """观察器状态：优先读 observe.pid 并校验进程存活。"""
-    p = home() / "observe.pid"
+def _read_pid_file(p: Path) -> int:
     try:
-        pid = int((p.read_text(encoding="utf-8", errors="replace") or "0").strip() or 0)
+        return int((p.read_text(encoding="utf-8", errors="replace") or "0").strip() or 0)
     except Exception:  # noqa: BLE001
-        pid = 0
+        return 0
+
+
+def observer_state() -> dict:
+    """观察器状态：稳定读 observe.pid 并校验进程存活。"""
+    pid = _read_pid_file(home() / "observe.pid")
     if pid and _pid_alive(pid):
         return {"running": True, "pid": pid}
     return {"running": False, "pid": pid or None}
+
+
+_FALSE_ENV = ("0", "false", "no", "off")
+
+
+def _today_observations_path() -> Path:
+    """今日观测数据文件（research 活动启发式用；测试可 monkeypatch）。"""
+    return (Path.cwd() / ".local" / "observer" / "observations"
+            / (datetime.now().strftime("%Y-%m-%d") + ".json"))
+
+
+def research_state() -> dict:
+    """研究调度器（`mio observer serve`）状态。
+
+    检测链：上游 research.pid（守护化路径才写）→ hub 托管 research_hub.json
+    （observer_start 写入）→ 近 30min 观测数据活动（外部前台启动的兜底——
+    serve 前台模式不写 pid 文件，历史上曾因此被误报 not running）。
+    """
+    pid = _read_pid_file(home() / "research.pid")
+    if pid and _pid_alive(pid):
+        return {"running": True, "pid": pid, "source": "pidfile"}
+    hub = _read_json(home() / "research_hub.json")
+    hub_pid = hub.get("pid")
+    if isinstance(hub_pid, int) and hub_pid > 0 and _pid_alive(hub_pid):
+        return {"running": True, "pid": hub_pid, "source": "hub",
+                "started_at": hub.get("started_at")}
+    try:
+        f = _today_observations_path()
+        if f.is_file() and (time.time() - f.stat().st_mtime) < 1800:
+            return {"running": True, "pid": None, "source": "recent-activity"}
+    except Exception:  # noqa: BLE001
+        pass
+    return {"running": False,
+            "pid": pid or (hub_pid if isinstance(hub_pid, int) else None),
+            "source": None}
+
+
+def observer_start() -> dict:
+    """拉起 Mio 观测守护（幂等，已运行则跳过）。
+
+    - 观察器：`mio observe --start`（上游自身守护化并写 observe.pid）；
+    - 研究调度器：`mio observer serve`（**前台进程**，不写 pid 文件）→ hub 以
+      分离子进程托管（CREATE_NO_WINDOW + 日志重定向 MIO_HOME/research_serve.log）
+      并记录 research_hub.json 供 research_state 探测。
+    """
+    out = {"observer": observer_state(), "research": research_state(), "started": []}
+    if not out["observer"]["running"]:
+        r = run_mio(["observe", "--start"], timeout=30.0)
+        out["started"].append("observer")
+        out["observer_start_ok"] = bool(r.get("ok"))
+        if not r.get("ok"):
+            out["observer_error"] = (r.get("stderr") or "")[:200]
+    if not out["research"]["running"]:
+        cmd = mio_cli()
+        if not cmd:
+            out["research_error"] = "mio CLI not found"
+        else:
+            try:
+                log_path = home() / "research_serve.log"
+                fh = open(log_path, "ab")
+                try:
+                    proc = subprocess.Popen(
+                        list(cmd) + ["observer", "serve"],
+                        stdout=fh, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                        creationflags=_CREATE_NO_WINDOW, cwd=str(Path.cwd()))
+                finally:
+                    fh.close()
+                (home() / "research_hub.json").write_text(
+                    json.dumps({"pid": proc.pid,
+                                "started_at": datetime.now().isoformat(timespec="seconds")}),
+                    encoding="utf-8")
+                out["started"].append("research")
+                time.sleep(1.5)
+            except Exception as e:  # noqa: BLE001
+                out["research_error"] = str(e)
+    out["observer"] = observer_state()
+    out["research"] = research_state()
+    return out
+
+
+def observer_ensure() -> dict:
+    """自启兜底（hub 启动时调用）：已运行则不动；异常只记日志（fail-open）。"""
+    try:
+        st = observer_start()
+        logger.info("observer ensure: started=%s observer_running=%s research_running=%s",
+                    st.get("started"),
+                    (st.get("observer") or {}).get("running"),
+                    (st.get("research") or {}).get("running"))
+        return st
+    except Exception as e:  # noqa: BLE001
+        logger.warning("observer ensure failed (ignored): %s", e)
+        return {"ok": False, "error": str(e)}
+
+
+def autostart_enabled() -> bool:
+    """观测守护随 hub 自启开关：默认开；env MIO_OBSERVER_AUTOSTART=0/false/no/off 关闭。"""
+    raw = os.environ.get("MIO_OBSERVER_AUTOSTART")
+    return raw is None or raw.strip().lower() not in _FALSE_ENV
 
 
 # ── 汇总 / 明细 ───────────────────────────────────────────────────────────
@@ -198,6 +299,7 @@ def status() -> dict:
         "home": str(home()),
         "config": config_sanitized(),
         "observer": observer_state(),
+        "research": research_state(),
         "cli": {"available": mio_cli() is not None,
                 "path": (mio_cli() or [None])[0]},
         "files": [{**_file_stat(n), "records": _count_records(n)} for n in files],

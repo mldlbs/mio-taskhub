@@ -60,6 +60,18 @@ async def lifespan(app):
     from mio_taskhub.scheduling.cron_engine import start_cron_engine, stop_cron_engine
     app.state.background = start_background_jobs()
     start_git_sync_worker()
+
+    # Mio 观测守护自启（fail-open；env MIO_OBSERVER_AUTOSTART=0/false/no/off 关闭）
+    try:
+        from mio_taskhub import mio_runtime as _mio_core
+        if _mio_core.available() and _mio_core.autostart_enabled():
+            import threading as _th
+            _t = _th.Timer(15.0, _mio_core.observer_ensure)
+            _t.daemon = True
+            _t.start()
+    except Exception as _e:  # noqa: BLE001
+        logging.getLogger("mio_taskhub.main").warning(
+            "observer autostart skipped: %s", _e)
     start_night_runner()
     cron_engine = start_cron_engine()
     # SQLite auto-backup (hourly snapshots, 31 kept)

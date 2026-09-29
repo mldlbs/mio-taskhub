@@ -129,6 +129,77 @@ def test_run_mio_passes_create_no_window(monkeypatch):
         assert captured.get("creationflags", 0) == 0
 
 
+# ── 观测守护托管（task 9322ef16）──────────────────────────────────────────
+
+def test_research_state_from_hub_file(tmp_path, monkeypatch):
+    """hub 托管 research_hub.json 且进程存活 → running(source=hub)。"""
+    import os
+    monkeypatch.setattr(mio, "home", lambda: tmp_path)
+    (tmp_path / "research_hub.json").write_text(
+        json.dumps({"pid": os.getpid(), "started_at": "2026-09-29T10:00:00"}),
+        encoding="utf-8")
+    st = mio.research_state()
+    assert st["running"] is True
+    assert st["source"] == "hub"
+    assert st["pid"] == os.getpid()
+
+
+def test_research_state_recent_activity_fallback(tmp_path, monkeypatch):
+    """外部前台 serve 不写 pid → 当日观测文件 30min 内有活动即视为运行中。"""
+    monkeypatch.setattr(mio, "home", lambda: tmp_path)
+    fake = tmp_path / "obs.json"
+    fake.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(mio, "_today_observations_path", lambda: fake)
+    st = mio.research_state()
+    assert st["running"] is True
+    assert st["source"] == "recent-activity"
+
+
+def test_research_state_not_running_when_all_dead(tmp_path, monkeypatch):
+    """pid 死 + 无托管 + 无活动 → not running（旧 pid 只作参考回显）。"""
+    monkeypatch.setattr(mio, "home", lambda: tmp_path)
+    monkeypatch.setattr(mio, "_today_observations_path",
+                        lambda: tmp_path / "nope.json")
+    (tmp_path / "research.pid").write_text("999999", encoding="utf-8")
+    st = mio.research_state()
+    assert st["running"] is False
+    assert st["source"] is None
+
+
+def test_observer_start_endpoint(monkeypatch):
+    """POST /mio/observer/start 幂等透传（monkeypatch，不真拉起进程）。"""
+    monkeypatch.setattr(mio, "observer_start", lambda: {
+        "observer": {"running": True, "pid": 111},
+        "research": {"running": True, "pid": 222, "source": "hub"},
+        "started": []})
+    r = client.post("/api/v1/mio/observer/start")
+    assert r.status_code == 200
+    b = r.json()
+    assert b["observer"]["running"] is True
+    assert b["research"]["running"] is True and b["research"]["source"] == "hub"
+
+
+def test_status_payload_includes_research(tmp_path, monkeypatch):
+    """/mio/status 恒含 research 字段（前端状态卡的数据源）。"""
+    monkeypatch.setattr(mio, "home", lambda: tmp_path)
+    tmp_path.mkdir(exist_ok=True)
+    data = client.get("/api/v1/mio/status").json()
+    assert data["available"] is True
+    assert "research" in data and "running" in data["research"]
+    assert "observer" in data
+
+
+def test_autostart_flag_default_on_and_kill_switch(monkeypatch):
+    """自启默认开；MIO_OBSERVER_AUTOSTART=0/false/no/off 关闭。"""
+    monkeypatch.delenv("MIO_OBSERVER_AUTOSTART", raising=False)
+    assert mio.autostart_enabled() is True
+    for v in ("0", "false", "no", "off"):
+        monkeypatch.setenv("MIO_OBSERVER_AUTOSTART", v)
+        assert mio.autostart_enabled() is False
+    monkeypatch.setenv("MIO_OBSERVER_AUTOSTART", "1")
+    assert mio.autostart_enabled() is True
+
+
 # ── digest 定时 ───────────────────────────────────────────────────────────
 
 def test_digest_job_ticks_when_enabled(monkeypatch):

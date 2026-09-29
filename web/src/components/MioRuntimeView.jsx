@@ -23,6 +23,7 @@ export default function MioRuntimeView() {
   const [mem, setMem] = useState([])
   const [crea, setCrea] = useState(null)
   const [err, setErr] = useState(null)
+  const [starting, setStarting] = useState(false)
 
   async function load() {
     try {
@@ -41,6 +42,19 @@ export default function MioRuntimeView() {
 
   useEffect(() => { load() }, [])
 
+  // 观测守护一键拉起（幂等）：观察器 + 研究调度器，成功后刷新状态
+  async function startDaemons() {
+    setStarting(true)
+    try {
+      await api.mioObserverStart()
+      await load()
+    } catch (e) {
+      setErr(e?.message || String(e))
+    } finally {
+      setStarting(false)
+    }
+  }
+
   if (err) return <div className="mio-view"><p className="detail-muted">加载失败：{err}</p></div>
   if (!st) return <div className="mio-view"><p className="detail-muted">加载中…</p></div>
 
@@ -56,6 +70,8 @@ export default function MioRuntimeView() {
     )
   }
 
+  const daemonsOff = ((st.observer && !st.observer.running)
+    || (st.research && !st.research.running))
   const agents = Object.keys(st.config?.agents || {})
 
   return (
@@ -63,6 +79,13 @@ export default function MioRuntimeView() {
       <div className="mio-head">
         <h2 className="mio-title">Mio 运行时</h2>
         <span className="detail-muted mono">{st.home}</span>
+        {daemonsOff && (
+          <button className="btn btn--primary btn--xs" disabled={starting}
+                  onClick={startDaemons}
+                  title="拉起观察器（mio observe --start）与研究调度器（mio observer serve）">
+            {starting ? '拉起中…' : '⚠ 一键拉起守护'}
+          </button>
+        )}
         <button className="btn btn--ghost btn--xs" onClick={load}>刷新</button>
       </div>
 
@@ -73,7 +96,26 @@ export default function MioRuntimeView() {
             {st.observer?.running ? `运行中 · pid ${st.observer.pid}` : '未运行'}
           </div>
           {!st.observer?.running && (
-            <p className="detail-muted">启动：<span className="mono">mio observe --start</span></p>
+            <p className="detail-muted">采集断供中——点右上「一键拉起守护」
+              （等价 <span className="mono">mio observe --start</span>）</p>
+          )}
+        </div>
+        <div className="mio-card">
+          <div className="mio-card__t">研究调度器</div>
+          <div className={`mio-status${st.research?.running ? ' is-ok' : ' is-off'}`}>
+            {st.research?.running
+              ? `运行中${st.research.pid ? ` · pid ${st.research.pid}` : ' · 活动探测'}`
+              : '未运行'}
+          </div>
+          {st.research?.running && st.research.source === 'recent-activity' && (
+            <p className="detail-muted">由近期观测活动推断（外部启动，未写 pid）</p>
+          )}
+          {st.research?.running && st.research.source === 'hub' && (
+            <p className="detail-muted">由 taskhub 托管</p>
+          )}
+          {!st.research?.running && (
+            <p className="detail-muted">发酵/研究管线断供中——点右上「一键拉起守护」
+              （等价 <span className="mono">mio observer serve</span>）</p>
           )}
         </div>
         <div className="mio-card">
@@ -179,7 +221,8 @@ export default function MioRuntimeView() {
       )}
 
       <p className="detail-muted mio-foot">
-        只读视图：数据来自 MIO_HOME（由 mio-agent-runtime 维护），本页不写入、不改动任务/文档数据。
+        本页可拉起观测守护（写 MIO_HOME 的 pid 状态文件），其余数据只读自 MIO_HOME（由
+        mio-agent-runtime 维护），不改动任务/文档数据。
       </p>
     </div>
   )

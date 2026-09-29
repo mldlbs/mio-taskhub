@@ -112,6 +112,16 @@ def mio_status():
     return mio.status()
 
 
+@router.post("/observer/start")
+def mio_observer_start():
+    """拉起 Mio 观测守护（幂等）：观察器（mio observe --start）+
+    研究调度器（mio observer serve，hub 托管分离进程并记录状态）。
+
+    供前端「一键拉起」与 hub 启动自启（observer_ensure）复用。
+    """
+    return mio.observer_start()
+
+
 @router.get("/traces")
 def mio_traces(limit: int = Query(20, ge=1, le=200)):
     return mio.traces(limit)
