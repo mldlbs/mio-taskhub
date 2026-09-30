@@ -9,6 +9,9 @@ export default function ScheduledJobsView({ onNavigateToTask }) {
   const [editJob, setEditJob] = useState(null)
   const [execJob, setExecJob] = useState(null)
   const [executions, setExecutions] = useState([])
+  const [tab, setTab] = useState('list')          // list | exec
+  const [execFilter, setExecFilter] = useState('all')  // all | ok | error
+  const [expanded, setExpanded] = useState({})    // 结果行展开
 
   const load = () => {
     setLoading(true)
@@ -16,6 +19,10 @@ export default function ScheduledJobsView({ onNavigateToTask }) {
   }
 
   useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    if (tab === 'exec' && !execJob && jobs.length > 0) setExecJob(jobs[0])
+  }, [tab, execJob, jobs])
 
   useEffect(() => {
     if (execJob) {
@@ -56,12 +63,20 @@ export default function ScheduledJobsView({ onNavigateToTask }) {
     <div className="sjv">
       <div className="sjv__head">
         <h2>定时任务</h2>
+        <div className="sjv__tabs">
+          <button className={`sjv__tab${tab === 'list' ? ' is-on' : ''}`} onClick={() => setTab('list')}>
+            任务列表 <span className="sjv__tab-n">{jobs.length}</span>
+          </button>
+          <button className={`sjv__tab${tab === 'exec' ? ' is-on' : ''}`} onClick={() => setTab('exec')}>
+            执行记录
+          </button>
+        </div>
         <button className="btn btn--accent" onClick={() => { setEditJob(null); setShowCreate(true) }}>
           + 新建定时任务
         </button>
       </div>
 
-      {loading ? (
+      {tab === 'list' && (loading ? (
         <div className="sjv__empty">加载中…</div>
       ) : jobs.length === 0 ? (
         <div className="sjv__empty">
@@ -115,11 +130,24 @@ export default function ScheduledJobsView({ onNavigateToTask }) {
                 )}
                 <button className="btn btn--ghost btn--sm" onClick={() => { setEditJob(job); setShowCreate(true) }}>编辑</button>
                 <button className="btn btn--ghost btn--sm btn--danger" onClick={() => handleDelete(job)}>删除</button>
-                <button className="btn btn--ghost btn--sm" onClick={() => setExecJob(job)}>执行历史</button>
+                <button className="btn btn--ghost btn--sm" onClick={() => { setExecJob(job); setTab('exec') }}>查看执行</button>
               </div>
             </div>
           ))}
         </div>
+      ))}
+
+      {tab === 'exec' && (
+        <ExecPanel
+          jobs={jobs}
+          execJob={execJob}
+          setExecJob={setExecJob}
+          executions={executions}
+          filter={execFilter}
+          setFilter={setExecFilter}
+          expanded={expanded}
+          setExpanded={setExpanded}
+        />
       )}
 
       {showCreate && (
@@ -130,36 +158,6 @@ export default function ScheduledJobsView({ onNavigateToTask }) {
         />
       )}
 
-      {execJob && (
-        <div className="overlay" onClick={() => setExecJob(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal__head">
-              <h3>执行历史 — {execJob.name}</h3>
-              <button className="modal__close" onClick={() => setExecJob(null)}>×</button>
-            </div>
-            <div className="modal__body">
-              {executions.length === 0 ? (
-                <p className="sjv__empty">暂无执行记录</p>
-              ) : (
-                <table className="sj-table">
-                  <thead>
-                    <tr><th>时间</th><th>状态</th><th>结果</th></tr>
-                  </thead>
-                  <tbody>
-                    {executions.map(e => (
-                      <tr key={e.id}>
-                        <td>{parseUtc(e.started_at).toLocaleString('zh-CN')}</td>
-                        <td><span className={`sj-badge sj-badge--${e.status}`}>{e.status === 'ok' ? '成功' : '失败'}</span></td>
-                        <td className="sj-table__result">{e.error || e.result || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -338,6 +336,75 @@ function ScheduledJobModal({ editJob, onClose, onSaved }) {
           </div>
         </form>
       </div>
+    </div>
+  )
+}
+
+
+/** 执行记录 Tab：任务选择 + 成功/失败统计 + 全宽表格（结果不截断，可展开）。 */
+function ExecPanel({ jobs, execJob, setExecJob, executions, filter, setFilter, expanded, setExpanded }) {
+  const okCount = executions.filter(e => e.status === 'ok').length
+  const errCount = executions.filter(e => e.status !== 'ok').length
+  const rows = executions.filter(e => filter === 'all' ? true : (filter === 'ok' ? e.status === 'ok' : e.status !== 'ok'))
+
+  return (
+    <div className="sj-exec">
+      <div className="sj-exec__bar">
+        <div className="sj-exec__picker">
+          {jobs.map(j => (
+            <button key={j.id}
+                    className={`sj-exec__job${execJob && execJob.id === j.id ? ' is-on' : ''}`}
+                    onClick={() => setExecJob(j)}>
+              {j.name}
+            </button>
+          ))}
+        </div>
+        <div className="sj-exec__stats">
+          <span className="sj-exec__stat is-ok">成功 {okCount}</span>
+          <span className="sj-exec__stat is-err">失败 {errCount}</span>
+          <div className="sj-exec__filter">
+            {[['all', '全部'], ['ok', '成功'], ['error', '失败']].map(([k, label]) => (
+              <button key={k} className={`sj-exec__fbtn${filter === k ? ' is-on' : ''}`}
+                      onClick={() => setFilter(k)}>{label}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <p className="sjv__empty">暂无执行记录</p>
+      ) : (
+        <table className="sj-table sj-table--wide">
+          <thead>
+            <tr>
+              <th style={{ width: '170px' }}>时间</th>
+              <th style={{ width: '80px' }}>状态</th>
+              <th>结果 / 原因</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(e => {
+              const text = e.error || e.result || '—'
+              const long = text.length > 120
+              const open = !!expanded[e.id]
+              return (
+                <tr key={e.id} className={e.status === 'ok' ? '' : 'is-err'}>
+                  <td className="mono">{parseUtc(e.started_at).toLocaleString('zh-CN')}</td>
+                  <td><span className={`sj-badge sj-badge--${e.status}`}>{e.status === 'ok' ? '成功' : '失败'}</span></td>
+                  <td className="sj-table__result sj-table__result--full">
+                    <div className={open || !long ? '' : 'sj-exec__clamp'}>{text}</div>
+                    {long && (
+                      <button className="sj-exec__more" onClick={() => setExpanded(x => ({ ...x, [e.id]: !open }))}>
+                        {open ? '收起' : '展开全部'}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
     </div>
   )
 }
