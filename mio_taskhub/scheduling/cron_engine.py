@@ -26,6 +26,16 @@ from mio_taskhub.events import emit_event, broadcast_for_event
 
 logger = logging.getLogger("cron_engine")
 
+
+class WebhookFailed(Exception):
+    """webhook 返回 4xx/5xx：作为失败上报（result 保留响应摘要），不做假绿。"""
+
+    def __init__(self, summary: str, status_code: int = 0, body: str = ""):
+        super().__init__(summary)
+        self.status_code = status_code
+        self.body = body
+        self.summary = summary
+
 POLL_INTERVAL = 10  # 秒
 
 
@@ -120,6 +130,14 @@ class CronEngine:
             execution.result = str(result) if result else None
             job.last_status = ScheduledJobStatus.OK
             job.last_error = None
+        except WebhookFailed as e:
+            # 2xx 之外的响应：如实记失败，并把响应摘要留在 result 便于排查
+            execution.status = "error"
+            execution.result = e.summary[:500]
+            execution.error = f"webhook HTTP {e.status_code}"
+            job.last_status = ScheduledJobStatus.ERROR
+            job.last_error = e.summary[:500]
+            logger.warning(f"cron job {job_id} webhook failed: {e.summary[:200]}")
         except Exception as e:
             execution.status = "error"
             execution.error = str(e)[:500]
@@ -187,7 +205,11 @@ class CronEngine:
         timeout = job.timeout_seconds or 30
         with httpx.Client(timeout=timeout) as client:
             resp = client.request(method, url, headers=headers, json=body)
-            return f"{resp.status_code} {resp.text[:200]}"
+            summary = f"{resp.status_code} {resp.text[:200]}"
+            if resp.status_code >= 400:
+                # HTTP 失败必须如实上报，否则任务永远"假绿"、空转无人知
+                raise WebhookFailed(summary, status_code=resp.status_code, body=resp.text)
+            return summary
 
     # ---- 外部操作 ---------------------------------------------------------
     def add_job(self, job: ScheduledJob) -> ScheduledJob:

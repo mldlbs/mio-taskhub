@@ -30,6 +30,8 @@ class TemplateGenerateRequest(BaseModel):
     values: Dict[str, str]
     num_ideas: int = 3
     sync_to_hub: bool = False
+    recently_seen: list = []       # 最近已生成标题（避开重复角度；可从求体显式传入）
+    auto_recently_seen: bool = True  # 为真时自动取 hub 最近 auto-generated 标题
 
 
 def _fetch_observer_insights(limit: int = 2, timeout: float = 15.0) -> list:
@@ -70,7 +72,9 @@ def _fetch_observer_insights(limit: int = 2, timeout: float = 15.0) -> list:
     return out
 
 
-def _generate_ideas(goal: str, context: str, timeout: float = 120.0) -> list:
+def _generate_ideas(goal: str, context: str, timeout: float = 120.0,
+                    recently_seen: list = None,
+                    strategy: str = "") -> list:
     """经 mio CLI 调 creativity.generate（用户显式触发的 LLM 调用）。
 
     runtime 已发布版本没有 mio.idea.generate 工具（0.13.3 tools/list 实测），
@@ -78,6 +82,10 @@ def _generate_ideas(goal: str, context: str, timeout: float = 120.0) -> list:
     走 CLI 直调。失败一律 HTTPException（502/503/504），不抛裸异常。
     额外注入 observer 近期洞察作为第 3+ 个 source（fail-open），
     让观察→洞察链的产出进入创意环节。
+
+    recently_seen：最近已生成过的标题，拼进 source 要求「避开这些角度」，
+    缓解 all pairs already explored（素材重复导致的确定性空产出）。
+    strategy：显式指定生成策略（explore/signal/stable），供 409 后换角度重试。
     """
     cli = mio_runtime.mio_cli()
     if not cli:
@@ -85,9 +93,16 @@ def _generate_ideas(goal: str, context: str, timeout: float = 120.0) -> list:
     constraints = "约束：不引入外部依赖；保持本机单用户；复用现有 MCP 工具"
     sources = ["--source", f"template-goal: {goal}",
                "--source", f"template-context: {context}\n{constraints}"]
+    seen = [str(s).strip() for s in (recently_seen or []) if str(s).strip()]
+    if seen:
+        sources += ["--source",
+                    "already-explored（本批必须避开这些既有角度，换新切入点）: "
+                    + " | ".join(seen[:20])]
     for extra in _fetch_observer_insights():
         sources += ["--source", f"{extra['name']}: {extra['content']}"]
     args = cli + ["--json", "creativity", "generate", *sources]
+    if strategy:
+        args += ["--strategy", strategy]
     reason = ""
     for attempt in range(2):
         try:
@@ -117,6 +132,35 @@ def _generate_ideas(goal: str, context: str, timeout: float = 120.0) -> list:
     if reason:
         raise HTTPException(409, f"creativity 未生成：{reason}")
     raise HTTPException(502, "creativity 连续两次返回空（上游静默吞掉 LLM 错误/空内容），稍后重试")
+
+
+# 409/all pairs 后的降级策略序（换角度重试；explore 默认，故从 signal 起）
+_DEGRADE_STRATEGIES = ("signal", "stable")
+
+
+def _generate_with_degrade(goal: str, context: str, timeout: float = 120.0,
+                           recently_seen: list = None) -> tuple:
+    """先生成；遇 409（素材重复/无可新增组合）则换 strategy 重试，返回 (ideas, strategy_used)。
+
+    仍失败则抛出最后一次的 409（message 里带已尝试策略），不再假绿。
+    """
+    try:
+        return _generate_ideas(goal, context, timeout=timeout,
+                               recently_seen=recently_seen), ""
+    except HTTPException as e:
+        if e.status_code != 409:
+            raise
+        tried = []
+        for strat in _DEGRADE_STRATEGIES:
+            tried.append(strat)
+            try:
+                return _generate_ideas(goal, context, timeout=timeout,
+                                       recently_seen=recently_seen, strategy=strat), strat
+            except HTTPException as e2:
+                if e2.status_code != 409:
+                    raise
+        raise HTTPException(409, f"creativity 未生成（已尝试 explore/{'/'.join(tried)}）：素材重复，"
+                                 f"建议等观测台产出新素材后重试")
 
 
 def _map_hypothesis(h: dict) -> dict:
@@ -178,6 +222,28 @@ def get_template(template_id: str):
     }
 
 
+def _recent_generated_titles(request, limit: int = 20) -> list:
+    """最近已生成的想法标题（默认取 hub 里 auto-generated 的最近 N 条），
+    用于让 LLM 避开既有角度、缓解 all pairs already explored。fail-open。"""
+    seen = [str(s).strip() for s in (getattr(request, "recently_seen", None) or []) if str(s).strip()]
+    if seen or not getattr(request, "auto_recently_seen", True):
+        return seen[:limit]
+    try:
+        db = next(get_session())
+        try:
+            rows = db.exec(select(Idea).order_by(Idea.created_at.desc()).limit(60)).all()
+            for i in rows:
+                if "auto-generated" in (i.labels or []) and (i.title or "").strip():
+                    seen.append(i.title.strip())
+                if len(seen) >= limit:
+                    break
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001 —— 取不到就不带（fail-open）
+        pass
+    return seen[:limit]
+
+
 @router.post("/templates/generate")
 def generate_from_template(request: TemplateGenerateRequest):
     """Generate ideas using a template with provided values."""
@@ -203,9 +269,15 @@ def generate_from_template(request: TemplateGenerateRequest):
     goal = f"{goal}（{lang}）"
     context = f"{context}\n语言要求：{lang}"
 
-    raw_ideas = _generate_ideas(goal, context)
+    raw_ideas, used_strategy = _generate_with_degrade(
+        goal, context,
+        recently_seen=_recent_generated_titles(request),
+    )
     ideas = [_map_hypothesis(h)
              for h in raw_ideas[: max(1, request.num_ideas)]]
+    if used_strategy:
+        for it in ideas:
+            it.setdefault("provenance", {})["strategy"] = used_strategy
 
     created = 0
     synced_ids = []
