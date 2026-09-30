@@ -63,13 +63,24 @@ def run(apply: bool, undo: bool) -> int:
                 if ARCHIVE_LABEL not in labels:
                     continue
                 labels = [x for x in labels if x != ARCHIVE_LABEL]
+                if apply:
+                    t.labels = labels
+                    # 恢复到队列（若此前被归档取消了）
+                    if t.state == TaskState.CANCELLED:
+                        t.state = TaskState.QUEUED
+                    db.add(t)
             else:
-                if ARCHIVE_LABEL in labels:
+                # 归档语义（修正）：既打标签，又移出可领取队列——转 CANCELLED。
+                # claim 候选只认 QUEUED/READY，转 CANCELLED 才真正不再被消费；
+                # cancel 是状态变化非删除，--undo 可恢复。
+                if ARCHIVE_LABEL in labels and t.state == TaskState.CANCELLED:
                     continue
-                labels.append(ARCHIVE_LABEL)
-            if apply:
-                t.labels = labels
-                db.add(t)
+                if ARCHIVE_LABEL not in labels:
+                    labels.append(ARCHIVE_LABEL)
+                if apply:
+                    t.labels = labels
+                    t.state = TaskState.CANCELLED
+                    db.add(t)
             changed += 1
             if changed <= 10:
                 print(f"  {'-' if undo else '+'} {t.id} {t.title[:40]}")

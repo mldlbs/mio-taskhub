@@ -288,3 +288,35 @@ def test_archive_script_matches_cron_generated_queued_task():
     with Session(engine) as db:
         assert mod.ARCHIVE_LABEL in (db.get(Task, "sync0001").labels or [])
         assert mod.ARCHIVE_LABEL not in (db.get(Task, "manual01").labels or [])
+        # 归档语义修正：QUEUED → CANCELLED（移出可领取队列）
+        assert db.get(Task, "sync0001").state == TaskState.CANCELLED
+        assert db.get(Task, "manual01").state == TaskState.QUEUED
+
+
+def test_archived_task_not_claimable():
+    """归档后任务 state=CANCELLED，不在 claim 候选（QUEUED+READY）中。"""
+    import importlib.util
+    import sys as _sys
+
+    from mio_taskhub.api.claim import pick_candidate_task
+
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "scripts", "archive_spinning_tasks.py",
+    )
+    spec = importlib.util.spec_from_file_location("archive_spinning_tasks4", path)
+    mod = importlib.util.module_from_spec(spec)
+    _sys.modules["archive_spinning_tasks4"] = mod
+    spec.loader.exec_module(mod)
+
+    with Session(engine) as db:
+        db.add(Task(id="jack0001", title="每日数据同步任务", state=TaskState.QUEUED,
+                    stage=TaskStage.READY, priority=3, labels=["auto", "cron:x9"]))
+        db.commit()
+    mod.run(apply=True, undo=False)
+    with Session(engine) as db:
+        t = db.get(Task, "jack0001")
+        assert t.state == TaskState.CANCELLED
+        # claim 候选不应选中它
+        cand = pick_candidate_task(db, None, None)
+        assert cand is None or cand.id != "jack0001"
