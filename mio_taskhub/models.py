@@ -522,7 +522,7 @@ class ScheduledJobExecution(SQLModel, table=True):
     job_id: str = Field(index=True)
     started_at: datetime = Field(default_factory=_now)
     finished_at: Optional[datetime] = None
-    status: str = "ok"  # ok | error
+    status: str = "ok"  # ok | error | skipped
     result: Optional[str] = None
     error: Optional[str] = None
 

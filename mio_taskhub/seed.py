@@ -4,6 +4,7 @@
 仅在模板表为空时插入，避免重复播种；每个模板同时写入一条 v1 版本记录，
 与 create_template 的行为保持一致。
 """
+import os
 import uuid
 from datetime import datetime, timezone
 from sqlmodel import Session, select
@@ -248,9 +249,15 @@ def seed_idea_generate_job(db: Session):
             existing.updated_at = _utcnow()
             db.add(existing)
             db.commit()
+        # 若默认应为关闭（P1-1），把仍开启的老 job 关掉（仅当未显式设置 env 允许）
+        if not _idea_autogen_enabled() and existing.enabled:
+            existing.enabled = False
+            existing.updated_at = _utcnow()
+            db.add(existing)
+            db.commit()
         return
 
-    cron_expr = "0 */4 * * *"  # 每4小时
+    cron_expr = "0 */4 * * *"  # 每四小时
     if not validate_cron(cron_expr):
         return
 
@@ -268,9 +275,18 @@ def seed_idea_generate_job(db: Session):
             "labels": ["auto", "idea-generation"],
             "max_retries": 2,
         },
-        enabled=True,
+        enabled=_idea_autogen_enabled(),
         max_retries=2,
         timeout_seconds=120,
     )
     db.add(job)
     db.commit()
+
+
+def _idea_autogen_enabled() -> bool:
+    """「自动生成创意想法」链路是否默认开启（P1-1）。
+
+    默认 False（停止空转）；设 MIO_IDEA_AUTOGEN=1/auto/on/true 才默认开启。
+    """
+    val = os.environ.get("MIO_IDEA_AUTOGEN", "").strip().lower()
+    return val in ("1", "auto", "on", "true", "yes")

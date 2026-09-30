@@ -1,0 +1,86 @@
+# -*- coding: utf-8 -*-
+"""归档历史空转垃圾任务（P1-1，见 docs/taskhub/system-assessment-20260930.md）。
+
+背景：定时任务「[定时] 自动生成创意想法」等自动链路曾每日创建任务、几乎无人认领即被取消
+（生产库 142 个 CANCELLED 中 97 个来自该标题）。本脚本把这类「系统自动生成、无人消费」的
+已取消任务打上归档标签，供看板过滤；**不物理删除**，可回滚。
+
+用法：
+    python scripts/archive_spinning_tasks.py --dry-run   # 预览（默认）
+    python scripts/archive_spinning_tasks.py --apply     # 落库
+    python scripts/archive_spinning_tasks.py --apply --undo  # 撤销归档
+
+幂等：重复执行不会重复打标签；--undo 可逆。
+"""
+import argparse
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from sqlmodel import Session, select  # noqa: E402
+
+from mio_taskhub.db import engine  # noqa: E402
+from mio_taskhub.models import Task, TaskState  # noqa: E402
+
+ARCHIVE_LABEL = "archived:spinning"
+ARCHIVE_NOTE = "assessment-20260930:P1-1 空转垃圾任务归档"
+
+# 需归档的自动生成任务标题模式（前缀匹配）
+SPINNING_TITLE_PREFIXES = ("[定时] 自动生成创意想法",)
+
+
+def _is_spinning(title: str) -> bool:
+    return any((title or "").startswith(p) for p in SPINNING_TITLE_PREFIXES)
+
+
+def run(apply: bool, undo: bool) -> int:
+    with Session(engine) as db:
+        tasks = db.exec(
+            select(Task).where(
+                Task.state == TaskState.CANCELLED,
+                Task.claimed_at.is_(None),
+            )
+        ).all()
+        targets = [t for t in tasks if _is_spinning(t.title)]
+        already = [t for t in targets if ARCHIVE_LABEL in (t.labels or [])]
+
+        print(f"扫描到 CANCELLED 且未认领任务 {len(tasks)} 条，其中空转任务 {len(targets)} 条，"
+              f"已归档 {len(already)} 条")
+        print(f"模式：{'撤销归档' if undo else '归档'} | 模式：{'APPLY' if apply else 'DRY-RUN'}")
+
+        changed = 0
+        for t in targets:
+            labels = list(t.labels or [])
+            if undo:
+                if ARCHIVE_LABEL not in labels:
+                    continue
+                labels = [x for x in labels if x != ARCHIVE_LABEL]
+            else:
+                if ARCHIVE_LABEL in labels:
+                    continue
+                labels.append(ARCHIVE_LABEL)
+            if apply:
+                t.labels = labels
+                db.add(t)
+            changed += 1
+            if changed <= 10:
+                print(f"  {'-' if undo else '+'} {t.id} {t.title[:40]}")
+
+        if apply and changed:
+            db.commit()
+        print(f"\n{'已处理' if apply else '将处理'} {changed} 条"
+              f"{'（已提交）' if apply else '（未落库，加 --apply 生效）'}")
+    return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="归档历史空转垃圾任务（P1-1）")
+    ap.add_argument("--apply", action="store_true", help="实际落库（默认 dry-run）")
+    ap.add_argument("--undo", action="store_true", help="撤销归档")
+    args = ap.parse_args()
+    return run(apply=args.apply, undo=args.undo)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

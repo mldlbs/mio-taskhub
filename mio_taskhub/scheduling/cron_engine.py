@@ -7,6 +7,7 @@
 - 暂停/恢复/手动触发
 """
 import logging
+import os
 import threading
 import time
 import uuid
@@ -15,6 +16,7 @@ from typing import Optional
 
 import httpx
 from croniter import croniter
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from mio_taskhub.db import engine
@@ -25,6 +27,9 @@ from mio_taskhub.models import (
 from mio_taskhub.events import emit_event, broadcast_for_event
 
 logger = logging.getLogger("cron_engine")
+
+# 下游消费意愿检查默认阈值（P1-1）：同类未认领任务 >= 此值时跳过生成
+DEFAULT_MAX_PENDING_TASKS = 3
 
 
 class WebhookFailed(Exception):
@@ -119,17 +124,30 @@ class CronEngine:
 
         execution = ScheduledJobExecution(job_id=job_id, started_at=datetime.now(timezone.utc))
         try:
+            skipped = None
             if job.action_type == ScheduledJobActionType.CREATE_TASK:
-                result = self._create_task(job, db)
+                # 下游消费意愿检查：同类任务已堆积未认领则跳过本次生成，
+                # 避免持续制造无人认领的垃圾任务（见 system-assessment-20260930.md P1-1）。
+                skipped = self._should_skip_task_creation(job, db)
+                if skipped:
+                    result = f"skipped: {skipped}"
+                else:
+                    result = self._create_task(job, db)
             elif job.action_type == ScheduledJobActionType.WEBHOOK:
                 result = self._fire_webhook(job)
             else:
                 raise ValueError(f"unknown action_type: {job.action_type}")
 
-            execution.status = "ok"
-            execution.result = str(result) if result else None
-            job.last_status = ScheduledJobStatus.OK
-            job.last_error = None
+            if skipped:
+                execution.status = "skipped"
+                execution.result = result
+                job.last_status = ScheduledJobStatus.OK
+                job.last_error = None
+            else:
+                execution.status = "ok"
+                execution.result = str(result) if result else None
+                job.last_status = ScheduledJobStatus.OK
+                job.last_error = None
         except WebhookFailed as e:
             # 2xx 之外的响应：如实记失败，并把响应摘要留在 result 便于排查
             execution.status = "error"
@@ -171,6 +189,38 @@ class CronEngine:
             )
             db.commit()
             broadcast_for_event(event)
+
+    def _should_skip_task_creation(self, job: ScheduledJob, db: Session) -> Optional[str]:
+        """下游消费意愿检查（P1-1）。
+
+        若由同一 job 生成的任务已堆积超过阈值且仍未被认领，则返回跳过原因；
+        否则返回 None。阈值与开关：
+          - action_config.max_pending_tasks（默认 3，0/None 表示不限）
+          - env MIO_CRON_PENDING_GUARD=0 关闭该保护
+        """
+        if os.environ.get("MIO_CRON_PENDING_GUARD", "1") in ("0", "false", "False", "no"):
+            return None
+        cfg = job.action_config or {}
+        limit = cfg.get("max_pending_tasks", DEFAULT_MAX_PENDING_TASKS)
+        if not limit or limit <= 0:
+            return None
+        # 统计该 job 生成且仍未被认领的任务（queued/ready，无 claimed_at）
+        pending = db.exec(
+            select(func.count())
+            .select_from(Task)
+            .where(
+                Task.state == TaskState.QUEUED,
+                Task.claimed_at.is_(None),
+                Task.labels.contains(f"cron:{job.id}"),
+            )
+        ).one()
+        pending = pending[0] if isinstance(pending, (tuple, list)) else pending
+        if pending >= limit:
+            return (
+                f"下游未消费堆积 {pending} 条（阈值 {limit}），跳过本次生成；"
+                f"待 agent 认领或清理后再触发"
+            )
+        return None
 
     def _create_task(self, job: ScheduledJob, db: Session) -> str:
         """根据 job.action_config 创建一个 Task。"""
