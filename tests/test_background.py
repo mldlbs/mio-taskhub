@@ -38,6 +38,7 @@ def test_timeout_respects_max_retries():
     with Session(engine) as s:
         run = s.get(Run, rid)
         run.attempt = 1  # already tried once
+        run.progress = 50  # 有进度=真在工作后超时（区别于 never_started）
         run.last_heartbeat = datetime.now(timezone.utc) - timedelta(minutes=10)
         s.add(run); s.commit()
     background._on_timeout(rid, t.id)

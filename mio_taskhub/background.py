@@ -159,6 +159,7 @@ def _get_runs():
                 attempt=run.attempt, max_retries=task.max_retries if task else 3,
                 timeout_seconds=timeout_sec,
                 agent_offline=agent is None or agent.status == AgentStatus.OFFLINE,
+                progress=run.progress or 0,
             ))
         return out
 
@@ -231,7 +232,9 @@ def _requeue_retries():
 
 def _on_timeout(run_id: str, task_id: str):
     # 心跳超时仍保持原有“立即重入队列”语义，与显式失败的指数退避区分，
-    # 以保持 65882419 已有用例稳定；显式失败的退避由 runs.py 的 _requeue_retries 负责
+    # 以保持 65882419 已有用例稳定；显式失败的退避由 runs.py 的 _requeue_retries 负责。
+    # P1-2 增强：区分 never_started（claim 后从未心跳，progress=0）与真实超时，
+    # never_started 视为「agent 未启动/僵死」，干净 requeue 且**不消耗 attempt**。
     with Session(engine) as db:
         run = db.get(Run, run_id)
         task = db.get(Task, task_id)
@@ -240,19 +243,39 @@ def _on_timeout(run_id: str, task_id: str):
 
         agent = db.get(Agent, run.agent_name)
         agent_offline = agent is None or agent.status == AgentStatus.OFFLINE
-        kind = "agent_offline" if agent_offline else "heartbeat_timeout"
+        never_started = not (run.progress or 0) > 0
+        if never_started:
+            kind = "never_started"
+        elif agent_offline:
+            kind = "agent_offline"
+        else:
+            kind = "heartbeat_timeout"
 
         # 先回收 run：这一步必须落库。历史上若任务迁移抛 IllegalTransition，
         # 会连带把 run 回收一起回滚，导致该 run 每轮扫描重复失败、永远回收不掉。
         run.state = RunState.FINISHED
-        run.result = "agent offline" if agent_offline else "heartbeat timeout"
+        run.result = ("never started (no heartbeat)" if never_started
+                      else ("agent offline" if agent_offline else "heartbeat timeout"))
         run.finished_at = datetime.now(timezone.utc)
         run.exit_code = 1
         db.add(run)
 
         if task is not None and not is_terminal(task):
             from_st = _orm_to_status_stage(task.stage)
-            if task.attempt >= task.max_retries:
+            if never_started:
+                # agent 从未启动：不是任务本身的失败，干净重入 READY 且不惩罚 attempt。
+                # 但需**有界**，避免 spawn 永久损坏导致空转：bounce_count 到 max_retries*2 后判 FAILED。
+                task.bounce_count = (task.bounce_count or 0) + 1
+                max_bounces = max(1, (task.max_retries or 3)) * 2
+                if task.bounce_count >= max_bounces:
+                    reason = f"never_started:bounce_limit_exceeded({task.bounce_count})"
+                    _try_apply_event(db, task, M1State.FAILED, from_st,
+                                     M1Actor.SYSTEM, "scheduler:timeout", reason=reason)
+                else:
+                    reason = f"never_started:requeue({task.bounce_count}/{max_bounces})"
+                    _try_apply_event(db, task, M1State.QUEUED, M1Stage.READY,
+                                     M1Actor.SYSTEM, "scheduler:timeout", reason=reason)
+            elif task.attempt >= task.max_retries:
                 reason = f"{kind}:max_retries_exceeded"
                 _try_apply_event(db, task, M1State.FAILED, from_st,
                                  M1Actor.SYSTEM, "scheduler:timeout", reason=reason)
@@ -262,6 +285,14 @@ def _on_timeout(run_id: str, task_id: str):
                                  M1Actor.SYSTEM, "scheduler:timeout", reason=reason)
             db.add(task)
         db.commit()
+        # Verify 闭链（P1-2）：requeue 后校验任务确实回到可领取状态，否则留证便于排查
+        if task is not None and never_started:
+            db.refresh(task)
+            if task.state not in (TaskState.QUEUED, TaskState.RETRYING):
+                logger.warning(
+                    "requeue verify failed: task %s state=%s after never_started requeue",
+                    task.id, task.state,
+                )
 
 
 def _on_alive(run_id: str):

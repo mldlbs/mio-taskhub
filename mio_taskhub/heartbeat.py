@@ -39,9 +39,11 @@ class RunInfo:
     last_heartbeat: float
     attempt: int
     max_retries: int
-    # None = 未指定，沿用 sweep 自身的 timeout（生产侧 _get_runs 总会显式传入）
+    # None = 未指定，沿用 sweep 自身 timeout（生产侧 _get_runs 总会显式传入）
     timeout_seconds: Optional[int] = None
     agent_offline: bool = False
+    # 已上报进度（>0 说明 agent 在工作，用于区分 never_started）
+    progress: int = 0
 
 
 class HeartbeatSweep:
@@ -91,13 +93,24 @@ class HeartbeatSweep:
     def effective_timeout(self, run: RunInfo) -> float:
         """本次判死用的有效超时。
 
-        agent OFFLINE 只是把上限收紧到基线（用于快速回收僵尸 run），
-        不能用它跳过 run 级心跳新鲜度判定 —— agent 级心跳与 run 级心跳是
-        两条独立信号，长任务里 agent 可能只在 claim 前心跳一次。
+        P1-2 修正：agent OFFLINE 时**不再无条件收窄到 120s**。
+        旧逻辑 `min(timeout, agent_offline_timeout)` 会用全局 120s 覆盖任务自己的
+        预算，导致「agent 短暂掉线 + 长任务（est_duration_min=90）」在 120s 被杀。
+
+        现规则：
+          - 若 run 已上报过进度（progress > 0），说明 agent 确实在工作：用任务自己的
+            窗口（timeout_seconds），agent OFFLINE 时最多按 offline 上限适度放宽（×2），
+            绝不收到 120s。
+          - 若 run 从未上报进度（never_started），用较紧的 offline 窗口快速回收僵尸 run。
         """
         timeout = getattr(run, "timeout_seconds", None) or self.timeout
         if run.agent_offline:
-            timeout = min(timeout, self.agent_offline_timeout)
+            if getattr(run, "progress", 0) and run.progress > 0:
+                # 在工作：保留任务窗口；offline 上限放宽到 2×，避免误杀长任务
+                timeout = min(timeout, self.agent_offline_timeout * 2)
+            else:
+                # 从未启动：可快速回收（但仍以 offline 上限为准）
+                timeout = min(timeout, self.agent_offline_timeout)
         return timeout
 
     def _sweep(self):
