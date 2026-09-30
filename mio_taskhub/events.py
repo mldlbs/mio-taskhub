@@ -115,13 +115,24 @@ def _collect_event_for_broadcast(session, flush_context):
 
 
 def _broadcast_after_commit(session):
-    """SQLAlchemy after_commit hook: broadcast all collected events."""
+    """SQLAlchemy after_commit hook: broadcast all collected events.
+
+    防御性加固（c32a2145）：逐事件 try/except。广播发生在**事务已提交之后**，
+    任何异常都不允许反向冒泡出 db.commit()（否则调用方会误判写入失败并重复提交）。
+    """
     if not _pending_broadcasts:
         return
     events_to_send = list(_pending_broadcasts)
     _pending_broadcasts.clear()
     for ev in events_to_send:
-        broadcast_for_event(ev)
+        try:
+            broadcast_for_event(ev)
+        except Exception:  # noqa: BLE001 — 广播绝不影响已提交事务
+            import logging
+            logging.getLogger("mio_taskhub.events").warning(
+                "post-commit broadcast failed for event %s", getattr(ev, "id", "?"),
+                exc_info=True,
+            )
 
 
 def install_broadcast_hooks(engine):
