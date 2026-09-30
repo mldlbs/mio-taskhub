@@ -52,8 +52,41 @@ mcp = FastMCP(
 )
 
 
+def _audit_risk_block(method: str, path: str, reason: str):
+    """记录被门控拒绝的高风险调用（可查）。best-effort，不影响主流程。
+
+    注意：此处**不走 emit_event**（其 after_commit 广播会在运行中的事件循环里
+    调 asyncio.run 抛 'Event loop is closed'）——直接写 event 行，避免触发广播钩子。
+    """
+    try:
+        import logging
+        logging.getLogger("mio_taskhub.mcp").warning(
+            "MCP risk gate blocked: %s %s — %s", method, path, reason)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from mio_taskhub.db import engine
+        from mio_taskhub.models import Event
+        from sqlmodel import Session
+        import json as _json
+        with Session(engine) as db:
+            db.add(Event(type="mcp_risk_blocked", entity="mcp",
+                         entity_id=f"{method} {path}",
+                         payload=_json.dumps({"method": method, "path": path, "reason": reason},
+                                             ensure_ascii=False)))
+            db.commit()
+    except Exception:  # noqa: BLE001 — 审计失败不得阻断拒绝返回
+        pass
+
+
 async def _request(method: str, path: str, params: Optional[dict] = None, body: Optional[dict] = None) -> dict:
     """调用 hub HTTP API，统一处理错误。"""
+    # 统一风险门控（task 7d7ff97a）：所有工具经此处收口，destructive 默认拒绝。
+    from mio_taskhub import mcp_risk
+    allowed, reason = mcp_risk.check(method, path)
+    if not allowed:
+        _audit_risk_block(method, path, reason)
+        return {"error": reason, "risk": mcp_risk.classify(method, path), "blocked": True}
     start = time.perf_counter()
     try:
         resp = await _client.request(method, f"{HUB_URL}{path}", params=params, json=body)
@@ -320,7 +353,7 @@ async def taskhub_scaffold_docs(
     return _fmt(await _request("POST", f"/tasks/{task_id}/docs/scaffold", body=body))
 
 
-@_tool(name="taskhub_set_doc_status", title="推进文档生命周期", method="POST", path="/tasks/{task_id}/doc/{kind}/status", read_only=False, destructive=False, desc="推进文档生命周期状态机（严格向前不允许回退）：requirement/PRD draft→approved；spec draft→review→approved；decision/ADR proposed→accepted→superseded；plan draft→approved→done；test planned→passed/failed；milestone/Release planned→released；incident open→resolved→closed。文档首次写入时自动落初始状态。")
+@_tool(name="taskhub_set_doc_status", title="推进文档生命周期", method="POST", path="/tasks/{task_id}/doc/{kind}/status", read_only=False, destructive=True, desc="推进文档生命周期状态机（严格向前不允许回退）：requirement/PRD draft→approved；spec draft→review→approved；decision/ADR proposed→accepted→superseded；plan draft→approved→done；test planned→passed/failed；milestone/Release planned→released；incident open→resolved→closed。文档首次写入时自动落初始状态。")
 async def taskhub_set_doc_status(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     kind: str = Field(description="文档类型（需有生命周期的 kind）：requirement/spec/decision/plan/test/milestone/incident"),

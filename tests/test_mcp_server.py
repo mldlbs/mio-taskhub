@@ -9,8 +9,13 @@ from mio_taskhub.db import init_db
 
 
 @pytest.fixture()
-def mcp_ctx():
-    """Point the MCP server's HTTP client at the FastAPI app via ASGI transport."""
+def mcp_ctx(monkeypatch):
+    """Point the MCP server's HTTP client at the FastAPI app via ASGI transport.
+
+    放行 destructive（MIO_MCP_ALLOW_DESTRUCTIVE=1）：本文件测的是工具行为本身
+    （含 cancel_task），不是风险门控——门控有独立测试 tests/test_mcp_risk_gate.py。
+    """
+    monkeypatch.setenv("MIO_MCP_ALLOW_DESTRUCTIVE", "1")
     transport = httpx.ASGITransport(app=app)
     original_client = mcp_server._client
     mcp_server._client = httpx.AsyncClient(
