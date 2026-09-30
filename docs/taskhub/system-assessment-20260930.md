@@ -296,7 +296,7 @@ models.py (SQLModel 486 行) + db.py (SQLite WAL)
 - **P2-1** API 层直连 ORM，无事务边界 → 加 Repository/UnitOfWork（**架构债务，非当前最短路径，见 §11**）
 - **P2-2** `TaskStage.CANCELLED` 双语义 hack → 分离持久化状态与展示状态
 - **P2-3** 迁移与 models 漂移（`session_count`）→ 加 schema 校验测试
-- **P2-4** insight 产物不被消费 → 接 `alertrule` 阈值规则
+- **P2-4** insight 产物不被消费 → 接 `alertrule` 阈值规则 ✅ **【已结，task b71206fe】** 诊断确证：insight 3 行全 ack=0、remediation 0 行——`metrics→insight` 后无消费者。修复：新增 `InsightsRemediator`，未确认 critical 洞察→hub 跟进任务（幂等+开关+可观测），live 验证 2 critical→2 任务。**这是评估报告"计算闭环≠价值闭环"的首个被实际闭合的案例。**
 
 ### P3（普通）
 
