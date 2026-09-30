@@ -300,3 +300,21 @@ idea(40) → 被拆解(35, 87.5%) → task → run(90/289) → 完成(64)
 3. **Windows .ps1 launcher**（含于 0fe91462）：idle_worker 执行 `codex` 解析到 codex.ps1 → subprocess WinError 2；修复为优先 .cmd/.exe。
 
 **未解决（运营层，非代码）**：69% 任务无 run 的根本原因是**无活跃消费者**（agent 全 OFFLINE、空闲计划 enabled=false）。代码侧的过滤/洁净度已修；要真正提升消费率需把 worker 跑起来（并解决 agent 执行时长/选型）。
+
+### 14.1 启用消费者的尝试与阻塞（2026-09-30）
+
+尝试为「空闲计划」配置一个真实消费者，实测本机可用 agent：
+
+| agent | 可用性（实测） | 备注 |
+|---|---|---|
+| opencode | ❌ 仅桌面版，无 CLI 在 PATH | 无法被 subprocess/night_runner 拉起 |
+| codex | ❌ `403 INSUFFICIENT_BALANCE` | 账号余额不足，API 调用被拒 |
+| hermes | ⚠️ 可启动但极慢 | 极简 prompt 也 >3.5min 无输出，不适合自动轮询消费 |
+
+**结论**：**P1-B 的"启用消费者"受阻于环境（无可用且够快的 headless agent），非系统缺陷**。代码侧已就绪：
+- idle_worker 可正确 claim→执行→回写（用 hermes 验证过闭环：run 604f9bdf）；
+- 项目过滤（project_scope）、launcher 解析（.ps1→.cmd）、队列洁净度均已修复。
+
+**待条件满足后即可启用**：一旦有一个可用的 headless agent（余额恢复的 codex / opencode CLI / 更快模型），把 night_runner.json 的 command 改为对应 prefix 并 enabled=true 即可；无需再改代码。
+
+**诚实边界**：本节结论是"环境阻塞"，不是"已验证消费率提升"。消费率能否改善仍待有可用 agent 后实测。
