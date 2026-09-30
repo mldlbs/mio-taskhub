@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { api } from '../api'
 import { confirm } from '../confirm'
 import { fmtAgo, fmtDate, parseUtc } from '../constants'
@@ -1604,7 +1605,7 @@ export default function IdeasView({ ideas, onReload, onOpenTask }) {
               <button className="modal__close" onClick={() => setAdrMd(null)} aria-label="关闭">×</button>
             </div>
             {adrMd.path && <p className="adr-md-path">{adrMd.path}</p>}
-            <div className="md adr-md-body" dangerouslySetInnerHTML={{ __html: marked(adrMd.content) }} />
+            <div className="md adr-md-body" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(marked(adrMd.content), { ADD_ATTR: ['target'] }) }} />
           </div>
         </div>
       )}
