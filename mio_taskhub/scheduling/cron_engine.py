@@ -21,6 +21,7 @@ from sqlmodel import Session, select
 
 from mio_taskhub.db import engine
 from mio_taskhub.models import (
+    Idea, IdeaStatus,
     ScheduledJob, ScheduledJobActionType, ScheduledJobStatus,
     ScheduledJobExecution, Task, TaskState, TaskStage,
 )
@@ -30,6 +31,8 @@ logger = logging.getLogger("cron_engine")
 
 # 下游消费意愿检查默认阈值（P1-1）：同类未认领任务 >= 此值时跳过生成
 DEFAULT_MAX_PENDING_TASKS = 3
+# 生成类 webhook：未消费的 auto-generated 想法 >= 此值时跳过生成
+DEFAULT_MAX_PENDING_IDEAS = 10
 
 
 class WebhookFailed(Exception):
@@ -134,7 +137,13 @@ class CronEngine:
                 else:
                     result = self._create_task(job, db)
             elif job.action_type == ScheduledJobActionType.WEBHOOK:
-                result = self._fire_webhook(job)
+                # 生成类 webhook（如「每日创意生成」）：同类 auto-generated 想法已堆积
+                # 未被消费时跳过，避免每天空转产出无人处理的素材（P1-1 扩展）。
+                skipped = self._should_skip_webhook_generation(job, db)
+                if skipped:
+                    result = f"skipped: {skipped}"
+                else:
+                    result = self._fire_webhook(job)
             else:
                 raise ValueError(f"unknown action_type: {job.action_type}")
 
@@ -219,6 +228,41 @@ class CronEngine:
             return (
                 f"下游未消费堆积 {pending} 条（阈值 {limit}），跳过本次生成；"
                 f"待 agent 认领或清理后再触发"
+            )
+        return None
+
+    def _should_skip_webhook_generation(self, job: ScheduledJob, db: Session) -> Optional[str]:
+        """生成类 webhook 的下游消费意愿检查（P1-1 扩展）。
+
+        仅对「创意生成」语义的 webhook 生效（url 命中创意生成端点，或 action_config
+        显式标记 generates_ideas=true）。当 hub 中已有 >= 阈值条 auto-generated 且仍为
+        NEW（未被消费/评审/拆解）的想法时，返回跳过原因，避免每日空转产出堆积素材。
+
+        阈值：action_config.max_pending_ideas（默认 DEFAULT_MAX_PENDING_IDEAS）；
+        env MIO_CRON_PENDING_GUARD=0 关闭。
+        """
+        if os.environ.get("MIO_CRON_PENDING_GUARD", "1") in ("0", "false", "False", "no"):
+            return None
+        cfg = job.action_config or {}
+        url = str(cfg.get("url", ""))
+        if not cfg.get("generates_ideas") and "ideas/templates/generate" not in url:
+            return None  # 非生成类 webhook 不受此保护
+        limit = cfg.get("max_pending_ideas", DEFAULT_MAX_PENDING_IDEAS)
+        if not limit or limit <= 0:
+            return None
+        pending = db.exec(
+            select(func.count())
+            .select_from(Idea)
+            .where(
+                Idea.status == IdeaStatus.NEW,
+                Idea.labels.contains("auto-generated"),
+            )
+        ).one()
+        pending = pending[0] if isinstance(pending, (tuple, list)) else pending
+        if pending >= limit:
+            return (
+                f"已有 {pending} 条 auto-generated 想法未消费（阈值 {limit}），跳过本次生成；"
+                f"待评审/拆解后再触发"
             )
         return None
 
