@@ -261,3 +261,30 @@ def test_archive_script_dry_run_no_write():
     mod.run(apply=False, undo=False)
     with Session(engine) as db:
         assert mod.ARCHIVE_LABEL not in (db.get(Task, "spin0002").labels or [])
+
+
+def test_archive_script_matches_cron_generated_queued_task():
+    """label 判据：由 cron 生成（cron:<id> + auto）的未认领 QUEUED 任务也应被归档。"""
+    import importlib.util
+    import sys as _sys
+
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "scripts", "archive_spinning_tasks.py",
+    )
+    spec = importlib.util.spec_from_file_location("archive_spinning_tasks3", path)
+    mod = importlib.util.module_from_spec(spec)
+    _sys.modules["archive_spinning_tasks3"] = mod
+    spec.loader.exec_module(mod)
+
+    with Session(engine) as db:
+        db.add(Task(id="sync0001", title="每日数据同步任务", state=TaskState.QUEUED,
+                    stage=TaskStage.READY, labels=["auto", "daily", "cron:a9cbd255"]))
+        # 干扰项：手动任务（无 cron 标签）不应被归档
+        db.add(Task(id="manual01", title="手动任务", state=TaskState.QUEUED,
+                    stage=TaskStage.READY, labels=["urgent"]))
+        db.commit()
+    mod.run(apply=True, undo=False)
+    with Session(engine) as db:
+        assert mod.ARCHIVE_LABEL in (db.get(Task, "sync0001").labels or [])
+        assert mod.ARCHIVE_LABEL not in (db.get(Task, "manual01").labels or [])

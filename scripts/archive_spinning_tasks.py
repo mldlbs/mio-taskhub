@@ -26,26 +26,33 @@ from mio_taskhub.models import Task, TaskState  # noqa: E402
 ARCHIVE_LABEL = "archived:spinning"
 ARCHIVE_NOTE = "assessment-20260930:P1-1 空转垃圾任务归档"
 
-# 需归档的自动生成任务标题模式（前缀匹配）
+# 需归档的自动生成任务：标题前缀匹配，或由 cron 生成（label cron:<id>）
 SPINNING_TITLE_PREFIXES = ("[定时] 自动生成创意想法",)
 
 
-def _is_spinning(title: str) -> bool:
-    return any((title or "").startswith(p) for p in SPINNING_TITLE_PREFIXES)
+def _is_spinning(t) -> bool:
+    labels = t.labels or []
+    if any((t.title or "").startswith(p) for p in SPINNING_TITLE_PREFIXES):
+        return True
+    # 由 cron job 生成（label cron:<job_id>）且带 auto 标记
+    has_cron = any(str(x).startswith("cron:") for x in labels)
+    return has_cron and ("auto" in labels)
 
 
 def run(apply: bool, undo: bool) -> int:
     with Session(engine) as db:
+        # 空转任务：未认领（无 claimed_at）且处于排队态；涵盖 CANCELLED 与 QUEUED 两类
+        # （CANCELLED = 已被清理的垃圾；QUEUED 且长期未认领 = 正在堆积的垃圾）。
         tasks = db.exec(
             select(Task).where(
-                Task.state == TaskState.CANCELLED,
                 Task.claimed_at.is_(None),
+                Task.state.in_([TaskState.CANCELLED, TaskState.QUEUED]),
             )
         ).all()
-        targets = [t for t in tasks if _is_spinning(t.title)]
+        targets = [t for t in tasks if _is_spinning(t)]
         already = [t for t in targets if ARCHIVE_LABEL in (t.labels or [])]
 
-        print(f"扫描到 CANCELLED 且未认领任务 {len(tasks)} 条，其中空转任务 {len(targets)} 条，"
+        print(f"扫描到未认领任务 {len(tasks)} 条，其中空转任务 {len(targets)} 条，"
               f"已归档 {len(already)} 条")
         print(f"模式：{'撤销归档' if undo else '归档'} | 模式：{'APPLY' if apply else 'DRY-RUN'}")
 
