@@ -284,3 +284,19 @@ idea(40) → 被拆解(35, 87.5%) → task → run(90/289) → 完成(64)
 | 并发热点 | 未验证 | **已证明零重复** |
 
 **诚实声明**：本报告的"已修复"均指**代码+测试+落地证据（如 99 归档、2 条 remediation、0 开启 job）**；"修复有效"（心跳假失败归零、洞察驱动改善）**目前仍是推断，缺生产新样本**——这正是路线阶段三要验证的。
+
+
+---
+
+## 14. P1-B 执行记录（2026-09-30，真实消费者验证）
+
+**做法**：起真实消费者驱动闭环（register → claim → 真实 agent 执行 → submit）。
+
+**闭环机制验证结果（事实）**：run `604f9bdf` started 14:15:59 → finished 14:20:59（正好 300s 超时），exit_code=1，result 如实记 "hermes failed/timed out"；任务正确重入 QUEUED/READY（attempt=2, retry_count=1）。→ **claim→外部 agent 执行→结果记录→失败 requeue 全链成立**。失败的是 agent 执行本身（hermes 工具型 agent >300s），属运营/选型，非闭环缺陷。
+
+**执行中发现并修复的真实缺陷**：
+1. **claim 无项目范围过滤**（task 0fe91462）：`project` 是领取上下文（回填），非过滤；idle_worker `--project` 假定有过滤 → 静默跨项目领任务。修复：新增 `project_scope` 过滤参数（多值），`project` 回填语义不变。**纠正了我"project 被静默忽略"的初判**。
+2. **队列洁净度**（task 5d4c8b68）：归档只打标签未改 state，6 条空转任务仍可被 claim（claim 只认 state）。修复：归档=打标签+转 CANCELLED；候选池 39→33。
+3. **Windows .ps1 launcher**（含于 0fe91462）：idle_worker 执行 `codex` 解析到 codex.ps1 → subprocess WinError 2；修复为优先 .cmd/.exe。
+
+**未解决（运营层，非代码）**：69% 任务无 run 的根本原因是**无活跃消费者**（agent 全 OFFLINE、空闲计划 enabled=false）。代码侧的过滤/洁净度已修；要真正提升消费率需把 worker 跑起来（并解决 agent 执行时长/选型）。
