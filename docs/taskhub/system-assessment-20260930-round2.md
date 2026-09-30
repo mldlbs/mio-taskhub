@@ -195,7 +195,7 @@ idea(40) → 被拆解(35, 87.5%) → task → run(90/289) → 完成(64)
 
 ### P1（严重）
 
-**P1-A 默认无鉴权 + 默认 bind 0.0.0.0**（本轮新发现，安全）
+**P1-A 默认无鉴权 + 默认 bind 0.0.0.0**（本轮新发现，安全） ✅ **【2026-09-30 已结，task 3b5128b6：默认 loopback + 非环回拒绝 + SSRF guard】**
 - **问题**：`app.state.auth_token = env or ""`，空 token = 不鉴权；`--host` 默认 `0.0.0.0`（所有网卡）。实测无 token 可 POST 建任务（本地 200）。
 - **影响**：若以默认参数在**联网机器**启动，局域网内任意主机可读写任务库（建/改/删任务、读文档）。
 - **证据（事实）**：main.py:433 `default="0.0.0.0"`；main.py:328 token 可空；实测 `POST /api/v1/tasks` 无 token → 200。
@@ -211,7 +211,7 @@ idea(40) → 被拆解(35, 87.5%) → task → run(90/289) → 完成(64)
 - **优先级**：高（**价值层面**，非可靠性）
 
 ### P2（重要优化）
-- **P2-A webhook SSRF 无白名单**：cron webhook 可打任意 URL（含内网元数据地址）。**证据**：`_fire_webhook` 直接 `httpx.Client.request(url)`，无 host 校验。建议：内网/环回地址默认拒绝或需显式允许；
+- **P2-A webhook SSRF 无白名单**）✅ **【2026-09-30 已结，task 3b5128b6】** 原文：cron webhook 可打任意 URL（含内网元数据地址）。**证据**：`_fire_webhook` 直接 `httpx.Client.request(url)`，无 host 校验。建议：内网/环回地址默认拒绝或需显式允许；
 - **P2-B API 直连 ORM**（留档，暂不重构）；
 - **P2-C `CANCELLED` 双语义 + 迁移漂移**（留档）。
 
