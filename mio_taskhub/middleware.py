@@ -51,6 +51,11 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
             response.headers["X-Request-ID"] = rid
+            # 中文 JSON 必须声明 UTF-8：缺 charset 时浏览器/客户端会按平台默认编码
+            # （中文 Windows = GBK）解码，导致页面乱码（字节本身是 UTF-8）。
+            ctype = response.headers.get("content-type", "")
+            if ctype.startswith("application/json") and "charset" not in ctype.lower():
+                response.headers["content-type"] = ctype + "; charset=utf-8"
             elapsed_ms = (time.monotonic() - start) * 1000
             key = f"{request.method} {request.url.path}"
             _total_duration_ms[key] = _total_duration_ms.get(key, 0) + elapsed_ms
