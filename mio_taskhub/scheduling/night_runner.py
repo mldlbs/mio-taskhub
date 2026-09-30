@@ -11,6 +11,8 @@ import logging
 import os
 import threading
 import time
+import shlex
+import shutil
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -47,6 +49,35 @@ def _in_window(now_min: int, ws: int, we: int) -> bool:
     if ws <= we:
         return ws <= now_min < we
     return now_min >= ws or now_min < we
+
+
+def _diagnose_command(cmd: str, cwd: Optional[str] = None) -> Optional[str]:
+    """粗诊断 spawn 命令是否可跑：首 token 可执行是否在 PATH / python 脚本是否存在。
+
+    返回人类可读提示（问题）或 None（看不出问题）。仅做静态检查，不执行命令。
+    """
+    try:
+        parts = shlex.split(cmd) if cmd else []
+    except ValueError:
+        parts = (cmd or "").split()
+    parts = [p.strip('"') for p in parts if p and p.strip('"')]
+    if not parts:
+        return "命令为空"
+    exe = parts[0]
+    base = os.path.basename(exe).lower()
+    if base.startswith("python") or base == "py":
+        # python <script> [args] → 校验脚本是否存在（相对路径按 cwd 解析）
+        if len(parts) >= 2 and not parts[1].startswith("-"):
+            script = Path(parts[1])
+            if not script.is_absolute():
+                script = Path(cwd) / script if cwd else Path.cwd() / script
+            if not script.is_file():
+                return ("脚本不存在：%s —— idle_worker.py 在安装目录下，请把该 agent 的 cwd 设为安装目录"
+                        % parts[1])
+        return None
+    if shutil.which(exe) is None:
+        return "命令 %s 未找到 —— 该 CLI 是否已安装并加入 PATH？（如 codex / hermes；opencode 需 CLI 版）" % exe
+    return None
 
 
 def load_config() -> dict:
@@ -92,12 +123,13 @@ class NightRunner:
         self._last_status: dict = {}
 
     # ---- 进程管理 -------------------------------------------------------
-    def _spawn(self, agent_cfg: dict) -> bool:
+    def _spawn(self, agent_cfg: dict) -> dict:
+        """拉起一个 agent 进程。返回 {ok, pid?, error?, hint?}（不抛异常）。"""
         import subprocess
         name = agent_cfg.get("agent") or agent_cfg.get("agent_type") or f"agent{len(self._procs)}"
         if name in self._procs and self._procs[name].poll() is None:
             logger.info(f"{name} already running, skip")
-            return False
+            return {"ok": False, "error": "already running", "pid": self._procs[name].pid}
         cmd = agent_cfg["command"]
         url = os.environ.get("MIO_TASKHUB_URL", "http://127.0.0.1:48620")
         token = os.environ.get("MIO_TASKHUB_TOKEN", "")
@@ -106,16 +138,21 @@ class NightRunner:
         scope = load_config().get("projects") or []
         cmd = cmd.replace("{project}", ",".join(str(p).strip() for p in scope if str(p).strip()))
         cwd = agent_cfg.get("cwd") or None
+        hint = _diagnose_command(cmd, cwd)
+        if hint:
+            logger.warning(f"spawn {name} precheck failed: {hint}")
+            return {"ok": False, "error": "precheck failed", "hint": hint, "cmd": cmd}
         try:
             proc = subprocess.Popen(cmd, shell=True, cwd=cwd,
                                     env={**os.environ, "MIO_TASKHUB_URL": url},
                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             self._procs[name] = proc
             logger.info(f"spawned {name}: pid={proc.pid}")
-            return True
+            return {"ok": True, "pid": proc.pid, "cmd": cmd}
         except Exception as e:
             logger.error(f"spawn {name} failed: {e}")
-            return False
+            return {"ok": False, "error": str(e),
+                    "hint": "命令无法启动（检查命令语法 / 权限 / 工作目录）", "cmd": cmd}
 
     def _reap_finished(self):
         for name, p in list(self._procs.items()):
@@ -167,7 +204,7 @@ class NightRunner:
         if self._spawned_date != today:
             spawned = []
             for a in cfg["agents"]:
-                if self._spawn(a):
+                if (self._spawn(a) or {}).get("ok"):
                     spawned.append(a.get("agent") or a.get("agent_type"))
             self._spawned_date = today
             logger.info(f"night shift started: {spawned}")

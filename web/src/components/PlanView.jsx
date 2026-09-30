@@ -256,7 +256,7 @@ function ConfigPanel({ config, onSave, onToggleEnabled, enabled, saving, agents,
   )
 }
 
-function StatusPanel({ status, config, onRefresh, refreshing, onStop, onSpawnNow }) {
+function StatusPanel({ status, config, onRefresh, refreshing, onStop, onSpawnNow, spawnMsg }) {
   const running = status?.running_agents || {}
   const runningCount = Object.keys(running).length
   const inWindow = status?.in_window
@@ -309,6 +309,21 @@ function StatusPanel({ status, config, onRefresh, refreshing, onStop, onSpawnNow
           ■ 全部停止
         </button>
       </div>
+
+      {spawnMsg && (
+        <div className="np-spawn-msg">
+          {spawnMsg.__error
+            ? <div className="np-spawn-msg__row is-err"><span>试跑失败：{spawnMsg.__error}</span></div>
+            : Object.entries(spawnMsg).map(([name, r]) => (
+                <div key={name} className={`np-spawn-msg__row${r && r.ok ? ' is-ok' : ' is-err'}`}>
+                  <span className="mono np-spawn-msg__name">{name}</span>
+                  {r && r.ok
+                    ? <span>已拉起 · pid {r.pid}</span>
+                    : <span>{r?.hint || r?.error || '启动失败（原因未知）'}</span>}
+                </div>
+              ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -356,6 +371,7 @@ export default function PlanView({ onSchedule }) {
   const [nrSaving, setNrSaving] = useState(false)
   const [nrStatus, setNrStatus] = useState(null)
   const [nrConfig, setNrConfig] = useState(null)
+  const [spawnMsg, setSpawnMsg] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
   const [cronTasks, setCronTasks] = useState([])
   const [cronLoading, setCronLoading] = useState(false)
@@ -400,7 +416,14 @@ export default function PlanView({ onSchedule }) {
   const toggleNrEnabled = () => setNrEnabled(e => !e)
 
   const handleSpawnNow = async () => {
-    try { await api.nrSpawnNow(); await loadNrStatus(); } catch { /* silent */ }
+    setSpawnMsg(null)
+    try {
+      const r = await api.nrSpawnNow()
+      setSpawnMsg(r?.spawned || {})
+      await loadNrStatus()
+    } catch (e) {
+      setSpawnMsg({ __error: e?.message || String(e) })
+    }
   }
 
   const handleStopAll = async () => {
@@ -504,6 +527,7 @@ export default function PlanView({ onSchedule }) {
             refreshing={refreshing}
             onStop={handleStopAll}
             onSpawnNow={handleSpawnNow}
+            spawnMsg={spawnMsg}
           />
         </Section>
 

@@ -65,8 +65,9 @@ def test_spawn_substitutes_project_scope(tmp_path, monkeypatch):
 
     monkeypatch.setattr("subprocess.Popen", fake_popen)
     runner = nr.NightRunner()
-    ok = runner._spawn({"agent": "w1", "command": "idle_worker.py w1 --project {project} --cli {url}"})
-    assert ok is True
+    res = runner._spawn({"agent": "w1",
+                         "command": "python -c pass {project} {url}"})
+    assert res["ok"] is True and res["pid"] == 4242
     assert "agent-dev,csps" in captured["cmd"]
     assert "{project}" not in captured["cmd"]
     assert "{url}" not in captured["cmd"]          # {url} 仍被替换
@@ -86,8 +87,9 @@ def test_spawn_project_empty_when_no_scope(tmp_path, monkeypatch):
     monkeypatch.setattr("subprocess.Popen",
                         lambda cmd, **kw: (captured.update(cmd=cmd), _P())[1])
     runner = nr.NightRunner()
-    runner._spawn({"agent": "w2", "command": "worker --project {project}"})
-    assert captured["cmd"].strip().endswith("--project")   # 无范围 → 空串
+    res = runner._spawn({"agent": "w2", "command": "python -c pass {project}"})
+    assert res["ok"] is True
+    assert captured["cmd"].strip().endswith("pass")        # 无范围 → {project} 替换为空串
 
 
 # ---------- idle_worker ----------
@@ -140,3 +142,31 @@ def test_wire_argv_neither_returns_none():
     mod = _load_idle_worker()
     spec, shell = mod.wire_argv("P", "", "")
     assert spec is None and shell is False
+
+
+# ---------- 试跑诊断（task dd48a647）----------
+
+def test_diagnose_missing_executable():
+    hint = nr._diagnose_command("no_such_cli_xyz --flag")
+    assert hint and "not found" not in hint  # 中文提示
+    assert "no_such_cli_xyz" in hint
+
+
+def test_diagnose_missing_python_script(tmp_path):
+    hint = nr._diagnose_command("python idle_worker.py w1", cwd=str(tmp_path))
+    assert hint and "idle_worker.py" in hint
+    assert "cwd" in hint or "\u5b89\u88c5" in hint  # 提示设置 cwd
+
+
+def test_diagnose_ok_for_existing_command():
+    # python 一定在 PATH；且无脚本参数 → 看不出问题
+    assert nr._diagnose_command("python --version") is None
+
+
+def test_spawn_precheck_blocks_and_reports_hint(tmp_path, monkeypatch):
+    monkeypatch.setattr(nr, "CONFIG_PATH", tmp_path / "night_runner.json")
+    runner = nr.NightRunner()
+    res = runner._spawn({"agent": "bad", "command": "no_such_cli_xyz run"})
+    assert res["ok"] is False
+    assert res["error"] == "precheck failed"
+    assert "no_such_cli_xyz" in res["hint"]
