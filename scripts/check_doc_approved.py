@@ -52,11 +52,14 @@ def check_doc_approved(task_id, task=None):
     kinds = required_kinds()
     statuses = task.get("doc_statuses") or {}
     doc_paths = task.get("doc_paths") or {}
-    tracked = bool(statuses) or bool(doc_paths)
+    # 与后端 task_stages._check_lifecycle_gate 对齐：仅以 **doc_statuses**（显式进入
+    # 生命周期的文档）判定「已跟踪」，不因 doc_paths 里挂了非生命周期文档（如 review
+    # 报告、readme、changelog）就强制要求 spec/api/plan（2026-09-30 P1-2 实测误伤）。
+    tracked = bool(statuses)
 
     if not tracked and not is_strict():
         return warn_allow(
-            "任务 %s 未登记文档，跳过 %s 批准校验（设 MIO_DOC_GATE_STRICT=1 可强制）"
+            "任务 %s 未登记生命周期文档，跳过 %s 批准校验（设 MIO_DOC_GATE_STRICT=1 可强制）"
             % (task_id, "/".join(kinds))
         )
 

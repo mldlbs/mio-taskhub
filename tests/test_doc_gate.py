@@ -123,6 +123,39 @@ def test_check_doc_approved_untracked_allows(monkeypatch):
     assert allow is True
 
 
+def test_check_doc_approved_review_doc_does_not_track(monkeypatch):
+    # 回归（0712a33e 误伤）：doc_paths 只挂 review 报告、无生命周期状态 → 放行，
+    # 不因非生命周期文档强制要求 spec/api/plan approved。
+    monkeypatch.setattr(ca, "get_task", lambda tid: {
+        "doc_statuses": {},
+        "doc_paths": {"review": "docs/taskhub/0712a33e/review.md"},
+    })
+    allow, reason = ca.check_doc_approved("1")
+    assert allow is True
+
+
+def test_check_doc_approved_tracked_missing_still_blocks(monkeypatch):
+    # 跟踪任务（有 doc_statuses）仍严格：spec 有但 api/plan 缺失 → 阻塞。
+    monkeypatch.setattr(ca, "get_task", lambda tid: {
+        "doc_statuses": {"spec": {"state": "review"}},
+        "doc_paths": {"spec": "docs/spec.md"},
+    })
+    allow, reason = ca.check_doc_approved("1")
+    assert allow is False
+    assert "api" in reason or "plan" in reason
+
+
+def test_check_doc_approved_review_doc_strict_blocks(monkeypatch):
+    # strict 模式：即使只有 review 文档，也要求 spec/api/plan。
+    monkeypatch.setenv("MIO_DOC_GATE_STRICT", "1")
+    monkeypatch.setattr(ca, "get_task", lambda tid: {
+        "doc_statuses": {},
+        "doc_paths": {"review": "docs/review.md"},
+    })
+    allow, _ = ca.check_doc_approved("1")
+    assert allow is False
+
+
 def test_check_doc_approved_untracked_strict_blocks(monkeypatch):
     monkeypatch.setenv("MIO_DOC_GATE_STRICT", "1")
     monkeypatch.setattr(ca, "get_task", lambda tid: {
