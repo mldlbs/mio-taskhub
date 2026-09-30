@@ -210,13 +210,14 @@ function ScheduledJobModal({ editJob, onClose, onSaved }) {
 
   return (
     <div className="overlay" onClick={onClose}>
-      <div className="modal" role="dialog" onClick={e => e.stopPropagation()}>
+      <div className="modal modal--job" role="dialog" onClick={e => e.stopPropagation()}>
         <div className="modal__head">
           <h3>{editJob ? '编辑定时任务' : '新建定时任务'}</h3>
           <button className="modal__close" onClick={onClose}>×</button>
         </div>
         <form onSubmit={submit}>
           <div className="modal__body">
+            <div className="sj-form__grid">
             <div className="field">
               <label className="field__label">名称 <b>*</b></label>
               <input autoFocus value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
@@ -272,7 +273,7 @@ function ScheduledJobModal({ editJob, onClose, onSaved }) {
                 </div>
                 <div className="field">
                   <label className="field__label">Body (JSON)</label>
-                  <textarea value={JSON.stringify(cfg.body || {}, null, 2)}
+                  <textarea className="sj-body-ta" value={JSON.stringify(cfg.body || {}, null, 2)}
                     onChange={e => { try { setForm({ ...form, action_config: { ...cfg, body: JSON.parse(e.target.value) } }) } catch {} }}
                     rows={3} placeholder='{"event":"trigger"}' />
                 </div>
@@ -323,6 +324,7 @@ function ScheduledJobModal({ editJob, onClose, onSaved }) {
               </>
             )}
           </div>
+            </div>
           <div className="modal__foot">
             <button type="button" className="btn btn--ghost" onClick={onClose}>取消</button>
             <button type="submit" className="btn btn--accent" disabled={busy || !form.name.trim() || !form.cron_expr.trim()}>

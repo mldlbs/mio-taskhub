@@ -19,14 +19,20 @@ HYPS = [
 
 
 def _post(monkeypatch, raw, **kw):
-    monkeypatch.setattr(it, "_generate_ideas", raw)
+    """raw: 返回 ideas 列表的桩；适配端点现在走 _generate_with_degrade（返回 (ideas, strategy)）。"""
+    def _stub(goal, context, recently_seen=None, strategy="", sources_limit=5,
+              cross_domain=True, **kwargs):
+        out = raw(goal, context, **kwargs) if callable(raw) else raw
+        return (out, "")
+    monkeypatch.setattr(it, "_generate_with_degrade", _stub)
     return client.post("/api/v1/ideas/templates/generate", json=kw)
 
 
 def test_generate_maps_creativity_output(monkeypatch):
     captured = {}
 
-    def fake(goal, context, timeout=120.0):
+    def fake(goal, context, timeout=120.0, recently_seen=None, strategy="",
+             sources_limit=5, cross_domain=True):
         captured.update(goal=goal, context=context)
         return list(HYPS)
 
@@ -51,7 +57,7 @@ def test_generate_maps_creativity_output(monkeypatch):
 
 
 def test_generate_truncates_to_num_ideas(monkeypatch):
-    r = _post(monkeypatch, lambda g, c, timeout=120.0: list(HYPS),
+    r = _post(monkeypatch, lambda *a, **k: list(HYPS),
               template_id="feature-request", values={"title": "t"},
               num_ideas=1, sync_to_hub=False)
     assert r.status_code == 200
@@ -67,7 +73,7 @@ def test_generate_cli_missing_returns_503(monkeypatch):
 
 
 def test_generate_cli_failure_returns_502(monkeypatch):
-    def boom(goal, context, timeout=120.0):
+    def boom(goal, context, timeout=120.0, recently_seen=None, strategy="", sources_limit=5, cross_domain=True):
         from fastapi import HTTPException
         raise HTTPException(502, "creativity generate failed: LLM down")
 
@@ -78,7 +84,7 @@ def test_generate_cli_failure_returns_502(monkeypatch):
 
 def test_generate_syncs_to_hub(monkeypatch):
     r = _post(monkeypatch,
-              lambda g, c, timeout=120.0: [
+              lambda *a, **k: [
                   {"title": "同步用想法X", "idea": "内容X", "strategy": "stable"}],
               template_id="feature-request", values={"title": "t"},
               num_ideas=1, sync_to_hub=True)
@@ -127,12 +133,14 @@ def test_generate_empty_retries_then_succeeds(monkeypatch):
 
 
 def test_generate_empty_with_reason_409_no_retry(monkeypatch):
+    """409/all-pairs：不再单次失败即返回，而是按 explore→signal→stable 各试一次后报 409。"""
     calls = _patch_cli(monkeypatch, ['{"ideas": [], "reason": "all pairs already explored"}'])
     r = client.post("/api/v1/ideas/templates/generate", json={
         "template_id": "feature-request", "values": {"title": "t"}, "sync_to_hub": False})
     assert r.status_code == 409
-    assert "all pairs already explored" in r.json()["detail"]
-    assert calls["n"] == 1
+    detail = r.json()["detail"]
+    assert "explore/signal/stable" in detail or "all pairs already explored" in detail
+    assert calls["n"] == 3   # explore + signal + stable 三档降级
 
 
 def test_generate_double_empty_502(monkeypatch):

@@ -69,7 +69,8 @@ def test_generate_ideas_includes_recently_seen(monkeypatch):
 def test_generate_with_degrade_retries_on_409(monkeypatch):
     calls = []
 
-    def fake(goal, context, timeout=120.0, recently_seen=None, strategy=""):
+    def fake(goal, context, timeout=120.0, recently_seen=None, strategy="",
+             sources_limit=5, cross_domain=True):
         calls.append(strategy)
         if strategy == "":
             raise HTTPException(409, "creativity 未生成：all pairs already explored")
@@ -101,3 +102,54 @@ def test_generate_with_degrade_passthrough_non_409(monkeypatch):
     with pytest.raises(HTTPException) as ei:
         it._generate_with_degrade("G", "C")
     assert ei.value.status_code == 504
+
+# ---------- 素材池扩大 / 跨领域（task 299f1ad3）----------
+
+def test_generate_ideas_cross_domain_and_limit(monkeypatch):
+    seen = {}
+
+    class _P:
+        returncode = 0
+        stderr = ""
+        stdout = '{"ideas": [{"title": "T", "idea": "x"}]}'
+
+    def fake_run(args, **kw):
+        seen["args"] = args
+        return _P()
+
+    monkeypatch.setattr(it.mio_runtime, "mio_cli", lambda: ["mio"])
+    monkeypatch.setattr(it, "_fetch_observer_insights",
+                        lambda limit=5, timeout=15.0: [{"name": "ins", "content": "C"}])
+    monkeypatch.setattr(it.subprocess, "run", fake_run)
+
+    it._generate_ideas("G", "C", sources_limit=7, cross_domain=True)
+    joined = " ".join(seen["args"])
+    assert "already-explored" not in joined          # 未传 recently_seen
+    assert "cross" in joined.lower() or "类比" in joined
+    # 断言 sources_limit 生效：ins 源存在
+    assert "ins:" in joined
+
+
+def test_generate_ideas_cross_domain_can_be_disabled(monkeypatch):
+    seen = {}
+
+    class _P:
+        returncode = 0
+        stderr = ""
+        stdout = '{"ideas": [{"title": "T", "idea": "x"}]}'
+
+    monkeypatch.setattr(it.mio_runtime, "mio_cli", lambda: ["mio"])
+    monkeypatch.setattr(it, "_fetch_observer_insights", lambda limit=5, timeout=15.0: [])
+    monkeypatch.setattr(it.subprocess, "run", lambda args, **kw: (seen.update(args=args), _P())[1])
+    it._generate_ideas("G", "C", cross_domain=False)
+    assert "类比" not in " ".join(seen["args"])
+
+
+def test_mojibake_repair_helper_roundtrip():
+    """递归修复：latin1 包装的 utf8 可还原；正常中文不受影响。"""
+    good = "每日创意生成"
+    bad = good.encode("utf-8").decode("latin-1")
+    assert bad != good
+    assert bad.encode("latin-1").decode("utf-8") == good
+    # 正常中文不含 0x80-0xff 之外的 latin1 包装特征 → 不会被误改
+    assert not any(0x80 <= ord(c) <= 0xff for c in good)

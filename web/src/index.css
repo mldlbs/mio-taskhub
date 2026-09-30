@@ -3796,3 +3796,12 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
   .sj-jobs__err { color: #e05c5c; margin-left: 6px; }
   .sj-jobs__ops { white-space: nowrap; }
   .sj-jobs__ops .btn { margin-right: 4px; }
+  /* 定时任务编辑弹窗放宽（task 299f1ad3） */
+  .modal--job { width: min(880px, 94vw); max-height: 88vh; }
+  .modal--job .modal__body { max-height: calc(88vh - 60px); overflow-y: auto; }
+  .sj-form__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .sj-form__grid .sj-form__full { grid-column: 1 / -1; }
+  .sj-form__grid input, .sj-form__grid select, .sj-form__grid textarea { width: 100%; box-sizing: border-box; }
+  .sj-form__grid textarea { min-height: 110px; resize: vertical; font-family: var(--font-mono); font-size: 12px; }
+  .sj-form__grid .sj-form__area-lg { min-height: 180px; }
+  .sj-body-ta { min-height: 200px !important; font-family: var(--font-mono); font-size: 12px; }

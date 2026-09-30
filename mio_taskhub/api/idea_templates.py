@@ -32,9 +32,11 @@ class TemplateGenerateRequest(BaseModel):
     sync_to_hub: bool = False
     recently_seen: list = []       # 最近已生成标题（避开重复角度；可从求体显式传入）
     auto_recently_seen: bool = True  # 为真时自动取 hub 最近 auto-generated 标题
+    sources_limit: int = 5         # 观测台素材条数上限（扩大组合空间）
+    cross_domain: bool = True      # 要求跨领域类比（重新打开已探索空间）
 
 
-def _fetch_observer_insights(limit: int = 2, timeout: float = 15.0) -> list:
+def _fetch_observer_insights(limit: int = 5, timeout: float = 15.0) -> list:
     """拉取 mio observer 近期洞察作为创意原料（观察→趋势→洞察链的产出）。
 
     fail-open：CLI 不可用/超时/解析失败一律返回 []，不阻断生成。
@@ -74,7 +76,9 @@ def _fetch_observer_insights(limit: int = 2, timeout: float = 15.0) -> list:
 
 def _generate_ideas(goal: str, context: str, timeout: float = 120.0,
                     recently_seen: list = None,
-                    strategy: str = "") -> list:
+                    strategy: str = "",
+                    sources_limit: int = 5,
+                    cross_domain: bool = True) -> list:
     """经 mio CLI 调 creativity.generate（用户显式触发的 LLM 调用）。
 
     runtime 已发布版本没有 mio.idea.generate 工具（0.13.3 tools/list 实测），
@@ -98,7 +102,12 @@ def _generate_ideas(goal: str, context: str, timeout: float = 120.0,
         sources += ["--source",
                     "already-explored（本批必须避开这些既有角度，换新切入点）: "
                     + " | ".join(seen[:20])]
-    for extra in _fetch_observer_insights():
+    if cross_domain:
+        sources += ["--source",
+                    "跨领域类比要求：请把不同来源/不同领域的素材显式交叉配对"
+                    "（例如把 A 领域的问题结构映射到 B 领域的解法），"
+                    "产出至少一个跨域迁移的新假设，而不是同域内的微调。"]
+    for extra in _fetch_observer_insights(limit=max(2, sources_limit)):
         sources += ["--source", f"{extra['name']}: {extra['content']}"]
     args = cli + ["--json", "creativity", "generate", *sources]
     if strategy:
@@ -139,14 +148,18 @@ _DEGRADE_STRATEGIES = ("signal", "stable")
 
 
 def _generate_with_degrade(goal: str, context: str, timeout: float = 120.0,
-                           recently_seen: list = None) -> tuple:
+                           recently_seen: list = None,
+                           sources_limit: int = 5,
+                           cross_domain: bool = True) -> tuple:
     """先生成；遇 409（素材重复/无可新增组合）则换 strategy 重试，返回 (ideas, strategy_used)。
 
     仍失败则抛出最后一次的 409（message 里带已尝试策略），不再假绿。
     """
     try:
         return _generate_ideas(goal, context, timeout=timeout,
-                               recently_seen=recently_seen), ""
+                               recently_seen=recently_seen,
+                               sources_limit=sources_limit,
+                               cross_domain=cross_domain), ""
     except HTTPException as e:
         if e.status_code != 409:
             raise
@@ -155,7 +168,9 @@ def _generate_with_degrade(goal: str, context: str, timeout: float = 120.0,
             tried.append(strat)
             try:
                 return _generate_ideas(goal, context, timeout=timeout,
-                                       recently_seen=recently_seen, strategy=strat), strat
+                                       recently_seen=recently_seen, strategy=strat,
+                                       sources_limit=sources_limit,
+                                       cross_domain=cross_domain), strat
             except HTTPException as e2:
                 if e2.status_code != 409:
                     raise
@@ -272,6 +287,8 @@ def generate_from_template(request: TemplateGenerateRequest):
     raw_ideas, used_strategy = _generate_with_degrade(
         goal, context,
         recently_seen=_recent_generated_titles(request),
+        sources_limit=int(getattr(request, "sources_limit", 5) or 5),
+        cross_domain=bool(getattr(request, "cross_domain", True)),
     )
     ideas = [_map_hypothesis(h)
              for h in raw_ideas[: max(1, request.num_ideas)]]
