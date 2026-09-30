@@ -117,7 +117,9 @@ async def lifespan(app):
 
     # Start insights evaluator (every 60 seconds)
     from mio_taskhub.observability.insights import InsightsEngine
+    from mio_taskhub.observability.insight_remediator import InsightsRemediator
     _insights_engine = InsightsEngine()
+    _insights_remediator = InsightsRemediator()
     async def _insights_eval_loop():
         while True:
             await asyncio.sleep(60)
@@ -133,6 +135,8 @@ async def lifespan(app):
                     except ValueError:
                         pass
                 _insights_engine.evaluate(metrics)
+                # P2-4 闭环消费：把未确认的 critical 洞察转成跟进任务（幂等 + 可关闭）
+                _insights_remediator.consume(_insights_engine.recent(limit=50))
             except Exception:
                 pass
     _insights_thread = threading.Thread(target=lambda: asyncio.run(_insights_eval_loop()), daemon=True, name="insights-eval")
