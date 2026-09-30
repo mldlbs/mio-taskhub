@@ -34,3 +34,7 @@ include = ["mio_taskhub*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "e2e: 真服务端到端/并发压测（起真实 uvicorn，较慢；默认排除，用 pytest -m e2e 运行）",
+]
+addopts = "-m 'not e2e'"
