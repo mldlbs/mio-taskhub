@@ -3785,3 +3785,14 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
     overflow: hidden; }
   .sj-exec__more { margin-top: 4px; background: transparent; border: 0; color: var(--accent);
     font-size: 11px; cursor: pointer; padding: 0; }
+
+  /* 定时任务：一行一条表格（task 7d5bac28） */
+  .sj-table--jobs { width: 100%; table-layout: fixed; font-size: 13px; }
+  .sj-table--jobs th { padding: 8px 10px; }
+  .sj-table--jobs td { padding: 9px 10px; vertical-align: middle; }
+  .sj-table--jobs tr.is-disabled td { opacity: .5; }
+  .sj-table--jobs tr:hover td { background: var(--card-hover, rgba(255,255,255,.02)); }
+  .sj-jobs__name { font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sj-jobs__err { color: #e05c5c; margin-left: 6px; }
+  .sj-jobs__ops { white-space: nowrap; }
+  .sj-jobs__ops .btn { margin-right: 4px; }

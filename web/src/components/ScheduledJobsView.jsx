@@ -84,57 +84,52 @@ export default function ScheduledJobsView({ onNavigateToTask }) {
           <p className="sjv__empty-hint">创建定时任务后，系统会按 cron 表达式自动触发执行。</p>
         </div>
       ) : (
-        <div className="sjv__list">
-          {jobs.map(job => (
-            <div key={job.id} className={`sj-card ${!job.enabled ? 'sj-card--disabled' : ''}`}>
-              <div className="sj-card__head">
-                <span className="sj-card__name">{job.name}</span>
-                <span className={`sj-card__badge sj-card__badge--${job.last_status || 'pending'}`}>
-                  {job.last_status === 'ok' ? '正常' : job.last_status === 'error' ? '异常' : '待执行'}
-                </span>
-              </div>
-              <div className="sj-card__body">
-                <div className="sj-card__row">
-                  <span className="sj-card__label">Cron</span>
-                  <code className="sj-card__code">{job.cron_expr}</code>
-                </div>
-                <div className="sj-card__row">
-                  <span className="sj-card__label">动作</span>
-                  <span>{job.action_type === 'webhook' ? 'Webhook' : '创建任务'}</span>
-                </div>
-                <div className="sj-card__row">
-                  <span className="sj-card__label">下次执行</span>
-                  <span>{job.next_run_at ? parseUtc(job.next_run_at).toLocaleString('zh-CN') : '—'}</span>
-                </div>
-                <div className="sj-card__row">
-                  <span className="sj-card__label">执行次数</span>
-                  <span>{job.run_count}</span>
-                </div>
-                {job.last_run_at && (
-                  <div className="sj-card__row">
-                    <span className="sj-card__label">上次执行</span>
-                    <span>{fmtAgo(job.last_run_at)}</span>
-                  </div>
-                )}
-                {job.last_error && (
-                  <div className="sj-card__err">{job.last_error}</div>
-                )}
-              </div>
-              <div className="sj-card__foot">
-                <button className="btn btn--ghost btn--sm" onClick={() => handleTrigger(job)}
-                  disabled={!job.enabled}>立即执行</button>
-                {job.enabled ? (
-                  <button className="btn btn--ghost btn--sm" onClick={() => handlePause(job)}>暂停</button>
-                ) : (
-                  <button className="btn btn--ghost btn--sm" onClick={() => handleResume(job)}>恢复</button>
-                )}
-                <button className="btn btn--ghost btn--sm" onClick={() => { setEditJob(job); setShowCreate(true) }}>编辑</button>
-                <button className="btn btn--ghost btn--sm btn--danger" onClick={() => handleDelete(job)}>删除</button>
-                <button className="btn btn--ghost btn--sm" onClick={() => { setExecJob(job); setTab('exec') }}>查看执行</button>
-              </div>
-            </div>
-          ))}
-        </div>
+        <table className="sj-table sj-table--jobs">
+          <thead>
+            <tr>
+              <th style={{ width: '30%' }}>任务</th>
+              <th style={{ width: '110px' }}>Cron</th>
+              <th style={{ width: '90px' }}>动作</th>
+              <th style={{ width: '80px' }}>状态</th>
+              <th style={{ width: '150px' }}>下次执行</th>
+              <th style={{ width: '110px' }}>上次执行</th>
+              <th style={{ width: '70px' }}>次数</th>
+              <th style={{ width: '300px' }}>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {jobs.map(job => (
+              <tr key={job.id} className={job.enabled ? '' : 'is-disabled'}>
+                <td className="sj-jobs__name" title={job.last_error || job.name}>
+                  {job.name}
+                  {job.last_error && <span className="sj-jobs__err" title={job.last_error}>⚠</span>}
+                </td>
+                <td><code className="sj-card__code">{job.cron_expr}</code></td>
+                <td>{job.action_type === 'webhook' ? 'Webhook' : '创建任务'}</td>
+                <td>
+                  <span className={`sj-card__badge sj-card__badge--${job.last_status || 'pending'}`}>
+                    {job.last_status === 'ok' ? '正常' : job.last_status === 'error' ? '异常' : '待执行'}
+                  </span>
+                </td>
+                <td className="mono">{job.next_run_at ? parseUtc(job.next_run_at).toLocaleString('zh-CN') : '—'}</td>
+                <td className="mono">{job.last_run_at ? fmtAgo(job.last_run_at) : '—'}</td>
+                <td className="mono">{job.run_count}</td>
+                <td className="sj-jobs__ops">
+                  <button className="btn btn--ghost btn--sm" onClick={() => handleTrigger(job)}
+                    disabled={!job.enabled}>执行</button>
+                  {job.enabled ? (
+                    <button className="btn btn--ghost btn--sm" onClick={() => handlePause(job)}>暂停</button>
+                  ) : (
+                    <button className="btn btn--ghost btn--sm" onClick={() => handleResume(job)}>恢复</button>
+                  )}
+                  <button className="btn btn--ghost btn--sm" onClick={() => { setEditJob(job); setShowCreate(true) }}>编辑</button>
+                  <button className="btn btn--ghost btn--sm" onClick={() => { setExecJob(job); setTab('exec') }}>记录</button>
+                  <button className="btn btn--ghost btn--sm btn--danger" onClick={() => handleDelete(job)}>删除</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       ))}
 
       {tab === 'exec' && (
