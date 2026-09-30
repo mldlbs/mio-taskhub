@@ -3805,3 +3805,15 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
   .sj-form__grid textarea { min-height: 110px; resize: vertical; font-family: var(--font-mono); font-size: 12px; }
   .sj-form__grid .sj-form__area-lg { min-height: 180px; }
   .sj-body-ta { min-height: 200px !important; font-family: var(--font-mono); font-size: 12px; }
+
+  /* 定时任务编辑面板精修（task sj-polish） */
+  .sj-json-ta { min-height: 64px; max-height: 320px; resize: vertical; font-family: var(--font-mono);
+    font-size: 12px; line-height: 1.6; white-space: pre; overflow: auto; }
+  .sj-json-ta.sj-body-ta { min-height: 180px; }
+  .sj-cron-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .sj-cron-pre { background: var(--card); border: 1px solid var(--line); color: var(--ink-dim);
+    font-size: 11px; padding: 3px 9px; border-radius: 999px; cursor: pointer; }
+  .sj-cron-pre:hover { border-color: var(--line-strong); color: var(--ink); }
+  .sj-cron-pre.is-on { border-color: var(--accent); color: var(--accent); }
+  .sj-form__full { grid-column: 1 / -1; }
+  .modal--job .field__label { font-size: 12px; }

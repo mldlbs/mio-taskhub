@@ -169,6 +169,16 @@ function ScheduledJobModal({ editJob, onClose, onSaved }) {
   const [cronPreview, setCronPreview] = useState([])
   const [cronError, setCronError] = useState('')
   const [busy, setBusy] = useState(false)
+  // JSON 字段用「文本态 + 提交时校验」，避免 onChange 解析吞掉中间态、光标跳动
+  const [headersText, setHeadersText] = useState('')
+  const [bodyText, setBodyText] = useState('')
+  const [jsonErr, setJsonErr] = useState('')
+
+  useEffect(() => {
+    setHeadersText(JSON.stringify(editJob?.action_config?.headers || {}, null, 2))
+    setBodyText(JSON.stringify(editJob?.action_config?.body || {}, null, 2))
+    setJsonErr('')
+  }, [editJob])
 
   useEffect(() => {
     if (!form.cron_expr.trim()) { setCronPreview([]); setCronError(''); return }
@@ -186,13 +196,35 @@ function ScheduledJobModal({ editJob, onClose, onSaved }) {
   const submit = async (e) => {
     e.preventDefault()
     if (!form.name.trim() || !form.cron_expr.trim()) return
+    // Webhook 的 Headers/Body 在此处统一解析（失败明确提示，不再静默）
+    let actionCfg = cfg
+    if (isWebhook) {
+      let headers = {}, bodyObj = {}
+      try {
+        headers = headersText.trim() ? JSON.parse(headersText) : {}
+        if (headers === null || typeof headers !== 'object' || Array.isArray(headers)) {
+          throw new Error('Headers 必须是 JSON 对象')
+        }
+      } catch (err) {
+        setJsonErr('Headers JSON 无效：' + err.message)
+        return
+      }
+      try {
+        bodyObj = bodyText.trim() ? JSON.parse(bodyText) : {}
+      } catch (err) {
+        setJsonErr('Body JSON 无效：' + err.message)
+        return
+      }
+      setJsonErr('')
+      actionCfg = { ...cfg, headers, body: bodyObj }
+    }
     setBusy(true)
     try {
       const body = {
         name: form.name.trim(),
         cron_expr: form.cron_expr.trim(),
         action_type: form.action_type,
-        action_config: cfg,
+        action_config: actionCfg,
         enabled: form.enabled,
       }
       if (editJob) {
@@ -227,6 +259,14 @@ function ScheduledJobModal({ editJob, onClose, onSaved }) {
               <label className="field__label">Cron 表达式 <b>*</b></label>
               <input value={form.cron_expr} onChange={e => setForm({ ...form, cron_expr: e.target.value })}
                 placeholder="分 时 日 月 周，如 0 9 * * 1-5" className={cronError ? 'field--error' : ''} />
+              <div className="sj-cron-presets">
+                {[['每小时', '0 * * * *'], ['每天 9 点', '0 9 * * *'],
+                  ['工作日 9 点', '0 9 * * 1-5'], ['每周一', '0 9 * * 1'], ['每月 1 号', '0 9 1 * *']].map(([label, expr]) => (
+                  <button key={expr} type="button"
+                          className={`sj-cron-pre${form.cron_expr.trim() === expr ? ' is-on' : ''}`}
+                          onClick={() => setForm({ ...form, cron_expr: expr })}>{label}</button>
+                ))}
+              </div>
               {cronError && <span className="field__err">{cronError}</span>}
               {cronPreview.length > 0 && (
                 <div className="cron-preview">
@@ -253,30 +293,27 @@ function ScheduledJobModal({ editJob, onClose, onSaved }) {
                 <div className="field">
                   <label className="field__label">URL</label>
                   <input value={cfg.url || ''} onChange={e => setForm({ ...form, action_config: { ...cfg, url: e.target.value } })}
-                    placeholder="https://example.com/hook" />
-                </div>
-                <div className="field field--row">
-                  <div>
-                    <label className="field__label">Method</label>
-                    <select value={cfg.method || 'POST'} onChange={e => setForm({ ...form, action_config: { ...cfg, method: e.target.value } })}>
-                      <option value="POST">POST</option>
-                      <option value="PUT">PUT</option>
-                      <option value="GET">GET</option>
-                    </select>
-                  </div>
-                  <div style={{flex:1}}>
-                    <label className="field__label">Headers (JSON)</label>
-                    <input value={JSON.stringify(cfg.headers || {})}
-                      onChange={e => { try { setForm({ ...form, action_config: { ...cfg, headers: JSON.parse(e.target.value) } }) } catch {} }}
-                      placeholder='{"Authorization":"Bearer xxx"}' />
-                  </div>
+                    placeholder="http://127.0.0.1:48620/api/v1/..." />
                 </div>
                 <div className="field">
-                  <label className="field__label">Body (JSON)</label>
-                  <textarea className="sj-body-ta" value={JSON.stringify(cfg.body || {}, null, 2)}
-                    onChange={e => { try { setForm({ ...form, action_config: { ...cfg, body: JSON.parse(e.target.value) } }) } catch {} }}
-                    rows={3} placeholder='{"event":"trigger"}' />
+                  <label className="field__label">Method</label>
+                  <select value={cfg.method || 'POST'} onChange={e => setForm({ ...form, action_config: { ...cfg, method: e.target.value } })}>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="GET">GET</option>
+                  </select>
                 </div>
+                <div className="field sj-form__full">
+                  <label className="field__label">Headers (JSON，留空为 {})</label>
+                  <textarea className="sj-json-ta" value={headersText} onChange={e => setHeadersText(e.target.value)}
+                    spellCheck={false} rows={2} placeholder='{"Content-Type":"application/json"}' />
+                </div>
+                <div className="field sj-form__full">
+                  <label className="field__label">Body (JSON，留空为 {})</label>
+                  <textarea className="sj-json-ta sj-body-ta" value={bodyText} onChange={e => setBodyText(e.target.value)}
+                    spellCheck={false} rows={8} placeholder='{"template_id":"exploration","values":{"title":"…"},"sync_to_hub":true}' />
+                </div>
+                {jsonErr && <div className="field sj-form__full"><span className="field__err">{jsonErr}</span></div>}
               </>
             ) : (
               <>
@@ -285,36 +322,32 @@ function ScheduledJobModal({ editJob, onClose, onSaved }) {
                   <input value={cfg.title || ''} onChange={e => setForm({ ...form, action_config: { ...cfg, title: e.target.value } })}
                     placeholder="留空则使用定时任务名称" />
                 </div>
-                <div className="field">
+                <div className="field sj-form__full">
                   <label className="field__label">任务描述</label>
                   <textarea value={cfg.description || ''} onChange={e => setForm({ ...form, action_config: { ...cfg, description: e.target.value } })}
-                    rows={2} placeholder="任务详细说明…" />
+                    rows={4} placeholder="任务详细说明…" />
                 </div>
-                <div className="field field--row">
-                  <div>
-                    <label className="field__label">优先级</label>
-                    <select value={cfg.priority || 0} onChange={e => setForm({ ...form, action_config: { ...cfg, priority: +e.target.value } })}>
-                      <option value={0}>P0 低</option>
-                      <option value={1}>P1 中</option>
-                      <option value={2}>P2 高</option>
-                      <option value={3}>P3 紧急</option>
-                    </select>
-                  </div>
-                  <div style={{flex:1}}>
-                    <label className="field__label">目标 Agent</label>
-                    <input value={cfg.target_agent_type || ''} onChange={e => setForm({ ...form, action_config: { ...cfg, target_agent_type: e.target.value } })}
-                      placeholder="留空任意" />
-                  </div>
+                <div className="field">
+                  <label className="field__label">优先级</label>
+                  <select value={cfg.priority || 0} onChange={e => setForm({ ...form, action_config: { ...cfg, priority: +e.target.value } })}>
+                    <option value={0}>P0 低</option>
+                    <option value={1}>P1 中</option>
+                    <option value={2}>P2 高</option>
+                    <option value={3}>P3 紧急</option>
+                  </select>
                 </div>
-                <div className="field field--row">
-                  <div>
-                    <label className="field__label">项目</label>
-                    <input value={cfg.project || ''} onChange={e => setForm({ ...form, action_config: { ...cfg, project: e.target.value } })} />
-                  </div>
-                  <div>
-                    <label className="field__label">工作区</label>
-                    <input value={cfg.workspace || ''} onChange={e => setForm({ ...form, action_config: { ...cfg, workspace: e.target.value } })} />
-                  </div>
+                <div className="field">
+                  <label className="field__label">目标 Agent</label>
+                  <input value={cfg.target_agent_type || ''} onChange={e => setForm({ ...form, action_config: { ...cfg, target_agent_type: e.target.value } })}
+                    placeholder="留空任意" />
+                </div>
+                <div className="field">
+                  <label className="field__label">项目</label>
+                  <input value={cfg.project || ''} onChange={e => setForm({ ...form, action_config: { ...cfg, project: e.target.value } })} />
+                </div>
+                <div className="field">
+                  <label className="field__label">工作区</label>
+                  <input value={cfg.workspace || ''} onChange={e => setForm({ ...form, action_config: { ...cfg, workspace: e.target.value } })} />
                 </div>
                 <div className="field">
                   <label className="field__label">标签</label>
