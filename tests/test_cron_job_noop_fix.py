@@ -15,7 +15,10 @@ from mio_taskhub.scheduling import cron_engine as ce
 
 def _fake_job(status_code: int):
     class _J:
-        action_config = {"url": "http://127.0.0.1:1/x", "method": "POST", "body": {}}
+        # allow_private：这些用例测的是 HTTP 响应处理（4xx/2xx），非 SSRF；
+        # 用 loopback URL 需显式放行（task 3b5128b6 起默认拒绝内网地址）。
+        action_config = {"url": "http://127.0.0.1:1/x", "method": "POST", "body": {},
+                         "allow_private": True}
         timeout_seconds = 5
     return _J()
 

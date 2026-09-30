@@ -430,7 +430,8 @@ def run():
     parser = argparse.ArgumentParser(prog="mio-taskhub")
     parser.add_argument("command", nargs="?", default="serve", help="serve")
     parser.add_argument("--port", type=int, default=48620)
-    parser.add_argument("--host", default="0.0.0.0")
+    # 默认仅监听本机（安全默认，评估 round2 P1-A）。需对外暴露须显式 --host 并配 --auth。
+    parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--auth", action="store_true", help="enable Bearer auth")
     parser.add_argument("--token", default=None, help="auth token (default: MIO_TASKHUB_TOKEN env)")
     args = parser.parse_args()
@@ -442,6 +443,22 @@ def run():
             print(f"Token: {token}")
         configure_auth(token)
         os.environ["MIO_TASKHUB_TOKEN"] = token
+
+    # 非环回 + 无鉴权 = 把任务库暴露到网络，默认拒绝启动（除非显式放行）。
+    from mio_taskhub.net_guard import is_loopback_bind
+    if not is_loopback_bind(args.host) and not get_token(args.token):
+        if os.environ.get("MIO_TASKHUB_ALLOW_INSECURE_NETWORK", "") in ("1", "true", "yes", "on"):
+            print(
+                "WARNING: binding to non-loopback host %s WITHOUT auth — the task DB is "
+                "reachable by anyone on the network. Set MIO_TASKHUB_ALLOW_INSECURE_NETWORK=0 "
+                "or enable --auth." % args.host
+            )
+        else:
+            raise SystemExit(
+                "Refusing to start: --host %s exposes the API beyond localhost but auth is off.\n"
+                "  安全默认：请改用 --host 127.0.0.1，或加 --auth 启用鉴权；\n"
+                "  确需无鉴权对外暴露，设 MIO_TASKHUB_ALLOW_INSECURE_NETWORK=1 显式放行。" % args.host
+            )
 
     uvicorn.run("mio_taskhub.main:app", host=args.host, port=args.port, reload=False)
 
