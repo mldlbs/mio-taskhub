@@ -4,6 +4,7 @@
 task 7a10b3bb。不真拉进程、不真跑 agent。
 """
 import importlib.util
+import os
 from pathlib import Path
 
 import pytest
@@ -118,7 +119,8 @@ def test_idle_worker_claim_path_includes_project(monkeypatch):
     mod.claim_once("worker-1", "agent-dev")
     assert seen["method"] == "POST"
     assert "/tasks/claim?agent=worker-1" in seen["path"]
-    assert "project=agent-dev" in seen["path"]
+    # project 是领取上下文；范围过滤用 project_scope（修复 0fe91462）
+    assert "project_scope=agent-dev" in seen["path"]
 
 
 # ---------- --cli-prefix 免引号模式（task 86e7cda0）----------
@@ -126,10 +128,13 @@ def test_idle_worker_claim_path_includes_project(monkeypatch):
 def test_wire_argv_prefix_mode():
     mod = _load_idle_worker()
     argv, shell = mod.wire_argv("PROMPT-BODY", "", "codex exec --skip-git-repo-check")
-    assert argv == ["codex", "exec", "--skip-git-repo-check", "PROMPT-BODY"]
+    # Windows 上 launcher 可能被解析为 codex.cmd（避免 .ps1 无法被 subprocess 执行）
+    assert os.path.basename(argv[0]).lower().startswith("codex")
+    assert argv[1:] == ["exec", "--skip-git-repo-check", "PROMPT-BODY"]
     assert shell is False
     argv2, shell2 = mod.wire_argv("P", "", "hermes -z")
-    assert argv2 == ["hermes", "-z", "P"] and shell2 is False
+    assert os.path.basename(argv2[0]).lower().startswith("hermes")
+    assert argv2[1:] == ["-z", "P"] and shell2 is False
 
 
 def test_wire_argv_template_mode():
@@ -142,6 +147,27 @@ def test_wire_argv_neither_returns_none():
     mod = _load_idle_worker()
     spec, shell = mod.wire_argv("P", "", "")
     assert spec is None and shell is False
+
+
+def test_resolve_windows_launcher_prefers_cmd_over_ps1(monkeypatch):
+    """Windows：.ps1 应被校正为 .cmd/.exe（subprocess shell=False 不能执行 .ps1）。"""
+    mod = _load_idle_worker()
+    if os.name != "nt":
+        import pytest as _pytest
+        _pytest.skip("Windows-only behavior")
+    import shutil as _sh
+    monkeypatch.setattr(_sh, "which", lambda name: r"C:\fake\codex.cmd" if name.lower().endswith("codex.cmd") else None)
+    out = mod._resolve_windows_launcher(r"C:\fake\codex.ps1")
+    assert out.lower().endswith(".cmd")
+
+
+def test_resolve_windows_launcher_noop_on_non_ps1():
+    mod = _load_idle_worker()
+    if os.name != "nt":
+        import pytest as _pytest
+        _pytest.skip("Windows-only behavior")
+    # hermes.exe 原样返回
+    assert mod._resolve_windows_launcher("hermes.exe") == "hermes.exe"
 
 
 # ---------- 试跑诊断（task dd48a647）----------

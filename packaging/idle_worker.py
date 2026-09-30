@@ -70,6 +70,31 @@ def build_prompt(task: dict) -> str:
     return "\n".join(lines)
 
 
+def _resolve_windows_launcher(exe: str) -> str:
+    """Windows 上把 .ps1/PATHEXT 首选项校正为 subprocess 可直接执行的 .cmd/.exe。
+
+    `shutil.which('codex')` 在 Windows 可能返回 codex.ps1（PowerShell 脚本），
+    而 subprocess(shell=False) 无法直接执行 .ps1（WinError 2）。若 PATH 中存在同名
+    .cmd/.exe，优先使用它。
+    """
+    if os.name != "nt":
+        return exe
+    import shutil
+    if exe.lower().endswith(".ps1"):
+        stem = exe[:-4]
+        for ext in (".cmd", ".exe", ".bat"):
+            cand = shutil.which(stem + ext) or (stem + ext if os.path.exists(stem + ext) else None)
+            if cand:
+                return cand
+    # 无扩展名时：优先 .cmd/.exe，避免落回 .ps1
+    if not os.path.splitext(exe)[1]:
+        for ext in (".cmd", ".exe", ".bat"):
+            cand = shutil.which(exe + ext)
+            if cand:
+                return cand
+    return exe
+
+
 def wire_argv(prompt: str, cli: str = "", cli_prefix: str = ""):
     """组执行参数。返回 (argv_or_cmd, use_shell)：
     - cli_prefix 优先：shlex 分词 + prompt 追加为最后一个参数，shell=False（免引号坑）；
@@ -77,7 +102,10 @@ def wire_argv(prompt: str, cli: str = "", cli_prefix: str = ""):
     - 都没有：(None, False) → 仅领取。
     """
     if cli_prefix:
-        return shlex.split(cli_prefix) + [prompt], False
+        argv = shlex.split(cli_prefix)
+        if argv:
+            argv[0] = _resolve_windows_launcher(argv[0])
+        return argv + [prompt], False
     if cli:
         return cli, True
     return None, False
@@ -86,7 +114,8 @@ def wire_argv(prompt: str, cli: str = "", cli_prefix: str = ""):
 def claim_once(agent: str, project: str):
     path = "/tasks/claim?agent=%s" % urllib.parse.quote(agent)
     if project:
-        path += "&project=" + urllib.parse.quote(project)
+        # project_scope：领取范围过滤（此前误用 project —— 那是领取上下文，不是过滤）
+        path += "&project_scope=" + urllib.parse.quote(project)
     return req("POST", path)
 
 
@@ -113,7 +142,7 @@ def main() -> int:
                   "description": "<任务描述>", "acceptance_criteria": "<验收标准>"}
         p = build_prompt(sample)
         if args.cli_prefix:
-            spec, use_shell = shlex.split(args.cli_prefix) + [p], False
+            spec, use_shell = wire_argv(p, cli_prefix=args.cli_prefix)
         elif args.cli:
             spec, use_shell = args.cli, True
         else:

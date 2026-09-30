@@ -21,7 +21,8 @@ def should_fallback(task, agent_type):
     elapsed = (_now() - task.created_at).total_seconds()
     return elapsed >= task.fallback_after
 
-def claim_for(agent: str, db: Session, agent_type: Optional[str] = None, task_id: Optional[str] = None):
+def claim_for(agent: str, db: Session, agent_type: Optional[str] = None,
+              task_id: Optional[str] = None, project_scope: Optional[str] = None):
     """原子领取：返回该 agent 的 Run 或 None。
 
     先查 agent 已有 claimed/running run（幂等）；否则：
@@ -40,7 +41,7 @@ def claim_for(agent: str, db: Session, agent_type: Optional[str] = None, task_id
     if not agent_type:
         agent_type = lookup_agent_type(db, agent) or agent_type
 
-    candidate = pick_candidate_task(db, agent_type, task_id)
+    candidate = pick_candidate_task(db, agent_type, task_id, project_scope)
     if not candidate:
         return None
     return atomic_claim(db, agent, candidate)
@@ -52,14 +53,23 @@ def lookup_agent_type(db, agent):
     return ag.agent_type if ag and ag.agent_type else None
 
 
-def pick_candidate_task(db, agent_type, task_id):
-    """选候选任务：指定 task_id 时按 id 领取；否则按关联度+优先级+FIFO 找 ready 任务。"""
+def pick_candidate_task(db, agent_type, task_id, project_scope: Optional[str] = None):
+    """选候选任务：指定 task_id 时按 id 领取；否则按关联度>优先级>FIFO 选 ready 任务。
+
+    project_scope（修复 0fe91462）：**领取范围过滤**——非空时只在该项目范围内挑选，
+    支持逗号分隔多值（与 idle_worker --project 一致）。注意与 `project`（领取上下文，
+    用于回填 Task.project）语义不同，不可混用。
+    """
     if task_id:
         task = db.get(Task, task_id)
         if not task or task.state != TaskState.QUEUED:
             return None
         return task
     q = select(Task).where(Task.state == TaskState.QUEUED, Task.stage == TaskStage.READY)
+    if project_scope:
+        scopes = [p.strip() for p in project_scope.split(",") if p.strip()]
+        if scopes:
+            q = q.where(Task.project.in_(scopes))
     relevance = build_relevance(agent_type)
     rows = db.exec(q.order_by(relevance, Task.priority.desc(), Task.created_at.asc())).all()
     return first_ready_row(rows)

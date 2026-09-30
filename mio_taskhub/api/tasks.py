@@ -274,7 +274,8 @@ def list_discussions(task_id: str, db: Session = Depends(get_session)):
 @router.post("/claim")
 def claim_task(agent: str = Query(...), agent_type: str = Query(None),
                task_id: str = Query(None), project: str = Query(None), workspace: str = Query(None),
-               files: str = Query(None), db: Session = Depends(get_session)):
+               files: str = Query(None), project_scope: str = Query(None),
+               db: Session = Depends(get_session)):
     existing = db.exec(
         select(Run).where(Run.agent_name == agent, Run.state.in_([RunState.CLAIMED, RunState.RUNNING]))
     ).first()
@@ -290,7 +291,7 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
         ag = db.get(Agent, agent)
         if ag and ag.agent_type:
             agent_type = ag.agent_type
-    run = claim_for(agent, db, agent_type, task_id)
+    run = claim_for(agent, db, agent_type, task_id, project_scope)
     if run is None:
         db.rollback()
         if task_id:
