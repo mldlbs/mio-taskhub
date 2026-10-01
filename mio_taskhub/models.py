@@ -336,14 +336,6 @@ class Event(SQLModel, table=True):
     payload: Optional[str] = None
     at: datetime = Field(default_factory=_now)
 
-class Plan(SQLModel, table=True):
-    id: Optional[str] = Field(default=None, primary_key=True)
-    window_start: str
-    window_end: str
-    status: str = "draft"
-    items: Optional[str] = None
-    created_at: datetime = Field(default_factory=_now)
-
 class IdeaType(str, enum.Enum):
     IDEA = "idea"           # 普通想法
     ADR = "adr"             # 架构决策记录

@@ -33,8 +33,20 @@ def run_migrations(target_engine=None):
             _migrate_ratchet_baseline(conn)
 
         _migrate_observability(conn)
+        _drop_orphan_tables(conn)
 
         conn.commit()
+
+
+def _drop_orphan_tables(conn):
+    """清理确认为孤儿的历史表（能力收敛审计，2026-10-01）。
+
+    `plan` 表：`Plan` SQLModel 模型已删除——实际 night plan 走内存 NightPlan +
+    文件落盘（~/.mio_taskhub/night_plans/*.json），此 DB 表从无写入/读取，
+    经全库引用扫描确认零引用。DROP 以消除"看起来支持、实际不存在"的概念。
+    幂等：IF EXISTS；仅在新版启动时执行一次（表已不存在则无操作）。
+    """
+    conn.execute(text("DROP TABLE IF EXISTS plan"))
 
 
 def _migrate_ratchet_baseline(conn):
