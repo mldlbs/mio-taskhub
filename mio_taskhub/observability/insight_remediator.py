@@ -77,6 +77,8 @@ class InsightsRemediator:
             if existing is not None:
                 return None
             ws = os.environ.get("MIO_TASKHUB_WORKSPACE", "").strip()
+            if not ws:
+                ws = str(pathlib.Path(os.path.expanduser("~")) / ".mio_taskhub" / "insight_docs")
             accent = (
                 f"复核指标 {metric} 触发阈值告警的根因，给出可执行的处置结论。\n\n"
                 f"- 当前值：{ins.get('metric_value')}\n"
@@ -129,7 +131,9 @@ class InsightsRemediator:
         不改变 submit 门控语义——只是让 required_reads 非空。
         """
         if not ws:
-            return {}
+            # 生产未设 MIO_TASKHUB_WORKSPACE 时的安全默认：本机专用目录，
+            # 保证洞察任务仍带可解析文档、门控不静默失效。
+            ws = str(pathlib.Path(os.path.expanduser("~")) / ".mio_taskhub" / "insight_docs")
         base = pathlib.Path(ws).resolve()
         rel_dir = pathlib.Path("docs") / "insights" / str(task.id or "pending")
         try:

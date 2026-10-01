@@ -68,3 +68,16 @@ def test_submit_gate_still_rejects_unread(monkeypatch, tmp_path):
     assert gate["required_reads"], "应有必读项"
     assert gate["missing"], "未读时应有 missing（拒）"
     assert not gate["passed"]
+
+
+def test_default_workspace_when_env_unset(monkeypatch):
+    """未设 MIO_TASKHUB_WORKSPACE 时仍应产出 doc_paths（回退默认目录，避免静默失效）。"""
+    monkeypatch.delenv("MIO_TASKHUB_WORKSPACE", raising=False)
+    monkeypatch.delenv("MIO_INSIGHT_AUTOTASK", raising=False)
+    created = InsightsRemediator().consume([_insight("taskhub_task_success_rate")])
+    assert len(created) == 1
+    with Session(engine) as db:
+        t = db.get(Task, created[0].id)
+    assert t.doc_paths, "应回退默认 workspace 并产出 doc_paths"
+    assert t.workspace, "应设默认 workspace"
+    assert required_read_kinds(t), "required_reads 应非空"
