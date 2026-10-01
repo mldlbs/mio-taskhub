@@ -15,6 +15,7 @@
 """
 import logging
 import os
+import pathlib
 from typing import Optional
 
 from sqlmodel import Session, select
@@ -75,6 +76,14 @@ class InsightsRemediator:
             ).first()
             if existing is not None:
                 return None
+            ws = os.environ.get("MIO_TASKHUB_WORKSPACE", "").strip()
+            accent = (
+                f"复核指标 {metric} 触发阈值告警的根因，给出可执行的处置结论。\n\n"
+                f"- 当前值：{ins.get('metric_value')}\n"
+                f"- 阈值：{ins.get('baseline')}\n"
+                f"- 严重度：{ins.get('severity')}\n"
+                f"- 说明：{ins.get('description', '')}"
+            )
             task = Task(
                 title=title,
                 description=(
@@ -83,14 +92,19 @@ class InsightsRemediator:
                     f"阈值：{ins.get('baseline')}\n严重度：{ins.get('severity')}\n\n"
                     f"说明：{ins.get('description', '')}\n\n"
                     f"建议：{ins.get('recommendation', '') or '（无）'}\n\n"
-                    f"—— 本任务由洞察自动派生，请人工核实后处理或关闭。"
+                    f"—— 本任务由洞察自动派生。**处理前必须先读取关联文档**（见 doc_paths）。"
                 ),
+                acceptance_criteria=accent,
                 priority=2,
                 stage=TaskStage.READY,
                 labels=[INSIGHT_LABEL, f"metric:{metric}"],
                 project="agent-dev",
-                workspace=os.environ.get("MIO_TASKHUB_WORKSPACE", ""),
+                workspace=ws,
             )
+            # 接入文档/Evidence 门控（task 417a723b，已证闭环断点修复）：
+            # 生成真实文档 -> 登记 doc_paths -> claim 时 required_reads 非空 ->
+            # agent 必须 read_document 才能 submit（门控仍在服务端 submit，不削弱）。
+            task.doc_paths = self._write_insight_docs(task, ws, metric, ins)
             db.add(task)
             db.commit()
             db.refresh(task)
@@ -106,3 +120,42 @@ class InsightsRemediator:
         except Exception:  # noqa: BLE001 — 记录失败不影响建任务
             logger.exception("failed to log insight autotask")
         return task
+
+    def _write_insight_docs(self, task, ws: str, metric: str, ins: dict) -> dict:
+        """为新洞察任务生成 requirement + spec 文档并登记 doc_paths。
+
+        返回 {kind: 相对 workspace 的路径}。若未设置 workspace，则退回绝对路径
+        （仍可被 resolve_doc_path 解析），但优先相对路径便于迁移。
+        不改变 submit 门控语义——只是让 required_reads 非空。
+        """
+        if not ws:
+            return {}
+        base = pathlib.Path(ws).resolve()
+        rel_dir = pathlib.Path("docs") / "insights" / str(task.id or "pending")
+        try:
+            (base / rel_dir).mkdir(parents=True, exist_ok=True)
+            req = (
+                "# 需求：洞察跟进任务\n\n"
+                f"- 来源：自动洞察消费（P2-4 / task 417a723b）\n"
+                f"- 指标：`{metric}`\n"
+                f"- 触发值：{ins.get('metric_value')}（阈值 {ins.get('baseline')}，严重度 {ins.get('severity')}）\n"
+                f"- 现象：{ins.get('description', '')}\n\n"
+                "## FR-1\n在本 run 内复核该指标告警的根因，并给出结论。\n\n"
+                "## FR-2\n结论需可追溯：引用所读文档与数据依据。\n"
+            )
+            spec = (
+                "# 设计/处置方案\n\n"
+                f"针对指标 `{metric}` 的告警，给出：\n"
+                "1. 根因判定的方法（查哪些表/日志/指标）；\n"
+                "2. 若确认异常，给出最小处置建议；\n"
+                "3. 若不成立，说明为何属噪声。\n\n"
+                f"参考建议：{ins.get('recommendation', '') or '（无）'}\n"
+            )
+            req_rel = str(rel_dir / "requirement.md").replace(os.sep, "/")
+            spec_rel = str(rel_dir / "spec.md").replace(os.sep, "/")
+            (base / req_rel).write_text(req, encoding="utf-8")
+            (base / spec_rel).write_text(spec, encoding="utf-8")
+            return {"requirement": req_rel, "spec": spec_rel}
+        except Exception:  # noqa: BLE001 — 生成文档失败不阻塞建任务（但会记日志）
+            logger.exception("failed to write insight docs for %s", getattr(task, "id", "?"))
+            return {}
