@@ -139,3 +139,42 @@ infra            ├─ 自更新 ................ ✅ 实现（未生产验证�
 | 一（现在） | 本盘点 → 对 3 条链路出**杀/接线**决定（需技术负责人拍板） |
 | 二 | observability 补测（snapshot→consumer、alert evaluator、SLO→insight），确认已有能力**可信** |
 | 三 | 长期工程：事务边界、API 一致性、测试覆盖 |
+
+
+---
+
+## 7. 裁决结果（2026-10-01 技术负责人拍板）
+
+| 项 | 决定 | 理由 | 状态 |
+|---|---|---|---|
+| **Plan 表** | **删除** | 真孤儿（NightPlan+文件已替代） | ✅ 已执行（task 1213d8ad，提交 223dea4；生产库 plan 表 1→0） |
+| **custom alertrule** | **保留 API，不补 UI** | built-in alert 已覆盖主闭环；补 UI 引入新运营面/测试成本，无真实需求证据 | ✅ 标记 experimental/internal，待明确场景 |
+| **taskreview** | **降级保留，不接线** | ReviewPanel/API 低成本留存；无真实 review 行为；若不改变调度/质量/洞察/metrics 则仅是记录表 | ✅ 冻结 |
+
+### 执行说明
+- **Plan 表**：全库引用扫描确认零引用 → 删模型 + 迁移 DROP（幂等）+ 防回潮测试；全量 1081 passed，生产库实测表已移除。
+- **alertrule**：保留 `/alert-rules` API 与 CustomAlertEvaluator；不新增前端入口。等出现"谁创建、创建什么规则"的明确答案再开放。
+- **taskreview**：保持冻结，不主动接线。
+
+---
+
+## 8. 下一阶段：从"能力资产"转向"**价值证明**"
+
+能力资产盘点完成（从"功能清单"→"能力资产"）。下一步**不是继续清理，而是度量价值闭环是否产生增量价值**。
+
+### 已确认的真实闭环链（事实）
+```
+Idea → Task → Agent → Evidence → Insight → Remediation → Task
+```
+
+### 待测指标（价值闭环度量）
+| 指标 | 回答的问题 |
+|---|---|
+| insight → task 转化率 | 洞察是否可执行 |
+| task → completed | 执行能力 |
+| completed → evidence | 结果可信度 |
+| evidence → 新 insight | 是否自增强 |
+| agent 重试率 | 任务质量 |
+| 人工介入次数 | 自动化程度 |
+
+**方向**：不再扩功能，转向"证明已有闭环的增量价值"。
