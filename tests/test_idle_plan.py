@@ -107,6 +107,29 @@ def test_idle_worker_build_prompt_contains_task_facts():
     assert "验收 A" in prompt
 
 
+def test_build_prompt_includes_required_reads_and_order():
+    mod = _load_idle_worker()
+    p = mod.build_prompt({"id": "t1", "title": "T"}, ["spec", "requirement"])
+    assert "required_reads" in p
+    assert "spec" in p and "requirement" in p
+    assert "taskhub_read_document" in p
+    assert "422" in p  # 明确未读会被拒
+
+
+def test_build_prompt_no_reads_no_read_section():
+    mod = _load_idle_worker()
+    p = mod.build_prompt({"id": "t1", "title": "T"}, [])
+    assert "required_reads" not in p
+    assert "taskhub_read_document" not in p
+
+
+def test_build_prompt_backward_compatible():
+    """不传 required_reads 时仍可用（旧调用保持）。"""
+    mod = _load_idle_worker()
+    p = mod.build_prompt({"id": "t1", "title": "T", "description": "d"})
+    assert "T" in p and "d" in p
+
+
 def test_idle_worker_claim_path_includes_project(monkeypatch):
     mod = _load_idle_worker()
     seen = {}

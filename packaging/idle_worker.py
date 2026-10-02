@@ -58,14 +58,36 @@ def req(method, path, body=None, timeout=20):
         return {"__error": "conn", "body": str(e)}
 
 
-def build_prompt(task: dict) -> str:
-    """把任务拼成给 agent CLI 的提示词。"""
+def build_prompt(task: dict, required_reads=None) -> str:
+    """把任务 + 门控必读要求拼成给 agent CLI 的提示词。
+
+    required_reads 来自 claim 响应（doc/Evidence 门控）：非空时必须先 read_document，
+    否则 submit 会被服务端 422 拒绝。此函数只影响**执行侧提示**，不改任何门控语义。
+    """
     lines = ["【taskhub 任务】%s" % (task.get("title") or ""),
              "任务 id：%s" % (task.get("id") or "")]
     if task.get("description"):
         lines += ["", "描述：", str(task["description"])]
     if task.get("acceptance_criteria"):
         lines += ["", "验收标准：", str(task["acceptance_criteria"])]
+
+    reads = [str(k).strip() for k in (required_reads or []) if str(k).strip()]
+    if reads:
+        lines += [
+            "",
+            "[注意] 本任务有**前置阅读要求**（服务端门控，未读将拒绝提交）：",
+            "required_reads:",
+        ]
+        lines += ["- %s" % k for k in reads]
+        lines += [
+            "",
+            "执行顺序（必须遵守）：",
+            "1. 对每个 required_reads 调用 taskhub_read_document(task_id, kind, run_id=本 run 的 id)，"
+            "读取全部必读文档；",
+            "2. 确认理解后再执行任务；",
+            "3. 完成后用 taskhub_submit_result 提交结果。",
+            "未完成上述阅读就提交，submit 会被服务端拒绝（422）。",
+        ]
     lines += ["", "要求：完成任务并写清结果（改了哪些文件、怎么验证、结论）。"]
     return "\n".join(lines)
 
@@ -140,7 +162,7 @@ def main() -> int:
     if args.dry_run:
         sample = {"id": "<任务id>", "title": "<任务标题>",
                   "description": "<任务描述>", "acceptance_criteria": "<验收标准>"}
-        p = build_prompt(sample)
+        p = build_prompt(sample, ["spec", "requirement"])
         if args.cli_prefix:
             spec, use_shell = wire_argv(p, cli_prefix=args.cli_prefix)
         elif args.cli:
@@ -176,9 +198,16 @@ def main() -> int:
         run_id = res["id"]
         task_id = res.get("task_id")
         task = res.get("task") or {}
-        print("[idle-worker] claimed task=%s run=%s" % (task_id, run_id))
+        # claim 响应不内联 task 详情时，补一次 GET 以取 title/description（门控必读在顶层 res）
+        if not task and task_id:
+            got = req("GET", "/tasks/%s" % task_id)
+            if isinstance(got, dict) and not got.get("__error"):
+                task = got
+        required_reads = res.get("required_reads") or []
+        print("[idle-worker] claimed task=%s run=%s required_reads=%s" %
+              (task_id, run_id, required_reads))
 
-        prompt = build_prompt(task)
+        prompt = build_prompt(task, required_reads)
         ok, msg = True, "completed"
         templated = ""
         if args.cli:
