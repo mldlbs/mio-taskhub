@@ -9,16 +9,22 @@
 设计要点：
 - **只建跟进任务，不自动执行修复**（避免越权/误操作）。
 - **幂等去重**：同一 metric 的未确认洞察在已有未完成跟进任务时不重复建；
-  任务 title 带 `[insight]` 前缀，label 带 `insight-auto` 便于识别。
+  已完成的跟进任务在冷却期（默认 24h）内也不重建——上一版只看「未完成」，
+  上一轮一完成下一轮 60s 评估即重建，闭环自我喂养（task b1667eae 复核发现
+  累计 23 个 insight-auto 任务）。任务 title 带 `[insight]` 前缀，label 带
+  `insight-auto` 便于识别。
+- **闭环收口**：跟进任务已完成时把源洞察 acknowledge，避免 insights.py 持续
+  以未确认状态重复上报同一条已处置告警。
 - **可关闭**：env MIO_INSIGHT_AUTOTASK=0/off 关闭；默认开启。
 - **可观测**：每次消费写 kind=remediation 的 insight 记录（复用 RemediationEngine.log）。
 """
+import datetime as _dt
 import logging
 import os
 import pathlib
 from typing import Optional
 
-from sqlmodel import Session, select
+from sqlmodel import Session, select, text
 
 from mio_taskhub.db import engine
 from mio_taskhub.models import Task, TaskStage, TaskState
@@ -28,12 +34,34 @@ logger = logging.getLogger("mio_taskhub.observability.insight_remediator")
 ON = ("1", "on", "true", "yes", "auto")
 INSIGHT_LABEL = "insight-auto"
 TITLE_PREFIX = "[insight]"
+DEFAULT_COOLDOWN_HOURS = 24
 
 
 def autotask_enabled() -> bool:
     """是否启用「洞察→跟进任务」（P2-4）。默认开启。"""
     val = os.environ.get("MIO_INSIGHT_AUTOTASK", "1").strip().lower()
     return val in ON
+
+
+def _cooldown_hours() -> float:
+    """跟进任务冷却期小时数（env MIO_INSIGHT_AUTOTASK_COOLDOWN_HOURS）。"""
+    raw = os.environ.get("MIO_INSIGHT_AUTOTASK_COOLDOWN_HOURS", "")
+    try:
+        hours = float(raw) if raw.strip() else DEFAULT_COOLDOWN_HOURS
+    except (TypeError, ValueError):
+        return float(DEFAULT_COOLDOWN_HOURS)
+    return hours if hours >= 0 else float(DEFAULT_COOLDOWN_HOURS)
+
+
+def _parse_ts(value) -> Optional[_dt.datetime]:
+    """把 last_transition_at / created_at 归一成 naive UTC 便于比较。"""
+    if isinstance(value, _dt.datetime):
+        return value.replace(tzinfo=None) if value.tzinfo else value
+    return None
+
+
+def _utcnow_naive() -> _dt.datetime:
+    return _dt.datetime.now(_dt.timezone.utc).replace(tzinfo=None)
 
 
 def _severities_from_env() -> set:
@@ -63,19 +91,48 @@ class InsightsRemediator:
                 created.append(task)
         return created
 
+    def _acknowledge_insight(self, db: Session, ins: dict) -> None:
+        """跟进任务已完成 → 确认源洞察，闭合 insights→task 回路。
+
+        复用同一 Session，避免 SQLite 写锁自冲突。失败只记日志：
+        重复上报只是噪声，不应阻塞本轮消费。
+        """
+        ins_id = ins.get("id")
+        if ins_id is None:
+            return
+        try:
+            db.exec(text("UPDATE insight SET acknowledged = 1 WHERE id = :id"), params={"id": ins_id})
+            db.commit()
+            logger.info("insight %s acknowledged: its follow-up task completed", ins_id)
+        except Exception:  # noqa: BLE001
+            db.rollback()
+            logger.exception("failed to acknowledge insight %s", ins_id)
+
     def _create_followup(self, ins: dict) -> Optional[Task]:
         metric = ins.get("metric_name") or ins.get("title") or "unknown"
         title = f"{TITLE_PREFIX} {metric}"
         with Session(self._engine) as db:
-            # 去重：已有同标题、未完成的跟进任务 → 不重复建
-            existing = db.exec(
-                select(Task).where(
-                    Task.title == title,
-                    Task.state.not_in([TaskState.COMPLETED, TaskState.CANCELLED, TaskState.FAILED]),
-                )
-            ).first()
-            if existing is not None:
-                return None
+            # 去重：同标题已有跟进任务时——未完成的直接跳过；已完成的在冷却期内
+            # 也跳过（否则上一轮一完成、下一轮 60s 评估即重建，闭环自我喂养）。
+            # 冷却期内的已完成任务会把源洞察 acknowledge，让 insights.py 停止
+            # 持续上报同一条已处置告警。
+            recent = db.exec(
+                select(Task)
+                .where(Task.title == title)
+                .order_by(Task.created_at.desc())
+                .limit(5)
+            ).all()
+            for task in recent:
+                if task.state not in (TaskState.COMPLETED, TaskState.CANCELLED, TaskState.FAILED):
+                    return None
+                last = _parse_ts(task.last_transition_at) or _parse_ts(task.created_at)
+                if last is None:
+                    return None
+                age_h = (_utcnow_naive() - last).total_seconds() / 3600.0
+                if age_h <= _cooldown_hours():
+                    if task.state == TaskState.COMPLETED:
+                        self._acknowledge_insight(db, ins)
+                    return None
             ws = os.environ.get("MIO_TASKHUB_WORKSPACE", "").strip()
             if not ws:
                 ws = str(pathlib.Path(os.path.expanduser("~")) / ".mio_taskhub" / "insight_docs")

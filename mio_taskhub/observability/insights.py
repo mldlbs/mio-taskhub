@@ -83,7 +83,22 @@ class InsightsEngine:
                     {"title": title, "severity": severity}
                 ).fetchone()
                 if existing:
-                    return {"id": existing[0], "ts": existing[1], "kind": kind, "title": title, "severity": severity}
+                    # 刷新当前值：命中未确认同 title 洞察时若不更新 metric_value/
+                    # description，该洞察会永远停在首次告警的数值上（task b1667eae
+                    # 复核发现 insight 78 长期显示 0.2533，实际已漂移到 0.372）。
+                    try:
+                        conn.execute(
+                            text("UPDATE insight SET ts = :ts, metric_value = :mv, "
+                                 "description = :desc, baseline = :baseline, recommendation = :rec "
+                                 "WHERE id = :id"),
+                            {"ts": time.time(), "mv": metric_value, "desc": description,
+                             "baseline": baseline, "rec": recommendation, "id": existing[0]}
+                        )
+                        conn.commit()
+                    except Exception:
+                        logger.exception("Failed to refresh insight %s", existing[0])
+                    return {"id": existing[0], "ts": time.time(), "kind": kind, "title": title, "severity": severity,
+                            "metric_value": metric_value}
                 result = conn.execute(
                     text("INSERT INTO insight (ts, kind, title, description, severity, metric_name, metric_value, baseline, recommendation, auto_action) VALUES (:ts, :kind, :title, :description, :severity, :metric_name, :metric_value, :baseline, :recommendation, :auto_action)"),
                     {"ts": time.time(), "kind": kind, "title": title, "description": description,

@@ -5,13 +5,15 @@
 消费动作记入 remediation log。
 """
 import uuid
+from datetime import datetime, timedelta, timezone
 
-from sqlmodel import Session, select
+from sqlmodel import Session, select, text
 
 from mio_taskhub.db import engine
 from mio_taskhub.models import Task, TaskState
 from mio_taskhub.observability.insight_remediator import (
-    InsightsRemediator, INSIGHT_LABEL, TITLE_PREFIX, autotask_enabled,
+    DEFAULT_COOLDOWN_HOURS, InsightsRemediator, INSIGHT_LABEL, TITLE_PREFIX,
+    autotask_enabled, _cooldown_hours,
 )
 
 
@@ -83,3 +85,84 @@ def test_consumption_logged_as_remediation(monkeypatch):
     from mio_taskhub.observability.remediation import RemediationEngine
     logs = RemediationEngine().recent(limit=20)
     assert any("insight_autotask" in (l.get("title") or "") for l in logs)
+
+
+# ---------- 冷却期：切断 insight-auto 自我喂养（task b1667eae 复核结论） ----------
+
+def _seed_followup(title, state, age_hours):
+    with Session(engine) as db:
+        last = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=age_hours)
+        t = Task(title=title, state=state, labels=[INSIGHT_LABEL], last_transition_at=last)
+        db.add(t)
+        db.commit()
+        db.refresh(t)
+        return t.id
+
+
+def test_completed_followup_suppresses_recreate_within_cooldown(monkeypatch):
+    """上一轮已完成 → 冷却期内不得重建（否则 60s 后自我喂养）。"""
+    monkeypatch.delenv("MIO_INSIGHT_AUTOTASK", raising=False)
+    monkeypatch.delenv("MIO_INSIGHT_AUTOTASK_COOLDOWN_HOURS", raising=False)
+    title = f"{TITLE_PREFIX} taskhub_task_failure_rate"
+    _seed_followup(title, TaskState.COMPLETED, age_hours=1)
+    assert InsightsRemediator().consume([_insight()]) == []
+    assert len(_followups()) == 1
+
+
+def test_completed_followup_allows_recreate_after_cooldown(monkeypatch):
+    """冷却期过后仍可重建，说明去重是窗口而非永久封禁。"""
+    monkeypatch.delenv("MIO_INSIGHT_AUTOTASK", raising=False)
+    monkeypatch.setenv("MIO_INSIGHT_AUTOTASK_COOLDOWN_HOURS", "24")
+    title = f"{TITLE_PREFIX} taskhub_task_failure_rate"
+    _seed_followup(title, TaskState.COMPLETED, age_hours=48)
+    assert len(InsightsRemediator().consume([_insight()])) == 1
+    assert len(_followups()) == 2
+
+
+def test_cooldown_zero_disables_suppression(monkeypatch):
+    """冷却期 0 → 退回旧行为（只挡未完成任务），便于紧急排障。"""
+    monkeypatch.delenv("MIO_INSIGHT_AUTOTASK", raising=False)
+    monkeypatch.setenv("MIO_INSIGHT_AUTOTASK_COOLDOWN_HOURS", "0")
+    title = f"{TITLE_PREFIX} taskhub_task_failure_rate"
+    _seed_followup(title, TaskState.COMPLETED, age_hours=1)
+    assert len(InsightsRemediator().consume([_insight()])) == 1
+
+
+def test_invalid_cooldown_falls_back_to_default(monkeypatch):
+    monkeypatch.setenv("MIO_INSIGHT_AUTOTASK_COOLDOWN_HOURS", "not-a-number")
+    assert _cooldown_hours() == DEFAULT_COOLDOWN_HOURS
+
+
+def test_cancelled_followup_still_suppressed_within_cooldown(monkeypatch):
+    """CANCELLED/FAILED 跟进任务同样进入冷却，避免反复派活。"""
+    monkeypatch.delenv("MIO_INSIGHT_AUTOTASK", raising=False)
+    monkeypatch.delenv("MIO_INSIGHT_AUTOTASK_COOLDOWN_HOURS", raising=False)
+    title = f"{TITLE_PREFIX} taskhub_task_failure_rate"
+    _seed_followup(title, TaskState.CANCELLED, age_hours=1)
+    assert InsightsRemediator().consume([_insight()]) == []
+    assert len(_followups()) == 1
+
+
+def test_completed_followup_acknowledges_source_insight(monkeypatch):
+    """跟进任务完成 → 源洞察 acknowledged，insights.py 不再重复上报。"""
+    monkeypatch.delenv("MIO_INSIGHT_AUTOTASK", raising=False)
+    monkeypatch.delenv("MIO_INSIGHT_AUTOTASK_COOLDOWN_HOURS", raising=False)
+    with Session(engine) as db:
+        db.exec(text(
+            "INSERT INTO insight (ts, kind, title, description, severity, metric_name, "
+            "metric_value, baseline, acknowledged) VALUES (0, 'anomaly', 'Critical: x', "
+            "'x = 0.24', 'critical', 'taskhub_task_failure_rate', 0.24, 0.15, 0)"
+        ))
+        db.commit()
+        row = db.exec(text(
+            "SELECT id FROM insight WHERE metric_name='taskhub_task_failure_rate'"
+        )).first()
+        ins_id = row[0]
+
+    _seed_followup(f"{TITLE_PREFIX} taskhub_task_failure_rate", TaskState.COMPLETED, age_hours=1)
+    InsightsRemediator().consume([_insight(ack=0) | {"id": ins_id}])
+
+    with Session(engine) as db:
+        got = db.exec(text("SELECT acknowledged FROM insight WHERE id = :i"),
+                      params={"i": ins_id}).first()[0]
+    assert got == 1

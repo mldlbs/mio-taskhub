@@ -9,6 +9,22 @@ from mio_taskhub.background import get_thread_health
 
 _start_time = time.time()
 
+DEFAULT_TERMINAL_WINDOW_DAYS = 30
+
+def _terminal_window_days() -> int:
+    """终态指标的滚动窗口天数（env MIO_TASKHUB_TERMINAL_WINDOW_DAYS）。
+
+    全量累计口径一旦被历史噪音（空转任务回收、手工测试残留）污染就永不恢复，
+    比率只会单调恶化——这正是 taskhub_task_success_rate 长期 critical 的成因。
+    窗口化后指标只反映当前执行质量，可随修复而恢复。非法值回退默认 30 天。
+    """
+    raw = os.environ.get("MIO_TASKHUB_TERMINAL_WINDOW_DAYS", "")
+    try:
+        days = int(raw) if raw.strip() else DEFAULT_TERMINAL_WINDOW_DAYS
+    except (TypeError, ValueError):
+        return DEFAULT_TERMINAL_WINDOW_DAYS
+    return days if days > 0 else DEFAULT_TERMINAL_WINDOW_DAYS
+
 def render_metrics() -> str:
     lines = []
     lines.append("# HELP taskhub_uptime_seconds Process uptime in seconds")
@@ -237,8 +253,15 @@ def render_metrics() -> str:
 
             # ========== Business Metrics ==========
 
-            # Task success rate (completed / total terminal)
-            rate_rows = s.exec(text("""
+            # Task success rate — 口径见 _terminal_window_days() 与下方注释。
+            # 1) 分母只含 COMPLETED + FAILED：取消是独立终态，已由
+            #    taskhub_task_cancel_rate 单独度量，计入"不成功"会把用户主动
+            #    取消与系统空转回收（scripts/archive_spinning_tasks.py）误判为
+            #    执行失败，是 task b1667eae critical 告警的主因。
+            # 2) 只看滚动窗口内进入终态的任务：全量累计口径一旦被历史噪音
+            #    污染就永不恢复，指标必然长期 critical。
+            win = _terminal_window_days()
+            rate_rows = s.exec(text(f"""
                 SELECT
                     SUM(CASE WHEN state = 'COMPLETED' THEN 1 ELSE 0 END) as completed,
                     SUM(CASE WHEN state = 'FAILED' THEN 1 ELSE 0 END) as failed,
@@ -246,19 +269,33 @@ def render_metrics() -> str:
                     COUNT(*) as total_terminal
                 FROM task
                 WHERE state IN ('COMPLETED', 'FAILED', 'CANCELLED')
+                  AND julianday('now') - julianday(COALESCE(last_transition_at, created_at)) <= {win}
             """)).first()
             if rate_rows and rate_rows[3] and rate_rows[3] > 0:
                 completed, failed, cancelled, total = rate_rows
-                lines.append(f'taskhub_task_success_rate {completed / total:.4f}')
-                lines.append(f'taskhub_task_failure_rate {failed / total:.4f}')
+                completed = completed or 0
+                failed = failed or 0
+                cancelled = cancelled or 0
+                attempted = completed + failed
+                # success/failure 互补，样本量单独暴露，避免 n=1 的比率触发告警
+                if attempted > 0:
+                    lines.append(f'taskhub_task_success_rate {completed / attempted:.4f}')
+                    lines.append(f'taskhub_task_failure_rate {failed / attempted:.4f}')
+                else:
+                    lines.append('taskhub_task_success_rate 0.0')
+                    lines.append('taskhub_task_failure_rate 0.0')
+                lines.append(f'taskhub_task_attempted_total {attempted}')
                 lines.append(f'taskhub_task_cancel_rate {cancelled / total:.4f}')
                 lines.append(f'taskhub_task_terminal_total {total}')
+                lines.append(f'taskhub_task_terminal_window_days {win}')
             else:
-                # 无终端任务时显式输出 0，避免 summary 出现 null（前端显示 —）
+                # 窗口内无终态任务时显式输出 0，避免 summary 出现 null（前端显示 —）
                 lines.append('taskhub_task_success_rate 0.0')
                 lines.append('taskhub_task_failure_rate 0.0')
+                lines.append('taskhub_task_attempted_total 0')
                 lines.append('taskhub_task_cancel_rate 0.0')
                 lines.append('taskhub_task_terminal_total 0')
+                lines.append(f'taskhub_task_terminal_window_days {win}')
 
             # Task throughput (tasks created per hour in last 24h)
             throughput_rows = s.exec(text("""
