@@ -129,3 +129,41 @@ def test_real_timeout_requeues_below_max_retries():
         db.expire_all()
         t = db.get(Task, tid)
     assert t.state == TaskState.QUEUED
+
+
+# ---------- reaper 决策证据（task 79b856ef）----------
+
+def test_reaper_emits_never_started_evidence():
+    from mio_taskhub.models import Event
+    with Session(engine) as db:
+        task, run = _mk(db, progress=0, attempt=1, max_retries=3)
+        tid, rid = task.id, run.id
+        bg._on_timeout(rid, tid)
+    with Session(engine) as db:
+        ev = db.exec(select(Event).where(Event.type == "reaper_decision",
+                                         Event.entity_id == rid)).first()
+    assert ev is not None
+    import json as _j
+    p = _j.loads(ev.payload)
+    assert p["reaper_kind"] == "never_started"
+    assert p["run_id"] == rid and p["task_id"] == tid
+    for k in ("agent_id", "agent_status", "progress", "last_heartbeat",
+              "heartbeat_lag_seconds", "effective_timeout_seconds", "decision_reason", "outcome"):
+        assert k in p, k
+
+
+def test_reaper_emits_agent_offline_evidence():
+    from mio_taskhub.models import Event
+    with Session(engine) as db:
+        task, run = _mk(db, progress=50, attempt=1, max_retries=3,
+                        agent_status=AgentStatus.OFFLINE)
+        tid, rid = task.id, run.id
+        bg._on_timeout(rid, tid)
+    with Session(engine) as db:
+        ev = db.exec(select(Event).where(Event.type == "reaper_decision",
+                                         Event.entity_id == rid)).first()
+    import json as _j
+    p = _j.loads(ev.payload)
+    assert p["reaper_kind"] == "agent_offline"
+    assert p["progress"] == 50
+    assert str(p["agent_status"]).lower() == "offline"

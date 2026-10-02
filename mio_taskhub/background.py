@@ -284,6 +284,49 @@ def _on_timeout(run_id: str, task_id: str):
                 _try_apply_event(db, task, M1State.QUEUED, M1Stage.READY,
                                  M1Actor.SYSTEM, "scheduler:timeout", reason=reason)
             db.add(task)
+
+        # reaper 回收决策证据（task 79b856ef，只观测不改行为）：
+        # 记录为什么回收——用于事后区分「真死」vs「误回收活跃 run」。
+        try:
+            _now = datetime.now(timezone.utc)
+            _last_hb = run.last_heartbeat
+            _hb_lag = None
+            if _last_hb is not None:
+                _lh = _last_hb if _last_hb.tzinfo else _last_hb.replace(tzinfo=timezone.utc)
+                _hb_lag = (_now - _lh).total_seconds()
+            _eff = None
+            try:
+                from mio_taskhub.heartbeat import AGENT_OFFLINE_TIMEOUT_SECONDS, DEFAULT_TIMEOUT_SECONDS
+                _base = (task.timeout_min * 60) if (task and task.timeout_min) else DEFAULT_TIMEOUT_SECONDS
+                _eff = min(_base, AGENT_OFFLINE_TIMEOUT_SECONDS) if agent_offline else _base
+            except Exception:  # noqa: BLE001
+                pass
+            _decision = ("never_started" if never_started
+                         else ("agent_offline" if agent_offline else "heartbeat_timeout"))
+            _ev = emit_event(
+                db, type="reaper_decision", entity="run", entity_id=run.id,
+                run_id=run.id,
+                payload={
+                    "run_id": run.id, "task_id": task_id,
+                    "agent_id": run.agent_name,
+                    "agent_status": (agent.status.value if agent is not None else None),
+                    "progress": run.progress,
+                    "attempt": run.attempt,
+                    "last_heartbeat": (_last_hb.isoformat() if _last_hb else None),
+                    "heartbeat_lag_seconds": _hb_lag,
+                    "effective_timeout_seconds": _eff,
+                    "run_state_before": "CLAIMED/RUNNING",
+                    "reaper_kind": _decision,
+                    "decision_reason": f"now-last_heartbeat={_hb_lag}s > effective_timeout={_eff}s"
+                                       if _hb_lag is not None else "no heartbeat",
+                    "outcome": ("requeue" if (task is not None and not is_terminal(task)
+                                              and not (task.attempt >= task.max_retries and not never_started)) else "fail"),
+                },
+            )
+            broadcast_for_event(_ev)
+        except Exception:  # noqa: BLE001 — 观测失败不得影响回收
+            logger.exception("failed to emit reaper_decision evidence")
+
         db.commit()
         # Verify 闭链（P1-2）：requeue 后校验任务确实回到可领取状态，否则留证便于排查
         if task is not None and never_started:
