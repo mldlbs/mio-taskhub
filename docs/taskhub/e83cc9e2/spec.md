@@ -4,9 +4,9 @@
 
 | 项 | 值 |
 |---|---|
-| 文档版本 | v1.0 |
+| 文档版本 | v1.1 |
 | 更新时间 | 2026-10-03 08:15 |
-| 状态 | draft |
+| 状态 | approved |
 | 作者 | opencode（[insight] 复核轮，源 insight #130/#136） |
 | 适用范围 | `mio_taskhub/observability/metrics.py`、`insights.py`、`insight_remediator.py` |
 | 上游 | task 78d5fac5 复核结论、task e83cc9e2 验收标准 1-7 |
