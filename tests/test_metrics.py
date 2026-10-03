@@ -57,11 +57,11 @@ def _gauge(text, name):
     return None
 
 
-def _seed_terminal(task_id, state, *, days_ago=0):
+def _seed_terminal(task_id, state, *, days_ago=0, labels=None):
     """插入一条已进终态的任务，last_transition_at 相对今天回溯 days_ago 天。"""
     with Session(engine) as s:
         when = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days_ago)
-        s.add(Task(id=task_id, title="seed", state=state,
+        s.add(Task(id=task_id, title="seed", state=state, labels=labels or [],
                    last_transition_at=when, completed_at=when, failed_at=when))
         s.commit()
 
@@ -123,3 +123,54 @@ def test_no_terminal_tasks_reports_zero_not_null():
     text = client.get("/metrics").text
     assert _gauge(text, "taskhub_task_success_rate") == 0.0
     assert _gauge(text, "taskhub_task_terminal_total") == 0
+
+
+# ---------- active 口径（task 78d5fac5：指标被自己的告警闭环压低） ----------
+
+def test_active_rate_excludes_insight_auto_noise():
+    """insight-auto 跟进任务是控制面产物，其失败不得计入交付成功率。"""
+    _seed_terminal("real-1", "COMPLETED")
+    _seed_terminal("real-2", "COMPLETED")
+    _seed_terminal("real-3", "COMPLETED")
+    _seed_terminal("real-f-1", "FAILED")
+    _seed_terminal("noise-f-1", "FAILED", labels=["insight-auto", "metric:x"])
+    _seed_terminal("noise-f-2", "FAILED", labels=["insight-auto", "metric:x"])
+    _seed_terminal("noise-c-1", "COMPLETED", labels=["insight-auto", "metric:x"])
+    text = client.get("/metrics").text
+    # 全量口径含噪音：4 完成 / 3 失败 = 0.5714；active 口径：3/4 = 0.75
+    assert _gauge(text, "taskhub_task_success_rate") == 0.5714
+    assert _gauge(text, "taskhub_task_attempted_total") == 7
+    assert _gauge(text, "taskhub_task_success_rate_active") == 0.75
+    assert _gauge(text, "taskhub_task_failure_rate_active") == 0.25
+    assert _gauge(text, "taskhub_task_attempted_total_active") == 4
+
+
+def test_active_rate_excludes_archived_spinning():
+    """housekeeping 自动归档任务（archived:spinning）不是交付失败。"""
+    _seed_terminal("real-1", "COMPLETED")
+    _seed_terminal("spin-1", "FAILED", labels=["auto", "archived:spinning"])
+    text = client.get("/metrics").text
+    assert _gauge(text, "taskhub_task_success_rate_active") == 1.0
+    assert _gauge(text, "taskhub_task_attempted_total_active") == 1
+
+
+def test_active_rate_zero_when_only_noise():
+    """窗口内只剩噪音任务时显式输出 0，不留 null。"""
+    _seed_terminal("noise-f-1", "FAILED", labels=["insight-auto", "metric:x"])
+    text = client.get("/metrics").text
+    assert _gauge(text, "taskhub_task_success_rate_active") == 0.0
+    assert _gauge(text, "taskhub_task_attempted_total_active") == 0
+
+
+def test_active_rate_shares_same_window(monkeypatch):
+    """active 与全量口径共用同一滚动窗口，避免两套口径时间范围不一致。"""
+    monkeypatch.setenv("MIO_TASKHUB_TERMINAL_WINDOW_DAYS", "7")
+    _seed_terminal("old-ok", "COMPLETED", days_ago=90)
+    _seed_terminal("old-bad", "FAILED", days_ago=90)
+    _seed_terminal("new-ok", "COMPLETED")
+    _seed_terminal("new-bad", "FAILED")
+    text = client.get("/metrics").text
+    assert _gauge(text, "taskhub_task_terminal_window_days") == 7
+    # 90 天前的 2 条被窗口排除，窗口内 1 成 1 败
+    assert _gauge(text, "taskhub_task_attempted_total_active") == 2
+    assert _gauge(text, "taskhub_task_success_rate_active") == 0.5

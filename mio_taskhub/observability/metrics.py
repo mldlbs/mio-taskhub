@@ -297,6 +297,33 @@ def render_metrics() -> str:
                 lines.append('taskhub_task_terminal_total 0')
                 lines.append(f'taskhub_task_terminal_window_days {win}')
 
+            # Task success rate (active) — 剔除系统噪音后的交付成功率。
+            # insight-auto（洞察闭环自己派出的跟进任务）与 archived:spinning
+            # （housekeeping 自动归档）是控制面自身的产物，不是交付失败；把它们
+            # 计入分母会让指标被自己的告警闭环压低——实测 30d 窗口：全量口径
+            # 0.8182（20 个 FAILED 里 18 个是 insight-auto 自己失败的跟进任务），
+            # 剔除噪音后 0.9730。SLO/告警应看这一行。
+            active_rows = s.exec(text(f"""
+                SELECT
+                    SUM(CASE WHEN state = 'COMPLETED' THEN 1 ELSE 0 END) as completed,
+                    SUM(CASE WHEN state = 'FAILED' THEN 1 ELSE 0 END) as failed
+                FROM task
+                WHERE state IN ('COMPLETED', 'FAILED')
+                  AND julianday('now') - julianday(COALESCE(last_transition_at, created_at)) <= {win}
+                  AND COALESCE(labels, '[]') NOT LIKE '%insight-auto%'
+                  AND COALESCE(labels, '[]') NOT LIKE '%archived:spinning%'
+            """)).first()
+            a_completed = (active_rows[0] if active_rows else 0) or 0
+            a_failed = (active_rows[1] if active_rows else 0) or 0
+            a_attempted = a_completed + a_failed
+            if a_attempted > 0:
+                lines.append(f'taskhub_task_success_rate_active {a_completed / a_attempted:.4f}')
+                lines.append(f'taskhub_task_failure_rate_active {a_failed / a_attempted:.4f}')
+            else:
+                lines.append('taskhub_task_success_rate_active 0.0')
+                lines.append('taskhub_task_failure_rate_active 0.0')
+            lines.append(f'taskhub_task_attempted_total_active {a_attempted}')
+
             # Task throughput (tasks created per hour in last 24h)
             throughput_rows = s.exec(text("""
                 SELECT COUNT(*) as cnt
