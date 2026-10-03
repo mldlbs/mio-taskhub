@@ -3638,11 +3638,18 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
 .update-banner {
   display: flex; align-items: center; gap: 12px;
   padding: 8px 16px; font-size: 13px;
-  background: rgba(59,130,246,.12); border-bottom: 1px solid rgba(59,130,246,.35);
+  background: rgba(148,163,184,.10); border-bottom: 1px solid rgba(148,163,184,.22);
   color: var(--ink, #e2e8f0);
+}
+.update-banner.is-active {
+  background: rgba(59,130,246,.14); border-bottom-color: rgba(59,130,246,.40);
+}
+.update-banner.is-error {
+  background: rgba(248,113,113,.12); border-bottom-color: rgba(248,113,113,.38);
 }
 .update-banner__text { flex: 1; }
 .update-banner__err { color: #f87171; }
+.update-banner__check { margin-left: 8px; }
 
 /* DocPanel 一级分区：链内文档 / 交付物 / 参考文件 */
 .docpanel__cat { margin-bottom: 6px; }
