@@ -101,6 +101,9 @@ foreach ($f in $distFiles) {
     $src = Join-Path $root "packaging\$f"
     if (Test-Path $src) { Copy-Item -Force $src $distDir }
 }
+# 生命周期观测模块随 idle_worker 分发（idle_worker 按同目录友好路径加载）
+$probeSrc = Join-Path $root 'mio_taskhub\lifecycle_probe.py'
+if (Test-Path $probeSrc) { Copy-Item -Force $probeSrc $distDir }
 if (Test-Path (Join-Path $root 'packaging\workbuddy')) {
     Copy-Item -Recurse -Force (Join-Path $root 'packaging\workbuddy') $distDir
 }

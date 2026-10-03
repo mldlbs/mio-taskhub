@@ -36,6 +36,68 @@ import urllib.request
 HUB = os.environ.get("MIO_TASKHUB_URL") or "http://127.0.0.1:48620/api/v1"
 
 
+def _load_probe():
+    """按路径加载生命周期观测模块（idle_worker 常以独立脚本分发，不走包导入）。
+
+    找不到时返回 None —— 观测缺失不阻断执行。
+    """
+    import importlib.util
+    here = os.path.dirname(os.path.abspath(__file__))
+    cand = os.path.join(here, "lifecycle_probe.py")
+    if not os.path.exists(cand):
+        # 打包分发场景：agent_wrapper/idle_worker 与 mio_taskhub 并列
+        cand = os.path.join(here, "..", "mio_taskhub", "lifecycle_probe.py")
+        cand = os.path.abspath(cand)
+    if not os.path.exists(cand):
+        return None
+    try:
+        spec = importlib.util.spec_from_file_location("mio_lifecycle_probe", cand)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:  # noqa: BLE001
+        return None
+
+
+_probe = _load_probe()
+
+
+def _lifecycle_recorder(run_id, task_id, agent):
+    """构造生命周期记录器；观测不可用时返回一个惰性 no-op。"""
+    if _probe is None or not _probe.enabled():
+        return _NoopRecorder()
+    tok = os.environ.get("MIO_TASKHUB_TOKEN", "")
+    return _probe.LifecycleRecorder(run_id, task_id or "", agent or "", hub=HUB, token=tok)
+
+
+class _NoopRecorder:
+    def process_start(self, *a, **k):
+        pass
+
+    def heartbeat_sent(self, *a, **k):
+        pass
+
+    def startup_success(self, *a, **k):
+        pass
+
+    def startup_failure(self, *a, **k):
+        pass
+
+    def finish(self, *a, **k):
+        pass
+
+
+def _probe_finish(rec, exit_code, exec_error):
+    """进程结束后回填 exit + 判定 startup 结果（纯观测，不抛）。"""
+    # agent_ready 以 Hub 侧为准：本地无法直接读，退化为「本地 sent>0 视作 ready」，
+    # 真正的 Hub 侧校验交给 ingest/裁决（设计 R2-D2）。这里只记录本地证据。
+    ready = getattr(rec, "heartbeat_sent_count", 0) > 0
+    rec.finish(exit_code=exit_code, hub_seen_heartbeat=ready)
+    if not ready:
+        rec.startup_failure(startup_error=exec_error or "no heartbeat observed locally",
+                            exit_code=exit_code)
+
+
 def req(method, path, body=None, timeout=20):
     url = HUB.rstrip("/") + path
     data = json.dumps(body).encode("utf-8") if body is not None else None
@@ -218,25 +280,39 @@ def main() -> int:
         if exec_spec is None:
             msg = "claimed by idle worker（未配置 --cli / --cli-prefix，仅领取）"
         else:
+            # 生命周期观测脚手架（纯旁路，见 mio_taskhub/lifecycle_probe.py）。
+            # 开关关闭时零副作用；任何失败都不影响执行/提交。
+            rec = _lifecycle_recorder(run_id, task_id, args.agent)
+            rec.process_start(launched=str(exec_spec))
             stop_hb = threading.Event()
 
             def _hb():
                 while not stop_hb.wait(60):
                     req("POST", "/runs/%s/heartbeat" % run_id, {"progress": 50})
+                    rec.heartbeat_sent()   # 本地计数：坐实心跳链失效的本地证据
 
             threading.Thread(target=_hb, daemon=True).start()
             print("[idle-worker] exec(%s): %s" % ("shell" if use_shell else "argv",
                                                   str(exec_spec)[:200]))
+            exec_error = ""
             try:
                 proc = subprocess.run(exec_spec, shell=use_shell, capture_output=True, text=True,
                                       encoding="utf-8", errors="replace")
                 ok = proc.returncode == 0
                 out = ((proc.stdout or "") + (proc.stderr or "")).strip()
                 msg = out[-800:] if out else ("exit %s" % proc.returncode)
+                exit_code = proc.returncode
             except Exception as e:  # noqa: BLE001
                 ok, msg = False, "worker exec failed: %s" % e
+                exit_code = None
+                exec_error = str(e)
             finally:
                 stop_hb.set()
+                # 结果态回填 process_alive（存活>grace），不 sleep；据本地 sent 判 startup 结果。
+                try:
+                    _probe_finish(rec, exit_code, exec_error)
+                except Exception:  # noqa: BLE001
+                    pass
 
         req("POST", "/runs/%s/result" % run_id, {"success": bool(ok), "result": str(msg)[:2000]})
         print("[idle-worker] submitted run=%s success=%s" % (run_id, ok))
