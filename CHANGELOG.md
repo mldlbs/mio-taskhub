@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.5.1 (2026-10-03)
+
+### Added — 手动检查更新入口（更新横幅常显）
+
+此前 `UpdateBanner` 只在 `available/downloading/ready/needs_manual/failed` 时渲染，`up_to_date`/`idle`/`check_failed` 时整条隐藏，且没有任何手动触发入口——用户看不到版本状态，也无从手动检查，观感上像「更新功能不存在」。现：
+
+- 更新条**常显**，展示当前版本与状态（`已是最新版本 vX` / `正在检查更新…` / `检查更新失败：…` 等）。
+- 新增 **「检查更新」按钮**（调用 `POST /update/check`，此前该 API 无 UI 消费）。
+- `failed` 增加「重试」；`needs_manual`（跨代不兼容）明确提示需手动更新；样式区分活跃（蓝）/失败（红）。
+
+### Fixed — 观测口径：切断 insight 自喂养慢环
+
+- 主成功率口径排除监控自造任务（`insight-auto`/`insight-followup`），避免指标度量自己派出的失败任务而长期 critical（任务 e83cc9e2）。
+- 新增 `taskhub_task_excluded_monitoring_total` / `taskhub_task_monitoring_success_rate`，暴露被排除样本量与监控子系统自身 SLO。
+- `insight_remediator` 任一终态（COMPLETED/FAILED/CANCELLED）均 ack；派生前实时 `/metrics` 复核（`MIO_INSIGHT_AUTOTASK_PRECHECK`，默认开）。
+- `insights.store()` dedup 时刷新 `metric_value` 并新增 `_is_recovered` 恢复检测。
+
+### Added — reaper 决策证据 & 生命周期观测
+
+- reaper 发出结构化 `reaper_decision` 事件（kind/agent_status/progress/hb_lag/effective_timeout/reason），仅观测、不改行为（任务 79b856ef）。
+- 终态指标窗口化（`taskhub_task_terminal_window_days`）与 `success_rate_active` 口径。
+
+### Security
+
+- 统一 MCP 风险门控：默认拒绝破坏性工具调用（round3 P1-C）。
+- 安全默认绑定 CLI + webhook SSRF 防护（round2）。
+
 ## v0.4.0 (2026-09-23)
 
 ### Added — 文档生命周期在 Web UI 可见（此前 8 类生命周期前端完全看不到）
