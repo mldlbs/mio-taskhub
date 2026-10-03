@@ -4,7 +4,7 @@ from sqlmodel import Session, select
 from mio_taskhub.db import get_session
 from mio_taskhub.events import emit_event
 from mio_taskhub.policy_guard import guard_action
-from mio_taskhub.models import Task, TaskState, TaskStage, Discussion
+from mio_taskhub.models import Task, TaskState, TaskStage, Discussion, TaskEvent, TaskKind
 from mio_taskhub.workflow.transitions import apply_transition, _orm_to_status_state, _orm_to_status_stage
 from mio_taskhub.api.task_helpers import parse_enum
 from mio_taskhub.doc_paths import DOC_KINDS, doc_path_of, merge_doc_paths, sync_legacy_fields
@@ -119,6 +119,112 @@ def _check_lifecycle_gate(t: Task, dst: TaskStage, force: bool = False):
             "gate": blocked,
         })
     return blocked
+
+
+# ── Investigation 模板门控（R283/R284）────────────────────────────────────────
+# 证据约束执行模板，不是第二套工作流引擎：不新增表/状态/进程。
+#   强门控「有没有合法裁定」，不是「裁定必须阳性/阴性」。
+#   硬阻断仅 H1-H4（无 verdict 事件 / verdict 非法空 / basis 空 / source 非法枚举）；
+#   inconclusive 或 evidence_required 未满足一律 warning，不阻断（Q1/Q4=A/B）。
+#   review 阶段只 warning 提示（Q3=B）；investigation→normal 变更走 force+留痕（Q2=A）。
+INVESTIGATION_VERDICT_EVENT = "investigation_verdict"
+INVESTIGATION_KIND_CHANGED_EVENT = "kind_changed"
+VERDICT_VALUES = ("confirmed", "rejected", "inconclusive")
+EVIDENCE_SOURCES = ("taskhub_event", "agent_local_log", "external_observation", "human_observation")
+
+
+def _latest_investigation_verdict(db: Session, task_id: str):
+    """取最近一条 investigation_verdict TaskEvent，无则 None。"""
+    evs = db.exec(
+        select(TaskEvent).where(
+            TaskEvent.task_id == task_id,
+            TaskEvent.event_type == INVESTIGATION_VERDICT_EVENT,
+        ).order_by(TaskEvent.created_at.desc())
+    ).all()
+    return evs[0] if evs else None
+
+
+def _check_investigation_gate(t: Task, dst: TaskStage, db: Session, force: bool = False):
+    """Investigation 完成/前置提示门控。返回 warning 列表；硬阻断抛 422（force 例外）。
+
+    - 仅当 t.task_kind == investigation 时生效；普通任务直接返回 []（行为逐字节不变）。
+    - dst == done  ：硬校验 verdict（H1-H4），缺失/非法 → 422；证据类问题 → warning。
+    - dst == review：只返回 warning（缺哪些硬字段），不抛异常（Q3=B）。
+    - 其它阶段：返回 []。
+    """
+    if getattr(t, "task_kind", None) != TaskKind.INVESTIGATION:
+        return []
+    dst_v = getattr(dst, "value", dst)
+
+    if dst_v == "review":
+        # 前置提示：不阻断。若尚无合法 verdict，提示到 done 前需补齐的硬字段。
+        ev = _latest_investigation_verdict(db, t.id)
+        warnings = []
+        if ev is None:
+            warnings.append({"stage": "review", "missing": "investigation_verdict",
+                             "detail": "到 done 前需提交 verdict（confirmed/rejected/inconclusive）"})
+        else:
+            meta = dict(ev.event_metadata or {})
+            if not meta.get("verdict"):
+                warnings.append({"stage": "review", "missing": "verdict"})
+            if not (meta.get("verdict_basis") or "").strip():
+                warnings.append({"stage": "review", "missing": "verdict_basis"})
+            src = meta.get("evidence_source")
+            if src and src not in EVIDENCE_SOURCES:
+                warnings.append({"stage": "review", "missing": "evidence_source(非法枚举)",
+                                 "value": src})
+        return warnings
+
+    if dst_v != "done":
+        return []
+
+    # ── done：硬校验 H1-H4 ──
+    ev = _latest_investigation_verdict(db, t.id)
+    if ev is None:
+        if force:
+            return [{"gate": "investigation", "blocked": "H4", "reason": "无 verdict 事件（force 已绕过）"}]
+        raise HTTPException(422, detail={
+            "message": "investigation 任务完成需要 investigation_verdict 事件（含合法 verdict）",
+            "gate": [{"rule": "H4", "missing": "investigation_verdict"}],
+        })
+    meta = dict(ev.event_metadata or {})
+    verdict = meta.get("verdict")
+    basis = (meta.get("verdict_basis") or "").strip()
+    source = meta.get("evidence_source")
+
+    hard = []
+    if verdict not in VERDICT_VALUES:
+        hard.append({"rule": "H1", "field": "verdict", "value": verdict,
+                     "allowed": list(VERDICT_VALUES)})
+    if not basis:
+        hard.append({"rule": "H2", "field": "verdict_basis", "reason": "不能为空"})
+    if source is not None and source not in EVIDENCE_SOURCES:
+        hard.append({"rule": "H3", "field": "evidence_source", "value": source,
+                     "allowed": list(EVIDENCE_SOURCES)})
+    if hard and not force:
+        raise HTTPException(422, detail={
+            "message": "investigation 裁定不合法（硬门控 H1-H4）：请补全 verdict/verdict_basis/evidence_source",
+            "gate": hard,
+        })
+
+    # ── 软校验：evidence_required 未满足 / inconclusive 缺说明 / 只引 taskhub_event ──
+    warnings = []
+    required = meta.get("evidence_required") or []
+    collected = meta.get("evidence_collected") or []
+    if required:
+        missing_ev = [x for x in required if x not in collected]
+        if missing_ev:
+            warnings.append({"rule": "S1/S3", "missing_evidence": missing_ev,
+                             "detail": "evidence_required 未满足（warning，不阻断）"})
+    if verdict == "inconclusive":
+        low = basis.lower()
+        if not any(k in low for k in ("缺", "不足", "无法", "insufficient", "not enough", "unable")):
+            warnings.append({"rule": "S2", "detail": "inconclusive 的 basis 建议说明缺什么证据、为何不足以判断"})
+    if source == "taskhub_event":
+        warnings.append({"rule": "H5", "detail": "仅引 taskhub_event 不能独立裁定 Hub 自身缺陷，建议辅以 agent_local_log/external_observation"})
+    if hard and force:
+        warnings.append({"rule": "force", "bypassed": hard})
+    return warnings
 
 
 def _stage_requirement(dst) -> dict:
@@ -312,7 +418,9 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
         if not discussions:
             raise HTTPException(422, f"{dst.value} stage requires at least one discussion record")
     _apply_stage_requirements(t, dst, body)
-    forced_gate = _check_lifecycle_gate(t, dst, force=bool((body or {}).get("force")))
+    force = bool((body or {}).get("force"))
+    forced_gate = _check_lifecycle_gate(t, dst, force=force)
+    invest_warnings = _check_investigation_gate(t, dst, db, force=force)
     m1_events = []
     try:
         cur_s = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
@@ -340,12 +448,16 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
     if forced_gate:
         emit_event(db, type="task_stage_gate_forced", entity="task", entity_id=task_id,
                    payload={"target": dst.value, "gate": forced_gate})
+    if invest_warnings:
+        emit_event(db, type="task_investigation_warnings", entity="task", entity_id=task_id,
+                   payload={"target": dst.value, "warnings": invest_warnings})
     emit_event(db, type="task_stage", entity="task", entity_id=task_id,
                payload={"target": dst.value})
     _commit_task_and_events(t, db, m1_events)
     return {"id": t.id, "stage": t.stage.value, "spec_path": t.spec_path,
             "plan_path": t.plan_path, "doc_paths": dict(t.doc_paths or {}),
             "review_result": t.review_result,
+            "investigation_warnings": invest_warnings,
             "state": t.state.value}
 
 
@@ -373,6 +485,7 @@ def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
                 "plan_path": t.plan_path, "review_result": t.review_result,
                 "state": t.state.value}
     forced_gate = _check_lifecycle_gate(t, dst, force=bool((body or {}).get("force")))
+    invest_warnings = _check_investigation_gate(t, dst, db, force=bool((body or {}).get("force")))
     m1_events = []
     cur_s = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
     cur_m1 = _orm_to_status_state(cur_s)
@@ -415,10 +528,14 @@ def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
     if forced_gate:
         emit_event(db, type="task_stage_gate_forced", entity="task", entity_id=t.id,
                    payload={"target": dst.value, "gate": forced_gate, "move": True})
+    if invest_warnings:
+        emit_event(db, type="task_investigation_warnings", entity="task", entity_id=t.id,
+                   payload={"target": dst.value, "warnings": invest_warnings, "move": True})
     emit_event(db, type="task_moved", entity="task", entity_id=t.id,
                payload={"from": src.value, "to": dst.value})
     _commit_task_and_events(t, db, m1_events)
     return {"id": t.id, "stage": t.stage.value, "spec_path": t.spec_path,
             "plan_path": t.plan_path, "doc_paths": dict(t.doc_paths or {}),
             "review_result": t.review_result,
+            "investigation_warnings": invest_warnings,
             "state": t.state.value}

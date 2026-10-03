@@ -61,6 +61,9 @@ class TaskKind(str, enum.Enum):
     NORMAL = "normal"
     CHANGE_TRACKING = "change_tracking"
     REVIEW = "idea_review"
+    # 证据约束执行模板（R283/R284）：done 需合法 verdict（investigation_verdict 事件）。
+    # 不新增表/状态/进程；仅复用 TaskEvent + done 门控条件分支。
+    INVESTIGATION = "investigation"
 
 class SubtaskStatus(str, enum.Enum):
     PENDING = "pending"

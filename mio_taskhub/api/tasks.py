@@ -7,7 +7,7 @@ from sqlmodel import Session, select
 from mio_taskhub.db import get_session
 from mio_taskhub.models import (
     Task, TaskState, TaskStage, Run, RunState, Subtask, SubtaskStatus, GitRef, RefType, HistoryEvent,
-    Discussion, DiscussionMessage, Agent,
+    Discussion, DiscussionMessage, Agent, TaskKind, TaskEvent,
 )
 from mio_taskhub.utils import _now
 from mio_taskhub.doc_paths import DOC_KINDS, doc_path_of, merge_doc_paths, sync_legacy_fields
@@ -60,6 +60,11 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         doc_paths=doc_paths,
         stage=stage,
     )
+    if body.get("task_kind"):
+        try:
+            t.task_kind = TaskKind(body["task_kind"])
+        except ValueError:
+            raise HTTPException(400, f"invalid task_kind: {body['task_kind']}")
     validate_depends(t, db)
     check_cycle(t, db)
     db.add(t)
@@ -215,6 +220,30 @@ def update_task(task_id: str, body: dict, db: Session = Depends(get_session)):
             if kind in dp_incoming:
                 # 显式传入即以其为准（含清空），不走 doc_path_of 的旧列回退
                 setattr(t, legacy_key, merged.get(kind, ""))
+    # task_kind 变更（R284 Q2=A）：离开 investigation 必须 force=true，并留痕 kind_changed。
+    # 目的：堵住「investigation→normal 逃逸 done verdict 门控」的静默降级路径。
+    if "task_kind" in body:
+        try:
+            new_kind = TaskKind(body["task_kind"])
+        except ValueError:
+            raise HTTPException(400, f"invalid task_kind: {body['task_kind']}")
+        cur_kind = t.task_kind if isinstance(t.task_kind, TaskKind) else TaskKind(t.task_kind)
+        if new_kind != cur_kind:
+            leaving_investigation = (cur_kind == TaskKind.INVESTIGATION)
+            if leaving_investigation and not bool(body.get("force")):
+                raise HTTPException(422, detail={
+                    "message": "investigation 任务改为其它 kind 需要 force=true（防止门控静默降级）",
+                    "gate": [{"rule": "C1", "from": cur_kind.value, "to": new_kind.value}],
+                })
+            t.task_kind = new_kind
+            db.add(TaskEvent(
+                task_id=t.id, event_type="kind_changed",
+                actor_type="user", actor_id="api:update_task",
+                reason=body.get("kind_change_reason", ""),
+                event_metadata={"from": cur_kind.value, "to": new_kind.value,
+                                "reason": body.get("kind_change_reason", ""),
+                                "forced": bool(body.get("force"))},
+            ))
     db.add(t)
     event = emit_event(db, type="task_updated", entity="task", entity_id=t.id)
     db.commit()

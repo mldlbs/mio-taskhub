@@ -399,6 +399,7 @@ async def taskhub_create_task(
     files: Optional[list] = Field(default=None, description="文件路径列表（相对工作区）"),
     deliverables: Optional[list] = Field(default=None, description="预期产出物路径列表"),
     stage: str = Field(default="brainstorming", description="研发阶段（brainstorming/design/planning/ready/implementing/review/done），ready 才可被领取"),
+    task_kind: Optional[str] = Field(default=None, description="任务类型：normal/change_tracking/idea_review/investigation。investigation=证据约束模板（done 需合法 verdict）"),
     doc_paths: Optional[dict] = Field(default=None, description="文档路径映射（kind -> 路径）。kind 取 spec/plan/requirement/test/architecture/api/readme/changelog"),
     spec_path: Optional[str] = Field(default=None, description="设计文档路径（等价于 doc_paths['spec']）"),
     plan_path: Optional[str] = Field(default=None, description="实现计划路径（等价于 doc_paths['plan']）"),
@@ -409,6 +410,7 @@ async def taskhub_create_task(
         "depends_on": depends_on, "max_retries": max_retries, "acceptance_criteria": acceptance_criteria,
         "due_at": due_at, "labels": labels, "project": project, "workspace": workspace,
         "files": files, "deliverables": deliverables, "stage": stage,
+        "task_kind": task_kind,
         "doc_paths": doc_paths, "spec_path": spec_path, "plan_path": plan_path,
     }.items() if v is not None}
     return _fmt(await _request("POST", "/tasks", body=body))
@@ -431,6 +433,9 @@ async def taskhub_update_task(
     doc_paths: Optional[dict] = Field(default=None, description="文档路径映射（kind -> 路径），与现有映射合并；传空字符串可清除该类型。kind 取 spec/plan/requirement/test/architecture/api/readme/changelog"),
     spec_path: Optional[str] = Field(default=None, description="设计文档路径（等价于 doc_paths['spec']，传空字符串清除）"),
     plan_path: Optional[str] = Field(default=None, description="实现计划路径（等价于 doc_paths['plan']，传空字符串清除）"),
+    task_kind: Optional[str] = Field(default=None, description="任务类型：normal/change_tracking/idea_review/investigation。离开 investigation 需 force=true（R284 Q2=A）"),
+    force: Optional[bool] = Field(default=None, description="强制变更 task_kind（离开 investigation 时必填），会留痕 kind_changed"),
+    kind_change_reason: Optional[str] = Field(default=None, description="task_kind 变更原因（写入 kind_changed 事件）"),
 ) -> str:
     body = {k: v for k, v in {
         "title": title, "description": description, "acceptance_criteria": acceptance_criteria,
@@ -438,6 +443,7 @@ async def taskhub_update_task(
         "files": files, "deliverables": deliverables, "depends_on": depends_on,
         "fallback_after": fallback_after,
         "doc_paths": doc_paths, "spec_path": spec_path, "plan_path": plan_path,
+        "task_kind": task_kind, "force": force, "kind_change_reason": kind_change_reason,
     }.items() if v is not None}
     return _fmt(await _request("PATCH", f"/tasks/{task_id}", body=body))
 
