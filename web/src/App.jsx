@@ -17,6 +17,7 @@ import StatsView from './components/StatsView'
 import ObservabilityView from './components/ObservabilityView'
 import MemoryView from './components/MemoryView'
 import MioRuntimeView from './components/MioRuntimeView'
+import SettingsView from './components/SettingsView'
 import ScheduledJobsView from './components/ScheduledJobsView'
 import CreateModal from './components/CreateModal'
 import TaskDetail from './components/TaskDetail'
@@ -373,7 +374,7 @@ export default function App() {
         />
 
         <ConnectionBanner wsLive={ws} lastSync={lastSync} retryIn={wsRetryIn} />
-        <UpdateBanner eventTick={lastSync} />
+        <UpdateBanner eventTick={lastSync} onOpenSettings={() => setView('settings')} />
 
         {error && (
           <ErrorBar
@@ -450,6 +451,9 @@ export default function App() {
             )}
             {view === 'mio' && (
               <MioRuntimeView />
+            )}
+            {view === 'settings' && (
+              <SettingsView />
             )}
             {view === 'observability' && (
               <ObservabilityView onOpenTask={(id) => openTask({ id })} />

@@ -3651,6 +3651,16 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
 .update-banner__err { color: #f87171; }
 .update-banner__check { margin-left: 8px; }
 
+/* 设置面板 */
+.settings-view { max-width: 760px; }
+.settings-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 8px; }
+.settings-notes {
+  margin: 0 0 8px; padding: 12px 14px; max-height: 280px; overflow: auto;
+  font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+  background: rgba(148,163,184,.07); border: 1px solid rgba(148,163,184,.16);
+  border-radius: 8px; color: var(--ink, #e2e8f0);
+}
+
 /* DocPanel 一级分区：链内文档 / 交付物 / 参考文件 */
 .docpanel__cat { margin-bottom: 6px; }
 .docpanel__cat-title {
