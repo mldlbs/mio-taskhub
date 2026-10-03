@@ -43,6 +43,12 @@ def autotask_enabled() -> bool:
     return val in ON
 
 
+def precheck_enabled() -> bool:
+    """是否在派生前复核实时指标（默认开启）。env MIO_INSIGHT_AUTOTASK_PRECHECK=0 关闭。"""
+    val = os.environ.get("MIO_INSIGHT_AUTOTASK_PRECHECK", "1").strip().lower()
+    return val in ON
+
+
 def _cooldown_hours() -> float:
     """跟进任务冷却期小时数（env MIO_INSIGHT_AUTOTASK_COOLDOWN_HOURS）。"""
     raw = os.environ.get("MIO_INSIGHT_AUTOTASK_COOLDOWN_HOURS", "")
@@ -70,6 +76,51 @@ def _severities_from_env() -> set:
     return {s.strip().lower() for s in raw.split(",") if s.strip()}
 
 
+def _current_metrics() -> dict:
+    """渲染当前 /metrics 并解析成 {name: float}，供派生前复核实时值。"""
+    try:
+        from mio_taskhub.observability.metrics import render_metrics
+        import re
+        out = {}
+        for m in re.finditer(r"(\w+)\s+(-?[\d.]+)", render_metrics()):
+            try:
+                out[m.group(1)] = float(m.group(2))
+            except ValueError:
+                pass
+        return out
+    except Exception:  # noqa: BLE001 — 复核失败时按「未恢复」处理，不误吞告警
+        logger.exception("failed to render current metrics for pre-dispatch recheck")
+        return {}
+
+
+def _metric_recovered(ins: dict, current: dict) -> bool:
+    """判断洞察告警是否已自愈：当前指标值已回到 baseline 以内。
+
+    仅当能取到实时值、且该值是「高阈值」型（value >= baseline 触发）时才判
+    恢复——低阈值告警（success_rate 类）与无实时值的场景一律按未恢复处理，
+    避免误 ack 掉仍需处置的告警。
+    """
+    name = ins.get("metric_name")
+    if not name or name not in current:
+        return False
+    baseline = ins.get("baseline")
+    if baseline is None:
+        return False
+    try:
+        baseline = float(baseline)
+    except (TypeError, ValueError):
+        return False
+    # 仅处理「值过高」型：告警时 value >= baseline；实时值 < baseline 即恢复。
+    value = ins.get("metric_value")
+    try:
+        value = float(value) if value is not None else None
+    except (TypeError, ValueError):
+        value = None
+    if value is not None and value < baseline:
+        return False
+    return current[name] < baseline
+
+
 class InsightsRemediator:
     def __init__(self, db_engine=None):
         self._engine = db_engine or engine
@@ -80,16 +131,31 @@ class InsightsRemediator:
             return []
         want = _severities_from_env()
         created = []
+        current: Optional[dict] = None
         for ins in insights or []:
             sev = str(ins.get("severity", "")).lower()
             if sev not in want:
                 continue
             if ins.get("acknowledged"):
                 continue
+            # 派生前复核实时指标：insight 行里的 metric_value 可能是数小时前的
+            # 冻结快照（实测派生过 8.7h 后才出生的任务）。若当前值已回到 baseline
+            # 以内，说明告警已自愈，ack 源洞察且不派生（task e83cc9e2 变更 3）。
+            if precheck_enabled():
+                if current is None:
+                    current = _current_metrics()
+                if _metric_recovered(ins, current):
+                    self._acknowledge_insight_standalone(ins)
+                    continue
             task = self._create_followup(ins)
             if task is not None:
                 created.append(task)
         return created
+
+    def _acknowledge_insight_standalone(self, ins: dict) -> None:
+        """在独立 Session 中 ack 源洞察（供复核分支复用）。"""
+        with Session(self._engine) as db:
+            self._acknowledge_insight(db, ins)
 
     def _acknowledge_insight(self, db: Session, ins: dict) -> None:
         """跟进任务已完成 → 确认源洞察，闭合 insights→task 回路。
@@ -130,8 +196,11 @@ class InsightsRemediator:
                     return None
                 age_h = (_utcnow_naive() - last).total_seconds() / 3600.0
                 if age_h <= _cooldown_hours():
-                    if task.state == TaskState.COMPLETED:
-                        self._acknowledge_insight(db, ins)
+                    # 冷却期内的任一终态（COMPLETED / FAILED / CANCELLED）都 ack 源洞察。
+                    # 旧逻辑只在 COMPLETED 时 ack：一条派生任务若因无 agent 而 FAILED
+                    # （实测 18 条 agent offline），源洞察永远 acknowledged=0，冷却期满
+                    # 必然再派生 → 无限慢环（~24h/条，task e83cc9e2）。
+                    self._acknowledge_insight(db, ins)
                     return None
             ws = os.environ.get("MIO_TASKHUB_WORKSPACE", "").strip()
             if not ws:

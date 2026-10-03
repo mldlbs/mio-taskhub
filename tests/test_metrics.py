@@ -137,12 +137,17 @@ def test_active_rate_excludes_insight_auto_noise():
     _seed_terminal("noise-f-2", "FAILED", labels=["insight-auto", "metric:x"])
     _seed_terminal("noise-c-1", "COMPLETED", labels=["insight-auto", "metric:x"])
     text = client.get("/metrics").text
-    # 全量口径含噪音：4 完成 / 3 失败 = 0.5714；active 口径：3/4 = 0.75
-    assert _gauge(text, "taskhub_task_success_rate") == 0.5714
-    assert _gauge(text, "taskhub_task_attempted_total") == 7
+    # 主口径已排除监控噪音（task e83cc9e2）：真实交付 3/4 = 0.75；
+    # active 口径与主口径同义（此处无 archived:spinning）。
+    assert _gauge(text, "taskhub_task_success_rate") == 0.75
+    assert _gauge(text, "taskhub_task_failure_rate") == 0.25
+    assert _gauge(text, "taskhub_task_attempted_total") == 4
     assert _gauge(text, "taskhub_task_success_rate_active") == 0.75
     assert _gauge(text, "taskhub_task_failure_rate_active") == 0.25
     assert _gauge(text, "taskhub_task_attempted_total_active") == 4
+    # 被排除的监控工件单独暴露，便于审计；监控自身完成率 1/3 = 0.3333。
+    assert _gauge(text, "taskhub_task_excluded_monitoring_total") == 3
+    assert _gauge(text, "taskhub_task_monitoring_success_rate") == 0.3333
 
 
 def test_active_rate_excludes_archived_spinning():
@@ -174,3 +179,51 @@ def test_active_rate_shares_same_window(monkeypatch):
     # 90 天前的 2 条被窗口排除，窗口内 1 成 1 败
     assert _gauge(text, "taskhub_task_attempted_total_active") == 2
     assert _gauge(text, "taskhub_task_success_rate_active") == 0.5
+
+
+# ---------- 主口径排除监控自造任务（task e83cc9e2 变更 1，唯一能清 critical 的改动） ----------
+
+def test_primary_rate_excludes_insight_auto_and_followup():
+    """insight-auto/insight-followup 是控制面产物，失败不得计入主口径。
+
+    主口径是 alert_rules + InsightsEngine 读取的那一行，必须与 active 同口径
+    排除噪音，否则 failure_rate 永久 critical、每周期再生 critical insight。
+    """
+    _seed_terminal("real-1", "COMPLETED")
+    _seed_terminal("real-2", "COMPLETED")
+    _seed_terminal("real-3", "COMPLETED")
+    _seed_terminal("real-f-1", "FAILED")
+    _seed_terminal("noise-f-1", "FAILED", labels=["insight-auto", "metric:x"])
+    _seed_terminal("noise-f-2", "FAILED", labels=["insight-followup", "metric:x"])
+    _seed_terminal("noise-c-1", "COMPLETED", labels=["insight-auto", "metric:x"])
+    text = client.get("/metrics").text
+    # 主口径 = 真实交付 3/4 = 0.75；failure 0.25（<0.15 已不成立 critical）
+    assert _gauge(text, "taskhub_task_success_rate") == 0.75
+    assert _gauge(text, "taskhub_task_failure_rate") == 0.25
+    assert _gauge(text, "taskhub_task_attempted_total") == 4
+    # 被排除的监控工件单独暴露（3 条：2 failed + 1 completed）
+    assert _gauge(text, "taskhub_task_excluded_monitoring_total") == 3
+    assert _gauge(text, "taskhub_task_monitoring_success_rate") == 0.3333
+
+
+def test_primary_rate_zero_excluded_when_no_monitoring_noise():
+    """无监控噪音时 excluded=0、monitoring_success_rate=0，主口径为纯交付口径。"""
+    _seed_terminal("real-1", "COMPLETED")
+    _seed_terminal("real-2", "FAILED")
+    text = client.get("/metrics").text
+    assert _gauge(text, "taskhub_task_success_rate") == 0.5
+    assert _gauge(text, "taskhub_task_excluded_monitoring_total") == 0
+    assert _gauge(text, "taskhub_task_monitoring_success_rate") == 0.0
+
+
+def test_primary_rate_null_labels_not_excluded():
+    """labels 为 NULL 的任务属正常任务，不得被监控过滤误排除。"""
+    with Session(engine) as s:
+        when = datetime.now(timezone.utc).replace(tzinfo=None)
+        s.add(Task(id="null-label-1", title="seed", state="FAILED",
+                   labels=None, last_transition_at=when,
+                   completed_at=when, failed_at=when))
+        s.commit()
+    text = client.get("/metrics").text
+    assert _gauge(text, "taskhub_task_failure_rate") == 1.0
+    assert _gauge(text, "taskhub_task_attempted_total") == 1

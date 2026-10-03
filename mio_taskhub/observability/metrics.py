@@ -261,6 +261,16 @@ def render_metrics() -> str:
             # 2) 只看滚动窗口内进入终态的任务：全量累计口径一旦被历史噪音
             #    污染就永不恢复，指标必然长期 critical。
             win = _terminal_window_days()
+            # 监控自造任务（insight-auto / insight-followup）是控制面闭环自己
+            # 派生的跟进任务，因 worker 生命周期失败而终态时并非交付失败。
+            # 把它们计入分母会让指标度量自己派出的任务——数学上不可能靠再派
+            # 任务把失败率压下去（实测 30d：混算 0.8198，剔除后真实交付 0.9730）。
+            # 主口径排除它们，critical 告警才能反映真实交付质量（task e83cc9e2）。
+            monitor_filter = (
+                "AND (labels IS NULL "
+                "OR (labels NOT LIKE '%insight-auto%' "
+                "AND labels NOT LIKE '%insight-followup%'))"
+            )
             rate_rows = s.exec(text(f"""
                 SELECT
                     SUM(CASE WHEN state = 'COMPLETED' THEN 1 ELSE 0 END) as completed,
@@ -270,6 +280,7 @@ def render_metrics() -> str:
                 FROM task
                 WHERE state IN ('COMPLETED', 'FAILED', 'CANCELLED')
                   AND julianday('now') - julianday(COALESCE(last_transition_at, created_at)) <= {win}
+                  {monitor_filter}
             """)).first()
             if rate_rows and rate_rows[3] and rate_rows[3] > 0:
                 completed, failed, cancelled, total = rate_rows
@@ -297,12 +308,29 @@ def render_metrics() -> str:
                 lines.append('taskhub_task_terminal_total 0')
                 lines.append(f'taskhub_task_terminal_window_days {win}')
 
+            # 自度量审计：被排除的监控工件样本量与「监控自身派单完成率」。
+            # 前者便于核对口径，后者是该子系统真正该盯的 SLO（task e83cc9e2）。
+            monitoring_rows = s.exec(text(f"""
+                SELECT
+                    SUM(CASE WHEN state = 'COMPLETED' THEN 1 ELSE 0 END) as completed,
+                    SUM(CASE WHEN state = 'FAILED' THEN 1 ELSE 0 END) as failed
+                FROM task
+                WHERE state IN ('COMPLETED', 'FAILED')
+                  AND julianday('now') - julianday(COALESCE(last_transition_at, created_at)) <= {win}
+                  AND labels IS NOT NULL
+                  AND (labels LIKE '%insight-auto%' OR labels LIKE '%insight-followup%')
+            """)).first()
+            m_completed = (monitoring_rows[0] if monitoring_rows else 0) or 0
+            m_failed = (monitoring_rows[1] if monitoring_rows else 0) or 0
+            m_attempted = m_completed + m_failed
+            lines.append(f'taskhub_task_excluded_monitoring_total {m_attempted}')
+            if m_attempted > 0:
+                lines.append(f'taskhub_task_monitoring_success_rate {m_completed / m_attempted:.4f}')
+            else:
+                lines.append('taskhub_task_monitoring_success_rate 0.0')
+
             # Task success rate (active) — 剔除系统噪音后的交付成功率。
-            # insight-auto（洞察闭环自己派出的跟进任务）与 archived:spinning
-            # （housekeeping 自动归档）是控制面自身的产物，不是交付失败；把它们
-            # 计入分母会让指标被自己的告警闭环压低——实测 30d 窗口：全量口径
-            # 0.8182（20 个 FAILED 里 18 个是 insight-auto 自己失败的跟进任务），
-            # 剔除噪音后 0.9730。SLO/告警应看这一行。
+            # 与主口径同义但额外排除 archived:spinning（housekeeping 自动归档）。
             active_rows = s.exec(text(f"""
                 SELECT
                     SUM(CASE WHEN state = 'COMPLETED' THEN 1 ELSE 0 END) as completed,

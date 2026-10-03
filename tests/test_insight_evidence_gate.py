@@ -30,6 +30,8 @@ def _consume_one(monkeypatch, tmp_path):
     ws.mkdir()
     monkeypatch.setenv("MIO_TASKHUB_WORKSPACE", str(ws))
     monkeypatch.delenv("MIO_INSIGHT_AUTOTASK", raising=False)
+    # 关闭派生前实时指标复核：单测不依赖线上 /metrics，隔离后建任务必然发生。
+    monkeypatch.setenv("MIO_INSIGHT_AUTOTASK_PRECHECK", "0")
     created = InsightsRemediator().consume([_insight()])
     assert len(created) == 1
     return created[0], ws
@@ -74,6 +76,7 @@ def test_default_workspace_when_env_unset(monkeypatch):
     """未设 MIO_TASKHUB_WORKSPACE 时仍应产出 doc_paths（回退默认目录，避免静默失效）。"""
     monkeypatch.delenv("MIO_TASKHUB_WORKSPACE", raising=False)
     monkeypatch.delenv("MIO_INSIGHT_AUTOTASK", raising=False)
+    monkeypatch.setenv("MIO_INSIGHT_AUTOTASK_PRECHECK", "0")
     created = InsightsRemediator().consume([_insight("taskhub_task_success_rate")])
     assert len(created) == 1
     with Session(engine) as db:

@@ -86,19 +86,25 @@ class InsightsEngine:
                     # 刷新当前值：命中未确认同 title 洞察时若不更新 metric_value/
                     # description，该洞察会永远停在首次告警的数值上（task b1667eae
                     # 复核发现 insight 78 长期显示 0.2533，实际已漂移到 0.372）。
+                    # 同时做恢复检测：若本次调用给出的值已回到阈值以内，说明告警
+                    # 自愈，把该行标 acknowledged，避免化石快照永久驻留、反复触发
+                    # 派单（task e83cc9e2 变更 4）。
+                    recovered = self._is_recovered(metric_value, baseline)
                     try:
                         conn.execute(
                             text("UPDATE insight SET ts = :ts, metric_value = :mv, "
-                                 "description = :desc, baseline = :baseline, recommendation = :rec "
+                                 "description = :desc, baseline = :baseline, recommendation = :rec, "
+                                 "acknowledged = :ack "
                                  "WHERE id = :id"),
                             {"ts": time.time(), "mv": metric_value, "desc": description,
-                             "baseline": baseline, "rec": recommendation, "id": existing[0]}
+                             "baseline": baseline, "rec": recommendation,
+                             "ack": 1 if recovered else 0, "id": existing[0]}
                         )
                         conn.commit()
                     except Exception:
                         logger.exception("Failed to refresh insight %s", existing[0])
                     return {"id": existing[0], "ts": time.time(), "kind": kind, "title": title, "severity": severity,
-                            "metric_value": metric_value}
+                            "metric_value": metric_value, "recovered": recovered}
                 result = conn.execute(
                     text("INSERT INTO insight (ts, kind, title, description, severity, metric_name, metric_value, baseline, recommendation, auto_action) VALUES (:ts, :kind, :title, :description, :severity, :metric_name, :metric_value, :baseline, :recommendation, :auto_action)"),
                     {"ts": time.time(), "kind": kind, "title": title, "description": description,
@@ -106,10 +112,24 @@ class InsightsEngine:
                      "baseline": baseline, "recommendation": recommendation, "auto_action": auto_action}
                 )
                 conn.commit()
-                return {"id": result.lastrowid, "ts": time.time(), "kind": kind, "title": title, "severity": severity}
+                return {"id": result.lastrowid, "ts": time.time(), "kind": kind, "title": title,
+                        "severity": severity, "recovered": False}
         except Exception:
             logger.exception("Failed to store insight")
             return {}
+
+    def _is_recovered(self, metric_value, baseline) -> bool:
+        """判断本次值是否已回到阈值以内（告警自愈）。
+
+        仅当 baseline 为「高阈值」型（value >= baseline 触发）时才判恢复：
+        实时值 < baseline 即恢复。低阈值/无法解析时返回 False，保守不误 ack。
+        """
+        if metric_value is None or baseline is None:
+            return False
+        try:
+            return float(metric_value) < float(baseline)
+        except (TypeError, ValueError):
+            return False
 
     def recent(self, limit: int = 20, kind: str = None) -> list:
         try:
