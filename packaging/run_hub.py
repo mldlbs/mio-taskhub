@@ -1,4 +1,5 @@
 import ctypes
+from ctypes import wintypes
 import os
 import socket
 import subprocess
@@ -8,9 +9,8 @@ import time
 import traceback
 import webbrowser
 
-import uvicorn
-
-from mio_taskhub.main import app
+# uvicorn 与业务 app 只在 _worker_main 内 import：supervisor 进程不承载
+# 业务 import（NFR-4：无 uvicorn/调度器/数据库连接）。
 
 DATA_DIR = os.path.join(os.path.expanduser("~"), ".mio_taskhub")
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -33,10 +33,11 @@ def _msgbox(title, text):
         pass
 
 
-def _log(msg):
+def _log(msg, role="tray"):
+    """按角色写 runtime.log：[tray]/[supervisor]/[worker]（NFR-6 日志可归因）。"""
     try:
         with open(LOG, "a", encoding="utf-8") as f:
-            f.write(f"[tray] {msg}\n")
+            f.write(f"[{role}] {msg}\n")
     except Exception:
         pass
 
@@ -126,11 +127,11 @@ def _on_update_clicked(icon=None, _item=None):
     threading.Thread(target=_work, daemon=True, name="update-action").start()
 
 
-def _start_tray(url: str, server_ref: dict):
-    """系统托盘驻留：打开浮动面板 / 退出服务。
+def _start_tray(url: str, exit_controller):
+    """系统托盘驻留：打开浮动面板 / 退出服务（托盘只在 supervisor 进程创建）。
 
     - 菜单「打开面板」→ 启动 widget 浮动窗口（独立进程）
-    - 菜单「退出」→ 停托盘 + 请求 uvicorn 优雅退出
+    - 菜单「退出」→ 停托盘 + exit_controller.request()（优雅退出收敛，FR-4）
     失败时写日志到 console.log 并返回 None（保持仅服务运行）。
     """
     try:
@@ -259,9 +260,9 @@ def _start_tray(url: str, server_ref: dict):
             _icon.stop()
         except Exception:
             pass
-        srv = server_ref.get("server")
-        if srv is not None:
-            srv.should_exit = True
+        # 退出收敛单入口：置位命名事件 → worker drain ≤3s → 超时强杀（FR-4）
+        if exit_controller is not None:
+            exit_controller.request()
 
     try:
         # 防止重复创建托盘图标：枚举所有窗口查找同名类
@@ -418,19 +419,420 @@ def _reclaim_port(port):
             name = info.stdout.strip()
             # 只清理 mio-taskhub 相关进程，绝不接管无关程序
             if name.lower() in ("python", "mio-taskhub", "mio-taskhub.exe"):
-                _log(f"reclaim port {port}: kill pid={pid} name={name}")
+                _log(f"reclaim port {port}: kill pid={pid} name={name}", role="supervisor")
                 try:
                     _sp.run(["taskkill", "/pid", str(pid), "/f"], capture_output=True, timeout=10)
                 except Exception:
                     pass
         return True
     except Exception as e:
-        _log(f"reclaim port failed: {e!r}")
+        _log(f"reclaim port failed: {e!r}", role="supervisor")
         return False
 
 
-def main():
+# ── supervisor / worker 双进程（516bd0c7）────────────────────────────────────
+# supervisor：单实例锁 / 端口探测回收 / 托盘 / spawn+监视 worker / 退出收敛；
+# worker：uvicorn Server 守卫循环 + apscheduler + 后台线程（FR-1）。
+
+BACKOFF = [0, 2, 5, 15]        # FR-2 崩溃重启退避秒数（封顶 15s）
+COOLDOWN_STREAK = 3            # FR-2 连续相同非 0 码进入冷却的次数
+COOLDOWN_SECONDS = 60          # FR-2 冷却时长
+DRAIN_TIMEOUT_S = 3            # FR-4 优雅退出等待 worker drain 的兜底超时
+CREATE_SUSPENDED = 0x00000004
+WAIT_OBJECT_0 = 0
+SYNCHRONIZE = 0x00100000
+JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+JobObjectExtendedLimitInformation = 9
+
+
+class _STARTUPINFOW(ctypes.Structure):
+    _fields_ = [
+        ("cb", wintypes.DWORD),
+        ("lpReserved", wintypes.LPWSTR),
+        ("lpDesktop", wintypes.LPWSTR),
+        ("lpTitle", wintypes.LPWSTR),
+        ("dwX", wintypes.DWORD), ("dwY", wintypes.DWORD),
+        ("dwXSize", wintypes.DWORD), ("dwYSize", wintypes.DWORD),
+        ("dwXCountChars", wintypes.DWORD), ("dwYCountChars", wintypes.DWORD),
+        ("dwFillAttribute", wintypes.DWORD), ("dwFlags", wintypes.DWORD),
+        ("wShowWindow", wintypes.WORD), ("cbReserved2", wintypes.WORD),
+        ("lpReserved2", ctypes.POINTER(ctypes.c_ubyte)),
+        ("hStdInput", wintypes.HANDLE), ("hStdOutput", wintypes.HANDLE),
+        ("hStdError", wintypes.HANDLE),
+    ]
+
+
+class _PROCESS_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("hProcess", wintypes.HANDLE), ("hThread", wintypes.HANDLE),
+        ("dwProcessId", wintypes.DWORD), ("dwThreadId", wintypes.DWORD),
+    ]
+
+
+class _IO_COUNTERS(ctypes.Structure):
+    _fields_ = [(n, ctypes.c_uint64) for n in (
+        "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+        "ReadTransferCount", "WriteTransferCount", "OtherTransferCount",
+    )]
+
+
+class _JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("PerProcessUserTimeLimit", ctypes.c_int64),
+        ("PerJobUserTimeLimit", ctypes.c_int64),
+        ("LimitFlags", wintypes.DWORD),
+        ("MinimumWorkingSetSize", ctypes.c_size_t),
+        ("MaximumWorkingSetSize", ctypes.c_size_t),
+        ("ActiveProcessLimit", wintypes.DWORD),
+        ("Affinity", ctypes.c_size_t),
+        ("PriorityClass", wintypes.DWORD),
+        ("SchedulingClass", wintypes.DWORD),
+    ]
+
+
+class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("BasicLimitInformation", _JOBOBJECT_BASIC_LIMIT_INFORMATION),
+        ("IoInfo", _IO_COUNTERS),
+        ("ProcessMemoryLimit", ctypes.c_size_t),
+        ("JobMemoryLimit", ctypes.c_size_t),
+        ("PeakProcessMemoryUsed", ctypes.c_size_t),
+        ("PeakJobMemoryUsed", ctypes.c_size_t),
+    ]
+
+
+_K32 = None
+
+
+def _k32():
+    """kernel32 句柄级 API：必须配 argtypes/restype（64 位句柄默认 c_int 会截断）。"""
+    global _K32
+    if _K32 is None:
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+        k.CreateJobObjectW.restype = wintypes.HANDLE
+        k.SetInformationJobObject.argtypes = [
+            wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        k.SetInformationJobObject.restype = wintypes.BOOL
+        k.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        k.AssignProcessToJobObject.restype = wintypes.BOOL
+        k.CreateProcessW.argtypes = [
+            wintypes.LPCWSTR, wintypes.LPWSTR, ctypes.c_void_p, ctypes.c_void_p,
+            wintypes.BOOL, wintypes.DWORD, ctypes.c_void_p, wintypes.LPCWSTR,
+            ctypes.c_void_p, ctypes.c_void_p]
+        k.CreateProcessW.restype = wintypes.BOOL
+        k.ResumeThread.argtypes = [wintypes.HANDLE]
+        k.ResumeThread.restype = wintypes.DWORD
+        k.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        k.WaitForSingleObject.restype = wintypes.DWORD
+        k.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        k.GetExitCodeProcess.restype = wintypes.BOOL
+        k.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        k.TerminateProcess.restype = wintypes.BOOL
+        k.CloseHandle.argtypes = [wintypes.HANDLE]
+        k.CloseHandle.restype = wintypes.BOOL
+        k.CreateEventW.argtypes = [
+            ctypes.c_void_p, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR]
+        k.CreateEventW.restype = wintypes.HANDLE
+        k.OpenEventW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+        k.OpenEventW.restype = wintypes.HANDLE
+        k.SetEvent.argtypes = [wintypes.HANDLE]
+        k.SetEvent.restype = wintypes.BOOL
+        _K32 = k
+    return _K32
+
+
+def _exit_event_name(port) -> str:
+    """退出通知命名事件：端口后缀防多实例互扰（FR-4；不用 HTTP 退出端点）。"""
+    return f"Local\\mio-taskhub-worker-exit-{port}"
+
+
+class _ExitController:
+    """退出收敛单入口（FR-4）：托盘「退出」与更新回调都进 request()。
+
+    - expected_exit：主动退出标志（supervisor 收敛，不进退避重启）
+    - stop：中断退避/冷却等待
+    - 命名事件通知 worker drain；worker 句柄等 drain ≤3s，超时 TerminateProcess 兜底
+    - hlock：保护 worker 句柄的等待/关闭竞态（评审风险 R5，防句柄泄漏 WaitFor 失效）
+    """
+
+    def __init__(self, port: int):
+        self.port = port
+        self.expected_exit = False
+        self.stop = threading.Event()
+        self.hlock = threading.Lock()
+        self._worker = None
+        self._event = None
+        try:
+            ev = _k32().CreateEventW(None, True, False, _exit_event_name(port))
+            if not ev:
+                _log("exit event create failed err=%d" % ctypes.get_last_error(),
+                     role="supervisor")
+            self._event = ev
+        except Exception as e:  # noqa: BLE001
+            _log("exit event create failed: %r" % e, role="supervisor")
+
+    def set_worker(self, handle) -> None:
+        with self.hlock:
+            self._worker = handle
+
+    def wait(self, seconds: float) -> bool:
+        """可中断的退避/冷却等待；True=退出请求已到，应立即收敛。"""
+        return self.stop.wait(seconds)
+
+    def request(self) -> None:
+        """优雅退出：置位事件 → 等 worker drain ≤3s → 超时 TerminateProcess 兜底。"""
+        with self.hlock:
+            self.expected_exit = True
+            self.stop.set()
+            if self._event:
+                try:
+                    _k32().SetEvent(self._event)
+                except Exception:  # noqa: BLE001
+                    pass
+            h = self._worker
+            if h is None:
+                return
+            k32 = _k32()
+            if k32.WaitForSingleObject(h, DRAIN_TIMEOUT_S * 1000) != WAIT_OBJECT_0:
+                _log("drain timeout %ds -> terminate worker" % DRAIN_TIMEOUT_S,
+                     role="supervisor")
+                try:
+                    k32.TerminateProcess(h, 1)
+                except Exception:  # noqa: BLE001
+                    pass
+                k32.WaitForSingleObject(h, 2000)
+
+    def close(self) -> None:
+        with self.hlock:
+            for h in (self._worker, self._event):
+                if h:
+                    try:
+                        _k32().CloseHandle(h)
+                    except Exception:  # noqa: BLE001
+                        pass
+            self._worker = None
+            self._event = None
+
+
+def _create_job():
+    """FR-3 防孤儿：Job Object + KILL_ON_JOB_CLOSE（supervisor 死 → 内核连带杀 worker）。
+    任一步失败 → CloseHandle + warn 降级返回 None（不阻断启动，_reclaim_port 兜底）。"""
+    k32 = _k32()
+    try:
+        job = k32.CreateJobObjectW(None, None)
+        if not job:
+            _log("job object degraded: CreateJobObjectW err=%d"
+                 % ctypes.get_last_error(), role="supervisor")
+            return None
+        info = _JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not k32.SetInformationJobObject(job, JobObjectExtendedLimitInformation,
+                                           ctypes.byref(info), ctypes.sizeof(info)):
+            _log("job object degraded: SetInformationJobObject err=%d"
+                 % ctypes.get_last_error(), role="supervisor")
+            k32.CloseHandle(job)
+            return None
+        return job
+    except Exception as e:  # noqa: BLE001
+        _log("job object degraded: %r" % e, role="supervisor")
+        return None
+
+
+def _assign_job(job, handle) -> bool:
+    """worker 归入 job；失败 warn 降级但不阻断（评审风险 R1）。"""
+    if job is None:
+        return False
+    if _k32().AssignProcessToJobObject(job, handle):
+        return True
+    _log("job object degraded: AssignProcessToJobObject err=%d"
+         % ctypes.get_last_error(), role="supervisor")
+    return False
+
+
+def _worker_argv() -> list:
+    """worker 命令行（FR-1）：冻结态复用自身 exe，源码态走 run.py 同一分派入口。"""
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "hub", "--worker"]
+    run_py = os.path.join(os.path.dirname(os.path.abspath(__file__)), "run.py")
+    return [sys.executable, run_py, "hub", "--worker"]
+
+
+def _spawn_worker(job):
+    """CreateProcessW(CREATE_SUSPENDED) → _assign_job → ResumeThread（FR-1/FR-3）。
+    返回 (process_handle, pid)；spawn 失败返回 (None, 0)。"""
+    k32 = _k32()
+    cmd = subprocess.list2cmdline(_worker_argv())
+    buf = ctypes.create_unicode_buffer(cmd)
+    si = _STARTUPINFOW()
+    si.cb = ctypes.sizeof(_STARTUPINFOW)
+    pi = _PROCESS_INFORMATION()
+    try:
+        ok = k32.CreateProcessW(None, buf, None, None, False, CREATE_SUSPENDED,
+                                None, None, ctypes.byref(si), ctypes.byref(pi))
+    except Exception as e:  # noqa: BLE001
+        _log("spawn worker failed: %r" % e, role="supervisor")
+        return None, 0
+    if not ok:
+        _log("spawn worker failed err=%d cmd=%s" % (ctypes.get_last_error(), cmd),
+             role="supervisor")
+        return None, 0
+    _assign_job(job, pi.hProcess)
+    k32.ResumeThread(pi.hThread)
+    k32.CloseHandle(pi.hThread)
+    return pi.hProcess, pi.dwProcessId
+
+
+def _supervisor_loop(controller, job, icon) -> None:
+    """spawn → 等待 → 分支判定 → 退避/冷却重启 → 收敛退出（FR-1/FR-2）。"""
+    k32 = _k32()
+    handle = None
+    pid = 0
+    attempt = 0
+    streak = 0
+    last_code = None
+    try:
+        while True:
+            if handle is None:
+                if controller.stop.is_set():
+                    break
+                # 每次重启前 spawn 会生成新句柄；旧句柄在收尸分支已 CloseHandle（评审 R5）
+                handle, pid = _spawn_worker(job)
+                if handle is None:
+                    _log("spawn worker failed, retry in 2s", role="supervisor")
+                    if controller.wait(2):
+                        break
+                    continue
+                controller.set_worker(handle)
+                _log("spawn worker pid=%d" % pid, role="supervisor")
+            k32.WaitForSingleObject(handle, 0xFFFFFFFF)  # INFINITE
+            code = wintypes.DWORD(0)
+            k32.GetExitCodeProcess(handle, ctypes.byref(code))
+            code = int(code.value)
+            with controller.hlock:
+                if controller._worker is handle:
+                    controller._worker = None
+                k32.CloseHandle(handle)
+            handle = None
+            if controller.expected_exit or code == 0:
+                # 主动退出 / worker 正常结束：收敛退出，不重启（FR-2 防僵尸循环）
+                _log("worker exit code=%d -> converge exit (expected_exit=%s)"
+                     % (code, controller.expected_exit), role="supervisor")
+                break
+            if code == last_code:
+                streak += 1
+            else:
+                streak = 1
+                last_code = code
+            delay = BACKOFF[min(attempt, len(BACKOFF) - 1)]
+            attempt += 1
+            if streak >= COOLDOWN_STREAK:
+                _log("cooldown after %d identical failures, sleep %ds"
+                     % (COOLDOWN_STREAK, COOLDOWN_SECONDS), role="supervisor")
+                _notify(icon, "hub 重启连续失败，%d 秒冷却后继续重试" % COOLDOWN_SECONDS)
+                streak = 0
+                last_code = None
+                delay = COOLDOWN_SECONDS
+            _log("restart backoff=%ds code=%d" % (delay, code), role="supervisor")
+            if controller.wait(delay):
+                break
+    finally:
+        if handle is not None:
+            with controller.hlock:
+                if controller._worker is handle:
+                    controller._worker = None
+                try:
+                    k32.CloseHandle(handle)
+                except Exception:  # noqa: BLE001
+                    pass
+
+
+def _watch_exit_event(port: int, current: dict) -> None:
+    """worker 侧 drain 监听（FR-4）：等 supervisor 置位命名事件 → 优雅退出。"""
+    k32 = _k32()
+    try:
+        ev = k32.OpenEventW(SYNCHRONIZE, False, _exit_event_name(port))
+    except Exception as e:  # noqa: BLE001
+        _log("exit event open failed: %r" % e, role="worker")
+        return
+    if not ev:
+        _log("exit event open failed err=%d, drain 由 supervisor 兜底强杀"
+             % ctypes.get_last_error(), role="worker")
+        return
+    try:
+        k32.WaitForSingleObject(ev, 0xFFFFFFFF)  # INFINITE：等到置位
+        current["exit"] = True
+        srv = current.get("server")
+        if srv is not None:
+            srv.should_exit = True
+        _log("exit event signaled -> should_exit=true", role="worker")
+    finally:
+        try:
+            k32.CloseHandle(ev)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _worker_main(port: int):
+    """worker 分支（FR-1/FR-4）：uvicorn 守卫循环 + 命名事件 drain 监听。
+
+    不创建托盘/单实例锁、不做端口回收（运维静态用例守住，见 spec §3）；
+    `_stdio()` 已由 run.py 在分派前完成（windowed stdout 重绑）。
+    """
+    import uvicorn
+
+    from mio_taskhub.main import app
+
+    _log("started pid=%d port=%d" % (os.getpid(), port), role="worker")
+
+    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="info")
+    current = {"server": None, "exit": False}  # 可变引用：事件线程/守卫/更新回调共用
+
+    from mio_taskhub.update.runner import set_exit_callback
+
+    def _request_hub_exit():
+        # HTTP /api/v1/update/apply 在 worker 进程执行：请求本进程优雅退出，
+        # supervisor 见退出码 0 收敛（FR-2），updater 随后整树替换。
+        current["exit"] = True
+        srv = current.get("server")
+        if srv is not None:
+            srv.should_exit = True
+
+    set_exit_callback(_request_hub_exit)
+    threading.Thread(target=_watch_exit_event, args=(port, current),
+                     daemon=True, name="worker-exit-event").start()
+
+    # 守卫循环：uvicorn 崩溃/异常后退 2 秒自动重启（既有语义原样迁移）
+    while True:
+        server = uvicorn.Server(config)
+        current["server"] = server
+        if current["exit"]:
+            server.should_exit = True
+        try:
+            server.run()
+            _log("hub run returned normally (should_exit=true or clean exit)",
+                 role="worker")
+            break
+        except (SystemExit, KeyboardInterrupt) as e:
+            # uvicorn 端口占用等启动失败会抛 SystemExit(3)：重启只会无限循环
+            # 制造僵尸实例（runtime.log 实测 "crashed, restart in 2s: SystemExit(3)"），
+            # 改为直接退出：退出码 0 → supervisor 收敛不重启（FR-2）
+            _log("hub exit (SystemExit/KeyboardInterrupt) type=%s code=%s, no restart"
+                 % (type(e).__name__, getattr(e, "code", None)), role="worker")
+            break
+        except BaseException as e:
+            _log("hub crashed, restart in 2s: type=%s e=%r" % (type(e).__name__, e),
+                 role="worker")
+            time.sleep(2)
+            continue
+
+
+def main(worker: bool = False):
+    """入口双分支（FR-1）：worker=True → 仅 uvicorn 守卫循环；否则 supervisor 生命周期。"""
     port = int(os.environ.get("MIO_TASKHUB_PORT", "48620"))
+    if worker:
+        return _worker_main(port)
+
     url = f"http://127.0.0.1:{port}"
 
     lock = _single_hub_instance()
@@ -441,11 +843,12 @@ def main():
     if _port_in_use("127.0.0.1", port):
         if _probe_service(url):
             # 端口上是健康的本服务——互斥锁漏判兜底：已有 hub 在跑，静默退出
-            _log(f"port {port} served by healthy hub -> duplicate launch, exit")
+            _log(f"port {port} served by healthy hub -> duplicate launch, exit",
+                 role="supervisor")
             _release_hub_lock(lock)
             return
         # 端口被占用但服务无响应——大概率是残留进程占着端口，清理后接管
-        _log(f"port {port} busy, no healthy service -> reclaim")
+        _log(f"port {port} busy, no healthy service -> reclaim", role="supervisor")
         if not _reclaim_port(port):
             _msgbox(
                 "mio-taskhub",
@@ -458,48 +861,42 @@ def main():
 
         _time.sleep(2)
 
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="info")
-    current = {"server": None}  # 可变的当前 server 引用，托盘/守卫共用
+    exit_controller = _ExitController(port)
 
     from mio_taskhub.update.runner import set_exit_callback
+    # 更新回调注册在 supervisor（评审决策⑥）：动作=退出收敛单入口 request()
+    set_exit_callback(exit_controller.request)
 
-    def _request_hub_exit():
-        srv = current.get("server")
-        if srv is not None:
-            srv.should_exit = True
-
-    set_exit_callback(_request_hub_exit)
-
-    tray = _start_tray(url, current)
+    tray = _start_tray(url, exit_controller)
+    # 托盘「更新」状态机与 worker 进程的 UpdateService 单例互相独立：
+    # supervisor 自起 check-only 后台线程，保证托盘「发现新版本」提示行为等价（FR-5）
     try:
-        # 守卫循环：uvicorn 崩溃/异常后退 2 秒自动重启，托盘持续驻留
-        while True:
-            server = uvicorn.Server(config)
-            current["server"] = server
-            try:
-                server.run()
-                _log("hub run returned normally (should_exit=true or clean exit)")
-                break
-            except (SystemExit, KeyboardInterrupt) as e:
-                # uvicorn 端口占用等启动失败会抛 SystemExit(3)：重启只会无限循环
-                # 制造僵尸实例（runtime.log 实测 "crashed, restart in 2s: SystemExit(3)"），
-                # 改为直接退出走 finally 清理
-                _log(f"hub exit (SystemExit/KeyboardInterrupt) type={type(e).__name__} code={getattr(e, 'code', None)}, no restart")
-                break
-            except BaseException as e:
-                _log(f"hub crashed, restart in 2s: type={type(e).__name__} e={e!r}")
-                import time as _time
+        from mio_taskhub.update.service import get_service
+        _interval = float(os.environ.get("MIO_UPDATE_INTERVAL_H", "6") or 6)
+        get_service().start_background(delay=20.0, interval_h=_interval)
+    except Exception as e:  # noqa: BLE001
+        _log("update background check start failed: %r" % e, role="supervisor")
 
-                _time.sleep(2)
-                continue
-            _log("guard loop ended, breaking out")
+    job = None
+    try:
+        job = _create_job()
+        _supervisor_loop(exit_controller, job, tray)
     finally:
+        # 退出顺序（spec 退出路径）：停托盘 → 关 worker/事件句柄 → 关 job（连带杀残留）
+        # → 释放单实例锁 → supervisor 自身退出
         if tray is not None:
             try:
                 tray.stop()
-            except Exception:
+            except Exception:  # noqa: BLE001
+                pass
+        exit_controller.close()
+        if job is not None:
+            try:
+                _k32().CloseHandle(job)
+            except Exception:  # noqa: BLE001
                 pass
         _release_hub_lock(lock)
+        _log("supervisor exit", role="supervisor")
 
 
 if __name__ == "__main__":
