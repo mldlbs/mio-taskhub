@@ -19,7 +19,7 @@ _tracer_provider: trace.TracerProvider | None = None
 _meter_provider = None
 
 
-def init_otel(service_name: str = "mio-taskhub", service_version: str = "0.5.2") -> None:
+def init_otel(service_name: str = "mio-taskhub", service_version: str = "0.5.3") -> None:
     """Initialize OpenTelemetry tracing and metrics."""
     global _tracer_provider, _meter_provider
 

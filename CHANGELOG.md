@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.5.3 (2026-10-05)
+
+### Added — 想法生产闸门重写：INBOX 分级 + 价值加权 + 带宽感知
+
+- 新增 **INBOX（收集箱）状态**：自动生成的想法先进收集箱、不占 NEW 槽位；自动初筛按分数/年龄晋升 NEW（≥60）或归档（<30 且 >14 天）。
+- 闸门由硬编码计数改为**价值加权**（novelty×0.4 + feasibility×0.3 + impact×0.3，14 天半衰期）+ 7 天吞吐带宽，`ok/degraded/critical` 三级，**生产降级而非硬停**（daily→weekly→alert，永不硬停）。
+- 新增 API `/gate/status`、`/gate/force-generate`、`/ideas/inbox` 与批量初筛；MCP +5 工具；前端 GateStatusCard（30s 轮询 / 三级配色 / 强制生成）与 InboxView 收集箱三标签页。
+
+### Fixed — 每日想法生成修复三件套
+
+- 同步生成的想法 `status` 由 `new` 改写 `inbox`（此前绕过收集箱，与闸门设计矛盾）；存量绕过行已迁移修正。
+- 想法生成 job 素材上限 `sources_limit` 5→7，修复三策略素材组合探尽导致的 409（存量 job 已更新）。
+- 观测守护随启动方 CWD 漂移：`mio observer serve` 固定素材库基目录（新增 `MIO_OBSERVER_BASE_DIR`），修复每分钟 `dag/ENOENT` 报错与洞察停更。
+
 ## v0.5.2 (2026-10-03)
 
 ### Changed — 更新入口收进设置面板
