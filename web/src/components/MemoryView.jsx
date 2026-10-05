@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../api'
 import { Skeleton, SkeletonField, SkeletonList } from './Skeleton'
+import MemoryObservatoryView from './MemoryObservatoryView'
 
 const TONE = {
   ok: 'var(--accent)',
@@ -74,7 +75,7 @@ function QueryPanel() {
       if (keyword) params.set('keyword', keyword)
       if (kind) params.set('kind', kind)
       params.set('limit', '50')
-      const r = await fetch(`/api/memory/query?${params}`)
+      const r = await fetch(`/api/v1/memory/query?${params}`)
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       setResults(await r.json())
     } catch (e) {
@@ -138,6 +139,7 @@ function QueryPanel() {
 }
 
 export default function MemoryView({ liveEvent }) {
+  const [tab, setTab] = useState('observatory')
   const [health, setHealth] = useState(null)
   const [metrics, setMetrics] = useState(null)
   const [events, setEvents] = useState([])
@@ -163,10 +165,11 @@ export default function MemoryView({ liveEvent }) {
   }, [])
 
   useEffect(() => {
+    if (tab !== 'gateway') return
     reload()
     const t = setInterval(reload, 5000)
     return () => clearInterval(t)
-  }, [reload])
+  }, [reload, tab])
 
   useEffect(() => {
     if (!liveEvent) return
@@ -200,7 +203,23 @@ export default function MemoryView({ liveEvent }) {
   const storeAlive = mcp.available === true
 
   return (
-    <div className="memory-view">
+    <div className={`memory-view${tab === 'observatory' ? ' memory-view--obs' : ''}`}>
+      <div className="memory-tabs" role="tablist" aria-label="记忆视图切换">
+        <button
+          className={`memory-tab${tab === 'observatory' ? ' is-on' : ''}`}
+          role="tab" aria-selected={tab === 'observatory'}
+          onClick={() => setTab('observatory')}
+        >记忆观测</button>
+        <button
+          className={`memory-tab${tab === 'gateway' ? ' is-on' : ''}`}
+          role="tab" aria-selected={tab === 'gateway'}
+          onClick={() => setTab('gateway')}
+        >记忆网关</button>
+      </div>
+      {tab === 'observatory' ? (
+        <MemoryObservatoryView />
+      ) : (
+      <>
       <div className="memory-header">
         <h2>Memory Store</h2>
         <div className="memory-header__sub">
@@ -250,7 +269,7 @@ export default function MemoryView({ liveEvent }) {
         {events.length === 0 ? (
           health === null
             ? <SkeletonList count={5} />
-            : <div className="memory-empty">尚无 memory_* 事件。可通过 /api/memory/record 等端点写入。</div>
+            : <div className="memory-empty">尚无 memory_* 事件。可通过 /api/v1/memory/record 等端点写入。</div>
         ) : (
           <div className="memory-events">
             {events.map(ev => (
@@ -259,6 +278,8 @@ export default function MemoryView({ liveEvent }) {
           </div>
         )}
       </section>
+      </>
+      )}
     </div>
   )
 }

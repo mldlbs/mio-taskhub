@@ -142,7 +142,7 @@ export const api = {
   status: (agent) => req('GET', '/status' + (agent ? `?agent=${encodeURIComponent(agent)}` : '')),
   // Memory Gateway (v3)
   memoryHealth: async () => {
-    const r = await fetch('/api/memory/health')
+    const r = await fetch('/api/v1/memory/health')
     if (!r.ok) throw new Error(`memory/health HTTP ${r.status}`)
     return r.json()
   },

@@ -322,7 +322,7 @@ UX 增强：MCP 子进程死亡后自动重启（默认最多 3 次）、端点�
 
 规格见 [`docs/taskhub/spec-memory-gateway.md`](docs/taskhub/spec-memory-gateway.md) 与 [`spec-memory-gateway-ux.md`](docs/taskhub/spec-memory-gateway-ux.md)。
 
-**记忆观测投影（Memory Observatory）**：`GET /api/v1/memory/observatory/data?logs=1` 只读把 `MIO_HOME/memory.jsonl` + `experience_reuse.jsonl` 投影成图谱 JSON（实体/关系/meta，mtime 缓存），与 Memory Gateway 无关、不走 MCP、零写入；对应 Web UI Rail「记忆观测」视图（卡片网格、类型筛选、本地过滤、复用热度、出入边 ego、提示词片段、项目/来源聚合）。默认隐藏 `note+task-outcome` 日志实体，`logs=1` 展开；`MIO_OBSERVATORY_HIDE_LOGS` 设任意非空值强制隐藏。规格见 [`docs/taskhub/spec-memory-observatory.md`](docs/taskhub/spec-memory-observatory.md)。
+**记忆观测投影（Memory Observatory）**：`GET /api/v1/memory/observatory/data?logs=1` 只读把 `MIO_HOME/memory.jsonl` + `experience_reuse.jsonl` 投影成图谱 JSON（实体/关系/meta，mtime 缓存），与 Memory Gateway 无关、不走 MCP、零写入；对应 Web UI「记忆」视图的默认 tab「记忆观测」（卡片网格、类型筛选、本地过滤、复用热度、出入边 ego、提示词片段、项目/来源聚合；任务 e4c3bc51 起与「记忆网关」tab 合并为单入口）。默认隐藏 `note+task-outcome` 日志实体，`logs=1` 展开；`MIO_OBSERVATORY_HIDE_LOGS` 设任意非空值强制隐藏。规格见 [`docs/taskhub/spec-memory-observatory.md`](docs/taskhub/spec-memory-observatory.md)。
 
 ### 5.7 ADR 投影到 Git
 
@@ -510,9 +510,8 @@ React 18 + Vite 5，单页应用，13 个视图用左侧图标栏切换。生产
 | **定时** | cron 任务管理与执行历史 |
 | **统计** | 成功率/吞吐/延迟等聚合视图 |
 | **观测台** | Trace/洞察/指标与告警面板 |
-| **记忆** | Memory Gateway 的记忆浏览与检索 |
+| **记忆** | 双 tab 单入口：**记忆观测**（默认；MIO_HOME 只读投影：卡片网格、复用热度、提示词片段、项目/来源聚合，非权威检索）+ **记忆网关**（Memory Gateway 记忆浏览与检索） |
 | **Mio 运行时** | MIO_HOME 运行时状态（观察器/守护/Trace/记忆） |
-| **记忆观测** | MIO_HOME 只读投影：卡片网格、复用热度、提示词片段、项目/来源聚合（FR-7，非权威检索） |
 
 另有：命令面板（快捷键唤起）、任务详情抽屉、**文档面板**（22 类 kind 分类展示 + 七件套一键起骨架 + 质量分与状态徽标 + markdown 预览）、评审面板、评审队列、依赖图、嵌入式视图（`/#/embed`，可被 Agent 用 iframe 内嵌到产物面板）。
 

@@ -66,7 +66,7 @@ Write-Host '[3/6] PyInstaller 打包 ...'
 & "E:\work\code\agent-dev\mio-taskhub\.venv\Scripts\python.exe" -m PyInstaller mio-taskhub.spec --noconfirm --clean
 if ($LASTEXITCODE -ne 0) { throw 'PyInstaller 失败' }
 
-$distDir = Join-Path $root 'dist\mio-taskhub'
+$distDir = Join-Path $root 'dist\mio-taskhub-v3'
 $internalDir = Join-Path $distDir '_internal'
 
 # ---------- 4) 验证关键依赖 ----------

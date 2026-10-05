@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Changed — 记忆视图合并观测模块 + 旧路径 404 修复（任务 e4c3bc51，FR-1~FR-6）
+
+- Rail 收掉「记忆观测」独立入口，「记忆」视图改为双 tab 容器：默认 tab「记忆观测」（`MemoryObservatoryView` 原样迁入、零功能改动），次 tab「记忆网关」（存储状态/查询/调用统计/实时事件）；网关 5s 轮询仅在该 tab 挂载时运行。
+- 修复 Memory Gateway 前端三处旧路径 404：`api.js` health、查询面板、ErrorBoundary 上报由 `/api/memory/*` 改指 `/api/v1/memory/*`（实测旧前缀恒 404 且无 alias）；`api/memory.py` 模块 docstring 同步 v1 化（纯注释，函数体零 diff）。
+- 修复一键打包产物路径失配：`packaging/build.ps1` 的 `$distDir` 改为 `dist\mio-taskhub-v3`，与 `mio-taskhub.spec` COLLECT name 对齐；第 4 步校验 5 项、第 5 步分发文件复制、zip 与 hub 重启全流程恢复无人工干预（`build.ps1 -Quick` 实跑通过）。
+- 新增 `tests/test_memory_merge.py` 4 个静态回归守卫（FR-1 双 tab 单入口 / FR-2 无旧路径 / FR-3 docstring 一致 / FR-4 脚本与 spec 对齐）。
+
 ### Added — 记忆观测层自 mneme 迁入（任务 8a966293，FR-1~FR-10）
 
 - 新增 `GET /api/v1/memory/observatory/data?logs=1`：`MIO_HOME`（`memory.jsonl` + `experience_reuse.jsonl`）只读投影为图谱 JSON（实体/关系/meta），mtime 缓存 + `threading.Lock` 双检，零写入、不走 MCP、无 Node 依赖；坏行计入 `meta.skipped` 不中断；错误体 `{"error": "..."}`。

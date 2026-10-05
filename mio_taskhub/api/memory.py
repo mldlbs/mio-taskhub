@@ -1,13 +1,13 @@
 """Memory API: 本地 JSONL 知识图谱端点（替代 MCP 子进程方案）。
 
 端点：
-- GET  /api/memory/health    — 健康状态
-- GET  /api/memory/query     — 查询记忆
-- POST /api/memory/record    — 记录记忆
-- POST /api/memory/policy/check — 策略检查
-- POST /api/memory/observer/ingest — 观察事件
-- POST /api/memory/experience/reuse — 经验复用
-- GET  /api/memory/observatory/data — 记忆观测图谱（MIO_HOME 只读投影，FR-1）
+- GET  /api/v1/memory/health    — 健康状态
+- GET  /api/v1/memory/query     — 查询记忆
+- POST /api/v1/memory/record    — 记录记忆
+- POST /api/v1/memory/policy/check — 策略检查
+- POST /api/v1/memory/observer/ingest — 观察事件
+- POST /api/v1/memory/experience/reuse — 经验复用
+- GET  /api/v1/memory/observatory/data — 记忆观测图谱（MIO_HOME 只读投影，FR-1）
 """
 from __future__ import annotations
 

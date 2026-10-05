@@ -3267,6 +3267,12 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
 
   /* ===== Memory Gateway panel ===== */
   .memory-view { max-width: 960px; padding: 4px 8px 32px; }
+  .memory-view--obs { max-width: none; }
+  .memory-tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+  .memory-tab { background: transparent; border: 1px solid transparent; color: var(--ink-faint);
+    font-size: 13px; padding: 5px 12px; border-radius: 6px; cursor: pointer; }
+  .memory-tab:hover { color: var(--ink); }
+  .memory-tab.is-on { background: var(--card); border-color: var(--line); color: var(--ink); font-weight: 600; }
   .memory-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 22px; }
   .memory-header h2 { margin: 0; font-size: 18px; font-family: var(--font-display); }
   .memory-header__sub { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--ink-dim); }
