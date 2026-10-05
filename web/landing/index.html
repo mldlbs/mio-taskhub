@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mio-TaskHub — 多 Agent 任务调度基础设施</title>
+<meta name="description" content="让多个 AI Agent 共享任务队列、并行执行、自动调度。本地优先，MCP 原生集成。">
+<meta property="og:title" content="Mio-TaskHub — 多 Agent 任务调度基础设施">
+<meta property="og:description" content="让多个 AI Agent 共享任务队列、并行执行、自动调度。">
+<link rel="icon" type="image/png" href="/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+SC:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#09090b;--surface:#18181b;--surface2:#27272a;
+  --border:#27272a;--border2:#3f3f46;
+  --blue:#3b82f6;--green:#22c55e;--amber:#f59e0b;--red:#ef4444;--purple:#a78bfa;
+  --text:#fafafa;--text2:#a1a1aa;--text3:#71717a;
+  --mono:'JetBrains Mono',monospace;--sans:'Noto Sans SC','Inter',system-ui,sans-serif;
+}
+html{-webkit-font-smoothing:antialiased;scroll-behavior:smooth}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.5}
+a{color:inherit;text-decoration:none}
+
+/* ── Nav ── */
+.nav{position:fixed;top:0;left:0;right:0;z-index:50;padding:0 32px;height:56px;display:flex;align-items:center;justify-content:space-between;background:rgba(9,9,11,0.8);backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
+.nav-brand{font-weight:700;font-size:15px;letter-spacing:-0.3px}
+.nav-brand b{color:var(--blue)}
+.nav-links{display:flex;gap:32px;align-items:center}
+.nav-links a{font-size:13px;color:var(--text2);font-weight:500;transition:color .15s}
+.nav-links a:hover{color:var(--text)}
+.nav-cta{background:var(--text);color:var(--bg)!important;padding:6px 16px;border-radius:6px;font-weight:600;font-size:13px}
+.nav-cta:hover{opacity:.9}
+@media(max-width:768px){.nav-links a:not(.nav-cta){display:none}}
+
+/* ── Layout ── */
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+section{padding:96px 0}
+@media(max-width:768px){section{padding:64px 0}}
+
+/* ── Hero ── */
+.hero{padding-top:120px;padding-bottom:64px;min-height:100vh;display:flex;align-items:center}
+.hero-grid{display:grid;grid-template-columns:1fr 1.1fr;gap:56px;align-items:center}
+@media(max-width:900px){.hero-grid{grid-template-columns:1fr;gap:40px}}
+.hero-eyebrow{font-size:12px;font-weight:600;color:var(--blue);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:16px}
+.hero h1{font-size:clamp(32px,5vw,52px);font-weight:800;letter-spacing:-1.5px;line-height:1.1;margin-bottom:16px}
+.hero p{font-size:17px;color:var(--text2);line-height:1.7;max-width:480px;margin-bottom:32px}
+.hero-btns{display:flex;gap:12px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;border:none;cursor:pointer;transition:all .15s}
+.btn-w{background:var(--text);color:var(--bg)}.btn-w:hover{opacity:.85}
+.btn-o{background:transparent;color:var(--text);border:1px solid var(--border2)}.btn-o:hover{border-color:var(--text3)}
+
+/* ── Product Mock ── */
+.mock{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;font-size:13px}
+.mock-bar{display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid var(--border)}
+.mock-dot{width:10px;height:10px;border-radius:50%;background:var(--surface2)}
+.mock-dot.r{background:#ef4444}.mock-dot.y{background:#f59e0b}.mock-dot.g{background:#22c55e}
+.mock-title{margin-left:8px;font-size:12px;color:var(--text3);font-weight:500}
+.mock-body{padding:16px}
+
+/* Kanban */
+.kb{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media(max-width:600px){.kb{grid-template-columns:1fr}}
+.kb-head{font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.kb-head .n{background:var(--surface2);color:var(--text3);font-size:10px;padding:1px 5px;border-radius:4px}
+.kb-card{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:5px;opacity:0;transform:translateY(6px);transition:all .3s ease}
+.kb-card.on{opacity:1;transform:none}
+.kb-card .t{font-weight:600;font-size:12px;margin-bottom:3px}
+.kb-card .m{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text3)}
+.kb-card .tag{padding:1px 5px;border-radius:3px;font-size:9px;font-weight:600}
+.tg{background:rgba(59,130,246,0.12);color:var(--blue)}
+.tg-g{background:rgba(34,197,94,0.12);color:var(--green)}
+.tg-a{background:rgba(245,158,11,0.12);color:var(--amber)}
+.tg-p{background:rgba(167,139,250,0.12);color:var(--purple)}
+
+/* ── Stats ── */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:48px}
+.stat{background:var(--surface);padding:20px;text-align:center}
+.stat-v{font-size:28px;font-weight:800;letter-spacing:-1px}
+.stat-l{font-size:11px;color:var(--text3);margin-top:2px;letter-spacing:.5px}
+@media(max-width:600px){.stats{grid-template-columns:repeat(2,1fr)}}
+
+/* ── Section Headers ── */
+.sh{margin-bottom:48px}
+.sh-label{font-size:11px;font-weight:600;color:var(--blue);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px}
+.sh h2{font-size:clamp(24px,3.5vw,36px);font-weight:800;letter-spacing:-1px;line-height:1.15}
+.sh p{font-size:15px;color:var(--text2);margin-top:8px;max-width:520px;line-height:1.6}
+
+/* ── Problem ── */
+.prob{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.prob-panel{background:var(--surface);padding:32px}
+.prob-tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;padding:3px 8px;border-radius:4px;display:inline-block}
+.prob-panel.no .prob-tag{background:rgba(239,68,68,0.1);color:var(--red)}
+.prob-panel.yes .prob-tag{background:rgba(34,197,94,0.1);color:var(--green)}
+.prob-panel h3{font-size:16px;font-weight:700;margin-bottom:12px}
+.prob-panel li{font-size:13px;color:var(--text2);padding:4px 0 4px 16px;position:relative;line-height:1.6}
+.prob-panel.no li::before{content:'—';position:absolute;left:0;color:var(--red)}
+.prob-panel.yes li::before{content:'+';position:absolute;left:0;color:var(--green);font-weight:700}
+@media(max-width:768px){.prob{grid-template-columns:1fr}}
+
+/* ── Capabilities ── */
+.cap-list{display:flex;flex-direction:column;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.cap-row{display:grid;grid-template-columns:140px 1fr;background:var(--surface)}
+@media(max-width:600px){.cap-row{grid-template-columns:1fr}}
+.cap-label{padding:20px 24px;font-size:13px;font-weight:700;color:var(--text);border-right:1px solid var(--border);display:flex;align-items:center}
+.cap-desc{padding:20px 24px;font-size:13px;color:var(--text2);line-height:1.7}
+@media(max-width:600px){.cap-label{border-right:none;border-bottom:1px solid var(--border)}}
+
+/* ── Product Showcases ── */
+.shows{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:768px){.shows{grid-template-columns:1fr}}
+.show-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.show-head{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.show-head h4{font-size:12px;font-weight:600;color:var(--text2)}
+.show-head .live{font-size:10px;color:var(--green);display:flex;align-items:center;gap:4px}
+.show-head .live::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--green)}
+.show-body{padding:16px}
+.code{font-family:var(--mono);font-size:11px;line-height:1.9;color:var(--text3)}
+.code .k{color:var(--purple)}.code .f{color:var(--blue)}.code .s{color:var(--green)}.code .c{color:var(--text3)}.code .n{color:var(--amber)}.code .o{color:#67e8f9}
+
+/* Live log */
+.log{font-family:var(--mono);font-size:11px;line-height:1.8}
+.log-line{display:flex;gap:8px;color:var(--text3)}
+.log-line .ts{min-width:52px;color:var(--text3)}
+.log-line .who{color:var(--blue);min-width:72px}
+.log-line .act{color:var(--text2)}
+.log-line .ok{color:var(--green)}.log-line .wrn{color:var(--amber)}
+
+/* Metrics */
+.met{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.met-i{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;text-align:center}
+.met-i .v{font-size:20px;font-weight:800;color:var(--text)}
+.met-i .l{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+
+/* ── Workflow ── */
+.wf{display:grid;grid-template-columns:repeat(5,1fr);gap:0;position:relative;margin-top:48px}
+.wf::before{content:'';position:absolute;top:18px;left:10%;right:10%;height:1px;background:var(--border2)}
+@media(max-width:768px){.wf{grid-template-columns:1fr;gap:0}.wf::before{display:none}}
+.wf-step{text-align:center;padding:0 8px;position:relative}
+@media(max-width:768px){.wf-step{text-align:left;padding:12px 0 12px 36px;position:relative}}
+.wf-n{width:36px;height:36px;border-radius:50%;background:var(--surface);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:var(--blue);margin:0 auto 10px;position:relative;z-index:1}
+@media(max-width:768px){.wf-n{position:absolute;left:0;top:12px}}
+.wf-t{font-size:13px;font-weight:600;margin-bottom:2px}
+.wf-d{font-size:11px;color:var(--text3)}
+@media(max-width:768px){.wf-step:not(:last-child)::after{content:'→';position:absolute;left:12px;bottom:0;color:var(--text3);font-size:12px}}
+
+/* ── Diff ── */
+.diff{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.diff-item{background:var(--surface);padding:24px}
+.diff-item h4{font-size:13px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+.diff-item p{font-size:12px;color:var(--text2);line-height:1.6}
+.diff-item .dt{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:2px 6px;border-radius:3px;background:rgba(59,130,246,0.1);color:var(--blue)}
+@media(max-width:768px){.diff{grid-template-columns:1fr}}
+
+/* ── CTA ── */
+.cta{text-align:center;padding:96px 0;position:relative}
+.cta::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:400px;height:400px;background:radial-gradient(circle,rgba(59,130,246,0.04),transparent 70%);pointer-events:none}
+.cta h2{font-size:clamp(28px,4vw,40px);font-weight:800;letter-spacing:-1px;margin-bottom:12px}
+.cta p{font-size:15px;color:var(--text2);margin-bottom:32px}
+.cta-cmd{font-family:var(--mono);font-size:13px;color:var(--text3);background:var(--surface);display:inline-block;padding:10px 20px;border-radius:8px;border:1px solid var(--border);margin-top:24px}
+.cta-cmd b{color:var(--text)}
+
+/* ── Footer ── */
+.foot{border-top:1px solid var(--border);padding:24px 0}
+.foot-inner{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.foot-l{font-size:12px;color:var(--text3)}
+.foot-r{display:flex;gap:16px}
+.foot-r a{font-size:12px;color:var(--text3);transition:color .15s}
+.foot-r a:hover{color:var(--text)}
+
+/* ── Reveal ── */
+.rv{opacity:0;transform:translateY(16px);transition:opacity .5s ease,transform .5s ease}
+.rv.v{opacity:1;transform:none}
+.rv-d1{transition-delay:.08s}.rv-d2{transition-delay:.16s}.rv-d3{transition-delay:.24s}.rv-d4{transition-delay:.32s}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-brand">Mio<b>-TaskHub</b></div>
+  <div class="nav-links">
+    <a href="#why">为什么</a>
+    <a href="#caps">能力</a>
+    <a href="#product">产品</a>
+    <a href="#how">工作流</a>
+    <a href="https://github.com/mldlbs/mio-taskhub" class="nav-cta">GitHub</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+<div class="wrap">
+<div class="hero-grid">
+  <div>
+    <div class="hero-eyebrow">多 Agent 调度基础设施</div>
+    <h1>一个队列，<br>所有 Agent。</h1>
+    <p>opencode 在写代码，Claude Code 在跑测试，Codex 在重构——Mio-TaskHub 给它们一个共享任务队列，自动分配、心跳保活、失败重试。</p>
+    <div class="hero-btns">
+      <a href="https://github.com/mldlbs/mio-taskhub" class="btn btn-w">GitHub</a>
+      <a href="#product" class="btn btn-o">查看产品</a>
+    </div>
+  </div>
+  <div>
+    <div class="mock">
+      <div class="mock-bar"><div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div><span class="mock-title">Mio-TaskHub — 任务看板</span></div>
+      <div class="mock-body">
+        <div class="kb">
+          <div class="kb-col">
+            <div class="kb-head">排队中 <span class="n">2</span></div>
+            <div class="kb-card on"><div class="t">重构认证模块</div><div class="m"><span class="tag tg-p">opencode</span>P2</div></div>
+            <div class="kb-card on"><div class="t">编写 API 文档</div><div class="m"><span class="tag tg">claude-code</span>P1</div></div>
+          </div>
+          <div class="kb-col">
+            <div class="kb-head">执行中 <span class="n">2</span></div>
+            <div class="kb-card on"><div class="t">修复登录超时</div><div class="m"><span class="tag tg-g">opencode</span>68%</div></div>
+            <div class="kb-card on"><div class="t">优化查询性能</div><div class="m"><span class="tag tg-a">codex</span>34%</div></div>
+          </div>
+          <div class="kb-col">
+            <div class="kb-head">已完成 <span class="n">3</span></div>
+            <div class="kb-card on"><div class="t">升级依赖版本</div><div class="m"><span class="tag tg-g">完成</span></div></div>
+            <div class="kb-card on"><div class="t">修复 CI 流水线</div><div class="m"><span class="tag tg-g">完成</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="stat-v">507</div><div class="stat-l">测试用例</div></div>
+      <div class="stat"><div class="stat-v">44+</div><div class="stat-l">API 端点</div></div>
+      <div class="stat"><div class="stat-v">26</div><div class="stat-l">MCP 工具</div></div>
+      <div class="stat"><div class="stat-v">7</div><div class="stat-l">研发阶段</div></div>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+<!-- Why -->
+<section id="why">
+<div class="wrap">
+  <div class="sh rv">
+    <div class="sh-label">为什么需要</div>
+    <h2>Agent 之间互不通信。</h2>
+    <p>每个 agent 都是一座孤岛。它不知道其他 agent 在做什么，无法共享进度，失败了也不会自动重试。</p>
+  </div>
+  <div class="prob rv">
+    <div class="prob-panel no">
+      <div class="prob-tag">没有调度中心</div>
+      <h3>手动协调</h3>
+      <ul>
+        <li>在多个终端间切换，复制粘贴任务描述</li>
+        <li>不知道谁在做什么，进度如何</li>
+        <li>Agent 挂了，任务丢失，需要手动重跑</li>
+        <li>多个 agent 同时修改同一个文件，产生冲突</li>
+        <li>从想法到执行缺乏结构化流程</li>
+      </ul>
+    </div>
+    <div class="prob-panel yes">
+      <div class="prob-tag">有了 Mio-TaskHub</div>
+      <h3>自动调度</h3>
+      <ul>
+        <li>一个共享队列，agent 自动领取任务</li>
+        <li>实时看板：谁在做什么、进度多少、是否健康</li>
+        <li>心跳检测 + 失败自动重试</li>
+        <li>依赖排序，防止冲突</li>
+        <li>想法 → 讨论 → 任务 → 执行，全链路可追溯</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- Capabilities -->
+<section id="caps" style="background:var(--surface)">
+<div class="wrap">
+  <div class="sh rv">
+    <div class="sh-label">核心能力</div>
+    <h2>为多 Agent 协作而生。</h2>
+  </div>
+  <div class="cap-list rv">
+    <div class="cap-row"><div class="cap-label">任务状态机</div><div class="cap-desc">7 阶段研发流水线：brainstorming → design → planning → ready → implementing → review → done。每个阶段有明确的准入条件和产出物要求。</div></div>
+    <div class="cap-row"><div class="cap-label">Agent 调度</div><div class="cap-desc">注册 → 领取 → 心跳 → 提交。按优先级 + 关联度智能分配，超时自动回收，支持 agent 类型匹配和 fallback 降级。</div></div>
+    <div class="cap-row"><div class="cap-label">依赖编排</div><div class="cap-desc">depends_on 数组 + 环检测。前置任务完成后自动放行下游。支持全图和子图查询。</div></div>
+    <div class="cap-row"><div class="cap-label">想法工作台</div><div class="cap-desc">记录 → 发酵 → 评审 → 拆解为任务。版本历史追踪，ADR 自动投影到 Git 仓库。</div></div>
+    <div class="cap-row"><div class="cap-label">MCP 原生</div><div class="cap-desc">26 个 MCP 工具。任何支持 MCP 的 agent（opencode、Claude Code、Codex、Hermes）零适配接入。</div></div>
+    <div class="cap-row"><div class="cap-label">实时监控</div><div class="cap-desc">内建仪表盘：CPU / 内存 / 线程 / 数据库连接池。24 条告警规则，OpenTelemetry 全链路追踪，结构化日志查询。</div></div>
+    <div class="cap-row"><div class="cap-label">夜间执行</div><div class="cap-desc">配置驱动的跨夜执行。按时间窗口自动 spawn agent 进程。睡前安排任务，醒来查看结果。</div></div>
+    <div class="cap-row"><div class="cap-label">单文件部署</div><div class="cap-desc">PyInstaller 打包为单个 EXE，SQLite 单文件数据库。无需 Docker、Node.js 或外部数据库。</div></div>
+  </div>
+</div>
+</section>
+
+<!-- Product Showcase -->
+<section id="product">
+<div class="wrap">
+  <div class="sh rv">
+    <div class="sh-label">产品实览</div>
+    <h2>真实产品，真实状态。</h2>
+  </div>
+  <div class="shows">
+    <div class="show-card rv rv-d1">
+      <div class="show-head"><h4>状态机</h4><div class="live">运行中</div></div>
+      <div class="show-body">
+        <div class="code">
+<span class="c">// 研发阶段流水线</span>
+<span class="k">brainstorming</span> <span class="o">→</span> <span class="k">design</span> <span class="o">→</span> <span class="k">planning</span> <span class="o">→</span> <span class="k">ready</span>
+  <span class="o">→</span> <span class="k">implementing</span> <span class="o">→</span> <span class="k">review</span> <span class="o">→</span> <span class="k">done</span>
+
+<span class="c">// 执行状态流转</span>
+<span class="f">queued</span> <span class="o">→</span> <span class="f">claimed</span> <span class="o">→</span> <span class="f">running</span> <span class="o">→</span> <span class="f">completed</span>
+         <span class="o">└→</span> <span class="f">retrying</span> <span class="o">→</span> <span class="f">failed</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="show-card rv rv-d2">
+      <div class="show-head"><h4>Agent 心跳</h4><div class="live">实时</div></div>
+      <div class="show-body">
+        <div class="log" id="log">
+          <div class="log-line"><span class="ts">14:32</span><span class="who">opencode</span><span class="act">heartbeat </span><span class="ok">12s</span></div>
+          <div class="log-line"><span class="ts">14:32</span><span class="who">claude-code</span><span class="act">heartbeat </span><span class="ok">8s</span></div>
+          <div class="log-line"><span class="ts">14:32</span><span class="who">codex</span><span class="act">heartbeat </span><span class="wrn">145s</span></div>
+          <div class="log-line"><span class="ts">14:31</span><span class="who">opencode</span><span class="act">领取 </span><span class="ok">auth_refactor</span></div>
+          <div class="log-line"><span class="ts">14:31</span><span class="who">claude-code</span><span class="act">完成 </span><span class="ok">fix_timeout</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="show-card rv rv-d3">
+      <div class="show-head"><h4>监控仪表盘</h4><div class="live">监控中</div></div>
+      <div class="show-body">
+        <div class="met">
+          <div class="met-i"><div class="v">2.1%</div><div class="l">CPU</div></div>
+          <div class="met-i"><div class="v">48MB</div><div class="l">内存</div></div>
+          <div class="met-i"><div class="v">3/5</div><div class="l">线程</div></div>
+        </div>
+        <div class="met" style="margin-top:8px">
+          <div class="met-i"><div class="v">98.7%</div><div class="l">成功率</div></div>
+          <div class="met-i"><div class="v">12ms</div><div class="l">P50</div></div>
+          <div class="met-i"><div class="v">0</div><div class="l">告警</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="show-card rv rv-d4">
+      <div class="show-head"><h4>MCP 工具集</h4><div class="live">26 个工具</div></div>
+      <div class="show-body">
+        <div class="code">
+<span class="c">// 任务管理</span>
+<span class="f">taskhub_create_task</span>  <span class="f">taskhub_claim</span>  <span class="f">taskhub_status</span>
+
+<span class="c">// Agent 生命周期</span>
+<span class="f">taskhub_register</span>  <span class="f">taskhub_heartbeat</span>  <span class="f">taskhub_submit_result</span>
+
+<span class="c">// 想法 & 评审</span>
+<span class="f">taskhub_add_idea</span>  <span class="f">taskhub_review_idea</span>  <span class="f">taskhub_breakdown_idea</span>
+
+<span class="c">// 依赖 & 讨论</span>
+<span class="f">taskhub_advance_stage</span>  <span class="f">taskhub_open_discussion</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- How It Works -->
+<section id="how" style="background:var(--surface)">
+<div class="wrap">
+  <div class="sh rv">
+    <div class="sh-label">工作流程</div>
+    <h2>从想法到交付。</h2>
+  </div>
+  <div class="wf rv">
+    <div class="wf-step"><div class="wf-n">1</div><div class="wf-t">记录想法</div><div class="wf-d">记录需求，进入发酵流程</div></div>
+    <div class="wf-step"><div class="wf-n">2</div><div class="wf-t">讨论评审</div><div class="wf-d">多 agent 讨论，评审决策</div></div>
+    <div class="wf-step"><div class="wf-n">3</div><div class="wf-t">任务入队</div><div class="wf-d">设置优先级、依赖、截止时间</div></div>
+    <div class="wf-step"><div class="wf-n">4</div><div class="wf-t">Agent 领取</div><div class="wf-d">自动分配给空闲 agent</div></div>
+    <div class="wf-step"><div class="wf-n">5</div><div class="wf-t">监控交付</div><div class="wf-d">心跳保活，失败重试，进度追踪</div></div>
+  </div>
+  <div class="mock rv" style="margin-top:32px">
+    <div class="mock-bar"><div class="mock-dot r"></div><div class="mock-dot y"></div><div class="mock-dot g"></div><span class="mock-title">MCP 交互示例</span></div>
+    <div class="mock-body">
+      <div class="code">
+<span class="c"># Agent 通过 MCP 连接 TaskHub</span>
+<span class="f">taskhub_register</span>(name=<span class="s">"opencode"</span>, agent_type=<span class="s">"cli"</span>)
+
+<span class="c"># 领取下一个任务</span>
+<span class="f">taskhub_claim</span>(agent=<span class="s">"opencode"</span>)
+<span class="c"># → { task_id: "task_abc", title: "修复登录超时", priority: 1 }</span>
+
+<span class="c"># 上报进度</span>
+<span class="f">taskhub_heartbeat</span>(run_id=<span class="s">"run_001"</span>, progress=<span class="n">68</span>)
+
+<span class="c"># 提交结果</span>
+<span class="f">taskhub_submit_result</span>(run_id=<span class="s">"run_001"</span>, success=<span class="k">True</span>)
+
+<span class="c"># 查看全局状态</span>
+<span class="f">taskhub_status</span>()
+<span class="c"># → { queued: 2, running: 2, completed: 15, failed: 0 }</span>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- Differentiation -->
+<section id="diff">
+<div class="wrap">
+  <div class="sh rv">
+    <div class="sh-label">为什么不用 ChatGPT</div>
+    <h2>不是又一个 AI 工具。</h2>
+    <p>Mio-TaskHub 不写代码。它调度写代码的 agent。</p>
+  </div>
+  <div class="diff rv">
+    <div class="diff-item">
+      <h4><span class="dt">调度</span> 不是 TODO 列表</h4>
+      <p>TODO 工具只记录"要做什么"。Mio-TaskHub 追踪"谁在做、做到哪了、还活着吗"——心跳检测、自动重试、优先级调度。</p>
+    </div>
+    <div class="diff-item">
+      <h4><span class="dt">协调</span> 不是单 Agent</h4>
+      <p>ChatGPT 一次服务一个用户、一个任务。Mio-TaskHub 让 opencode 写代码的同时，Claude Code 在跑测试，Codex 在重构——共享同一个队列。</p>
+    </div>
+    <div class="diff-item">
+      <h4><span class="dt">本地</span> 不是云服务</h4>
+      <p>SQLite 文件，单个 EXE。数据在你本机，不上传任何外部服务。无需注册账号，无需 API Key。</p>
+    </div>
+    <div class="diff-item">
+      <h4><span class="dt">MCP</span> 不是私有协议</h4>
+      <p>开放的 MCP 协议，任何兼容 agent 直接接入。不锁定你用哪个 agent，不绑架你的工作流。</p>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- CTA -->
+<section class="cta">
+<div class="wrap">
+  <h2 class="rv">3 行命令启动</h2>
+  <p class="rv">克隆、安装、运行。无需配置。</p>
+  <div class="cta-cmd rv"><b>git clone</b> https://github.com/mldlbs/mio-taskhub && pip install -e .</div>
+  <div style="margin-top:24px" class="rv">
+    <a href="https://github.com/mldlbs/mio-taskhub" class="btn btn-w">查看 GitHub</a>
+  </div>
+</div>
+</section>
+
+<footer class="foot">
+<div class="wrap foot-inner">
+  <div class="foot-l">Mio-TaskHub v0.2.1</div>
+  <div class="foot-r">
+    <a href="https://github.com/mldlbs/mio-taskhub">GitHub</a>
+    <a href="https://github.com/mldlbs/mio-taskhub/blob/main/CHANGELOG.md">更新日志</a>
+    <a href="http://127.0.0.1:48620/dashboard">监控面板</a>
+  </div>
+</div>
+</footer>
+
+<script>
+// Nav
+const nav=document.querySelector('.nav');
+window.addEventListener('scroll',()=>{nav.style.borderBottomColor=scrollY>40?'var(--border)':'transparent'});
+
+// Reveal
+const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('v');io.unobserve(e.target)}})},{threshold:.08,rootMargin:'0px 0px -32px 0px'});
+document.querySelectorAll('.rv').forEach(el=>io.observe(el));
+
+// Kanban stagger
+setTimeout(()=>{document.querySelectorAll('.kb-card').forEach((c,i)=>{setTimeout(()=>c.classList.add('on'),i*100)})},200);
+
+// Live log
+const logs=[
+  {ts:'14:32',who:'opencode',act:'进度 ',val:'auth 72%',cls:'ok'},
+  {ts:'14:31',who:'codex',act:'领取 ',val:'query_opt',cls:'ok'},
+  {ts:'14:31',who:'system',act:'重试 ',val:'ci_fix → #2',cls:'wrn'},
+  {ts:'14:30',who:'claude-code',act:'完成 ',val:'docs_gen',cls:'ok'},
+  {ts:'14:30',who:'opencode',act:'heartbeat ',val:'5s',cls:'ok'},
+];
+let li=0;
+setInterval(()=>{const el=document.getElementById('log');if(!el)return;const l=logs[li%logs.length];const d=document.createElement('div');d.className='log-line';d.innerHTML=`<span class="ts">${l.ts}</span><span class="who">${l.who}</span><span class="act">${l.act}</span><span class="${l.cls}">${l.val}</span>`;d.style.opacity='0';el.insertBefore(d,el.firstChild);requestAnimationFrame(()=>{d.style.transition='opacity .2s';d.style.opacity='1'});if(el.children.length>5)el.removeChild(el.lastChild);li++},3000);
+
+// Smooth scroll
+document.querySelectorAll('a[href^="#"]').forEach(a=>{a.addEventListener('click',e=>{e.preventDefault();const t=document.querySelector(a.getAttribute('href'));if(t)t.scrollIntoView({behavior:'smooth'})})});
+</script>
+</body>
+</html>

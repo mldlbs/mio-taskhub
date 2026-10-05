@@ -1,0 +1,492 @@
+"""Lightweight Prometheus-format metrics (no external dependencies)."""
+import os
+import time
+import threading
+from sqlmodel import Session, text
+from mio_taskhub.db import engine
+from mio_taskhub.middleware import get_http_metrics
+from mio_taskhub.background import get_thread_health
+
+_start_time = time.time()
+
+DEFAULT_TERMINAL_WINDOW_DAYS = 30
+
+def _terminal_window_days() -> int:
+    """终态指标的滚动窗口天数（env MIO_TASKHUB_TERMINAL_WINDOW_DAYS）。
+
+    全量累计口径一旦被历史噪音（空转任务回收、手工测试残留）污染就永不恢复，
+    比率只会单调恶化——这正是 taskhub_task_success_rate 长期 critical 的成因。
+    窗口化后指标只反映当前执行质量，可随修复而恢复。非法值回退默认 30 天。
+    """
+    raw = os.environ.get("MIO_TASKHUB_TERMINAL_WINDOW_DAYS", "")
+    try:
+        days = int(raw) if raw.strip() else DEFAULT_TERMINAL_WINDOW_DAYS
+    except (TypeError, ValueError):
+        return DEFAULT_TERMINAL_WINDOW_DAYS
+    return days if days > 0 else DEFAULT_TERMINAL_WINDOW_DAYS
+
+def render_metrics() -> str:
+    lines = []
+    lines.append("# HELP taskhub_uptime_seconds Process uptime in seconds")
+    lines.append("# TYPE taskhub_uptime_seconds gauge")
+    lines.append(f"taskhub_uptime_seconds {time.time() - _start_time:.1f}")
+
+    lines.append("# HELP taskhub_tasks_total Total tasks by state")
+    lines.append("# TYPE taskhub_tasks_total gauge")
+    try:
+        with Session(engine) as s:
+            rows = s.exec(text("SELECT state, COUNT(*) FROM task GROUP BY state")).all()
+            for state, count in rows:
+                lines.append(f'taskhub_tasks_total{{state="{state}"}} {count}')
+    except Exception:
+        pass
+
+    lines.append("# HELP taskhub_events_total Total events by type")
+    lines.append("# TYPE taskhub_events_total gauge")
+    try:
+        with Session(engine) as s:
+            rows = s.exec(text("SELECT type, COUNT(*) FROM event GROUP BY type")).all()
+            for etype, count in rows:
+                lines.append(f'taskhub_events_total{{type="{etype}"}} {count}')
+    except Exception:
+        pass
+
+    lines.append("# HELP taskhub_agents_online Online agents")
+    lines.append("# TYPE taskhub_agents_online gauge")
+    try:
+        with Session(engine) as s:
+            rows = s.exec(text("SELECT status, COUNT(*) FROM agent GROUP BY status")).all()
+            for status, count in rows:
+                lines.append(f'taskhub_agents_online{{status="{status}"}} {count}')
+    except Exception:
+        pass
+
+    lines.append("# HELP taskhub_scheduled_jobs_total Scheduled jobs by enabled status")
+    lines.append("# TYPE taskhub_scheduled_jobs_total gauge")
+    try:
+        with Session(engine) as s:
+            rows = s.exec(text("SELECT enabled, COUNT(*) FROM scheduledjob GROUP BY enabled")).all()
+            for enabled, count in rows:
+                lines.append(f'taskhub_scheduled_jobs_total{{enabled="{enabled}"}} {count}')
+    except Exception:
+        pass
+
+    lines.append("# HELP taskhub_scheduled_job_runs_total Total scheduled job executions by status")
+    lines.append("# TYPE taskhub_scheduled_job_runs_total gauge")
+    try:
+        with Session(engine) as s:
+            rows = s.exec(text("SELECT status, COUNT(*) FROM scheduledjobexecution GROUP BY status")).all()
+            for status, count in rows:
+                lines.append(f'taskhub_scheduled_job_runs_total{{status="{status}"}} {count}')
+    except Exception:
+        pass
+
+    # ---------- HTTP Observability Metrics ----------
+    hm = get_http_metrics()
+
+    lines.append("# HELP taskhub_http_requests_total Total HTTP requests by method,path,status")
+    lines.append("# TYPE taskhub_http_requests_total counter")
+    for label, count in sorted(hm["request_count"].items()):
+        lines.append(f'taskhub_http_requests_total{{label="{label}"}} {count}')
+
+    lines.append("# HELP taskhub_http_request_count_total Total HTTP request count")
+    lines.append("# TYPE taskhub_http_request_count_total counter")
+    lines.append(f'taskhub_http_request_count_total {hm["request_count_total"]}')
+
+    lines.append("# HELP taskhub_http_active_requests Currently active HTTP requests")
+    lines.append("# TYPE taskhub_http_active_requests gauge")
+    lines.append(f'taskhub_http_active_requests {hm["active_requests"]}')
+
+    lines.append("# HELP taskhub_http_errors_total Total HTTP errors by status class")
+    lines.append("# TYPE taskhub_http_errors_total counter")
+    for label, count in sorted(hm["error_count"].items()):
+        lines.append(f'taskhub_http_errors_total{{class="{label}"}} {count}')
+
+    lines.append("# HELP taskhub_http_request_duration_ms_total Cumulative HTTP request duration by method,path (ms)")
+    lines.append("# TYPE taskhub_http_request_duration_ms_total counter")
+    for label, duration in sorted(hm["total_duration_ms"].items()):
+        lines.append(f'taskhub_http_request_duration_ms_total{{label="{label}"}} {duration:.1f}')
+
+    # ---------- Background Thread Health Metrics ----------
+    th = get_thread_health()
+
+    lines.append("# HELP taskhub_thread_alive Background thread alive status")
+    lines.append("# TYPE taskhub_thread_alive gauge")
+    for name, data in sorted(th.items()):
+        lines.append(f'taskhub_thread_alive{{name="{name}"}} {1 if data.get("alive") else 0}')
+
+    lines.append("# HELP taskhub_thread_heartbeat_age_seconds Seconds since last heartbeat")
+    lines.append("# TYPE taskhub_thread_heartbeat_age_seconds gauge")
+    for name, data in sorted(th.items()):
+        age = data.get("age_seconds", 0)
+        if age != float("inf"):
+            lines.append(f'taskhub_thread_heartbeat_age_seconds{{name="{name}"}} {age:.1f}')
+
+    lines.append("# HELP taskhub_thread_consecutive_failures Consecutive failures count")
+    lines.append("# TYPE taskhub_thread_consecutive_failures gauge")
+    for name, data in sorted(th.items()):
+        lines.append(f'taskhub_thread_consecutive_failures{{name="{name}"}} {data.get("consecutive_failures", 0)}')
+
+    # ---------- Task Stage Dwell Time Metrics ----------
+    try:
+        with Session(engine) as s:
+            # Stage dwell time: average time tasks spend in each stage (using last_transition_at)
+            rows = s.exec(text("""
+                SELECT stage, AVG(julianday('now') - julianday(last_transition_at)) * 86400.0 as avg_dwell_seconds
+                FROM task
+                WHERE state NOT IN ('COMPLETED', 'FAILED', 'CANCELLED') AND last_transition_at IS NOT NULL
+                GROUP BY stage
+            """)).all()
+            for stage, avg_dwell in rows:
+                if avg_dwell is not None:
+                    lines.append(f'taskhub_task_stage_dwell_seconds{{stage="{stage}"}} {avg_dwell:.1f}')
+
+            # Tasks stuck in stage > threshold (stalled) - using last_transition_at
+            stalled_rows = s.exec(text("""
+                SELECT stage, COUNT(*) as stuck_count
+                FROM task
+                WHERE state NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')
+                AND last_transition_at IS NOT NULL
+                AND (julianday('now') - julianday(last_transition_at)) * 86400.0 > 300
+                GROUP BY stage
+            """)).all()
+            for stage, stuck_count in stalled_rows:
+                lines.append(f'taskhub_task_stalled_total{{stage="{stage}"}} {stuck_count}')
+
+            # Task state transition latency (created -> claimed, claimed -> running, etc.)
+            trans_rows = s.exec(text("""
+                SELECT
+                    CASE
+                        WHEN state = 'QUEUED' THEN 'created_to_queued'
+                        WHEN state = 'CLAIMED' THEN 'queued_to_claimed'
+                        WHEN state = 'RUNNING' THEN 'claimed_to_running'
+                        WHEN state = 'COMPLETED' THEN 'running_to_completed'
+                        WHEN state = 'FAILED' THEN 'running_to_failed'
+                        ELSE 'other'
+                    END as transition,
+                    AVG(julianday('now') - julianday(created_at)) * 86400.0 as avg_seconds
+                FROM task
+                WHERE state IN ('QUEUED', 'CLAIMED', 'RUNNING', 'COMPLETED', 'FAILED')
+                GROUP BY transition
+            """)).all()
+            for transition, avg_seconds in trans_rows:
+                if avg_seconds is not None:
+                    lines.append(f'taskhub_task_transition_seconds{{transition="{transition}"}} {avg_seconds:.1f}')
+
+            # ========== USE Metrics (Utilization / Saturation / Errors) ==========
+
+            # --- Process ---
+            try:
+                import psutil
+                proc = psutil.Process(os.getpid())
+
+                # CPU
+                cpu_pct = proc.cpu_percent(interval=0.1)
+                lines.append(f'taskhub_process_cpu_percent {cpu_pct:.1f}')
+
+                # Memory
+                mem = proc.memory_info()
+                lines.append(f'taskhub_process_memory_rss_bytes {mem.rss}')
+                lines.append(f'taskhub_process_memory_vms_bytes {mem.vms}')
+
+                mem_pct = proc.memory_percent()
+                lines.append(f'taskhub_process_memory_percent {mem_pct:.1f}')
+
+                # Threads
+                thread_count = proc.num_threads()
+                lines.append(f'taskhub_process_threads {thread_count}')
+
+                # File descriptors (Linux only)
+                try:
+                    fds = proc.num_fds()
+                    lines.append(f'taskhub_process_fds {fds}')
+                except (AttributeError, psutil.AccessDenied):
+                    pass
+
+                # Open connections
+                try:
+                    conns = proc.num_connections()
+                    lines.append(f'taskhub_process_connections {conns}')
+                except (psutil.AccessDenied, OSError):
+                    pass
+
+            except Exception:
+                # psutil 任意调用失败（含 AccessDenied）时不应中断后续指标采集，
+                # 改为 best-effort 跳过（原本只 except ImportError 会让 num_threads 等
+                # 未保护调用抛出的异常冒泡，导致 DB 池/线程池/任务成功率整段丢失）
+                pass
+
+            # --- SQLAlchemy Connection Pool ---
+            try:
+                pool = engine.pool
+                checked_out = pool.checkedout()
+                checked_in = pool.checkedin()
+                overflow = pool.overflow()
+                size = pool.size()
+
+                lines.append(f'taskhub_db_pool_size {size}')
+                lines.append(f'taskhub_db_pool_checked_out {checked_out}')
+                lines.append(f'taskhub_db_pool_checked_in {checked_in}')
+                lines.append(f'taskhub_db_pool_overflow {overflow}')
+
+                # Saturation: ratio of checked out to total capacity
+                capacity = size + pool._max_overflow if hasattr(pool, '_max_overflow') else size
+                if capacity > 0:
+                    lines.append(f'taskhub_db_pool_utilization {checked_out / capacity:.4f}')
+
+            except Exception:
+                # 连接池内省失败时不静默丢弃，输出 0 以便 summary 可渲染
+                lines.append('taskhub_db_pool_utilization 0.0')
+
+            # --- Thread pool (background workers) ---
+            try:
+                th = get_thread_health()
+                alive_count = sum(1 for d in th.values() if d.get("alive"))
+                total_count = len(th)
+            except Exception:
+                th, alive_count, total_count = {}, 0, 0
+            # 无后台线程时显式输出 0，避免 summary 出现 null（前端显示 —）
+            util = (alive_count / total_count) if total_count else 0.0
+            lines.append(f'taskhub_thread_pool_alive {alive_count}')
+            lines.append(f'taskhub_thread_pool_total {total_count}')
+            lines.append(f'taskhub_thread_pool_utilization {util:.4f}')
+
+            # ========== Business Metrics ==========
+
+            # Task success rate — 口径见 _terminal_window_days() 与下方注释。
+            # 1) 分母只含 COMPLETED + FAILED：取消是独立终态，已由
+            #    taskhub_task_cancel_rate 单独度量，计入"不成功"会把用户主动
+            #    取消与系统空转回收（scripts/archive_spinning_tasks.py）误判为
+            #    执行失败，是 task b1667eae critical 告警的主因。
+            # 2) 只看滚动窗口内进入终态的任务：全量累计口径一旦被历史噪音
+            #    污染就永不恢复，指标必然长期 critical。
+            win = _terminal_window_days()
+            # 监控自造任务（insight-auto / insight-followup）是控制面闭环自己
+            # 派生的跟进任务，因 worker 生命周期失败而终态时并非交付失败。
+            # 把它们计入分母会让指标度量自己派出的任务——数学上不可能靠再派
+            # 任务把失败率压下去（实测 30d：混算 0.8198，剔除后真实交付 0.9730）。
+            # 主口径排除它们，critical 告警才能反映真实交付质量（task e83cc9e2）。
+            monitor_filter = (
+                "AND (labels IS NULL "
+                "OR (labels NOT LIKE '%insight-auto%' "
+                "AND labels NOT LIKE '%insight-followup%'))"
+            )
+            rate_rows = s.exec(text(f"""
+                SELECT
+                    SUM(CASE WHEN state = 'COMPLETED' THEN 1 ELSE 0 END) as completed,
+                    SUM(CASE WHEN state = 'FAILED' THEN 1 ELSE 0 END) as failed,
+                    SUM(CASE WHEN state = 'CANCELLED' THEN 1 ELSE 0 END) as cancelled,
+                    COUNT(*) as total_terminal
+                FROM task
+                WHERE state IN ('COMPLETED', 'FAILED', 'CANCELLED')
+                  AND julianday('now') - julianday(COALESCE(last_transition_at, created_at)) <= {win}
+                  {monitor_filter}
+            """)).first()
+            if rate_rows and rate_rows[3] and rate_rows[3] > 0:
+                completed, failed, cancelled, total = rate_rows
+                completed = completed or 0
+                failed = failed or 0
+                cancelled = cancelled or 0
+                attempted = completed + failed
+                # success/failure 互补，样本量单独暴露，避免 n=1 的比率触发告警
+                if attempted > 0:
+                    lines.append(f'taskhub_task_success_rate {completed / attempted:.4f}')
+                    lines.append(f'taskhub_task_failure_rate {failed / attempted:.4f}')
+                else:
+                    lines.append('taskhub_task_success_rate 0.0')
+                    lines.append('taskhub_task_failure_rate 0.0')
+                lines.append(f'taskhub_task_attempted_total {attempted}')
+                lines.append(f'taskhub_task_cancel_rate {cancelled / total:.4f}')
+                lines.append(f'taskhub_task_terminal_total {total}')
+                lines.append(f'taskhub_task_terminal_window_days {win}')
+            else:
+                # 窗口内无终态任务时显式输出 0，避免 summary 出现 null（前端显示 —）
+                lines.append('taskhub_task_success_rate 0.0')
+                lines.append('taskhub_task_failure_rate 0.0')
+                lines.append('taskhub_task_attempted_total 0')
+                lines.append('taskhub_task_cancel_rate 0.0')
+                lines.append('taskhub_task_terminal_total 0')
+                lines.append(f'taskhub_task_terminal_window_days {win}')
+
+            # 自度量审计：被排除的监控工件样本量与「监控自身派单完成率」。
+            # 前者便于核对口径，后者是该子系统真正该盯的 SLO（task e83cc9e2）。
+            monitoring_rows = s.exec(text(f"""
+                SELECT
+                    SUM(CASE WHEN state = 'COMPLETED' THEN 1 ELSE 0 END) as completed,
+                    SUM(CASE WHEN state = 'FAILED' THEN 1 ELSE 0 END) as failed
+                FROM task
+                WHERE state IN ('COMPLETED', 'FAILED')
+                  AND julianday('now') - julianday(COALESCE(last_transition_at, created_at)) <= {win}
+                  AND labels IS NOT NULL
+                  AND (labels LIKE '%insight-auto%' OR labels LIKE '%insight-followup%')
+            """)).first()
+            m_completed = (monitoring_rows[0] if monitoring_rows else 0) or 0
+            m_failed = (monitoring_rows[1] if monitoring_rows else 0) or 0
+            m_attempted = m_completed + m_failed
+            lines.append(f'taskhub_task_excluded_monitoring_total {m_attempted}')
+            if m_attempted > 0:
+                lines.append(f'taskhub_task_monitoring_success_rate {m_completed / m_attempted:.4f}')
+            else:
+                lines.append('taskhub_task_monitoring_success_rate 0.0')
+
+            # Task success rate (active) — 剔除系统噪音后的交付成功率。
+            # 与主口径同义但额外排除 archived:spinning（housekeeping 自动归档）。
+            active_rows = s.exec(text(f"""
+                SELECT
+                    SUM(CASE WHEN state = 'COMPLETED' THEN 1 ELSE 0 END) as completed,
+                    SUM(CASE WHEN state = 'FAILED' THEN 1 ELSE 0 END) as failed
+                FROM task
+                WHERE state IN ('COMPLETED', 'FAILED')
+                  AND julianday('now') - julianday(COALESCE(last_transition_at, created_at)) <= {win}
+                  AND COALESCE(labels, '[]') NOT LIKE '%insight-auto%'
+                  AND COALESCE(labels, '[]') NOT LIKE '%archived:spinning%'
+            """)).first()
+            a_completed = (active_rows[0] if active_rows else 0) or 0
+            a_failed = (active_rows[1] if active_rows else 0) or 0
+            a_attempted = a_completed + a_failed
+            if a_attempted > 0:
+                lines.append(f'taskhub_task_success_rate_active {a_completed / a_attempted:.4f}')
+                lines.append(f'taskhub_task_failure_rate_active {a_failed / a_attempted:.4f}')
+            else:
+                lines.append('taskhub_task_success_rate_active 0.0')
+                lines.append('taskhub_task_failure_rate_active 0.0')
+            lines.append(f'taskhub_task_attempted_total_active {a_attempted}')
+
+            # Task throughput (tasks created per hour in last 24h)
+            throughput_rows = s.exec(text("""
+                SELECT COUNT(*) as cnt
+                FROM task
+                WHERE created_at IS NOT NULL
+                AND julianday('now') - julianday(created_at) <= 1.0
+            """)).first()
+            if throughput_rows:
+                lines.append(f'taskhub_task_throughput_24h {throughput_rows[0]}')
+
+            throughput_7d = s.exec(text("""
+                SELECT COUNT(*) as cnt
+                FROM task
+                WHERE created_at IS NOT NULL
+                AND julianday('now') - julianday(created_at) <= 7.0
+            """)).first()
+            if throughput_7d:
+                lines.append(f'taskhub_task_throughput_7d {throughput_7d[0]}')
+
+            # Retry metrics
+            retry_rows = s.exec(text("""
+                SELECT
+                    SUM(retry_count) as total_retries,
+                    AVG(retry_count) as avg_retries,
+                    MAX(retry_count) as max_retries,
+                    SUM(CASE WHEN retry_count > 0 THEN 1 ELSE 0 END) as retried_tasks
+                FROM task
+                WHERE state IN ('COMPLETED', 'FAILED', 'CANCELLED')
+            """)).first()
+            if retry_rows and retry_rows[0] is not None:
+                lines.append(f'taskhub_task_retries_total {retry_rows[0]}')
+                lines.append(f'taskhub_task_retries_avg {retry_rows[1]:.2f}')
+                lines.append(f'taskhub_task_retries_max {retry_rows[2]}')
+                lines.append(f'taskhub_task_retried_count {retry_rows[3]}')
+
+            # Average completion time (completed tasks only)
+            avg_time = s.exec(text("""
+                SELECT AVG(julianday(completed_at) - julianday(created_at)) * 86400.0 as avg_seconds
+                FROM task
+                WHERE state = 'COMPLETED'
+                AND created_at IS NOT NULL AND completed_at IS NOT NULL
+            """)).first()
+            if avg_time and avg_time[0] is not None:
+                lines.append(f'taskhub_task_avg_completion_seconds {avg_time[0]:.1f}')
+
+            # P50/P90/P99 completion time
+            p50 = s.exec(text("""
+                SELECT AVG(julianday(completed_at) - julianday(created_at)) * 86400.0
+                FROM (
+                    SELECT julianday(completed_at) - julianday(created_at) as dur
+                    FROM task
+                    WHERE state = 'COMPLETED'
+                    AND created_at IS NOT NULL AND completed_at IS NOT NULL
+                    ORDER BY dur
+                    LIMIT (SELECT MAX(1, COUNT(*) / 2) FROM task WHERE state = 'COMPLETED')
+                )
+            """)).first()
+            if p50 and p50[0] is not None:
+                lines.append(f'taskhub_task_completion_p50_seconds {p50[0]:.1f}')
+
+            # Agent online count (task 表无 agent 关联列，故只统计在线 agent 数)
+            agent_online = s.exec(text("SELECT COUNT(*) FROM agent WHERE status = 'online'")).first()
+            if agent_online and agent_online[0] is not None:
+                lines.append(f'taskhub_agents_online {agent_online[0]}')
+
+    except Exception:
+        pass
+
+    # ========== Dependency Latency Metrics (SQLite / Git / MCP) ==========
+    try:
+        from mio_taskhub.observability.dep_metrics import DepMetrics
+        dep_lines = DepMetrics.render()
+        if dep_lines:
+            lines.append("")
+            lines.append("# HELP taskhub_dep_latency_count Total calls by dependency and operation")
+            lines.append("# TYPE taskhub_dep_latency_count counter")
+            lines.append("# HELP taskhub_dep_latency_errors Error count by dependency and operation")
+            lines.append("# TYPE taskhub_dep_latency_errors counter")
+            lines.append("# HELP taskhub_dep_latency_avg_ms Average latency in ms")
+            lines.append("# TYPE taskhub_dep_latency_avg_ms gauge")
+            lines.append("# HELP taskhub_dep_latency_max_ms Maximum latency in ms")
+            lines.append("# TYPE taskhub_dep_latency_max_ms gauge")
+            lines.append("# HELP taskhub_dep_latency_p50_ms P50 latency in ms")
+            lines.append("# TYPE taskhub_dep_latency_p50_ms gauge")
+            lines.append("# HELP taskhub_dep_latency_p90_ms P90 latency in ms")
+            lines.append("# TYPE taskhub_dep_latency_p90_ms gauge")
+            lines.append("# HELP taskhub_dep_latency_p99_ms P99 latency in ms")
+            lines.append("# TYPE taskhub_dep_latency_p99_ms gauge")
+            lines.append("# HELP taskhub_dep_error_rate Error rate by dependency and operation")
+            lines.append("# TYPE taskhub_dep_error_rate gauge")
+            lines.append(dep_lines)
+    except Exception:
+        pass
+
+    # ========== SLO Compliance Metrics ==========
+    try:
+        with Session(engine) as s:
+            # Availability SLO: success rate over 30-day window
+            avail = s.exec(text("""
+                SELECT
+                    SUM(CASE WHEN state = 'COMPLETED' THEN 1 ELSE 0 END) as completed,
+                    SUM(CASE WHEN state = 'FAILED' THEN 1 ELSE 0 END) as failed
+                FROM task
+                WHERE state IN ('COMPLETED', 'FAILED')
+                AND created_at IS NOT NULL
+                AND julianday('now') - julianday(created_at) <= 30.0
+            """)).first()
+            if avail and (avail[0] + avail[1]) > 0:
+                slo_availability = avail[0] / (avail[0] + avail[1])
+                lines.append(f'taskhub_slo_availability_30d {slo_availability:.6f}')
+                lines.append(f'taskhub_slo_availability_target 0.99')
+                lines.append(f'taskhub_slo_availability_breach {1 if slo_availability < 0.99 else 0}')
+                # Error budget remaining (target 1% failure rate)
+                budget_used = 1 - slo_availability
+                budget_remaining = max(0, 0.01 - budget_used)
+                lines.append(f'taskhub_slo_error_budget_remaining {budget_remaining:.6f}')
+
+            # Latency SLO: P99 over recent requests (using taskhub_task_avg_completion_seconds proxy)
+            # Note: real P99 requires request-level histogram, using task completion as proxy
+            avg_completion = s.exec(text("""
+                SELECT AVG(julianday(completed_at) - julianday(created_at)) * 86400.0
+                FROM task
+                WHERE state = 'COMPLETED'
+                AND created_at IS NOT NULL AND completed_at IS NOT NULL
+                AND julianday('now') - julianday(created_at) <= 1.0
+            """)).first()
+            if avg_completion and avg_completion[0] is not None:
+                # Convert to ms for comparison with SLO
+                avg_ms = avg_completion[0] * 1000
+                lines.append(f'taskhub_slo_latency_avg_ms_1d {avg_ms:.1f}')
+                lines.append(f'taskhub_slo_latency_p50_target_ms 500')
+                lines.append(f'taskhub_slo_latency_p99_target_ms 2000')
+                lines.append(f'taskhub_slo_latency_breach {1 if avg_ms > 2000 else 0}')
+
+    except Exception:
+        pass
+
+    return "\n".join(lines) + "\n"

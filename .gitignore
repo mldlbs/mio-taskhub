@@ -1,0 +1,31 @@
+__pycache__/
+*.pyc
+*.pyo
+venv/
+*.egg-info/
+.mio_taskhub/
+data/taskhub.db
+data/*.db
+
+node_modules/
+web/dist/
+
+.worktrees/
+*.log
+*.err
+
+# MCP 调试工具运行时产物
+gh-kit.json
+
+# PyInstaller build artifacts（含临时 --distpath 变体，如 dist_release/dist_ui/dist_e83）
+build*/
+dist*/
+
+# pytest 临时产物（--basetemp / 隔离测试库）
+.pytest_*/
+.flaky_test.db
+
+# 重建 exe 的冒烟工作区（含临时库副本，绝不入库）
+.smoke_ws/
+.local/
+docs/

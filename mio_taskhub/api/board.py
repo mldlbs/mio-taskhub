@@ -1,0 +1,208 @@
+from datetime import timezone
+from fastapi import APIRouter, Depends, Query
+from sqlmodel import Session, select, func
+from mio_taskhub.db import get_session
+from mio_taskhub.models import Task, TaskStage, TaskState, Run, RunState, TaskEvent
+from mio_taskhub.workflow.state_machine import (
+    is_terminal, State, Stage as M1Stage, LEGAL_COMBOS, is_legal_combo,
+)
+from mio_taskhub.dependency import task_deps, dependency_satisfied
+from mio_taskhub.composite import composite_status, COMPOSITE_LABEL
+from mio_taskhub.heartbeat import DEFAULT_TIMEOUT_SECONDS
+from mio_taskhub.utils import _now
+
+router = APIRouter(prefix="/board", tags=["board"])
+
+
+def _stage(v):
+    return v.value if not isinstance(v, str) else v
+
+
+def _to_utc(dt):
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _count_by_stage(tasks):
+    counts = {s.value: 0 for s in TaskStage}
+    for t in tasks:
+        counts[_stage(t.stage)] += 1
+    return counts
+
+
+def _ready_queue(db, now):
+    rows = db.exec(
+        select(Task).where(Task.state == TaskState.QUEUED, Task.stage == TaskStage.READY)
+        .order_by(Task.priority.desc(), Task.created_at.asc())
+    ).all()
+    queue = []
+    for t in rows:
+        run_at = _to_utc(t.run_at)
+        if t.schedule_type == "once" and run_at and run_at > now:
+            continue
+        queue.append({
+            "id": t.id, "title": t.title, "priority": t.priority,
+            "target_agent_type": t.target_agent_type, "project": t.project,
+            "due_at": _to_utc(t.due_at).isoformat() if t.due_at else None,
+            "created_at": t.created_at.isoformat(),
+        })
+    return queue
+
+
+def _running_tasks(db, agent):
+    active = db.exec(
+        select(Run).where(Run.state.in_([RunState.CLAIMED, RunState.RUNNING]))
+    ).all()
+    running = []
+    for r in active:
+        t = db.get(Task, r.task_id)
+        if not t:
+            continue
+        if agent and r.agent_name != agent:
+            continue
+        running.append({
+            "task_id": t.id, "title": t.title, "stage": _stage(t.stage),
+            "claimed_by": r.agent_name, "run_id": r.id, "progress": r.progress,
+            "heartbeat_at": _to_utc(r.last_heartbeat).isoformat() if r.last_heartbeat else None,
+        })
+    return running, active
+
+
+def _check_alerts(db, tasks, active, now):
+    alerts = []
+    # 心跳超时
+    for r in active:
+        t = db.get(Task, r.task_id) if hasattr(r, 'task_id') else None
+        if not t:
+            continue
+        timeout_sec = (t.timeout_min * 60) if t.timeout_min else DEFAULT_TIMEOUT_SECONDS
+        last = _to_utc(r.last_heartbeat) or _to_utc(r.started_at)
+        if last and (now - last).total_seconds() > timeout_sec:
+            alerts.append({
+                "level": "warning",
+                "message": f"任务「{t.title}」心跳超时（{timeout_sec // 60} 分钟未上报），将被重置重领",
+            })
+    # 超截止时间
+    overdue = [
+        t for t in tasks
+        if t.due_at and t.state not in (TaskState.COMPLETED, TaskState.CANCELLED)
+        and (_to_utc(t.due_at) < now)
+    ]
+    overdue.sort(key=lambda t: t.due_at)
+    for t in overdue[:5]:
+        alerts.append({"level": "warning", "message": f"任务「{t.title}」已超截止时间"})
+    # 依赖阻塞
+    for t in tasks:
+        deps = task_deps(t)
+        if not deps:
+            continue
+        stage_v = _stage(t.stage)
+        if stage_v not in ("brainstorming", "design", "planning"):
+            continue
+        prereqs = [db.get(Task, d) for d in deps if d]
+        blocked = [p for p in prereqs if p is not None and is_terminal(p)
+                   and not dependency_satisfied(p)]
+        if blocked:
+            alerts.append({
+                "level": "warning",
+                "message": f"任务「{t.title}」（{t.id}）依赖阻塞（前置「{blocked[0].title}」已取消/失败），无法放行",
+            })
+    return alerts, overdue
+
+
+def _recent_done(db):
+    done_runs = db.exec(
+        select(Run).where(Run.state == RunState.FINISHED, Run.finished_at.isnot(None))
+    ).all()
+    done_runs.sort(key=lambda r: (_to_utc(r.finished_at).timestamp() if r.finished_at else 0), reverse=True)
+    recent = []
+    for r in done_runs:
+        if len(recent) >= 5:
+            break
+        t = db.get(Task, r.task_id)
+        if t and t.state == TaskState.COMPLETED:
+            recent.append({
+                "id": t.id, "title": t.title,
+                "completed_at": _to_utc(r.finished_at).isoformat() if r.finished_at else None,
+            })
+    return recent
+
+
+def _next_steps(ready_queue, overdue, running):
+    steps = []
+    if ready_queue:
+        top = max(ready_queue, key=lambda x: x["priority"])
+        steps.append(f"有 {len(ready_queue)} 个待领取任务，最高优先级 {top['priority']}：「{top['title']}」")
+    if overdue:
+        steps.append(f"有 {len(overdue)} 个任务超过截止时间未完成，建议优先处理")
+    if running:
+        steps.append(f"有 {len(running)} 个任务执行中，请持续关注心跳")
+    if not steps:
+        steps.append("当前无待办任务，可创建新任务")
+    return steps
+
+
+@router.get("/summary")
+def board_summary(agent: str = Query(None), db: Session = Depends(get_session)):
+    """返回对话友好看板汇总：各阶段计数、待领取、执行中、告警、最近完成与下一步建议。"""
+    now = _now()
+    tasks = db.exec(select(Task)).all()
+
+    counts = _count_by_stage(tasks)
+    ready_queue = _ready_queue(db, now)
+    running, active = _running_tasks(db, agent)
+    alerts, overdue = _check_alerts(db, tasks, active, now)
+    recent_done = _recent_done(db)
+    next_steps = _next_steps(ready_queue, overdue, running)
+
+    return {
+        "updated_at": now.isoformat(),
+        "counts": counts,
+        "ready_queue": ready_queue,
+        "running": running,
+        "alerts": alerts,
+        "recent_done": recent_done,
+        "next_steps": next_steps,
+    }
+
+
+@router.get("/overview")
+def stats_overview(db: Session = Depends(get_session)):
+    """返回 M1 统计概览：composite counts、by_state、by_stage、事件分布。"""
+    from mio_taskhub.workflow.transitions import _orm_to_status_state, _orm_to_status_stage
+
+    tasks = db.exec(select(Task)).all()
+
+    # composite counts
+    composite_counts = {}
+    by_state = {s.value: 0 for s in State}
+    by_stage = {s.value: 0 for s in M1Stage}
+    by_stage["cancelled"] = 0
+    for t in tasks:
+        cur_s = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
+        cur_st = t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
+        s = _orm_to_status_state(cur_s)
+        st = _orm_to_status_stage(cur_st)
+        key = f"{s.value},{st.value}"
+        composite_counts[key] = composite_counts.get(key, 0) + 1
+        by_state[s.value] += 1
+        by_stage["cancelled" if cur_st == TaskStage.CANCELLED else st.value] += 1
+
+    # task_events 统计
+    all_events = db.exec(select(TaskEvent)).all()
+    events_count = len(all_events)
+    event_by_type = {}
+    for e in all_events:
+        event_by_type[e.event_type] = event_by_type.get(e.event_type, 0) + 1
+
+    return {
+        "composite_counts": composite_counts,
+        "by_state": by_state,
+        "by_stage": by_stage,
+        "task_events_count": events_count,
+        "event_by_type": event_by_type,
+        "total_tasks": len(tasks),
+    }

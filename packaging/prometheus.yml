@@ -1,0 +1,35 @@
+# Prometheus configuration for mio-taskhub
+# Place at: ~/.mio_taskhub/prometheus.yml or /etc/prometheus/prometheus.yml
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alerts.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - "localhost:9093"
+
+scrape_configs:
+  - job_name: "mio-taskhub"
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["localhost:48620"]
+        labels:
+          env: "local"
+
+  - job_name: "mio-taskhub-probe"
+    metrics_path: /metrics
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    static_configs:
+      - targets: ["localhost:48620"]
+        labels:
+          job: "mio-taskhub"
+          module: "probe"

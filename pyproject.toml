@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mio-taskhub"
+version = "0.5.2"
+description = "Cross-agent task management hub (local single-user service)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "sqlmodel>=0.0.16",
+    "apscheduler>=3.10",
+    "pydantic>=2.6",
+    "websockets>=12.0",
+    "mcp>=1.2,<2",
+    "croniter>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+mio-taskhub = "mio_taskhub.main:run"
+mio-taskhub-mcp = "mio_taskhub.mcp_server:main"
+
+[tool.setuptools.packages.find]
+include = ["mio_taskhub*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "e2e: 真服务端到端/并发压测（起真实 uvicorn，较慢；默认排除，用 pytest -m e2e 运行）",
+]
+addopts = "-m 'not e2e'"

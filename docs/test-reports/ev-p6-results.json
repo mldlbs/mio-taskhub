@@ -1,0 +1,92 @@
+[
+ {
+  "name": "title rendered",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "observer card",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "observer running",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "cli card available",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "hosts card",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "host chip opencode",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "host chip workbuddy",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "host chip codex",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "data files table",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "recent traces",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "our probe trace visible",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "recent memory",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "our e2e memory visible",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "creativity section",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "new hypothesis listed",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "read-only footnote",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "name": "no pageerror",
+  "ok": true,
+  "detail": []
+ },
+ {
+  "name": "no console.error",
+  "ok": true,
+  "detail": []
+ }
+]

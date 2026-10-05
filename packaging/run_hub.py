@@ -1,0 +1,517 @@
+import ctypes
+import os
+import socket
+import subprocess
+import sys
+import threading
+import time
+import traceback
+import webbrowser
+
+import uvicorn
+
+from mio_taskhub.main import app
+
+DATA_DIR = os.path.join(os.path.expanduser("~"), ".mio_taskhub")
+os.makedirs(DATA_DIR, exist_ok=True)
+LOG = os.path.join(DATA_DIR, "runtime.log")
+CONSOLE_LOG = os.path.join(DATA_DIR, "console.log")
+WINDOW_TITLE = "MIO·HUB — 任务总线"
+
+if sys.stdout is None or sys.stderr is None:
+    _f = open(CONSOLE_LOG, "a", encoding="utf-8", buffering=1)
+    if sys.stdout is None:
+        sys.stdout = _f
+    if sys.stderr is None:
+        sys.stderr = _f
+
+
+def _msgbox(title, text):
+    try:
+        ctypes.windll.user32.MessageBoxW(0, text, title, 0x10)
+    except Exception:
+        pass
+
+
+def _log(msg):
+    try:
+        with open(LOG, "a", encoding="utf-8") as f:
+            f.write(f"[tray] {msg}\n")
+    except Exception:
+        pass
+
+
+def _res_icon() -> str:
+    """解析 icon 路径：打包后取 _MEIPASS 内的资源，源码模式取 web/public。"""
+    if getattr(sys, "frozen", False):
+        base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+        cand = os.path.join(base, "web", "public", "icon.ico")
+        return cand if os.path.exists(cand) else ""
+    cand = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "web", "public", "icon.ico")
+    return cand if os.path.exists(cand) else ""
+
+
+ICO = _res_icon()
+
+
+def _update_menu_label(_item=None) -> str:
+    """托盘「更新」项的动态文案（按 UpdateService 状态计算）。"""
+    try:
+        from mio_taskhub.update.service import get_service
+        st = get_service().status()
+        state = st.get("state")
+        if state == "available":
+            return "立即更新 (v%s)" % st.get("latest")
+        if state == "ready":
+            return "重启并应用更新"
+        if state == "downloading":
+            return "下载中 %d%%" % st.get("progress", 0)
+        if state == "needs_manual":
+            return "需手动更新 (v%s)" % st.get("latest")
+    except Exception:  # noqa: BLE001
+        pass
+    return "检查更新"
+
+
+def _notify(icon, msg):
+    try:
+        if icon is not None:
+            icon.notify(msg, "mio-taskhub")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+_update_busy = threading.Event()
+
+
+def _on_update_clicked(icon=None, _item=None):
+    """托盘点击：在**工作线程**里跑 check→download→apply，避免冻结托盘消息循环。"""
+    from mio_taskhub.update.service import get_service
+    svc = get_service()
+    try:
+        state = svc.status().get("state")
+    except Exception as e:  # noqa: BLE001
+        _log("tray: update status failed: %r" % e)
+        return
+
+    if state == "ready":
+        steps = ["apply"]
+    elif state in ("available", "check_failed", "up_to_date", "idle", "dismissed"):
+        steps = ["check", "download", "apply"]
+    else:
+        return
+
+    if _update_busy.is_set():      # 防重入：下载/应用中再点不重复触发
+        _notify(icon, "更新正在进行中…")
+        return
+    _update_busy.set()
+
+    def _work():
+        try:
+            if "check" in steps:
+                svc.check()
+            if "download" in steps and svc.status().get("state") == "available":
+                svc.download()
+            if "apply" in steps and svc.status().get("state") == "ready":
+                svc.apply()
+            st = svc.status()
+            if st.get("state") == "failed":
+                _notify(icon, "更新失败：%s" % (st.get("error") or "见 apply.log"))
+        except Exception as e:  # noqa: BLE001
+            _log("tray: update action failed: %r" % e)
+            _notify(icon, "更新失败：%s" % e)
+        finally:
+            _update_busy.clear()
+
+    threading.Thread(target=_work, daemon=True, name="update-action").start()
+
+
+def _start_tray(url: str, server_ref: dict):
+    """系统托盘驻留：打开浮动面板 / 退出服务。
+
+    - 菜单「打开面板」→ 启动 widget 浮动窗口（独立进程）
+    - 菜单「退出」→ 停托盘 + 请求 uvicorn 优雅退出
+    失败时写日志到 console.log 并返回 None（保持仅服务运行）。
+    """
+    try:
+        import pystray
+        from PIL import Image
+        has = f"pystray={getattr(pystray, '__version__', '?')} PIL={getattr(Image, '__version__', '?')}"
+        _log(f"tray deps: {has}")
+    except Exception as e:
+        _log(f"tray deps import failed: {e!r}")
+        return None
+
+    _tray_lock = threading.Lock()
+    _tray_created = False
+
+    _open_pid = [None]  # track the opened Edge window PID
+
+    def _find_edge_window():
+        """查找已打开的 MIO-TASKHUB Edge 窗口，返回 hwnd 或 None"""
+        user32 = ctypes.windll.user32
+        found = []
+        WNDENUMPROC2 = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+        def _cb(hwnd, _):
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length <= 0:
+                return True
+            buf = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buf, length + 1)
+            if "MIO" in buf.value and "HUB" in buf.value:
+                pid = ctypes.wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                found.append((hwnd, pid.value))
+            return True
+        user32.EnumWindows(WNDENUMPROC2(_cb), 0)
+        # 检查进程是否还活着
+        kernel32 = ctypes.windll.kernel32
+        for hwnd, pid in found:
+            proc = kernel32.OpenProcess(0x1000, False, pid)
+            if proc:
+                kernel32.CloseHandle(proc)
+                return hwnd
+        return None
+
+    def _open_panel(_icon=None, _item=None):
+        _log("tray: _open_panel called")
+        # 如果窗口已打开，尝试前置
+        existing = _find_edge_window()
+        if existing:
+            _log(f"tray: reusing existing window hwnd={existing}")
+            user32 = ctypes.windll.user32
+            user32.SetForegroundWindow(existing)
+            user32.ShowWindow(existing, 9)  # SW_RESTORE
+            return
+
+        edge_paths = [
+            os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+            os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+            os.path.expandvars(r"%LocalAppData%\Microsoft\Edge\Application\msedge.exe"),
+        ]
+        edge_exe = None
+        for p in edge_paths:
+            if os.path.isfile(p):
+                edge_exe = p
+                break
+        _log(f"tray: edge_exe={edge_exe}")
+        try:
+            if edge_exe:
+                sw = ctypes.windll.user32.GetSystemMetrics(0)
+                sh = ctypes.windll.user32.GetSystemMetrics(1)
+                ww, wh = 1920, 1080
+                x = max(0, (sw - ww) // 2)
+                y = max(0, (sh - wh) // 2)
+                # 用 SW_HIDE 启动 Edge，窗口创建时不可见，调好位置再显示
+                cmd = [edge_exe, f"--app={url}", "--new-window",
+                       f"--window-position={x},{y}", f"--window-size={ww},{wh}",
+                       "--no-first-run"]
+                _log(f"tray: launching Edge hidden: {cmd}")
+                si = subprocess.STARTUPINFO()
+                si.dwFlags = subprocess.STARTF_USESHOWWINDOW
+                si.wShowWindow = 0  # SW_HIDE
+                proc = subprocess.Popen(cmd, startupinfo=si)
+                _open_pid[0] = proc.pid
+
+                def _show_later():
+                    user32 = ctypes.windll.user32
+                    hwnd = None
+                    for _ in range(40):
+                        time.sleep(0.15)
+                        hwnd = user32.FindWindowW(None, WINDOW_TITLE)
+                        if hwnd:
+                            break
+                        found = []
+                        def _cb(h, _):
+                            length = user32.GetWindowTextLengthW(h)
+                            if length <= 0:
+                                return True
+                            buf = ctypes.create_unicode_buffer(length + 1)
+                            user32.GetWindowTextW(h, buf, length + 1)
+                            if "MIO" in buf.value and "HUB" in buf.value:
+                                found.append(h)
+                            return True
+                        WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
+                        user32.EnumWindows(WNDPROC(_cb), 0)
+                        if found:
+                            hwnd = found[0]
+                            break
+                    if hwnd:
+                        SWP_NOZORDER = 0x0004
+                        SWP_SHOWWINDOW = 0x0040
+                        # 确保位置和大小正确，然后显示
+                        user32.SetWindowPos(hwnd, 0, x, y, ww, wh, SWP_NOZORDER | SWP_SHOWWINDOW)
+                        user32.ShowWindow(hwnd, 5)  # SW_SHOW
+                        _log(f"tray: placed window {ww}x{wh} at ({x},{y})")
+                    else:
+                        _log("tray: could not find Edge window")
+
+                threading.Thread(target=_show_later, daemon=True).start()
+            else:
+                _log("tray: Edge not found, falling back to webbrowser")
+                webbrowser.open(url)
+        except Exception as e:
+            _log(f"tray: Edge launch failed: {e!r}")
+            webbrowser.open(url)
+
+    def _quit(_icon=None, _item=None):
+        try:
+            _icon.stop()
+        except Exception:
+            pass
+        srv = server_ref.get("server")
+        if srv is not None:
+            srv.should_exit = True
+
+    try:
+        # 防止重复创建托盘图标：枚举所有窗口查找同名类
+        import ctypes
+        import ctypes.wintypes
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        found_hwnd = [None]
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+        def _enum_cb(hwnd, _):
+            buf = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(hwnd, buf, 256)
+            if "mio-taskhub" in buf.value and "SystemTrayIcon" in buf.value:
+                # 检查窗口所属进程是否还活着
+                pid = ctypes.wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                proc = kernel32.OpenProcess(0x1000, False, pid.value)  # PROCESS_QUERY_LIMITED_INFORMATION
+                if proc:
+                    kernel32.CloseHandle(proc)
+                    found_hwnd[0] = hwnd
+                    _log(f"tray: found alive icon window hwnd={hwnd} pid={pid.value}")
+                    return False
+                else:
+                    _log(f"tray: found dead icon window hwnd={hwnd} pid={pid.value}, will replace")
+            return True
+        user32.EnumWindows(WNDENUMPROC(_enum_cb), 0)
+        if found_hwnd[0]:
+            _log("tray: existing alive icon found, skip creation")
+            return None
+
+        if ICO:
+            img = Image.open(ICO)
+        else:
+            img = Image.new("RGB", (32, 32), (61, 220, 151))
+        icon = pystray.Icon(
+            "mio-taskhub-hub",
+            img,
+            "MIO-TASKHUB · 任务中心",
+            menu=pystray.Menu(
+                pystray.MenuItem("打开面板", _open_panel, default=True),
+                pystray.MenuItem(
+                    lambda item: _update_menu_label(),
+                    _on_update_clicked),
+                pystray.MenuItem("退出", _quit),
+            ),
+        )
+        t = threading.Thread(target=icon.run, daemon=True)
+        t.start()
+        _log("tray started")
+
+        def _notify_loop():
+            import time as _t
+            last = None
+            last_label = _update_menu_label()
+            while True:
+                _t.sleep(30)
+                try:
+                    from mio_taskhub.update.service import get_service
+                    st = get_service().status()
+                    if st.get("state") == "available" and st.get("latest") != last:
+                        last = st.get("latest")
+                        icon.notify("发现新版本 v%s，点击托盘图标更新" % st.get("latest"), "mio-taskhub")
+                    # win32 后端菜单只在创建时求值一次，动态文案需主动刷新
+                    label = _update_menu_label()
+                    if label != last_label:
+                        last_label = label
+                        # 已知低概率竞态：若此刻菜单正打开，win32 后端跨线程 update_menu
+                        # 可能短暂异常/失效。pystray 无 marshalling API，暂接受（下轮刷新自愈）。
+                        icon.update_menu()
+                except Exception:  # noqa: BLE001
+                    pass
+
+        threading.Thread(target=_notify_loop, daemon=True).start()
+        return icon
+    except Exception as e:
+        _log(f"tray start failed: {e!r}")
+        return None
+
+
+def _port_in_use(host, port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(1)
+        return s.connect_ex((host, port)) == 0
+
+
+_HUB_LOCK = "mio-taskhub-hub-instance"
+_ERROR_ALREADY_EXISTS = 183
+
+
+def _single_hub_instance():
+    """命名互斥锁：确保只有一个 hub 实例（避免重复启动出现多托盘）。
+
+    读取 GetLastError 必须用 WinDLL(use_last_error=True) + ctypes.get_last_error()；
+    原实现跨两次 FFI 调用读 kernel32.GetLastError()，错误码会被 ctypes 内部调用覆盖，
+    漏判 ALREADY_EXISTS → 多 hub 并发 → 端口冲突 → 无限重启僵尸进程（2026-08-29 实测）。
+    """
+    try:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        handle = kernel32.CreateMutexW(None, False, _HUB_LOCK)
+        if not handle:
+            return 0  # 创建失败：保持旧行为放行（_release_hub_lock 对 0 自动跳过）
+        if ctypes.get_last_error() == _ERROR_ALREADY_EXISTS:
+            kernel32.CloseHandle(handle)
+            return None  # 已有 hub 实例
+        return handle
+    except Exception:
+        return "unknown"
+
+
+def _release_hub_lock(lock):
+    try:
+        if lock and lock != "unknown":
+            ctypes.windll.kernel32.CloseHandle(lock)
+    except Exception:
+        pass
+
+
+def _probe_service(url) -> bool:
+    """探测端口上是自己的服务（返回 JSON 数组/任务特征）。"""
+    try:
+        import urllib.request
+
+        with urllib.request.urlopen(f"{url}/api/v1/tasks", timeout=2) as r:
+            body = r.read(200).decode("utf-8", "replace")
+            return r.status == 200 and body.strip().startswith("[")
+    except Exception:
+        return False
+
+
+def _reclaim_port(port):
+    """端口被残留进程占用（无响应或非本服务）时，杀掉占用者并接管。
+
+    返回 True 表示已清理成功（可重试启动），False 表示无法接管。
+    """
+    try:
+        import urllib.request
+        import json as _json
+        import subprocess as _sp
+
+        out = _sp.run(
+            ["powershell", "-NoProfile", "-Command",
+             f"Get-NetTCPConnection -LocalPort {port} -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess"],
+            capture_output=True, text=True, encoding='utf-8', timeout=10,
+        )
+        pids = [int(x) for x in out.stdout.split() if x.strip().isdigit()]
+        for pid in pids:
+            if pid <= 0 or pid == os.getpid():
+                continue
+            info = _sp.run(
+                ["powershell", "-NoProfile", "-Command",
+                 f"(Get-Process -Id {pid} -ErrorAction SilentlyContinue).ProcessName"],
+                capture_output=True, text=True, encoding='utf-8', timeout=10,
+            )
+            name = info.stdout.strip()
+            # 只清理 mio-taskhub 相关进程，绝不接管无关程序
+            if name.lower() in ("python", "mio-taskhub", "mio-taskhub.exe"):
+                _log(f"reclaim port {port}: kill pid={pid} name={name}")
+                try:
+                    _sp.run(["taskkill", "/pid", str(pid), "/f"], capture_output=True, timeout=10)
+                except Exception:
+                    pass
+        return True
+    except Exception as e:
+        _log(f"reclaim port failed: {e!r}")
+        return False
+
+
+def main():
+    port = int(os.environ.get("MIO_TASKHUB_PORT", "48620"))
+    url = f"http://127.0.0.1:{port}"
+
+    lock = _single_hub_instance()
+    if lock is None:
+        # 已有 hub 在运行，静默退出（避免出现第二个托盘图标）
+        return
+
+    if _port_in_use("127.0.0.1", port):
+        if _probe_service(url):
+            # 端口上是健康的本服务——互斥锁漏判兜底：已有 hub 在跑，静默退出
+            _log(f"port {port} served by healthy hub -> duplicate launch, exit")
+            _release_hub_lock(lock)
+            return
+        # 端口被占用但服务无响应——大概率是残留进程占着端口，清理后接管
+        _log(f"port {port} busy, no healthy service -> reclaim")
+        if not _reclaim_port(port):
+            _msgbox(
+                "mio-taskhub",
+                f"端口 {port} 已被其他程序占用且无法自动接管。\n\n"
+                f"请关闭占用该端口的程序后重试。",
+            )
+            _release_hub_lock(lock)
+            return
+        import time as _time
+
+        _time.sleep(2)
+
+    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="info")
+    current = {"server": None}  # 可变的当前 server 引用，托盘/守卫共用
+
+    from mio_taskhub.update.runner import set_exit_callback
+
+    def _request_hub_exit():
+        srv = current.get("server")
+        if srv is not None:
+            srv.should_exit = True
+
+    set_exit_callback(_request_hub_exit)
+
+    tray = _start_tray(url, current)
+    try:
+        # 守卫循环：uvicorn 崩溃/异常后退 2 秒自动重启，托盘持续驻留
+        while True:
+            server = uvicorn.Server(config)
+            current["server"] = server
+            try:
+                server.run()
+                _log("hub run returned normally (should_exit=true or clean exit)")
+                break
+            except (SystemExit, KeyboardInterrupt) as e:
+                # uvicorn 端口占用等启动失败会抛 SystemExit(3)：重启只会无限循环
+                # 制造僵尸实例（runtime.log 实测 "crashed, restart in 2s: SystemExit(3)"），
+                # 改为直接退出走 finally 清理
+                _log(f"hub exit (SystemExit/KeyboardInterrupt) type={type(e).__name__} code={getattr(e, 'code', None)}, no restart")
+                break
+            except BaseException as e:
+                _log(f"hub crashed, restart in 2s: type={type(e).__name__} e={e!r}")
+                import time as _time
+
+                _time.sleep(2)
+                continue
+            _log("guard loop ended, breaking out")
+    finally:
+        if tray is not None:
+            try:
+                tray.stop()
+            except Exception:
+                pass
+        _release_hub_lock(lock)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except SystemExit:
+        pass
+    except BaseException:
+        try:
+            with open(LOG, "w", encoding="utf-8") as f:
+                f.write(traceback.format_exc())
+        except Exception:
+            pass
+        _msgbox("mio-taskhub 启动失败", f"启动失败，错误详情已写入：\n{LOG}")
+        raise
