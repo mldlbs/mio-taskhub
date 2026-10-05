@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added — 记忆观测层自 mneme 迁入（任务 8a966293，FR-1~FR-10）
+
+- 新增 `GET /api/v1/memory/observatory/data?logs=1`：`MIO_HOME`（`memory.jsonl` + `experience_reuse.jsonl`）只读投影为图谱 JSON（实体/关系/meta），mtime 缓存 + `threading.Lock` 双检，零写入、不走 MCP、无 Node 依赖；坏行计入 `meta.skipped` 不中断；错误体 `{"error": "..."}`。
+- 新增 `mio_taskhub/memory_observatory.py` 投影模块与 Rail「记忆观测」视图（`MemoryObservatoryView` + `lib/observatoryAdjacency.js` 纯函数邻接表）：卡片网格、类型筛选、观察视图日志默认隐藏/一键展开、本地过滤（标注非权威检索）、复用热度徽标（阈值 ≥8 高 / ≥3 中，对齐 mneme 现值）、详情出入边 ego 跳转、提示词片段复制/导出（启发式标注）、项目/来源聚合面板。
+- 新增配置 `MIO_OBSERVATORY_HIDE_LOGS`（非空强制隐藏日志实体，`logs=1` 失效）；测试 `tests/test_memory_observatory.py` 11 用例对标 mneme 投影语义；mneme 源仓库零改动。
+
 ## v0.5.3 (2026-10-05)
 
 ### Added — 想法生产闸门重写：INBOX 分级 + 价值加权 + 带宽感知

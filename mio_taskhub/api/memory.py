@@ -7,14 +7,18 @@
 - POST /api/memory/policy/check — 策略检查
 - POST /api/memory/observer/ingest — 观察事件
 - POST /api/memory/experience/reuse — 经验复用
+- GET  /api/memory/observatory/data — 记忆观测图谱（MIO_HOME 只读投影，FR-1）
 """
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from mio_taskhub import memory_observatory as observatory
 from mio_taskhub import memory_store as store
 from mio_taskhub.events import emit_event
 from mio_taskhub.db import get_session
@@ -163,3 +167,23 @@ def experience_reuse(body: ExperienceReuseRequest):
     except Exception as e:
         store.record_call("experience_reuse", "error")
         raise HTTPException(500, detail={"error": str(e)})
+
+
+@router.get("/observatory/data")
+def observatory_data(
+    logs: bool = Query(False, description="1/true 展开 task-outcome 日志实体（观察视图）"),
+):
+    """记忆观测图谱（FR-1）：MIO_HOME 只读投影 + mtime 缓存（FR-6）。
+
+    默认隐藏 note+task-outcome 日志（FR-2）；logs=1 展开；
+    MIO_OBSERVATORY_HIDE_LOGS 设任意非空值强制隐藏（logs 失效）。
+    错误体为 {"error": "..."}（api 契约，非 detail 包装）。
+    """
+    try:
+        show_logs = (not observatory.env_force_hide_logs()) and bool(logs)
+        data = observatory.build_data_cached(show_logs)
+        store.record_call("observatory_data", "ok")
+        return data
+    except Exception as e:
+        store.record_call("observatory_data", "error")
+        return JSONResponse(status_code=500, content={"error": str(e)})

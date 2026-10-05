@@ -17,6 +17,7 @@ import StatsView from './components/StatsView'
 import ObservabilityView from './components/ObservabilityView'
 import MemoryView from './components/MemoryView'
 import MioRuntimeView from './components/MioRuntimeView'
+import MemoryObservatoryView from './components/MemoryObservatoryView'
 import SettingsView from './components/SettingsView'
 import ScheduledJobsView from './components/ScheduledJobsView'
 import CreateModal from './components/CreateModal'
@@ -451,6 +452,9 @@ export default function App() {
             )}
             {view === 'mio' && (
               <MioRuntimeView />
+            )}
+            {view === 'observatory' && (
+              <MemoryObservatoryView />
             )}
             {view === 'settings' && (
               <SettingsView />

@@ -72,6 +72,14 @@ const VIEWS = [
       <path d="M10 3v3M14 3v3M10 18v3M14 18v3M3 10h3M3 14h3M18 10h3M18 14h3" />
     </svg>
   )},
+  { id: 'observatory', label: '记忆观测', icon: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="6" cy="6.5" r="2.5" />
+      <circle cx="18" cy="8.5" r="2.5" />
+      <circle cx="12" cy="18" r="2.5" />
+      <path d="M8.4 7.4l7.2 0.9M7.1 8.7l3.6 7M16.7 10.6l-3.3 5.2" />
+    </svg>
+  )},
 ]
 
 const GEAR_ICON = (
