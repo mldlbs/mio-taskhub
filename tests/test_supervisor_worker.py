@@ -58,12 +58,60 @@ def test_backoff_policy():
 
 
 def test_job_object_usage():
-    """FR-3：Job Object KILL_ON_JOB_CLOSE；Assign/SetInformation 失败降级 warn 不阻断。"""
+    """FR-3：Job Object KILL_ON_JOB_CLOSE + BREAKAWAY_OK；Assign/SetInformation 失败降级 warn 不阻断。"""
     src = _src()
     assert "CreateJobObjectW(" in src
     assert "JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE" in src
+    assert "JOB_OBJECT_LIMIT_BREAKAWAY_OK" in src
     assert "AssignProcessToJobObject(" in src
     assert "job object degraded" in src
+
+
+def test_job_breakaway_ok_set_on_real_job():
+    """回归（2026-10-06「下载完安装不了」）：真建 Job 并 Query —— 必须同时含
+    KILL_ON_JOB_CLOSE（FR-3 防孤儿）与 BREAKAWAY_OK（updater 脱离，否则 hub 退出
+    CloseHandle(job) 时被内核连带杀死）。"""
+    import ctypes
+    from ctypes import wintypes
+    mod = _load_run_hub()
+    job = mod._create_job()
+    assert job, "CreateJobObjectW failed"
+    try:
+        k32 = mod._k32()
+        # QueryInformationJobObject 未在 _k32() 里绑定签名：显式绑定避免 64 位句柄截断
+        k32.QueryInformationJobObject.argtypes = [
+            wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p,
+            wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+        k32.QueryInformationJobObject.restype = wintypes.BOOL
+        info = mod._JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+        ret = wintypes.DWORD(0)
+        ok = k32.QueryInformationJobObject(
+            job, mod.JobObjectExtendedLimitInformation,
+            ctypes.byref(info), ctypes.sizeof(info), ctypes.byref(ret))
+        assert ok, "QueryInformationJobObject err=%d" % ctypes.get_last_error()
+        flags = info.BasicLimitInformation.LimitFlags
+        assert flags & mod.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, hex(flags)
+        assert flags & mod.JOB_OBJECT_LIMIT_BREAKAWAY_OK, hex(flags)
+    finally:
+        mod._k32().CloseHandle(job)
+
+
+def test_hub_lock_is_port_scoped():
+    """回归（2026-10-06）：单实例锁按端口域化 —— 同端口互斥、异端口可并存
+    （使用说明 8081 换端口 workaround + 多端口测试隔离需要）。"""
+    mod = _load_run_hub()
+    a = mod._single_hub_instance(48911)
+    try:
+        assert a not in (0, None), "锁创建失败: %r" % a
+        dup = mod._single_hub_instance(48911)
+        assert dup is None, "同端口重复启动必须被拒绝"
+        b = mod._single_hub_instance(48912)
+        try:
+            assert b not in (0, None), "异端口实例必须放行: %r" % b
+        finally:
+            mod._release_hub_lock(b)
+    finally:
+        mod._release_hub_lock(a)
 
 
 def test_exit_event_name():

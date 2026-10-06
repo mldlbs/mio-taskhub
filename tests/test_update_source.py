@@ -1,7 +1,9 @@
 import json
 import pytest
 
-from mio_taskhub.update.source import GitHubReleaseSource, SourceError
+from mio_taskhub.update.source import (
+    GitHubReleaseSource, SourceError, release_asset_api_url,
+)
 
 MANIFEST = {
     "schema": 1, "version": "0.4.0", "channel": "stable",
@@ -148,3 +150,50 @@ def test_non_github_base_has_no_api_fallback():
     src = GitHubReleaseSource(base_url="http://internal.local/updates", opener=opener)
     with pytest.raises(SourceError):
         src.fetch_manifest()
+
+
+# ---- release_asset_api_url：直链 → api.github.com 资产 URL（下载兜底） ----
+
+def test_release_asset_api_url_resolves_asset_id():
+    def opener(url):
+        assert url == ("https://api.github.com/repos/mldlbs/mio-taskhub"
+                       "/releases/tags/v0.5.0")
+        return json.dumps({"assets": [
+            {"name": "latest.json", "id": 1},
+            {"name": "mio-taskhub-win64.zip", "id": 611766233},
+        ]}).encode()
+
+    u = release_asset_api_url(
+        "https://github.com/mldlbs/mio-taskhub/releases/download/"
+        "v0.5.0/mio-taskhub-win64.zip", opener=opener)
+    assert u == ("https://api.github.com/repos/mldlbs/mio-taskhub"
+                 "/releases/assets/611766233")
+
+
+def test_release_asset_api_url_rejects_non_github():
+    with pytest.raises(SourceError):
+        release_asset_api_url("https://evil.com/x.zip", opener=lambda u: b"{}")
+    with pytest.raises(SourceError):
+        release_asset_api_url("", opener=lambda u: b"{}")
+    with pytest.raises(SourceError):
+        release_asset_api_url("https://github.com/only-three-segments",
+                              opener=lambda u: b"{}")
+
+
+def test_release_asset_api_url_missing_asset():
+    def opener(url):
+        return json.dumps({"assets": [{"name": "other.zip", "id": 7}]}).encode()
+
+    with pytest.raises(SourceError):
+        release_asset_api_url("https://github.com/o/r/releases/download/v1/x.zip",
+                              opener=opener)
+
+
+def test_release_asset_api_url_wraps_query_failure():
+    def opener(url):
+        raise OSError("connection timed out")
+
+    with pytest.raises(SourceError) as ei:
+        release_asset_api_url("https://github.com/o/r/releases/download/v1/x.zip",
+                              opener=opener)
+    assert "connection timed out" in str(ei.value)

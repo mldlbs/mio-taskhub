@@ -67,6 +67,12 @@ def _update_menu_label(_item=None) -> str:
             return "重启并应用更新"
         if state == "downloading":
             return "下载中 %d%%" % st.get("progress", 0)
+        if state == "applying":
+            return "正在应用更新…"
+        if state == "done":
+            return "更新完成，重启中…"
+        if state == "failed":
+            return "更新失败，点击重试"
         if state == "needs_manual":
             return "需手动更新 (v%s)" % st.get("latest")
     except Exception:  # noqa: BLE001
@@ -97,10 +103,13 @@ def _on_update_clicked(icon=None, _item=None):
 
     if state == "ready":
         steps = ["apply"]
-    elif state in ("available", "check_failed", "up_to_date", "idle", "dismissed"):
+    elif state in ("available", "check_failed", "up_to_date", "idle",
+                   "dismissed", "failed"):
         steps = ["check", "download", "apply"]
     else:
+        _log("tray: update clicked in non-actionable state=%s -> ignored" % state)
         return
+    _log("tray: update clicked state=%s -> steps=%s" % (state, steps))
 
     if _update_busy.is_set():      # 防重入：下载/应用中再点不重复触发
         _notify(icon, "更新正在进行中…")
@@ -110,14 +119,34 @@ def _on_update_clicked(icon=None, _item=None):
     def _work():
         try:
             if "check" in steps:
-                svc.check()
+                st = svc.check()
+                _log("tray: check -> state=%s latest=%s err=%s"
+                     % (st.get("state"), st.get("latest"), st.get("error") or "-"))
+                s2 = st.get("state")
+                if s2 == "up_to_date":
+                    _notify(icon, "已是最新版本 (v%s)" % st.get("latest"))
+                elif s2 == "check_failed":
+                    _notify(icon, "检查更新失败：%s" % (st.get("error") or "网络异常"))
+                elif s2 == "needs_manual":
+                    _notify(icon, "需手动更新 (v%s)" % st.get("latest"))
             if "download" in steps and svc.status().get("state") == "available":
-                svc.download()
+                _log("tray: download start latest=%s" % svc.status().get("latest"))
+                st = svc.download()
+                _log("tray: download -> state=%s err=%s"
+                     % (st.get("state"), st.get("error") or "-"))
             if "apply" in steps and svc.status().get("state") == "ready":
-                svc.apply()
+                _log("tray: apply start")
+                st = svc.apply()
+                _log("tray: apply -> state=%s err=%s"
+                     % (st.get("state"), st.get("error") or "-"))
+                if st.get("state") == "done":
+                    _notify(icon, "更新已触发，应用即将重启")
             st = svc.status()
             if st.get("state") == "failed":
+                _log("tray: update failed: %s" % st.get("error"))
                 _notify(icon, "更新失败：%s" % (st.get("error") or "见 apply.log"))
+            else:
+                _log("tray: update end state=%s" % st.get("state"))
         except Exception as e:  # noqa: BLE001
             _log("tray: update action failed: %r" % e)
             _notify(icon, "更新失败：%s" % e)
@@ -348,12 +377,16 @@ def _port_in_use(host, port):
         return s.connect_ex((host, port)) == 0
 
 
-_HUB_LOCK = "mio-taskhub-hub-instance"
+_HUB_LOCK = "mio-taskhub-hub-instance"  # 锁名前缀（按端口域化，见 _single_hub_instance）
 _ERROR_ALREADY_EXISTS = 183
 
 
-def _single_hub_instance():
-    """命名互斥锁：确保只有一个 hub 实例（避免重复启动出现多托盘）。
+def _single_hub_instance(port: int):
+    """命名互斥锁：确保**同端口**只有一个 hub 实例（避免重复启动出现多托盘）。
+
+    锁名带端口后缀（2026-10-06）：全局锁会把「换 MIO_TASKHUB_PORT 启动第二实例」
+    （使用说明【常见问题】8081 workaround）与多端口测试隔离一并拒绝；同端口重复
+    启动仍被拒绝，僵尸多托盘保护不变。
 
     读取 GetLastError 必须用 WinDLL(use_last_error=True) + ctypes.get_last_error()；
     原实现跨两次 FFI 调用读 kernel32.GetLastError()，错误码会被 ctypes 内部调用覆盖，
@@ -361,7 +394,7 @@ def _single_hub_instance():
     """
     try:
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        handle = kernel32.CreateMutexW(None, False, _HUB_LOCK)
+        handle = kernel32.CreateMutexW(None, False, "%s-%d" % (_HUB_LOCK, int(port)))
         if not handle:
             return 0  # 创建失败：保持旧行为放行（_release_hub_lock 对 0 自动跳过）
         if ctypes.get_last_error() == _ERROR_ALREADY_EXISTS:
@@ -442,6 +475,7 @@ CREATE_SUSPENDED = 0x00000004
 WAIT_OBJECT_0 = 0
 SYNCHRONIZE = 0x00100000
 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+JOB_OBJECT_LIMIT_BREAKAWAY_OK = 0x800
 JobObjectExtendedLimitInformation = 9
 
 
@@ -617,7 +651,13 @@ class _ExitController:
 
 def _create_job():
     """FR-3 防孤儿：Job Object + KILL_ON_JOB_CLOSE（supervisor 死 → 内核连带杀 worker）。
-    任一步失败 → CloseHandle + warn 降级返回 None（不阻断启动，_reclaim_port 兜底）。"""
+    任一步失败 → CloseHandle + warn 降级返回 None（不阻断启动，_reclaim_port 兜底）。
+
+    BREAKAWAY_OK（2026-10-06「下载完安装不了」根因修复）：HTTP apply 路径的 updater
+    由 job 内的 worker spawn，默认继承 job；supervisor 退出 CloseHandle(job) 时
+    KILL_ON_JOB_CLOSE 会把正在执行替换的 updater 一并杀死 → 更新永远失败。
+    开 BREAKAWAY_OK 后 runner 以 CREATE_BREAKAWAY_JOB spawn updater 即可脱离 job。
+    """
     k32 = _k32()
     try:
         job = k32.CreateJobObjectW(None, None)
@@ -626,7 +666,8 @@ def _create_job():
                  % ctypes.get_last_error(), role="supervisor")
             return None
         info = _JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        info.BasicLimitInformation.LimitFlags = (
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK)
         if not k32.SetInformationJobObject(job, JobObjectExtendedLimitInformation,
                                            ctypes.byref(info), ctypes.sizeof(info)):
             _log("job object degraded: SetInformationJobObject err=%d"
@@ -835,7 +876,7 @@ def main(worker: bool = False):
 
     url = f"http://127.0.0.1:{port}"
 
-    lock = _single_hub_instance()
+    lock = _single_hub_instance(port)
     if lock is None:
         # 已有 hub 在运行，静默退出（避免出现第二个托盘图标）
         return

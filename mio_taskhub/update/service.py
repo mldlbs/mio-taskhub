@@ -179,20 +179,41 @@ class UpdateService:
             self._progress = 0
         url = self._asset.url
         dest = self.update_dir / ("mio-taskhub-%s.zip" % self._manifest.version)
+        err = ""
         try:
             self._download(url, dest, self._asset.sha256, size=self._asset.size,
                            progress=self._on_progress)
         except Exception as e:  # noqa: BLE001
+            err = str(e)
+            # 主直链（github.com）失败 → 尝试 api.github.com 资产 URL 兜底
+            fb = self._fallback_url(url)
+            if fb:
+                try:
+                    self._download(fb, dest, self._asset.sha256,
+                                   size=self._asset.size, progress=self._on_progress)
+                    err = ""           # 兜底成功
+                except Exception as e2:  # noqa: BLE001
+                    err = "%s；API 兜底也失败：%s" % (err, e2)
+        if err:
             with self._lock:
                 self._state = UpdateState.FAILED
-                self._error = str(e)
+                self._error = err
             self._emit("update_failed")
-            return self.status()
-        with self._lock:
-            self._state = UpdateState.READY
-            self._progress = 100
-        self._emit("update_ready")
+        else:
+            with self._lock:
+                self._state = UpdateState.READY
+                self._progress = 100
+            self._emit("update_ready")
         return self.status()
+
+    def _fallback_url(self, primary: str):
+        """主直链下载失败 → 推导 api.github.com 资产兜底 URL；失败返回 None。"""
+        try:
+            from mio_taskhub.update.source import release_asset_api_url
+            return release_asset_api_url(primary,
+                                         opener=getattr(self.source, "_opener", None))
+        except Exception:  # noqa: BLE001
+            return None
 
     def _on_progress(self, done: int, total: int) -> None:
         self._progress = int(done * 100 / total) if total else 0
@@ -221,7 +242,14 @@ class UpdateService:
                 self._error = "未配置更新执行器（apply_runner）"
             self._emit("update_failed")
             return self.status()
-        rc = self._apply_runner(self.install, zip_path, self._manifest, os.getpid())
+        try:
+            rc = self._apply_runner(self.install, zip_path, self._manifest, os.getpid())
+        except Exception as e:  # noqa: BLE001 —— 触发失败不得卡死 applying / 抛 500
+            with self._lock:
+                self._state = UpdateState.FAILED
+                self._error = "触发更新失败：%s" % e
+            self._emit("update_failed")
+            return self.status()
         with self._lock:
             self._state = UpdateState.DONE if rc == 0 else UpdateState.FAILED
             if rc != 0:

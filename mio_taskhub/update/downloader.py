@@ -32,7 +32,12 @@ def _default_opener(url: str, timeout: float = 60.0):
 
     不走代理——本机 WinINET/env 代理常是死的，会直接导致下载失败。
     """
-    req = urllib.request.Request(url, headers={"User-Agent": "mio-taskhub-updater"})
+    # Accept: api.github.com 资产端点必须带 octet-stream 才会 302 到 CDN
+    # （否则返回元数据/断连）；对 github.com/CDN 直链无副作用。
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "mio-taskhub-updater",
+        "Accept": "application/octet-stream",
+    })
     resp = _direct_opener().open(req, timeout=timeout)
 
     def gen():

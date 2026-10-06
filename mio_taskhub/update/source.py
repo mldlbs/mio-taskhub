@@ -106,5 +106,36 @@ class GitHubReleaseSource:
         return manifest_from_dict(pseudo, require_sha=False)
 
 
+def release_asset_api_url(primary_url: str, opener=None) -> str:
+    """GitHub release 直链 → api.github.com 资产下载 URL（下载兜底用）。
+
+    本网络下 github.com TCP 经常连接/握手超时（直链下载失败），而
+    api.github.com 与 release-assets CDN 通常可达：把
+    `https://github.com/<o>/<r>/releases/download/<tag>/<file>` 解析后经
+    `GET /repos/<o>/<r>/releases/tags/<tag>` 取 asset id，再拼
+    `GET /repos/<o>/<r>/releases/assets/<id>`（带 octet-stream 即 302 到 CDN）。
+
+    解析失败/查询失败抛 SourceError；opener(url)->bytes 可注入（测试）。
+    """
+    from urllib.parse import urlparse
+    p = urlparse(primary_url or "")
+    segs = [s for s in p.path.split("/") if s]
+    if (p.netloc != "github.com" or len(segs) != 6
+            or segs[2:4] != ["releases", "download"]):
+        raise SourceError("非 GitHub release 直链，无 API 兜底：%s" % primary_url)
+    owner, repo, tag, filename = segs[0], segs[1], segs[4], segs[5]
+    op = opener or (lambda u: _default_opener(u, 10.0))
+    try:
+        rel = json.loads(op("https://api.github.com/repos/%s/%s/releases/tags/%s"
+                            % (owner, repo, tag)).decode("utf-8"))
+    except Exception as e:  # noqa: BLE001
+        raise SourceError("release API 资产查询失败：%s" % e) from e
+    for a in rel.get("assets") or []:
+        if a.get("name") == filename and a.get("id"):
+            return ("https://api.github.com/repos/%s/%s/releases/assets/%s"
+                    % (owner, repo, a["id"]))
+    raise SourceError("release API 无资产 %s" % filename)
+
+
 def default_source() -> GitHubReleaseSource:
     return GitHubReleaseSource()

@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import json
+
 import pytest
 
 from mio_taskhub.update.manifest import manifest_from_dict
@@ -136,6 +138,32 @@ def test_apply_frozen_ready_calls_runner(tmp_path, monkeypatch):
     assert st["error"]
 
 
+def test_apply_runner_exception_marks_failed_not_stuck(tmp_path, monkeypatch):
+    """回归（2026-10-06）：apply_runner 抛异常必须落 FAILED + error，
+    不得让状态卡死在 applying、也不得向 HTTP 传播 500。"""
+    svc = UpdateService(
+        source=FakeSource(manifest_from_dict(MANIFEST)),
+        downloader=lambda *a, **k: a[1],
+        install_dir=tmp_path / "app",
+        current_version="0.3.0",
+        prefs_path=tmp_path / "prefs.json",
+        update_dir=tmp_path / "updates",
+    )
+    svc._manifest = manifest_from_dict(MANIFEST)
+    svc._asset = svc._manifest.asset_for("windows", "x64")
+    svc._state = UpdateState.READY
+    monkeypatch.setattr("mio_taskhub.version.is_frozen", lambda: True)
+
+    def _boom(*a, **k):
+        raise OSError("spawn denied")
+
+    svc._apply_runner = _boom
+    st = svc.apply()
+    assert st["state"] == UpdateState.FAILED.value
+    assert "触发更新失败" in st["error"]
+    assert "spawn denied" in st["error"]
+
+
 def test_get_service_has_apply_runner(monkeypatch):
     """回归：生产单例必须注入真实 apply_runner，否则 apply() 永远不可用。"""
     from mio_taskhub.update import service as svc_mod
@@ -175,3 +203,64 @@ def test_dismiss_emits_outside_lock(tmp_path):
     svc.dismiss()
     assert "update_dismissed" in events
     assert svc.status()["state"] == UpdateState.DISMISSED.value
+
+
+# ---- 下载兜底：主直链失败 → api.github.com 资产 URL 重试（FR：github.com 不稳） ----
+
+_TAG_JSON = json.dumps(
+    {"assets": [{"name": "mio-taskhub-win64.zip", "id": 42}]}).encode()
+
+
+def _svc_with_downloader(tmp_path, dl):
+    svc = _svc(tmp_path, manifest_from_dict(MANIFEST), current="0.3.0")
+    svc.check()
+    svc._download = dl
+    return svc
+
+
+def test_download_falls_back_to_api_asset(tmp_path):
+    urls = []
+
+    def dl(url, dest, sha, size=None, progress=None):
+        urls.append(url)
+        if "api.github.com" not in url:
+            raise RuntimeError("connect timeout")
+        return dest
+
+    svc = _svc_with_downloader(tmp_path, dl)
+    svc.source._opener = lambda url: _TAG_JSON
+    st = svc.download()
+    assert st["state"] == UpdateState.READY.value
+    assert urls[0].startswith("https://github.com/")
+    assert urls[1] == ("https://api.github.com/repos/mldlbs/mio-taskhub"
+                       "/releases/assets/42")
+
+
+def test_download_fallback_failure_reports_both_errors(tmp_path):
+    def dl(url, dest, sha, size=None, progress=None):
+        raise RuntimeError("primary-down" if "api." not in url else "fb-down")
+
+    svc = _svc_with_downloader(tmp_path, dl)
+    svc.source._opener = lambda url: _TAG_JSON
+    st = svc.download()
+    assert st["state"] == UpdateState.FAILED.value
+    assert "primary-down" in st["error"]
+    assert "fb-down" in st["error"] and "兜底" in st["error"]
+
+
+def test_download_no_fallback_when_url_unparseable(tmp_path):
+    """非 GitHub release 直链 → 不兜底不触网，原样报主错误。"""
+    m = manifest_from_dict(dict(
+        MANIFEST,
+        assets=[dict(MANIFEST["assets"][0], url="https://github.com/x")]))
+    svc = _svc(tmp_path, m, current="0.3.0")
+    svc.check()
+
+    def dl(url, dest, sha, size=None, progress=None):
+        raise RuntimeError("primary-down")
+
+    svc._download = dl  # FakeSource 无 _opener；解析失败也不会触网
+    st = svc.download()
+    assert st["state"] == UpdateState.FAILED.value
+    assert "primary-down" in st["error"]
+    assert "兜底" not in st["error"]
