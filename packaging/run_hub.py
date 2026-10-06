@@ -814,6 +814,37 @@ def _watch_exit_event(port: int, current: dict) -> None:
             pass
 
 
+EXIT_HARD_GRACE_S = 25.0
+
+
+def _hard_exit_watchdog(current, grace=EXIT_HARD_GRACE_S, poll=0.25, exit_fn=None):
+    """退出请求超过 grace 秒仍未退出 → 强制 os._exit(0)（更新/退出兜底）。
+
+    2026-10-06 实测根因：uvicorn 完全关闭后 MainThread 卡在 asyncio loop.close()
+    的 IocpProactor.close()（`while self._cache: _poll(1s)`，被取消的 IOCP 叠加
+    操作永不到达，面板 WS 连接残留时可复现），进程永不退出 → updater 等 hub
+    退出超时放弃替换 →「更新不了」。exit code 0 → supervisor 按收敛语义
+    （expected_exit or code==0，run_hub._supervisor_loop）退出，updater 完成替换。
+    """
+    deadline = None
+    while True:
+        time.sleep(poll)
+        if not current.get("exit"):
+            continue
+        if deadline is None:
+            deadline = time.monotonic() + grace
+        elif time.monotonic() >= deadline:
+            _log("exit stuck beyond %.0fs grace, force os._exit(0)" % grace,
+                 role="worker")
+            try:
+                sys.stdout.flush()
+                sys.stderr.flush()
+            except Exception:  # noqa: BLE001 —— flush 失败不阻塞强退
+                pass
+            (exit_fn or os._exit)(0)
+            return
+
+
 def _worker_main(port: int):
     """worker 分支（FR-1/FR-4）：uvicorn 守卫循环 + 命名事件 drain 监听。
 
@@ -842,6 +873,8 @@ def _worker_main(port: int):
     set_exit_callback(_request_hub_exit)
     threading.Thread(target=_watch_exit_event, args=(port, current),
                      daemon=True, name="worker-exit-event").start()
+    threading.Thread(target=_hard_exit_watchdog, args=(current,),
+                     daemon=True, name="hard-exit-watchdog").start()
 
     # 守卫循环：uvicorn 崩溃/异常后退 2 秒自动重启（既有语义原样迁移）
     while True:

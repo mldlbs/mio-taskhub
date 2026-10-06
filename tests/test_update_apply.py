@@ -1,4 +1,5 @@
 import os
+import sys
 import pytest
 
 from mio_taskhub.update.apply import (
@@ -195,6 +196,45 @@ def test_wait_healthy_tolerates_malformed_runtime(tmp_path):
 def test_wait_pid_exit_immediate_for_dead_pid():
     # 用一个几乎不可能存在的 PID
     assert wait_pid_exit(999999999, timeout=1.0, poll=0.1) is True
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="purge 依赖 Windows 进程映像路径")
+def test_list_and_purge_processes_under(tmp_path):
+    """FR-3：清场必须杀掉 install 目录下映像的进程（防 rename PermissionError）。"""
+    import shutil
+    import subprocess
+
+    from mio_taskhub.update.apply import list_processes_under, purge_processes_under
+
+    assert purge_processes_under(tmp_path, timeout=1.0) is True
+    src = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "System32", "PING.EXE")
+    if not os.path.exists(src):
+        pytest.skip("ping.exe 不可用")
+    exe = tmp_path / "lingering.exe"
+    shutil.copy2(src, exe)
+    proc = subprocess.Popen([str(exe), "-t", "127.0.0.1"],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        assert any(pid == proc.pid for pid, _ in list_processes_under(tmp_path))
+        assert purge_processes_under(tmp_path, timeout=10.0) is True
+        proc.wait(timeout=5)
+        assert not any(pid == proc.pid for pid, _ in list_processes_under(tmp_path))
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="purge 依赖 Windows 进程映像路径")
+def test_purge_does_not_kill_unrelated_paths(tmp_path):
+    """FR-3 反向：其他目录下的进程不受清场影响。"""
+    from mio_taskhub.update.apply import purge_processes_under
+
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+    target = tmp_path / "app"
+    target.mkdir()
+    assert purge_processes_under(target, timeout=1.0) is True
 
 
 def test_recover_residual_cleans_staging(tmp_path):

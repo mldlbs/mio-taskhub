@@ -6,6 +6,7 @@ spec 测试计划 7 用例：源码文本 + importlib 加载断言，不启动�
 import importlib.util
 import inspect
 import re
+import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -131,6 +132,42 @@ def test_worker_no_tray_no_lock():
     body = inspect.getsource(_load_run_hub()._worker_main)
     for token in ("_single_hub_instance", "_start_tray", "_reclaim_port"):
         assert token not in body, token
+
+
+def test_worker_starts_hard_exit_watchdog():
+    """更新/退出兜底：worker 必须启动硬退看门狗（防 loop.close 挂死阻塞更新）。"""
+    body = inspect.getsource(_load_run_hub()._worker_main)
+    assert "_hard_exit_watchdog" in body
+
+
+def test_hard_exit_watchdog_forces_exit_after_grace():
+    """退出请求超 grace 仍存活 → 以 exit code 0 强退（supervisor 收敛不重启）。"""
+    mod = _load_run_hub()
+    current = {"exit": True}
+    codes = []
+    mod._hard_exit_watchdog(current, grace=0.01, poll=0.05, exit_fn=codes.append)
+    assert codes == [0]
+
+
+def test_hard_exit_watchdog_idle_without_exit_request():
+    """未请求退出时看门狗不得强退（守护循环语义不变）。"""
+    mod = _load_run_hub()
+    current = {"exit": False}
+    codes = []
+    fired = threading.Event()
+
+    def _exit_fn(code):
+        codes.append(code)
+        fired.set()
+
+    t = threading.Thread(target=mod._hard_exit_watchdog,
+                         args=(current,), kwargs={"grace": 0.01, "poll": 0.02,
+                                                  "exit_fn": _exit_fn})
+    t.daemon = True
+    t.start()
+    t.join(timeout=0.3)
+    assert not fired.is_set()
+    assert codes == []
 
 
 def test_no_uvicorn_workers_n():
