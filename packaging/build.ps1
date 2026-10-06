@@ -13,7 +13,7 @@ Set-Location $root
 Write-Host ''
 Write-Host '[0/6] 杀掉所有 mio-taskhub 进程 ...'
 Get-WmiObject Win32_Process | Where-Object {
-    $_.CommandLine -like '*mio-taskhub*' -and $_.CommandLine -notlike '*mcp*'
+    $_.Name -eq 'mio-taskhub.exe'
 } | ForEach-Object {
     Write-Host "  killing PID $($_.ProcessId): $($_.ProcessName)"
     Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
