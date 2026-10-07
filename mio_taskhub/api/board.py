@@ -110,7 +110,50 @@ def _check_alerts(db, tasks, active, now):
                 "level": "warning",
                 "message": f"任务「{t.title}」（{t.id}）依赖阻塞（前置「{blocked[0].title}」已取消/失败），无法放行",
             })
+    alerts.extend(_ready_dependency_alerts(db, tasks))
     return alerts, overdue
+
+
+def _ready_dependency_alerts(db, tasks):
+    """READY 阶段的依赖盲区告警（2026-10-07）。
+
+    既有告警只覆盖 `stage ∈ {brainstorming, design, planning}`——依赖未满足时
+    `_release_dependencies` 不放行，逻辑成立。但**已经 READY 的任务不受任何门控**：
+    `claim.py:68` 与 `background.py:389` 的候选查询都只判
+    `state==QUEUED and stage==READY`，**不检查 `depends_on`**，因此前置未完成的
+    任务同样能被领走（隔离库实测：前置 queued 时 claim 返回 200）。
+
+    本函数**只做可见性，不改行为**：把两类问题暴露出来——
+      1. 死结：前置已 CANCELLED/FAILED → 该链**永远**不会被 release
+      2. 越级：前置仍在进行 → 随时可能被提前领走
+    """
+    out = []
+    for t in tasks:
+        if t.state != TaskState.QUEUED or _stage(t.stage) != "ready":
+            continue
+        deps = task_deps(t)
+        if not deps:
+            continue
+        prereqs = [db.get(Task, d) for d in deps if d]
+        dead = [p for p in prereqs if p is not None and is_terminal(p)
+                and not dependency_satisfied(p)]
+        if dead:
+            out.append({
+                "level": "warning",
+                "message": (f"任务「{t.title}」（{t.id}）已READY 但依赖死结"
+                            f"（前置「{dead[0].title}」{dead[0].state.value}）"
+                            f"—— 该依赖链永远不会放行，需人工取消本任务"),
+            })
+            continue
+        pending = [p for p in prereqs if p is not None and not dependency_satisfied(p)]
+        if pending:
+            out.append({
+                "level": "info",
+                "message": (f"任务「{t.title}」（{t.id}）已 READY 但前置"
+                            f"「{pending[0].title}」未完成—— READ 阶段无依赖门控，"
+                            f"可能被提前领走"),
+            })
+    return out
 
 
 def _recent_done(db):

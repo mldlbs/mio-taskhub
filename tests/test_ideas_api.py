@@ -180,7 +180,9 @@ def test_change_tracking_task_created_and_dedup():
         ct = [t for t in tasks if t["idea_id"] == iid and t["title"].startswith("[变更]")]
         assert len(ct) == 1
         assert ct[0]["title"] == "[变更] 需求A v2"
-        assert ct[0]["stage"] == "review"
+        # 建单落 READY（可领取），不是 REVIEW——见 ideas.py::_upsert_change_tracking_task
+        # 注释：建单即 REVIEW 会成为孤儿态（不在 claim / 派单候选内，实测 5 条滞留 3~9 天）。
+        assert ct[0]["stage"] == "ready"
         det = (await c.get(f"/api/v1/tasks/{ct[0]['id']}")).json()
         assert "v2" in det["description"]
         assert "需求方补充" in det["description"]
@@ -190,6 +192,47 @@ def test_change_tracking_task_created_and_dedup():
         ct = [t for t in tasks if t["idea_id"] == iid and t["title"].startswith("[变更]")]
         assert len(ct) == 1
         assert ct[0]["title"] == "[变更] 需求A v3"
+    _with_client(k)
+
+
+def test_change_tracking_task_is_claimable():
+    """回归护栏：变更任务必须落在可领取状态，否则成为孤儿态。
+
+    背景（2026-10-07 修复）：`_upsert_change_tracking_task` 曾把 `stage` 直接
+    写成 REVIEW，而所有领取入口（`claim.py:68` 主动 claim、`background.py:389`
+    自动派单）**都只选 `stage==READY`** —— 该任务既不在 claim 候选也不在派单
+    候选，state 永远停在 QUEUED，事实上的孤儿态。生产库实测 5 条这样滞留了
+    3~9 天（claimed_at=None、taskevent 0 条）。
+    """
+    async def k(c):
+        iid = (await c.post("/api/v1/ideas", json={"title": "可领取需求"})).json()["id"]
+        await c.post(f"/api/v1/ideas/{iid}/breakdown", json={
+            "tasks": [{"ref": "t1", "title": "实现A"}]
+        })
+        await c.patch(f"/api/v1/ideas/{iid}",
+                      json={"description": "v2", "change_reason": "补充"})
+        tasks = (await c.get("/api/v1/tasks")).json()
+        ct = [t for t in tasks
+              if t["idea_id"] == iid and t["title"].startswith("[变更]")]
+        assert len(ct) == 1
+        tid = ct[0]["id"]
+        assert ct[0]["stage"] == "ready", "变更任务必须落READY 才可被领取"
+        assert ct[0]["state"] == "queued"
+        # 关键断言：能被现有 claim 领走（不新增领取端点）
+        r = await c.post("/api/v1/tasks/claim",
+                          params={"agent": "ct-agent", "task_id": tid})
+        assert r.status_code == 200, f"变更任务无法被领取：{r.text[:200]}"
+        det = (await c.get(f"/api/v1/tasks/{tid}")).json()
+        assert det["state"] == "claimed"
+        assert det["attempt"] == 1
+        # 注：_task_detail 不返回 claimed_at，DB 层另行核对
+        from sqlmodel import Session
+        from mio_taskhub.db import engine
+        from mio_taskhub.models import Task
+        with Session(engine) as s:
+            row = s.get(Task, tid)
+            assert row.claimed_at is not None, "领取后应写 claimed_at"
+            assert row.stage == "implementing"
     _with_client(k)
 
 

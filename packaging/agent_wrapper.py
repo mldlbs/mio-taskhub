@@ -2,7 +2,7 @@
 # Usage: python agent_wrapper.py <agent_name> <action> [args...]
 # Actions: register | claim | heartbeat | result | heartbeat-agent | list
 
-import sys, json, time, os, urllib.request, urllib.error
+import sys, json, time, os, urllib.request, urllib.error, urllib.parse
 
 HUB = "http://127.0.0.1:48620/api/v1"
 
@@ -45,14 +45,15 @@ def main():
 
     elif action == "heartbeat":
         run_id, progress = sys.argv[3], int(sys.argv[4] or 50)
-        r = req("POST", f"/runs/{run_id}/heartbeat", {"progress": progress})
+        #带 agent：服务端据此校验 run 所有权（P0 d1b54de0）
+        r = req("POST", f"/runs/{run_id}/heartbeat?agent={urllib.parse.quote(agent)}", {"progress": progress})
         print(f"Heartbeat: progress={r['progress']}% state={r['state']}")
 
     elif action == "result":
         run_id = sys.argv[3]
         success = sys.argv[4].lower() in ("true", "1", "yes", "success")
         msg = sys.argv[5] if len(sys.argv) > 5 else ("done" if success else "failed")
-        r = req("POST", f"/runs/{run_id}/result", {"success": success, "result": msg})
+        r = req("POST", f"/runs/{run_id}/result?agent={urllib.parse.quote(agent)}", {"success": success, "result": msg})
         print(f"Result submitted: state={r['state']} result={r['result']}")
 
     elif action == "heartbeat-agent":

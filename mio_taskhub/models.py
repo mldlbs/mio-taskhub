@@ -167,7 +167,12 @@ class Task(SQLModel, table=True):
     last_transition_at: Optional[datetime] = Field(default=None, index=True)
     block_reason: str = ""
     bounce_count: int = 0
+    # 调度方式：True = 仅允许 Agent 主动领取（不进入 dispatcher 自动派单候选）
+    # FR-1。默认 False —— 存量任务行为必须与改造前完全一致（硬约束）。
+    # 不引入任何抢单状态机：领取仍走既有 claim() 的 CAS。
+    grab_mode: bool = False
     created_at: datetime = Field(default_factory=_now)
+
 
 class TaskEvent(SQLModel, table=True):
     """M1: 任务生命周期事件日志（task_events）。

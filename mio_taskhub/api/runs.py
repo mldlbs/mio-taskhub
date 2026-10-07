@@ -1,6 +1,8 @@
 from datetime import timedelta
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
+from sqlalchemy import update as sa_update
 from mio_taskhub.db import get_session
 from mio_taskhub.models import Run, RunState, Task, TaskEvent, TaskState, TaskStage
 from mio_taskhub.utils import _now
@@ -9,6 +11,65 @@ from mio_taskhub.workflow.transitions import apply_transition, _orm_to_status_st
 from mio_taskhub.workflow.state_machine import State, Stage, ActorType, IllegalTransition as M1Illegal
 
 router = APIRouter(prefix="/runs", tags=["runs"])
+
+
+# ── Run ownership guards (P0 d1b54de0) ─────────────────────────────────
+# 背景：heartbeat / submit_result 原先只按 run_id 取Run 就写，**不校验调用方
+# 是否是该 run 的持有者**——任何拿到 run_id 的调用方都能冒充他人 agent 把 run
+# 改成 running（续命）或提交结果（把他人任务标记 completed / 触发重试）。
+#
+# 设计取舍：`agent` 为**可选**参数。
+#   - 传了→ 严格校验所有权，不匹配 403（越权被拒）
+#   - 没传 → 维持修复前行为（不破坏存量调用方与既有测试）
+# 仓内调用方（packaging/agent_wrapper.py、packaging/idle_worker.py、
+# mcp_server.py 的 taskhub_heartbeat / taskhub_submit_result）均已持有 agent
+# 变量，应在接入时补传；外部 mio-agent-runtime 无引用（已 grep 确认）。
+#
+# 未传 agent 时的残余风险：仍可凭 run_id 越权。这是**已知限制**，不是修复完成态；
+# 彻底关闭需要 run 级凭证（claim 时下发 token），列入后续任务。
+
+def assert_run_owner(run: Run, agent: Optional[str]) -> None:
+    """校验调用方是该 run 的持有者。agent 为空则跳过（兼容旧调用方）。"""
+    if not agent:
+        return
+    if run.agent_name != agent:
+        raise HTTPException(403, detail={
+            "code": "run.not_owner",
+            "message": f"run {run.id} 属于 agent '{run.agent_name}'，当前 agent '{agent}' 无权操作",
+            "owner": run.agent_name,
+        })
+
+
+def assert_run_submittable(run: Run, task=None) -> None:
+    """提交结果的状态前置校验（所有权之后）。
+
+    注意：这里**只拦「重复的成功提交」**，不拦「迟到的结果」。项目既有能力
+    （`_handle_success` 的 late_result_recovery，2026-09-17 实测 12 例）要求：
+    reaper 判超时把 run 置finished 后，agent 迟到的提交仍返回 200，由业务层
+    依据 `_is_system_timeout_failure` 决定是否纠正——所以不能简单地
+    「finished 就拒绝」，否则会打断这条既有链路（tests/test_timeout_misjudge.py
+    的三个用例正是它的护栏）。
+
+    被拒的唯一情形：**成功结果已交接**（run 已 finished 且 `exit_code == 0`
+    且任务已 completed），再交一次会二次触发任务状态流转。
+
+    判据**不能**用 `progress == 100`：`submit_result` 对成功与失败**都**会把
+    progress 置 100，用它做判据会把「失败后迟到的成功」误判成重复提交——
+    而那恰恰是 late_result_recovery 必须放行的场景。
+    """
+    if run.state != RunState.FINISHED:
+        return
+    already_succeeded = (
+        run.exit_code == 0
+        and task is not None
+        and task.state == TaskState.COMPLETED
+    )
+    if already_succeeded:
+        raise HTTPException(409, detail={
+            "code": "run.result_already_submitted",
+            "message": f"run {run.id} 的成功结果已提交（任务已完成），不接受重复提交",
+            "state": run.state.value,
+        })
 
 
 # ── Run lifecycle ──────────────────────────────────────────────────────
@@ -93,16 +154,24 @@ def _is_system_timeout_failure(db, task) -> bool:
 
 
 @router.post("/{run_id}/heartbeat")
-def heartbeat(run_id: str, body: dict = None, db: Session = Depends(get_session)):
+def heartbeat(run_id: str, body: dict = None, agent: str = None,
+              db: Session = Depends(get_session)):
     body = body or {}
     run = db.get(Run, run_id)
     if not run:
         raise HTTPException(404)
-    run.state = RunState.RUNNING
-    run.last_heartbeat = _now()
-    if "progress" in body:
+    # P0 d1b54de0：所有权校验。不传 agent 则跳过（兼容旧调用方）。
+    assert_run_owner(run, agent)
+    # 已结束的 run 不接受心跳：避免与超时回收 / 正常完成竞争，把终态改回 running。
+    if run.state == RunState.FINISHED:
+        raise HTTPException(409, detail={
+            "code": "run.not_active",
+            "message": f"run {run.id} 已结束（state=finished），不再接受心跳",
+            "state": run.state.value,
+        })
+    if body.get("progress") is not None:
         run.progress = body["progress"]
-    if "checkpoint" in body:
+    if body.get("checkpoint") is not None:
         run.checkpoint = body["checkpoint"]
     task = db.get(Task, run.task_id)
     m1_event = None
@@ -115,6 +184,21 @@ def heartbeat(run_id: str, body: dict = None, db: Session = Depends(get_session)
         )
     event = emit_event(db, type="heartbeat", entity="run", entity_id=run.id,
                        run_id=run.id, payload={"progress": run.progress})
+    # CAS：仅当 run 仍未进入 finished 时才推进到 running。
+    # 与超时回收（同样以 state 为条件）竞争时，只有一方 rowcount==1 生效，
+    # 杜绝「reaper 判超时回收」与「agent 正常开工」同时成功。
+    res = db.exec(
+        sa_update(Run)
+        .where(Run.id == run.id, Run.state != RunState.FINISHED)
+        .values(state=RunState.RUNNING, last_heartbeat=_now())
+    )
+    if res.rowcount != 1:
+        # 被并发方（通常是回收线程）抢先终结 → 本次心跳作废，不改状态。
+        db.rollback()
+        raise HTTPException(409, detail={
+            "code": "run.race_lost",
+            "message": f"run {run_id} 状态已被并发操作改变，心跳未生效",
+        })
     db.add(run)
     if task:
         db.add(task)
@@ -153,12 +237,17 @@ def read_evidence_status(run_id: str, db: Session = Depends(get_session)):
 
 
 @router.post("/{run_id}/result")
-def submit_result(run_id: str, body: dict, db: Session = Depends(get_session)):
+def submit_result(run_id: str, body: dict, agent: str = None,
+                  db: Session = Depends(get_session)):
     run = db.get(Run, run_id)
     if not run:
         raise HTTPException(404)
-    success = body.get("success", True)
     task = db.get(Task, run.task_id)
+    # P0 d1b54de0：先校验所有权（不传 agent 则跳过），再校验状态可提交。
+    # 顺序要紧——所有权先判，避免把「别人的 run 状态」泄漏给未授权调用方。
+    assert_run_owner(run, agent)
+    assert_run_submittable(run, task)
+    success = body.get("success", True)
     # Read Evidence 前置门控：成功提交前，本次 run 必须读过 required 文档（版本一致）。
     if success and task is not None:
         from mio_taskhub.read_evidence import check_read_gate

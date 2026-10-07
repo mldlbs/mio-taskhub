@@ -70,7 +70,7 @@ def test_heartbeat_tool(mcp_ctx):
     _call("taskhub_create_task", {"title": "HB", "stage": "ready"})
     claim = _call("taskhub_claim", {"agent": "mcp-agent"})
     rid = claim["id"]
-    hb = _call("taskhub_heartbeat", {"run_id": rid, "progress": 50, "checkpoint": "step1"})
+    hb = _call("taskhub_heartbeat", {"run_id": rid, "agent": "mcp-agent", "progress": 50, "checkpoint": "step1"})
     assert hb["state"] == "running"
     assert hb["progress"] == 50
 
@@ -79,7 +79,7 @@ def test_submit_result_success(mcp_ctx):
     _call("taskhub_create_task", {"title": "Result", "stage": "ready"})
     claim = _call("taskhub_claim", {"agent": "mcp-agent"})
     rid = claim["id"]
-    res = _call("taskhub_submit_result", {"run_id": rid, "success": True, "result": "done"})
+    res = _call("taskhub_submit_result", {"run_id": rid, "agent": "mcp-agent", "success": True, "result": "done"})
     assert res["state"] == "finished"
     tasks = _call("taskhub_list_tasks", {})
     titles = {t["title"]: t["state"] for t in tasks["tasks"]}
@@ -90,7 +90,7 @@ def test_submit_result_failure_retries(mcp_ctx):
     _call("taskhub_create_task", {"title": "Retry", "max_retries": 3, "stage": "ready"})
     claim = _call("taskhub_claim", {"agent": "mcp-agent"})
     rid = claim["id"]
-    res = _call("taskhub_submit_result", {"run_id": rid, "success": False, "result": "boom"})
+    res = _call("taskhub_submit_result", {"run_id": rid, "agent": "mcp-agent", "success": False, "result": "boom"})
     assert res["state"] == "finished"
     tasks = _call("taskhub_list_tasks", {})
     state = {t["title"]: t["state"] for t in tasks["tasks"]}["Retry"]
@@ -427,7 +427,7 @@ def test_read_evidence_gate_via_mcp(mcp_ctx, tmp_path, monkeypatch):
     assert claim["task_id"] == tid
     assert claim["required_reads"] == ["spec"] and claim["branch"] == f"task-{tid}"
 
-    blocked = _call("taskhub_submit_result", {"run_id": rid, "success": True, "result": "x"})
+    blocked = _call("taskhub_submit_result", {"run_id": rid, "agent": "mcp-rg", "success": True, "result": "x"})
     assert "error" in blocked and "422" in blocked["error"]
 
     status = _call("taskhub_read_status", {"run_id": rid})
@@ -437,7 +437,7 @@ def test_read_evidence_gate_via_mcp(mcp_ctx, tmp_path, monkeypatch):
           {"task_id": tid, "kind": "spec", "run_id": rid, "agent": "mcp-rg"})
     assert _call("taskhub_read_status", {"run_id": rid})["passed"] is True
 
-    ok = _call("taskhub_submit_result", {"run_id": rid, "success": True, "result": "done"})
+    ok = _call("taskhub_submit_result", {"run_id": rid, "agent": "mcp-rg", "success": True, "result": "done"})
     assert ok.get("task_state") == "completed"
 
 

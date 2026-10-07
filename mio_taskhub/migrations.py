@@ -168,6 +168,13 @@ def _migrate_task(conn):
         # kind -> {state, at, note}（文档生命周期状态机，JSON）。历史行回填 '{}'。
         conn.execute(text("ALTER TABLE task ADD COLUMN doc_statuses JSON"))
         conn.execute(text("UPDATE task SET doc_statuses = '{}' WHERE doc_statuses IS NULL"))
+    if "grab_mode" not in tcols_m1:
+        # FR-1：调度方式标记。True = 仅允许 Agent 主动领取（不进 dispatcher 候选）。
+        # **默认值必须是 0（False）** —— 存量任务行为必须与改造前完全一致。
+        # 不加索引：候选查询已有 (state, stage) 条件，加布尔列索引收益极低。
+        conn.execute(text(
+            "ALTER TABLE task ADD COLUMN grab_mode BOOLEAN NOT NULL DEFAULT 0"))
+        conn.execute(text("UPDATE task SET grab_mode = 0 WHERE grab_mode IS NULL"))
 
 
 def _migrate_idea(conn):
