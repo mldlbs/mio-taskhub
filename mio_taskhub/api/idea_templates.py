@@ -2,7 +2,7 @@ import subprocess
 import json
 from typing import List, Optional, Dict
 
-# Windows：隐藏子进程控制台窗口（观测台 insights / creativity generate 走 mio.cmd）
+# Windows：隐藏子进程控制台窗口（观测台 insights / creativity generate 走 node 直调）
 _CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -82,9 +82,10 @@ def _generate_ideas(goal: str, context: str, timeout: float = 120.0,
                     cross_domain: bool = True) -> list:
     """经 mio CLI 调 creativity.generate（用户显式触发的 LLM 调用）。
 
-    runtime 已发布版本没有 mio.idea.generate 工具（0.13.3 tools/list 实测），
-    故映射到 creativity 语义；MCP tools/call 对长任务回空包（复现两次），
-    走 CLI 直调。失败一律 HTTPException（502/503/504），不抛裸异常。
+    CLI 由 mio_runtime.mio_cli() 解析——cmd shim 自动转 node 直调
+    （0.14.x 起 runtime 有 mio.idea.generate MCP 工具，但 MCP tools/call
+    对长任务回空包（复现两次），仍走 CLI 直调）。失败一律
+    HTTPException（502/503/504），不抛裸异常；LLM 逐 pair 失败显式透出。
     额外注入 observer 近期洞察作为第 3+ 个 source（fail-open），
     让观察→洞察链的产出进入创意环节。
 
@@ -137,6 +138,14 @@ def _generate_ideas(goal: str, context: str, timeout: float = 120.0,
         # （llm-client chatJson 永不抛错、引擎只判 result.data）——重试一次；
         # 带 reason 的空（如 all pairs already explored）是确定性结果，不重试。
         reason = str((data.get("reason") or "")).strip() if isinstance(data, dict) else ""
+        # 引擎的 errors（逐 pair 的 LLM 失败）必须显式透出：LLM 402/超时
+        # 不能被伪装成「素材重复」或纯空产出（用户边界 2，2026-10-08）。
+        errors = data.get("errors") if isinstance(data, dict) else None
+        if isinstance(errors, list) and errors:
+            brief = "; ".join(
+                f"{e.get('pair')}: {e.get('error')}" if isinstance(e, dict) else str(e)
+                for e in errors[:3])
+            raise HTTPException(502, f"creativity LLM 调用失败（{len(errors)} 个配对）：{brief}")
         if reason:
             break
     if reason:

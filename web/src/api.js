@@ -218,6 +218,9 @@ export const api = {
   mioFerment: () => req('GET', '/mio/ferment'),
   mioFermentSync: (id) => req('POST', `/mio/ferment/${id}/sync`),
   mioFermentRun: (limit = 5) => req('POST', `/mio/creativity/ferment?limit=${limit}`),
+  mioMaterialPanel: (days = 7, limit = 200) => req('GET', `/mio/material-panel?days=${days}&limit=${limit}`),
+  valueDiscoveryRun: (date, internalIssues, label) => req('POST', '/mio/value-discovery', { date, internal_issues: internalIssues, label }),
+  valueDiscoveryList: () => req('GET', '/mio/value-discovery'),
 
   // Gate Status
   gateStatus: () => req('GET', '/ideas/gate/status'),
