@@ -221,6 +221,10 @@ export const api = {
   mioMaterialPanel: (days = 7, limit = 200) => req('GET', `/mio/material-panel?days=${days}&limit=${limit}`),
   valueDiscoveryRun: (date, internalIssues, label) => req('POST', '/mio/value-discovery', { date, internal_issues: internalIssues, label }),
   valueDiscoveryList: () => req('GET', '/mio/value-discovery'),
+  schedulerStatus: () => req('GET', '/mio/scheduler-status'),
+  schedulerActivate: () => req('POST', '/mio/scheduler-activate', {}),
+  schedulerRestart: () => req('POST', '/mio/scheduler-restart', {}),
+  schedulerStop: () => req('POST', '/mio/scheduler-stop', {}),
 
   // Gate Status
   gateStatus: () => req('GET', '/ideas/gate/status'),

@@ -134,8 +134,86 @@ const SOURCE_TYPE_LABEL = {
   instruction: '指令', test: '测试', other: '其他', empty: '空',
 }
 
-function MetricCard({ label, value, hint, tone }) {
+const OK = '#2e7d32'
+const BAD = '#c62828'
+const WARN = '#b26a00'
+
+/** 采集调度器状态卡：serve/daemon 进程 + 今日数据新鲜度 + 一键激活/重启。 */
+function SchedulerCard() {
+  const [st, setSt] = useState(null)
+  const [busy, setBusy] = useState('')
+  const [msg, setMsg] = useState(null)
+
+  const load = () => api.schedulerStatus().then(setSt).catch(e => setMsg({ tone: BAD, text: e?.message || String(e) }))
+  useEffect(() => { load() }, [])
+
+  async function act(kind, confirmText) {
+    if (confirmText && !window.confirm(confirmText)) return
+    setBusy(kind); setMsg(null)
+    try {
+      const r = await api[kind]()
+      setSt(r.status)
+      const parts = []
+      if (r.started?.length) parts.push(`已启动: ${r.started.join(', ')}`)
+      if (r.already_running?.length) parts.push(`已在运行: ${r.already_running.join(', ')}`)
+      if (r.killed?.length) parts.push(`已停止: ${r.killed.join(', ')}`)
+      if (r.errors?.length || r.failed?.length) parts.push(`失败: ${(r.errors || r.failed).join('; ')}`)
+      setMsg({ tone: (r.errors?.length || r.failed?.length) ? WARN : OK, text: parts.join(' · ') || '完成' })
+    } catch (e) {
+      setMsg({ tone: BAD, text: e?.message || String(e) })
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const dot = (running) => ({ display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+                              background: running ? OK : BAD, marginRight: 5 })
+  const d = st?.data
+  const srcs = d && d.by_source && Object.keys(d.by_source).length
+    ? Object.entries(d.by_source).map(([k, v]) => `${k} ${v}`).join(' / ') : null
+  const fresh = d && d.minutes_since_write != null
+    ? (d.minutes_since_write < 480 ? `${d.minutes_since_write} 分钟前落盘` : `数据过期（${Math.round(d.minutes_since_write / 60)} 小时未落盘）`)
+    : '今日无落盘'
+
   return (
+    <div style={{ border: '1px solid var(--border, #ddd)', borderRadius: 8, padding: '10px 14px', marginTop: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+        <b style={{ fontSize: 13 }}>采集调度器</b>
+        <span style={{ fontSize: 12 }}>
+          <i style={dot(st?.research_scheduler?.running)} />
+          研究调度器 {st?.research_scheduler?.running ? `运行中 (pid ${st.research_scheduler.pid})` : '未运行'}
+        </span>
+        <span style={{ fontSize: 12 }}>
+          <i style={dot(st?.observer_daemon?.running)} />
+          被动观察器 {st?.observer_daemon?.running ? `运行中 (pid ${st.observer_daemon.pid})` : '未运行'}
+        </span>
+        <span style={{ fontSize: 12, color: st?.healthy ? OK : WARN }}>
+          今日 {d?.count ?? '—'} 条 · {fresh}{srcs ? ` · ${srcs}` : ''}
+        </span>
+        <span style={{ flex: 1 }} />
+        <button onClick={() => act('schedulerActivate')} disabled={!!busy}
+                style={{ fontSize: 12, padding: '3px 10px', cursor: 'pointer' }}>
+          {busy === 'schedulerActivate' ? '启动中…' : '一键激活'}
+        </button>
+        <button onClick={() => act('schedulerRestart', '重启会先杀掉现有进程再补启，继续？')}
+                disabled={!!busy} style={{ fontSize: 12, padding: '3px 10px', cursor: 'pointer' }}>
+          {busy === 'schedulerRestart' ? '重启中…' : '重启'}
+        </button>
+        <button onClick={() => act('schedulerStop', '全停后素材停止采集，确认？')}
+                disabled={!!busy} style={{ fontSize: 12, padding: '3px 10px', cursor: 'pointer' }}>
+          全停
+        </button>
+        <button onClick={load} disabled={!!busy} style={{ fontSize: 12, padding: '3px 10px', cursor: 'pointer' }}>刷新</button>
+      </div>
+      {st && !st.healthy && st.hint && (
+        <div style={{ fontSize: 11, color: WARN, marginTop: 4 }}>⚠ {st.hint}</div>
+      )}
+      {msg && <div style={{ fontSize: 12, color: msg.tone, marginTop: 4 }}>{msg.text}</div>}
+    </div>
+  )
+}
+
+function MetricCard({ label, value, hint, tone }) {  return (
     <div style={{ border: '1px solid var(--border, #ddd)', borderRadius: 8, padding: '10px 14px', minWidth: 160 }}>
       <div className="detail-muted" style={{ fontSize: 12 }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 600, color: tone }}>{value}</div>
@@ -193,6 +271,8 @@ export default function MaterialPanelView() {
       </div>
 
       <p className="detail-muted" style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{data.classification_note}</p>
+
+      <SchedulerCard />
 
       {/* 验收指标 */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
