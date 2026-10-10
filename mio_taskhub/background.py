@@ -424,9 +424,19 @@ def _assign_to_idle_agents():
                 db.rollback()
                 continue
             task = db.get(Task, run.task_id)
+            # 同项目参考（任务 28f8fceb FR-2）：后台派单不经 claim 端点，
+            # 因此不走 build_claim_context；这里把lessons 挂进事件载荷，
+            # 让 idle 派单路径的 agent 也能拿到「这个项目怎么测」。
+            # 纯旁路：取不到就置空 dict，不影响派单。
+            try:
+                from mio_taskhub.api.task_lessons import recent_lessons
+                lessons = recent_lessons(db, workspace=task.workspace or "",
+                                         project=task.project or "")
+            except Exception:
+                lessons = {}
             event = emit_event(db, type="task_assigned", entity="task", entity_id=task.id,
                                run_id=run.id, payload={"agent": target.name, "reason": "idle_assign",
-                                                       "run_id": run.id})
+                                                      "run_id": run.id, "lessons": lessons})
             db.add(task)
             db.commit()
             broadcast_for_event(event)

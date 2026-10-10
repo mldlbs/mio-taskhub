@@ -48,7 +48,11 @@ mcp = FastMCP(
         "- 写代码/测试时引用 requirement 里的 FR-n 编号（可追溯，详见仓库 doc-consult-enforcement-plan.md）。\n"
         "- 代码分支命名为 task-<id>（id 为 8 位十六进制）；本地 pre-push 钩子校验 spec/api/plan 已 approved 且引用的 FR-n 真实存在。\n"
         "- taskhub_submit_result 成功路径会校验 ReadEvidence：required reads 缺失或文档版本已变更 → 422（服务端强制，绕不过）；可用 taskhub_read_status 查看还差哪些。\n"
-        "- spec/api/plan 未批准时先用 taskhub_set_doc_status 推进其生命周期再编码。"
+        "- spec/api/plan 未批准时先用 taskhub_set_doc_status 推进其生命周期再编码。\n"
+        "同项目参考（软信息，只给参考不强制）：\n"
+        "- claim 返回的 lessons 字段来自**同workspace 近期已完成任务**，含 test_hints（这个项目测试怎么跑）/ file_layout（文件通常放哪）/ pitfalls（已知坑）。\n"
+        "- **动手前先看 lessons**：照着 test_hints 的方式写测试，比事后被检查更有效。\n"
+        "- lessons 是空数组很常见（该项目暂无已完成任务），不是错误；source_count 为 0 即表示无历史可参考。"
     ),
 )
 
@@ -152,7 +156,7 @@ async def taskhub_agent_heartbeat(
     return _fmt(await _request("POST", "/agents/heartbeat", body={"name": name}))
 
 
-@_tool(name="taskhub_claim", title="领取一个任务", method="POST", path="/tasks/claim", read_only=False, destructive=False, desc="按关联度 + 优先级 + FIFO 领取一个排队任务，或按 task_id 直接认领指定任务，返回 Run id + task 详情，并内联 branch / required_reads / required_fr / documents（预览）。**必须领指定任务时务必传 task_id**：不传将按相关度挑选，可能领到其他任务（trace claim-taskid-mcp-drop-20260927）。**内联预览不等于已读**：动手前必须对 required_reads 逐一调用 taskhub_read_document(task_id, kind, run_id=<本 run>) 产生 ReadEvidence，否则 taskhub_submit_result 会被 422 拦截。")
+@_tool(name="taskhub_claim", title="领取一个任务", method="POST", path="/tasks/claim", read_only=False, destructive=False, desc="按关联度 + 优先级 + FIFO 领取一个排队任务，或按 task_id 直接认领指定任务，返回 Run id + task 详情，并内联 branch / required_reads / required_fr / documents（预览）+ lessons（同项目参考）。**必须领指定任务时务必传 task_id**：不传将按相关度挑选，可能领到其他任务（trace claim-taskid-mcp-drop-20260927）。**内联预览不等于已读**：动手前必须对 required_reads 逐一调用 taskhub_read_document(task_id, kind, run_id=<本 run>) 产生 ReadEvidence，否则 taskhub_submit_result 会被 422 拦截。**动手前先看 lessons.test_hints**：那是同项目近期已完成任务的测试做法，照着写比事后被检查有效；为空数组表示该项目暂无历史，不是错误。")
 async def taskhub_claim(
     agent: str = Field(description="当前 agent 名称，需先注册", min_length=1, max_length=64),
     agent_type: Optional[str] = Field(default=None, description="若设置，只领取匹配该类型的任务；不传则自动回查注册 agent_type", max_length=32),

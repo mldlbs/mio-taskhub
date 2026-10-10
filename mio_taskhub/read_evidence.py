@@ -15,6 +15,7 @@
 - `MIO_READ_GATE_KINDS` 可改要求项，默认 `spec,api,requirement`。
 """
 import hashlib
+import logging
 import os
 import re
 from pathlib import Path
@@ -25,6 +26,8 @@ from sqlmodel import Session, select
 from mio_taskhub.doc_paths import doc_path_of
 from mio_taskhub.models import ReadEvidence
 from mio_taskhub.utils import _now
+
+logger = logging.getLogger("read_evidence")
 
 DEFAULT_READ_KINDS = ("spec", "api", "requirement")
 INLINE_CAP = 8000          # claim 内联正文上限（字符/kind）
@@ -193,10 +196,35 @@ def check_read_gate(db: Session, task: Any, run_id: str) -> Dict[str, Any]:
 
 # ── claim 内联上下文 ───────────────────────────────────────────────────────
 
+def _lessons_for(task: Any) -> Dict[str, Any]:
+    """取同项目已完成任务的参考信息（任务 28f8fceb FR-2）。
+
+    **只提供信息，不阻断任何流程**：内部开独立短会话，异常一律降级为空结构。
+    放在这里而不是 claim 端点，是因为 claim 的两个响应构造点
+    （api/tasks.py 的「已有 Run 复用」与「正常认领」）都调用 build_claim_context。
+    """
+    from mio_taskhub.api.task_lessons import empty_lessons, recent_lessons
+    try:
+        workspace = str(getattr(task, "workspace", "") or "").strip()
+        project = str(getattr(task, "project", "") or "").strip()
+        if not workspace and not project:
+            # 无scope 依据时不查询，直接给空结构（避免全库扫描）
+            return empty_lessons()
+        from mio_taskhub.db import Session as _S, engine as _E
+        with _S(_E) as s:
+            return recent_lessons(s, workspace=workspace, project=project)
+    except Exception:
+        logger.warning("claim lessons 取值失败，降级为空", exc_info=True)
+        return empty_lessons()
+
+
 def build_claim_context(task: Any) -> Dict[str, Any]:
-    """claim 成功时内联返回文档上下文（预览 + 必读项 + FR）。
+    """claim 成功时内联返回文档上下文（预览 + 必读项 + FR + 同项目参考）。
 
     **内联 ≠ 已读**：不产生 evidence；agent 仍须 read_document(run_id=...) 才能过 submit 门控。
+
+    `lessons` 是**软信息**（2026-10-10，任务 28f8fceb）：来自同 workspace 近期已完成
+    任务的测试方式 / 文件布局 / 已知坑。它不参与任何门控，取不到也只是空结构。
     """
     required = required_read_kinds(task)
     docs: Dict[str, Any] = {}
@@ -220,6 +248,8 @@ def build_claim_context(task: Any) -> Dict[str, Any]:
         "required_fr": required_fr,
         "documents": docs,
         "read_evidence_required": gate_enabled() and bool(required),
+        # 同项目参考（软信息，不阻断）
+        "lessons": _lessons_for(task),
         "note": ("documents 仅为内联预览，不构成已读；动手前必须调用 "
                  "taskhub_read_document(task_id, kind, run_id=<本 run>) 产生 "
                  "ReadEvidence，否则 taskhub_submit_result 会被拦截。"),

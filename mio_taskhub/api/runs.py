@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,6 +10,8 @@ from mio_taskhub.utils import _now
 from mio_taskhub.events import emit_event
 from mio_taskhub.workflow.transitions import apply_transition, _orm_to_status_stage
 from mio_taskhub.workflow.state_machine import State, Stage, ActorType, IllegalTransition as M1Illegal
+
+logger = logging.getLogger("runs")
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -333,6 +336,15 @@ def _handle_success(task, run, m1_events, db=None):
     payload = {"success": True, "state": "completed"}
     if recovered:
         payload["recovered_from_failed"] = True
+
+    # 经验沉淀（任务 28f8fceb FR-3）：把本次的可复用信息写入 memory_store，
+    # 供后续同项目任务 claim 时参考。**纯旁路**：失败只记日志，不影响状态流转。
+    try:
+        from mio_taskhub.api.task_lessons import write_experience
+        write_experience(task, run.result)
+    except Exception:
+        logger.warning("沉淀任务经验失败（不影响本次提交结果）", exc_info=True)
+
     return "completed", payload
 
 
