@@ -28,4 +28,13 @@ dist*/
 # 重建 exe 的冒烟工作区（含临时库副本，绝不入库）
 .smoke_ws/
 .local/
-docs/
+# docs/ 不再整体忽略：白名单纳入结论支撑文档（roadmap/质量审计/任务文档链）
+# 注意必须用 docs/* 而非 docs/（父目录被整体排除时子路径 ! 反选失效）
+docs/*
+!docs/roadmap/
+!docs/taskhub/
+!docs/quality-audit.md
+!docs/quality-plan-review-20261010.md
+!docs/csdn-mio-taskhub-practice.md
+!docs/csdn-mio-taskhub-practice-article.md
+!docs/csdn-mio-taskhub-practice-outline.md
