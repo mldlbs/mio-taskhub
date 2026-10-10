@@ -155,6 +155,11 @@ class Task(SQLModel, table=True):
     plan_path: str = ""
     doc_paths: dict = Field(default_factory=dict, sa_column=Column(JSON))  # kind -> path（见 doc_paths.py）；spec/plan 与旧列保持同步
     doc_statuses: dict = Field(default_factory=dict, sa_column=Column(JSON))  # kind -> {state, at, note}（见 doc_lifecycle.py）
+    # 文档链门控豁免（2026-10-10 审计 P0-1）。True = 不受 LIFECYCLE_GATE 约束。
+    # **默认 False = 新建任务必须把 requirement/spec/api/plan 推进到 approved 才能进下一阶段。**
+    # 迁移会把「加此列之前已存在」的历史任务全部置 True，保证存量行为不变；
+    # 之后新建的任务默认受门控约束。历史任务如需恢复约束，置 False 即可。
+    doc_gate_exempt: bool = False
     review_result: str = ""
     idea_id: str = Field(default="", index=True)   # 拆解来源 idea
     # M1: 生命周期时间戳 + 计数器

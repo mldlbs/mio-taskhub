@@ -175,17 +175,33 @@ def _discussion(tid):
 
 
 def test_stage_design_accepts_doc_paths_and_syncs_legacy(tmp_path):
-    """design 阶段可用 doc_paths 提供 spec，并回写 spec_path 旧列。"""
+    """design 阶段可用 doc_paths 提供 spec，并回写 spec_path 旧列。
+
+    注：s.md 已落盘 → 文档生命周期门控会要求 spec approved（2026-10-10 审计 P0-1）。
+    本用例验证的是字段回写，故显式 force 越过门控。
+    """
     ws = _ws(tmp_path, 's.md')
     tid = _mk(ws, stage='brainstorming')
     _discussion(tid)
 
     r = client.post(f'/api/v1/tasks/{tid}/stage',
-                    json={'target_stage': 'design', 'doc_paths': {'spec': 's.md'}})
+                    json={'target_stage': 'design',
+                          'doc_paths': {'spec': 's.md'}, 'force': True})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body['doc_paths'] == {'spec': 's.md'}
     assert body['spec_path'] == 's.md'
+
+
+def test_stage_design_blocked_by_lifecycle_gate(tmp_path):
+    """P0-1 回归：spec 已落盘但未 approved → 进 design 被生命周期门控拦下。"""
+    ws = _ws(tmp_path, 's.md')
+    tid = _mk(ws, stage='brainstorming')
+    _discussion(tid)
+    r = client.post(f'/api/v1/tasks/{tid}/stage',
+                    json={'target_stage': 'design', 'doc_paths': {'spec': 's.md'}})
+    assert r.status_code == 422
+    assert r.json()['detail']['gate'][0]['kind'] == 'spec'
 
 
 def test_stage_planning_syncs_doc_paths_from_legacy(tmp_path):
@@ -193,10 +209,11 @@ def test_stage_planning_syncs_doc_paths_from_legacy(tmp_path):
     tid = _mk(ws, stage='brainstorming')
     _discussion(tid)
     client.post(f'/api/v1/tasks/{tid}/stage',
-                json={'target_stage': 'design', 'spec_path': 's.md'})
+                json={'target_stage': 'design', 'spec_path': 's.md', 'force': True})
 
     r = client.post(f'/api/v1/tasks/{tid}/stage',
-                    json={'target_stage': 'planning', 'plan_path': 'p.md'})
+                    json={'target_stage': 'planning', 'plan_path': 'p.md',
+                          'force': True})
     assert r.status_code == 200, r.text
     assert r.json()['doc_paths'] == {'spec': 's.md', 'plan': 'p.md'}
 
@@ -363,17 +380,23 @@ def test_gate_error_messages_preserved(tmp_path):
     r = client.post(f'/api/v1/tasks/{tid}/stage', json={'target_stage': 'design'})
     assert r.status_code == 422 and 'spec_path' in r.json()['detail']
 
-    client.post(f'/api/v1/tasks/{tid}/stage', json={'target_stage': 'design', 'spec_path': 's.md'})
+    client.post(f'/api/v1/tasks/{tid}/stage',
+                json={'target_stage': 'design', 'spec_path': 's.md', 'force': True})
     r = client.post(f'/api/v1/tasks/{tid}/stage', json={'target_stage': 'planning'})
     assert r.status_code == 422 and 'plan_path' in r.json()['detail']
 
-    client.post(f'/api/v1/tasks/{tid}/stage', json={'target_stage': 'planning', 'plan_path': 's.md'})
-    # ready / review 无门槛；implementing 需 changelog（2026-09-17 新增门槛）
-    assert client.post(f'/api/v1/tasks/{tid}/stage', json={'target_stage': 'ready'}).status_code == 200
+    client.post(f'/api/v1/tasks/{tid}/stage',
+                json={'target_stage': 'planning', 'plan_path': 'p.md', 'force': True})
+    # ready / review 无产物门槛；implementing 需 changelog（2026-09-17 新增门槛）。
+    # 注：门控为累计式 —— ready 会一并校验 design/planning 的文档门槛，而本用例的
+    # spec.md / p.md 已落盘但未 approved，故统一带 force 越过（本用例验证的是错误文案）。
     assert client.post(f'/api/v1/tasks/{tid}/stage',
-                       json={'target_stage': 'implementing',
+                       json={'target_stage': 'ready', 'force': True}).status_code == 200
+    assert client.post(f'/api/v1/tasks/{tid}/stage',
+                       json={'target_stage': 'implementing', 'force': True,
                              'doc_paths': {'changelog': 'docs/changelog.md'}}).status_code == 200
-    assert client.post(f'/api/v1/tasks/{tid}/stage', json={'target_stage': 'review'}).status_code == 200
+    assert client.post(f'/api/v1/tasks/{tid}/stage',
+                       json={'target_stage': 'review', 'force': True}).status_code == 200
     r = client.post(f'/api/v1/tasks/{tid}/stage', json={'target_stage': 'done'})
     assert r.status_code == 422
     assert 'review_result' in r.json()['detail'] and 'review document' in r.json()['detail']

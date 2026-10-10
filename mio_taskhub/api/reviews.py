@@ -3,11 +3,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from mio_taskhub.db import get_session
-from mio_taskhub.models import Task, TaskStage, TaskReview
+from mio_taskhub.doc_paths import doc_path_of
+from mio_taskhub.models import Task, TaskStage, TaskReview, Run
 from mio_taskhub.utils import _now
 from mio_taskhub.events import emit_event
 
 router = APIRouter(prefix="/tasks", tags=["reviews"])
+
+# 2026-10-10 审计 P0-4：approve 时审查结论的最低长度（未登记 review 文档时生效）。
+# 原先 summary 是自由字符串，写 "x" 也会写入 review_result 并满足 done 门控。
+MIN_APPROVE_SUMMARY = 8
 
 
 @router.get("/reviews/queue")
@@ -71,6 +76,38 @@ def submit_review(task_id: str, body: dict, db: Session = Depends(get_session)):
     decision = body.get("decision", "comment")
     if decision not in ("approve", "reject", "comment"):
         raise HTTPException(422, "decision must be approve, reject, or comment")
+    reviewer = (body.get("reviewer") or "").strip()
+    summary = (body.get("summary") or "").strip()
+
+    if decision == "approve":
+        # 2026-10-10 审计 P0-4：评审人身份隔离。
+        # 原先 reviewer 是自由字符串，执行该任务的 agent 可以自己 approve 自己 ——
+        # 「独立验收」名存实亡。现默认拒绝自审；确有需要时显式传 self_review=true 放行。
+        if reviewer and not body.get("self_review"):
+            last_run = db.exec(
+                select(Run).where(Run.task_id == task_id)
+                .order_by(Run.started_at.desc())).first()
+            if last_run is not None and last_run.agent_name == reviewer:
+                raise HTTPException(409, detail={
+                    "code": "review.self_approval",
+                    "message": (f"评审人 '{reviewer}' 是本任务最近的执行者，"
+                                f"不能自我 approve；请由他人评审，"
+                                f"或显式传 self_review=true 声明为自审"),
+                    "reviewer": reviewer,
+                    "executor": last_run.agent_name,
+                    "hint": "自审会在 TaskReview 中留痕，请确认这是有意为之",
+                })
+        # 结论内容下限：未登记 review 文档时，summary 太短不构成可追溯的审查结论
+        if len(summary) < MIN_APPROVE_SUMMARY and not doc_path_of(t, "review"):
+            raise HTTPException(422, detail={
+                "code": "review.summary_too_short",
+                "message": (f"approve 的审查结论至少 {MIN_APPROVE_SUMMARY} 个字符，"
+                            f"当前 {len(summary)} 个；"
+                            f"或先登记 review 文档（doc_paths['review']）再 approve"),
+                "min_length": MIN_APPROVE_SUMMARY,
+                "current_length": len(summary),
+            })
+
     duration_sec = None
     if t.review_started_at:
         started = t.review_started_at
@@ -84,15 +121,14 @@ def submit_review(task_id: str, body: dict, db: Session = Depends(get_session)):
         task_id=task_id,
         decision=decision,
         checklist=body.get("checklist"),
-        summary=body.get("summary", ""),
+        summary=summary,
         comments=body.get("comments", ""),
         artifacts=body.get("artifacts", []),
-        reviewer=body.get("reviewer", ""),
+        reviewer=reviewer,
         review_duration_sec=duration_sec,
     )
     db.add(review)
     if decision == "approve":
-        summary = body.get("summary", "")
         if summary:
             t.review_result = summary
         db.add(t)

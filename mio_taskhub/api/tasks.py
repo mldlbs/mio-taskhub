@@ -61,6 +61,10 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         stage=stage,
         # FR-1：默认 False —— 存量与新建任务都默认走既有派单，行为不变
         grab_mode=bool(body.get("grab_mode", False)),
+        # 2026-10-10 审计 P0-1：默认 False = 新建任务受文档链门控约束
+        # （requirement/spec/api 需 approved 才能进 design，plan 需 approved 才能进 planning）。
+        # 显式传 True 可豁免（如仅做代码改动、不走文档链的任务），但该值会被审计看到。
+        doc_gate_exempt=bool(body.get("doc_gate_exempt", False)),
     )
     validate_depends(t, db)
     check_cycle(t, db)
@@ -75,6 +79,7 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         "depends_on": task_deps(t), "idea_id": t.idea_id,
         "fallback_after": t.fallback_after,
         "grab_mode": bool(t.grab_mode),
+        "doc_gate_exempt": bool(t.doc_gate_exempt),
     }
 
 @router.get("", response_model=list)
@@ -104,6 +109,7 @@ def list_tasks(state: str = None, agent_type: str = None, stage: str = None,
          "priority": r.priority, "target_agent_type": r.target_agent_type,
          "fallback_after": r.fallback_after,
          "grab_mode": bool(r.grab_mode),
+         "doc_gate_exempt": bool(getattr(r, "doc_gate_exempt", False)),
          "depends_on": task_deps(r), "idea_id": r.idea_id,
          "est_duration_min": r.est_duration_min,
          "project": r.project, "workspace": r.workspace}
@@ -154,6 +160,7 @@ def _task_detail(t: Task, db: Session) -> dict:
         "spec_path": t.spec_path,
         "plan_path": t.plan_path,
         "grab_mode": bool(t.grab_mode),
+        "doc_gate_exempt": bool(getattr(t, "doc_gate_exempt", False)),
         "doc_paths": dict(t.doc_paths or {}),
         "doc_statuses": dict(getattr(t, "doc_statuses", None) or {}),
         "review_result": t.review_result,
@@ -196,13 +203,15 @@ def update_task(task_id: str, body: dict, db: Session = Depends(get_session)):
                 "files", "deliverables",
                 "target_agent_type", "fallback_after", "depends_on",
                 # FR-1：可改调度方式
-                "grab_mode"]
+                "grab_mode",
+                # 2026-10-10 审计 P0-1：可显式开关文档链门控（豁免需可回溯，故暴露为字段）
+                "doc_gate_exempt"]
     for k in editable:
         if k in body:
             v = body[k]
             if k == "due_at":
                 v = parse_dt(v, "due_at")
-            if k == "grab_mode":
+            if k in ("grab_mode", "doc_gate_exempt"):
                 v = bool(v)
             if k == "depends_on":
                 t.depends_on = normalize_depends(v)
