@@ -188,6 +188,59 @@ def _next_steps(ready_queue, overdue, running):
     return steps
 
 
+def _delivery_quality(db: Session) -> dict:
+    """交付质量统计（任务 28f8fceb FR-4）：**只看，不参与任何判定**。
+
+    聚合「agent 自报里到底有没有写测试证据」，让人能看见趋势。
+    数据来源是 `Run.result` 文本 —— 即agent 自己写的，不是我们推断的。
+
+    设计约束（重要）：
+    - **纯统计**：不产生任何门控，不影响任何流程；
+    - 只做比例统计，不给单个任务打分、不做优劣评判；
+    - 样本太小时比例不可靠，故带 `sample_size`，由消费方决定是否展示。
+    """
+    from mio_taskhub.api.task_lessons import _TEST_PATTERNS
+    patterns = tuple(p.lower() for p in _TEST_PATTERNS)
+
+    # 只统计「跑完且成功」的 run —— 中断的 run 没资格参与交付质量统计
+    rows = db.exec(
+        select(Run)
+        .where(Run.state == RunState.FINISHED)
+        .order_by(Run.finished_at.desc())
+        .limit(200)
+    ).all()
+
+    total = 0
+    with_test = 0
+    with_files = 0
+    for r in rows:
+        text = (r.result or "").strip()
+        if not text:
+            continue
+        total += 1
+        low = text.lower()
+        if any(p in low for p in patterns):
+            with_test += 1
+        # 粗判是否列出了改动文件（出现路径形态的词）
+        if any(k in text for k in ("修改文件", "新增文件", "改动文件", "文件：")):
+            with_files += 1
+
+    def pct(n):
+        return round(n * 100.0 / total, 1) if total else 0.0
+
+    return {
+        # 样本量：小于 5 时比例基本没有参考价值，消费方宜提示「样本不足」
+        "sample_size": total,
+        "scanned_runs": len(rows),
+        "self_reported_test_evidence": with_test,
+        "self_reported_files": with_files,
+        "test_evidence_rate": pct(with_test),
+        "files_mentioned_rate": pct(with_files),
+        "note": ("比例来自 agent 自报文本，仅供观察趋势，不参与任何流程判定；"
+                 "sample_size < 5 时比例不稳定。"),
+    }
+
+
 @router.get("/summary")
 def board_summary(agent: str = Query(None), db: Session = Depends(get_session)):
     """返回对话友好看板汇总：各阶段计数、待领取、执行中、告警、最近完成与下一步建议。"""
@@ -209,6 +262,8 @@ def board_summary(agent: str = Query(None), db: Session = Depends(get_session)):
         "alerts": alerts,
         "recent_done": recent_done,
         "next_steps": next_steps,
+        # 交付质量观察指标（纯统计，不参与判定；任务 28f8fceb FR-4）
+        "delivery_quality": _delivery_quality(db),
     }
 
 
@@ -248,4 +303,6 @@ def stats_overview(db: Session = Depends(get_session)):
         "task_events_count": events_count,
         "event_by_type": event_by_type,
         "total_tasks": len(tasks),
+        # 交付质量观察指标（纯统计，不参与判定；任务 28f8fceb FR-4）
+        "delivery_quality": _delivery_quality(db),
     }
