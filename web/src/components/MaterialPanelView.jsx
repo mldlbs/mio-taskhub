@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 
-/** 素材面板（只读）：每日创意生成链路的素材可追溯视图。
+/** 素材面板（只读）：每日创意生成链路的素材内容视图。
  *
- * 数据来自 /mio/material-panel（聚合 observations/insights/topics/creativity store）。
- * 不写入、不触发 LLM。分类口径见后端 classification_note。
+ * 2026-10-10 去过程化（task 7dac69de，用户反馈）：主视图只保留素材内容
+ * （洞察 / 选题 / 原始抓取 / 价值发现），不再渲染过程数据——采集调度器卡、
+ * 验收指标卡、classification_note 口径长文、配对记录、假设记录。
+ * 后端契约未变（material_panel.py / api.js 均未改动），仅 UI 层移除渲染；
+ * 洞察正文摘要复用后端已返回的 preview 字段。
  */
 
-const pct = (v) => v == null ? '—' : `${(v * 100).toFixed(0)}%`
 const dt = (iso) => iso ? String(iso).replace('T', ' ').slice(0, 16) : '—'
 
 const DEFAULT_ISSUES = `- mio-taskhub 文档链门控在 UI 无法操作（DocPanel 只读、422 detail 被裸 JSON.stringify）
@@ -49,9 +51,8 @@ function ValueDiscoverySection({ obsDates }) {
   return (
     <div>
       <p className="detail-muted" style={{ fontSize: 12, margin: '4px 0 8px' }}>
-        人工触发的价值发现实验（烧 LLM）：素材（GitHub Trending + Hacker News 原文清洗后）+ 内部问题清单 → 价值评估。
-        每个机会必须引用素材编号证据、关联内部问题、给一周验证实验与成功判据；<b>允许 0 个结果</b>。
-        结果只入实验存档（MIO_HOME/value-discovery/），不进任务/想法库。
+        人工触发：素材（GitHub Trending + Hacker News 原文）+ 内部问题 → LLM 价值评估，每个机会必须引用素材证据；
+        <b>允许 0 个结果</b>，结果只入实验存档（MIO_HOME/value-discovery/）。
       </p>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
         <select value={date} onChange={e => setDate(e.target.value)} style={{ fontSize: 13 }}>
@@ -112,112 +113,10 @@ function ValueDiscoverySection({ obsDates }) {
       )}
       {s && s.batches > 0 && (
         <p className="detail-muted" style={{ fontSize: 12, marginTop: 6 }}>
-          累计 {s.batches} 批 / {s.opportunities_total} 个机会 · 每批均值 {s.opportunity_rate} · 零机会批次 {s.zero_batches} ·
-          证据覆盖 {p(s.evidence_coverage)} · 内部关联 {p(s.internal_relevance)} · 可行动 {p(s.actionability)} ·
-          外部触发占比 {p(s.external_origin_rate)}（人工接受率需逐批人工判定）
+          累计 {s.batches} 批 / {s.opportunities_total} 个机会 · 零机会批次 {s.zero_batches} ·
+          证据覆盖 {p(s.evidence_coverage)} · 内部关联 {p(s.internal_relevance)} · 可行动 {p(s.actionability)}（人工接受率需逐批人工判定）
         </p>
       )}
-    </div>
-  )
-}
-
-const CLASS_META = {
-  'with-insight': { label: '生产·带洞察', color: '#2e7d32' },
-  'template-only': { label: '生产·模板自配', color: '#b26a00' },
-  test: { label: '测试残留', color: '#9e9e9e' },
-  other: { label: '其他', color: '#455a64' },
-  empty: { label: '空', color: '#9e9e9e' },
-}
-
-const SOURCE_TYPE_LABEL = {
-  insight: '洞察', template: '模板', legacy: '早期标签',
-  instruction: '指令', test: '测试', other: '其他', empty: '空',
-}
-
-const OK = '#2e7d32'
-const BAD = '#c62828'
-const WARN = '#b26a00'
-
-/** 采集调度器状态卡：serve/daemon 进程 + 今日数据新鲜度 + 一键激活/重启。 */
-function SchedulerCard() {
-  const [st, setSt] = useState(null)
-  const [busy, setBusy] = useState('')
-  const [msg, setMsg] = useState(null)
-
-  const load = () => api.schedulerStatus().then(setSt).catch(e => setMsg({ tone: BAD, text: e?.message || String(e) }))
-  useEffect(() => { load() }, [])
-
-  async function act(kind, confirmText) {
-    if (confirmText && !window.confirm(confirmText)) return
-    setBusy(kind); setMsg(null)
-    try {
-      const r = await api[kind]()
-      setSt(r.status)
-      const parts = []
-      if (r.started?.length) parts.push(`已启动: ${r.started.join(', ')}`)
-      if (r.already_running?.length) parts.push(`已在运行: ${r.already_running.join(', ')}`)
-      if (r.killed?.length) parts.push(`已停止: ${r.killed.join(', ')}`)
-      if (r.errors?.length || r.failed?.length) parts.push(`失败: ${(r.errors || r.failed).join('; ')}`)
-      setMsg({ tone: (r.errors?.length || r.failed?.length) ? WARN : OK, text: parts.join(' · ') || '完成' })
-    } catch (e) {
-      setMsg({ tone: BAD, text: e?.message || String(e) })
-    } finally {
-      setBusy('')
-    }
-  }
-
-  const dot = (running) => ({ display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
-                              background: running ? OK : BAD, marginRight: 5 })
-  const d = st?.data
-  const srcs = d && d.by_source && Object.keys(d.by_source).length
-    ? Object.entries(d.by_source).map(([k, v]) => `${k} ${v}`).join(' / ') : null
-  const fresh = d && d.minutes_since_write != null
-    ? (d.minutes_since_write < 480 ? `${d.minutes_since_write} 分钟前落盘` : `数据过期（${Math.round(d.minutes_since_write / 60)} 小时未落盘）`)
-    : '今日无落盘'
-
-  return (
-    <div style={{ border: '1px solid var(--border, #ddd)', borderRadius: 8, padding: '10px 14px', marginTop: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-        <b style={{ fontSize: 13 }}>采集调度器</b>
-        <span style={{ fontSize: 12 }}>
-          <i style={dot(st?.research_scheduler?.running)} />
-          研究调度器 {st?.research_scheduler?.running ? `运行中 (pid ${st.research_scheduler.pid})` : '未运行'}
-        </span>
-        <span style={{ fontSize: 12 }}>
-          <i style={dot(st?.observer_daemon?.running)} />
-          被动观察器 {st?.observer_daemon?.running ? `运行中 (pid ${st.observer_daemon.pid})` : '未运行'}
-        </span>
-        <span style={{ fontSize: 12, color: st?.healthy ? OK : WARN }}>
-          今日 {d?.count ?? '—'} 条 · {fresh}{srcs ? ` · ${srcs}` : ''}
-        </span>
-        <span style={{ flex: 1 }} />
-        <button onClick={() => act('schedulerActivate')} disabled={!!busy}
-                style={{ fontSize: 12, padding: '3px 10px', cursor: 'pointer' }}>
-          {busy === 'schedulerActivate' ? '启动中…' : '一键激活'}
-        </button>
-        <button onClick={() => act('schedulerRestart', '重启会先杀掉现有进程再补启，继续？')}
-                disabled={!!busy} style={{ fontSize: 12, padding: '3px 10px', cursor: 'pointer' }}>
-          {busy === 'schedulerRestart' ? '重启中…' : '重启'}
-        </button>
-        <button onClick={() => act('schedulerStop', '全停后素材停止采集，确认？')}
-                disabled={!!busy} style={{ fontSize: 12, padding: '3px 10px', cursor: 'pointer' }}>
-          全停
-        </button>
-        <button onClick={load} disabled={!!busy} style={{ fontSize: 12, padding: '3px 10px', cursor: 'pointer' }}>刷新</button>
-      </div>
-      {st && !st.healthy && st.hint && (
-        <div style={{ fontSize: 11, color: WARN, marginTop: 4 }}>⚠ {st.hint}</div>
-      )}
-      {msg && <div style={{ fontSize: 12, color: msg.tone, marginTop: 4 }}>{msg.text}</div>}
-    </div>
-  )
-}
-
-function MetricCard({ label, value, hint, tone }) {  return (
-    <div style={{ border: '1px solid var(--border, #ddd)', borderRadius: 8, padding: '10px 14px', minWidth: 160 }}>
-      <div className="detail-muted" style={{ fontSize: 12 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 600, color: tone }}>{value}</div>
-      {hint && <div className="detail-muted" style={{ fontSize: 11 }}>{hint}</div>}
     </div>
   )
 }
@@ -257,9 +156,6 @@ export default function MaterialPanelView() {
   if (err) return <div className="mio-view"><p className="detail-muted">加载失败：{err}</p></div>
   if (!data) return <div className="mio-view"><p className="detail-muted">加载中…</p></div>
 
-  const m = data.creativity.metrics
-  const im = data.insight_metrics
-
   return (
     <div className="mio-view" style={{ padding: '0 4px', overflowY: 'auto', maxHeight: 'calc(100vh - 90px)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -270,112 +166,47 @@ export default function MaterialPanelView() {
         <span className="detail-muted" style={{ fontSize: 12 }}>只读 · 素材库 {data.observer_base}</span>
       </div>
 
-      <p className="detail-muted" style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{data.classification_note}</p>
-
-      <SchedulerCard />
-
-      {/* 验收指标 */}
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
-        <MetricCard label="真实素材进入配对比例" tone="#2e7d32"
-                    value={pct(m.real_material_pair_ratio)}
-                    hint="配对含观察洞察 / 非测试配对（P0 修复前恒为 0）" />
-        <MetricCard label="有效洞察比例" tone="#2e7d32" value={pct(im.valid_ratio)}
-                    hint={`${im.valid} 有效 / ${im.llm_failed} LLM 失败 / 共 ${im.total}`} />
-        <MetricCard label="模板自配配对" tone="#b26a00" value={m.combos_by_class['template-only'] || 0}
-                    hint="配对双方均为模板文本 = LLM 没见到真实素材" />
-        <MetricCard label="测试残留配对" tone="#9e9e9e" value={m.combos_by_class['test'] || 0}
-                    hint="已从生产指标剔除" />
-      </div>
-
-      {/* 洞察列表 */}
-      <Section title={`洞察产出（${data.insights.length} 条，含空 section / LLM 失败标记）`} defaultOpen>
+      {/* 洞察产出：内容视图（主题 + 正文摘要；空产出标红） */}
+      <Section title={`洞察产出（${data.insights.length} 条）`} defaultOpen>
         <table style={{ borderCollapse: 'collapse', width: '100%' }}>
           <thead><tr>
-            <th style={th}>时间</th><th style={th}>主题</th><th style={th}>状态</th>
-            <th style={th}>sections</th><th style={th}>置信度</th><th style={th}>耗时</th>
-            <th style={th}>当天来源分布（匹配度核对）</th>
+            <th style={th}>时间</th><th style={th}>主题</th><th style={th}>状态</th><th style={th}>正文摘要</th>
           </tr></thead>
           <tbody>
             {data.insights.map(i => (
               <tr key={i.id}>
                 <td style={td}>{dt(i.generatedAt)}</td>
-                <td style={td}>{i.topic}</td>
+                <td style={td}>{i.topic || '—'}</td>
                 <td style={td}>{i.llm_failed
                   ? <span style={{ color: '#c62828' }}>LLM 失败（空产出）</span>
-                  : <span style={{ color: '#2e7d32' }}>正常</span>}</td>
-                <td style={td}>{i.sections_count}</td>
-                <td style={td}>{i.confidence ?? '—'}</td>
-                <td style={td}>{i.durationMs ? `${(i.durationMs / 1000).toFixed(1)}s` : '—'}</td>
-                <td style={td}>{Object.entries(i.same_day_sources || {}).map(([s, c]) => `${s}:${c}`).join('，') || '—'}</td>
+                  : <span className="detail-muted">正常</span>}</td>
+                <td style={td}>{i.preview || '—'}</td>
               </tr>
             ))}
-            {data.insights.length === 0 && <tr><td style={td} colSpan={7}>窗口内无洞察</td></tr>}
+            {data.insights.length === 0 && <tr><td style={td} colSpan={4}>窗口内无洞察</td></tr>}
           </tbody>
         </table>
       </Section>
 
-      {/* 选题记录 */}
-      <Section title={`每日选题（${data.topics.length} 条）`}>
+      {/* 每日选题 */}
+      <Section title={`每日选题（${data.topics.length} 条）`} defaultOpen>
         <table style={{ borderCollapse: 'collapse' }}>
           <thead><tr><th style={th}>选定时间</th><th style={th}>主题</th><th style={th}>fallback</th></tr></thead>
-          <tbody>{data.topics.map(t => (
-            <tr key={t.file}>
-              <td style={td}>{dt(t.selectedAt)}</td>
-              <td style={td}>{t.topic}</td>
-              <td style={td}>{String(t.fallback)}</td>
-            </tr>
-          ))}</tbody>
-        </table>
-      </Section>
-
-      {/* 配对记录 */}
-      <Section title={`配对记录（${data.creativity.combos.length} 条，新的在前）`} defaultOpen>
-        <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-          <thead><tr>
-            <th style={th}>时间</th><th style={th}>分类</th><th style={th}>配对来源（原文）</th><th style={th}>产出</th>
-          </tr></thead>
           <tbody>
-            {data.creativity.combos.map((c, idx) => (
-              <tr key={idx}>
-                <td style={td}>{dt(c.createdAtIso)}</td>
-                <td style={td}><span style={{ color: CLASS_META[c.class]?.color }}>
-                  {CLASS_META[c.class]?.label || c.class}</span></td>
-                <td style={td} title={c.sources.join('\n---\n')}>
-                  {c.sources.map((s, i) => (
-                    <div key={i} style={{ marginBottom: 4 }}>
-                      <span style={{ fontSize: 10, color: '#888' }}>[{SOURCE_TYPE_LABEL[c.sourceTypes[i]] || '?'}] </span>
-                      {s.length > 120 ? s.slice(0, 120) + '…' : s}
-                    </div>
-                  ))}
-                </td>
-                <td style={td}>{c.description || '—'}</td>
+            {data.topics.map(t => (
+              <tr key={t.file}>
+                <td style={td}>{dt(t.selectedAt)}</td>
+                <td style={td}>{t.topic}</td>
+                <td style={td}>{String(t.fallback)}</td>
               </tr>
             ))}
-            {data.creativity.combos.length === 0 && <tr><td style={td} colSpan={4}>窗口内无配对</td></tr>}
+            {data.topics.length === 0 && <tr><td style={td} colSpan={3}>窗口内无选题</td></tr>}
           </tbody>
         </table>
       </Section>
 
-      {/* 假设记录 */}
-      <Section title={`假设记录（${data.creativity.hypotheses.length} 条）`}>
-        <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-          <thead><tr><th style={th}>时间</th><th style={th}>分类</th><th style={th}>标题</th><th style={th}>状态/策略</th></tr></thead>
-          <tbody>
-            {data.creativity.hypotheses.map((h, idx) => (
-              <tr key={idx}>
-                <td style={td}>{dt(h.createdAtIso)}</td>
-                <td style={td}><span style={{ color: CLASS_META[h.class]?.color }}>
-                  {CLASS_META[h.class]?.label || h.class}</span></td>
-                <td style={td}>{h.title}</td>
-                <td style={td}>{h.status} / {h.strategy}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Section>
-
-      {/* 原始抓取素材（追溯终点） */}
-      <Section title={`原始抓取素材（${data.observations.length} 天，每来源带样本标题）`}>
+      {/* 原始抓取素材 */}
+      <Section title={`原始抓取素材（${data.observations.length} 天）`} defaultOpen>
         {data.observations.map(o => (
           <div key={o.date} style={{ marginBottom: 12 }}>
             <b style={{ fontSize: 13 }}>{o.date}</b>
