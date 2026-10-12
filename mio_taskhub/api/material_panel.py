@@ -155,6 +155,18 @@ def _observations(days: int, base: Path) -> List[dict]:
     return out
 
 
+def _local_day(iso: str) -> str:
+    """UTC ISO → 本地日期。
+
+    观察文件按本地日期命名，DAG 在 16:00Z 跑（本地次日 00:00）——直接取
+    UTC 前 10 位会与观察文件差一天，导致 same_day_sources / 支撑计数错位。
+    """
+    try:
+        return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone().date().isoformat()
+    except ValueError:
+        return iso[:10]
+
+
 def _insights(days: int, base: Path) -> List[dict]:
     """洞察产出：空 section / LLM 失败 / 选题匹配核对所需的当天来源分布。"""
     d = base / "insights"
@@ -162,6 +174,18 @@ def _insights(days: int, base: Path) -> List[dict]:
         return []
     obs_by_date = {o["date"]: {s["source"]: s["count"] for s in o["sources"]}
                    for o in _observations(days, base)}
+    # 当日素材正文（content/title），用于选题×素材支撑计数（如实标注上游脱节）
+    obs_dir = base / "observations"
+    contents_by_date: dict = {}
+    if obs_dir.is_dir():
+        for f in sorted(obs_dir.glob("*.json"))[-days:]:
+            r0 = _read_json(f)
+            if not r0:
+                continue
+            contents_by_date[str(r0.get("date") or f.stem)] = [
+                str(it.get("content") or it.get("title") or "")
+                for it in (r0.get("observations") or []) if isinstance(it, dict)
+            ]
     out = []
     for f in sorted(d.glob("*.json"))[-days * 5:]:
         r = _read_json(f)
@@ -169,7 +193,23 @@ def _insights(days: int, base: Path) -> List[dict]:
             continue
         sections = r.get("sections") or []
         gen = str(r.get("generatedAt") or "")
-        day = gen[:10]
+        day = _local_day(gen)
+        topic = str(r.get("topic") or "")
+        # 选题在近 3 日素材中出现的条数（对齐 research readRecent(3) 取材窗口）：
+        # 0 = 选题无素材支撑（洞察空话的上游信号）
+        try:
+            d0 = date.fromisoformat(day)
+            hay_keys = [(d0 - timedelta(days=k)).isoformat() for k in (0, 1, 2)]
+        except ValueError:
+            hay_keys = [day]
+        support_hits = ([c for k in hay_keys for c in contents_by_date.get(k, [])
+                         if topic and topic.lower() in c.lower()])
+        topic_support = len(support_hits)
+        # 引用核对：支撑素材的标题片段是否出现在洞察正文里——有素材却零引用
+        # = research 采样/归因失败（比无素材更值得标红）
+        all_text = " ".join(str(s.get("content") or "")
+                            for s in sections if isinstance(s, dict)).lower()
+        topic_cited = any(c[:24].strip().lower() in all_text for c in support_hits[:20])
         out.append({
             "id": r.get("id"),
             "topic": r.get("topic"),
@@ -186,6 +226,8 @@ def _insights(days: int, base: Path) -> List[dict]:
             "durationMs": r.get("metadata", {}).get("durationMs"),
             "empty": len(sections) == 0,
             "llm_failed": len(sections) == 0,
+            "topic_support": topic_support,
+            "topic_cited": topic_cited,
             "same_day_sources": obs_by_date.get(day, {}),
         })
     return out

@@ -111,6 +111,12 @@ def test_material_panel_classification_and_metrics(tmp_path, monkeypatch):
     assert failed["sections"] == []
     assert "给定信息没有出现 GitHub 字样" in ok_insight["preview"]
 
+    # 选题×素材支撑核对（如实标注上游脱节：0 条支撑的洞察多为空话）
+    assert ok_insight["topic_support"] == 2   # 【GitHub】×2 条当日素材
+    assert failed["topic_support"] == 0       # Mistral 当日 0 条支撑
+    # 引用核对：正文没引用任何支撑素材 → topic_cited False（前端标红「有素材但未引用」）
+    assert ok_insight["topic_cited"] is False
+
     # 选题记录
     assert body["topics"][0]["topic"] == "【GitHub】"
 

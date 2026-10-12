@@ -152,6 +152,39 @@ function ValueDiscoverySection({ obsDates }) {
 }
 
 /** 洞察卡：正常=可折叠全文卡；LLM 失败=一行红标（不渲染空卡）。 */
+function SupportBadge({ insight }) {
+  const s = insight.topic_support
+  if (s == null) return null
+  if (s === 0) {
+    return (
+      <span title="近 3 日素材中没有任何条目提到本选题，洞察内容多为「未找到相关内容」"
+            style={{ fontSize: 11, color: '#c62828', fontWeight: 600, border: '1px solid #c62828',
+                     borderRadius: 4, padding: '0 5px', whiteSpace: 'nowrap' }}>
+        选题无素材支撑
+      </span>
+    )
+  }
+  if (s <= 2) {
+    return (
+      <span title="近 3 日素材中仅有少量条目提及本选题，洞察依据偏弱"
+            style={{ fontSize: 11, color: '#b26a00', border: '1px solid #b26a00',
+                     borderRadius: 4, padding: '0 5px', whiteSpace: 'nowrap' }}>
+        支撑弱·{s} 条
+      </span>
+    )
+  }
+  if (insight.topic_cited === false && !insight.llm_failed) {
+    return (
+      <span title="近 3 日素材中有较多条目提及本选题，但洞察正文没有引用任何素材——research 阶段疑似漏检"
+            style={{ fontSize: 11, color: '#c62828', fontWeight: 600, border: '1px solid #c62828',
+                     borderRadius: 4, padding: '0 5px', whiteSpace: 'nowrap' }}>
+        有素材但洞察未引用
+      </span>
+    )
+  }
+  return null
+}
+
 function InsightCard({ insight }) {
   const [open, setOpen] = useState(false)
   const secs = (insight.sections || []).filter(s => s && (s.title || s.content))
@@ -163,6 +196,7 @@ function InsightCard({ insight }) {
                     borderBottom: '1px solid var(--border, #eee)' }}>
         <span style={{ fontSize: 12, color: '#c62828', fontWeight: 600 }}>LLM 失败（空产出）</span>
         <b style={{ fontSize: 13 }}>{insight.topic || '（无主题）'}</b>
+        <SupportBadge insight={insight} />
         <span className="detail-muted" style={{ fontSize: 11, marginLeft: 'auto' }}>{time}</span>
       </div>
     )
@@ -174,6 +208,7 @@ function InsightCard({ insight }) {
                        background: 'none', border: 'none', cursor: 'pointer', padding: '8px 10px', fontSize: 13 }}>
         <span className="detail-muted">{open ? '▾' : '▸'}</span>
         <b>{insight.topic || '（无主题）'}</b>
+        <SupportBadge insight={insight} />
         <span className="detail-muted" style={{ fontSize: 11, marginLeft: 'auto' }}>{time}</span>
       </button>
       {open && (
