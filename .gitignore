@@ -38,3 +38,8 @@ docs/*
 !docs/csdn-mio-taskhub-practice.md
 !docs/csdn-mio-taskhub-practice-article.md
 !docs/csdn-mio-taskhub-practice-outline.md
+
+# 覆盖率产物（T0.3 引入 pytest-cov）
+.coverage
+coverage.xml
+htmlcov/
