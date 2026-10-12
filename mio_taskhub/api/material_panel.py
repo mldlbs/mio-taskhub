@@ -176,6 +176,9 @@ def _insights(days: int, base: Path) -> List[dict]:
             "generatedAt": gen,
             "sections_count": len(sections),
             "section_titles": [s.get("title") for s in sections if isinstance(s, dict)],
+            # 日刊流全文阅读（task 164e9081，纯增量字段，preview 保留兼容旧前端）
+            "sections": [{"title": s.get("title"), "content": s.get("content")}
+                         for s in sections if isinstance(s, dict)],
             "preview": next((str(s.get("content") or "")[:200]
                              for s in sections if isinstance(s, dict) and s.get("content")), ""),
             "confidence": r.get("metadata", {}).get("confidence"),

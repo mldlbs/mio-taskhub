@@ -1,16 +1,46 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 
-/** 素材面板（只读）：每日创意生成链路的素材内容视图。
+/** 素材面板 v2 · 日刊流（task 164e9081，2026-10-12 设计稿确认）。
  *
- * 2026-10-10 去过程化（task 7dac69de，用户反馈）：主视图只保留素材内容
- * （洞察 / 选题 / 原始抓取 / 价值发现），不再渲染过程数据——采集调度器卡、
- * 验收指标卡、classification_note 口径长文、配对记录、假设记录。
- * 后端契约未变（material_panel.py / api.js 均未改动），仅 UI 层移除渲染；
- * 洞察正文摘要复用后端已返回的 preview 字段。
+ * 主用途=日常巡检产出：按日期分节（最新在前），每天一节回答
+ * 「今天产出了什么」——选题行（污染 token 前端过滤并标注）、洞察卡
+ * （默认折叠，点开读 sections 全文；空产出只给红标行不渲染空卡）、
+ * 来源计数行 + 折叠原始素材抽屉（消防栓不铺开）。
+ * 价值发现实验收进页底折叠区，顶栏按钮直达，主视图不再见表单。
+ * 数据来自 /mio/material-panel（后端 task 164e9081 增量 sections 全文，
+ * preview/classification_note 等旧字段保留兼容）。
  */
 
+const pad = (n) => String(n).padStart(2, '0')
 const dt = (iso) => iso ? String(iso).replace('T', ' ').slice(0, 16) : '—'
+/** 本地时区的日期（YYYY-MM-DD）：选题/洞察按本地日归组，与 observations 的日期口径一致。 */
+const localDay = (iso) => {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return String(iso).slice(0, 10)
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+const weekdayOf = (day) => {
+  const d = new Date(`${day}T00:00:00`)
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('zh-CN', { weekday: 'short' })
+}
+
+/** 选题污染 token 过滤（前端口径，已知问题：选题池被标题前缀 token 污染）。 */
+const isJunkTopic = (t) => {
+  const s = String(t ?? '').trim()
+  if (!s) return true
+  if (/^(show hn|ask hn|hn)\b/i.test(s)) return true          // Show HN: / HN: 前缀
+  if (s.startsWith('【') && s.endsWith('】')) return true       // 【GitHub】类标题前缀
+  if (/[:：]$/.test(s)) return true                            // 冒号结尾 token
+  if (s.length <= 3) return true                               // 过短碎片
+  return false
+}
+const splitTopics = (topics) => {
+  const valid = [], junk = []
+  for (const t of topics || []) (isJunkTopic(t.topic) ? junk : valid).push(t)
+  return { valid, junk }
+}
 
 const DEFAULT_ISSUES = `- mio-taskhub 文档链门控在 UI 无法操作（DocPanel 只读、422 detail 被裸 JSON.stringify）
 - observer 洞察的输入抽样窗口偏娱乐源，github-trending 抓取标题带 HTML 垃圾
@@ -121,11 +151,131 @@ function ValueDiscoverySection({ obsDates }) {
   )
 }
 
-function Section({ title, children, defaultOpen = false }) {
-  const [open, setOpen] = useState(defaultOpen)
+/** 洞察卡：正常=可折叠全文卡；LLM 失败=一行红标（不渲染空卡）。 */
+function InsightCard({ insight }) {
+  const [open, setOpen] = useState(false)
+  const secs = (insight.sections || []).filter(s => s && (s.title || s.content))
+  const time = dt(insight.generatedAt)
+
+  if (insight.llm_failed || secs.length === 0) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '4px 0',
+                    borderBottom: '1px solid var(--border, #eee)' }}>
+        <span style={{ fontSize: 12, color: '#c62828', fontWeight: 600 }}>LLM 失败（空产出）</span>
+        <b style={{ fontSize: 13 }}>{insight.topic || '（无主题）'}</b>
+        <span className="detail-muted" style={{ fontSize: 11, marginLeft: 'auto' }}>{time}</span>
+      </div>
+    )
+  }
+  return (
+    <div style={{ border: '1px solid var(--border, #ddd)', borderRadius: 8, marginTop: 6, background: 'var(--bg, #fff)' }}>
+      <button onClick={() => setOpen(o => !o)}
+              style={{ display: 'flex', alignItems: 'baseline', gap: 8, width: '100%', textAlign: 'left',
+                       background: 'none', border: 'none', cursor: 'pointer', padding: '8px 10px', fontSize: 13 }}>
+        <span className="detail-muted">{open ? '▾' : '▸'}</span>
+        <b>{insight.topic || '（无主题）'}</b>
+        <span className="detail-muted" style={{ fontSize: 11, marginLeft: 'auto' }}>{time}</span>
+      </button>
+      {open && (
+        <div style={{ padding: '0 12px 10px' }}>
+          {secs.map((s, i) => (
+            <div key={i} style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{s.title}</div>
+              <div style={{ fontSize: 12, whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{s.content}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 单日素材抽屉：来源计数 + 每源前 3 条标题（折叠，默认不铺开）。 */
+function ObservationsDrawer({ obs }) {
+  const [open, setOpen] = useState(false)
+  if (!obs) return <div className="detail-muted" style={{ fontSize: 12, marginTop: 6 }}>今日无原始抓取</div>
+  const counts = (obs.sources || []).map(s => `${s.source} ${s.count}`).join(' · ')
+  return (
+    <div style={{ marginTop: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+        <span className="detail-muted" style={{ fontSize: 12 }}>来源：{counts || '—'}</span>
+        <button onClick={() => setOpen(o => !o)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                         fontSize: 12, color: 'var(--link, #1976d2)' }}>
+          {open ? '收起原始素材 ▴' : `原始素材 ${obs.total} 条 ▾`}
+        </button>
+      </div>
+      {open && (
+        <table style={{ borderCollapse: 'collapse', marginTop: 6 }}>
+          <thead><tr><th style={th}>来源</th><th style={th}>条数</th><th style={th}>样本标题（前 3 条）</th></tr></thead>
+          <tbody>
+            {(obs.sources || []).map(s => (
+              <tr key={s.source}>
+                <td style={td}>{s.source}</td>
+                <td style={td}>{s.count}</td>
+                <td style={td}>{(s.samples || []).map((t, i) => <div key={i}>{t}</div>)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  )
+}
+
+/** 一天一节：选题行 + 洞察卡 + 来源抽屉。 */
+function DaySection({ day }) {
+  const { valid, junk } = splitTopics(day.topics)
+  return (
+    <section style={{ border: '1px solid var(--border, #ddd)', borderRadius: 10,
+                      padding: '12px 14px', marginTop: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+        <h3 style={{ margin: 0, fontSize: 15 }}>{day.date}</h3>
+        <span className="detail-muted" style={{ fontSize: 12 }}>{weekdayOf(day.date)}</span>
+        {day.insights.length > 0 &&
+          <span className="detail-muted" style={{ fontSize: 12 }}>洞察 {day.insights.length} 条</span>}
+        <span className="detail-muted" style={{ fontSize: 12, marginLeft: 'auto' }}>
+          {day.obs ? `抓取 ${day.obs.total} 条` : ''}
+        </span>
+      </div>
+
+      {/* 选题行 */}
+      <div style={{ fontSize: 13, marginTop: 8 }}>
+        {day.topics.length === 0
+          ? <span className="detail-muted">今日无选题</span>
+          : (<>
+              <b>今日选题：</b>
+              {valid.length > 0 ? valid.map(t => t.topic).join(' / ')
+                                : <span className="detail-muted">（无有效选题）</span>}
+              {junk.length > 0 &&
+                <span className="detail-muted" style={{ fontSize: 11, marginLeft: 8 }}>
+                  已过滤 {junk.length} 条无效 token 选题
+                </span>}
+            </>)}
+      </div>
+
+      {/* 洞察卡列表 */}
+      <div style={{ marginTop: 8 }}>
+        {day.insights.length === 0
+          ? <div className="detail-muted" style={{ fontSize: 13 }}>今日无洞察产出</div>
+          : day.insights
+              .slice()
+              .sort((a, b) => String(a.generatedAt).localeCompare(String(b.generatedAt)))
+              .map(i => <InsightCard key={i.id} insight={i} />)}
+      </div>
+
+      <ObservationsDrawer obs={day.obs} />
+    </section>
+  )
+}
+
+function Section({ title, children, defaultOpen = false, open: openProp, onToggle }) {
+  const [inner, setInner] = useState(defaultOpen)
+  const open = openProp !== undefined ? openProp : inner
+  const toggle = () => { if (onToggle) onToggle(!open); else setInner(o => !o) }
   return (
     <div style={{ marginTop: 14 }}>
-      <button onClick={() => setOpen(o => !o)}
+      <button onClick={toggle}
               style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0,
                        fontWeight: 600, fontSize: 14, textAlign: 'left' }}>
         {open ? '▾' : '▸'} {title}
@@ -142,6 +292,7 @@ export default function MaterialPanelView() {
   const [data, setData] = useState(null)
   const [err, setErr] = useState(null)
   const [days, setDays] = useState(7)
+  const [vdOpen, setVdOpen] = useState(false)
 
   async function load(d = days) {
     try {
@@ -153,6 +304,19 @@ export default function MaterialPanelView() {
   }
   useEffect(() => { load(days) }, [days])
 
+  const dayList = useMemo(() => {
+    if (!data) return []
+    const map = new Map()
+    const ensure = (d) => {
+      if (!map.has(d)) map.set(d, { date: d, insights: [], topics: [], obs: null })
+      return map.get(d)
+    }
+    for (const i of data.insights || []) { const d = localDay(i.generatedAt); if (d) ensure(d).insights.push(i) }
+    for (const t of data.topics || []) { const d = localDay(t.selectedAt); if (d) ensure(d).topics.push(t) }
+    for (const o of data.observations || []) { const d = o.date; if (d) ensure(d).obs = o }
+    return [...map.values()].sort((a, b) => b.date.localeCompare(a.date))
+  }, [data])
+
   if (err) return <div className="mio-view"><p className="detail-muted">加载失败：{err}</p></div>
   if (!data) return <div className="mio-view"><p className="detail-muted">加载中…</p></div>
 
@@ -163,74 +327,23 @@ export default function MaterialPanelView() {
         <select value={days} onChange={e => setDays(Number(e.target.value))} style={{ fontSize: 13 }}>
           {[3, 7, 14, 30].map(d => <option key={d} value={d}>最近 {d} 天</option>)}
         </select>
-        <span className="detail-muted" style={{ fontSize: 12 }}>只读 · 素材库 {data.observer_base}</span>
+        <span style={{ flex: 1 }} />
+        <button onClick={() => setVdOpen(o => !o)}
+                style={{ fontSize: 13, padding: '4px 12px', cursor: 'pointer' }}>
+          {vdOpen ? '收起价值发现 ▴' : '▶ 跑价值发现'}
+        </button>
       </div>
 
-      {/* 洞察产出：内容视图（主题 + 正文摘要；空产出标红） */}
-      <Section title={`洞察产出（${data.insights.length} 条）`} defaultOpen>
-        <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-          <thead><tr>
-            <th style={th}>时间</th><th style={th}>主题</th><th style={th}>状态</th><th style={th}>正文摘要</th>
-          </tr></thead>
-          <tbody>
-            {data.insights.map(i => (
-              <tr key={i.id}>
-                <td style={td}>{dt(i.generatedAt)}</td>
-                <td style={td}>{i.topic || '—'}</td>
-                <td style={td}>{i.llm_failed
-                  ? <span style={{ color: '#c62828' }}>LLM 失败（空产出）</span>
-                  : <span className="detail-muted">正常</span>}</td>
-                <td style={td}>{i.preview || '—'}</td>
-              </tr>
-            ))}
-            {data.insights.length === 0 && <tr><td style={td} colSpan={4}>窗口内无洞察</td></tr>}
-          </tbody>
-        </table>
-      </Section>
+      {/* 日刊流：一天一节，最新在前 */}
+      {dayList.length === 0 && (
+        <p className="detail-muted" style={{ marginTop: 20 }}>窗口内无任何素材/产出</p>
+      )}
+      {dayList.map(day => <DaySection key={day.date} day={day} />)}
 
-      {/* 每日选题 */}
-      <Section title={`每日选题（${data.topics.length} 条）`} defaultOpen>
-        <table style={{ borderCollapse: 'collapse' }}>
-          <thead><tr><th style={th}>选定时间</th><th style={th}>主题</th><th style={th}>fallback</th></tr></thead>
-          <tbody>
-            {data.topics.map(t => (
-              <tr key={t.file}>
-                <td style={td}>{dt(t.selectedAt)}</td>
-                <td style={td}>{t.topic}</td>
-                <td style={td}>{String(t.fallback)}</td>
-              </tr>
-            ))}
-            {data.topics.length === 0 && <tr><td style={td} colSpan={3}>窗口内无选题</td></tr>}
-          </tbody>
-        </table>
-      </Section>
-
-      {/* 原始抓取素材 */}
-      <Section title={`原始抓取素材（${data.observations.length} 天）`} defaultOpen>
-        {data.observations.map(o => (
-          <div key={o.date} style={{ marginBottom: 12 }}>
-            <b style={{ fontSize: 13 }}>{o.date}</b>
-            <span className="detail-muted" style={{ fontSize: 12 }}> 共 {o.total} 条</span>
-            <table style={{ borderCollapse: 'collapse', marginTop: 4 }}>
-              <thead><tr><th style={th}>来源</th><th style={th}>条数</th><th style={th}>样本标题（前 3 条）</th></tr></thead>
-              <tbody>
-                {o.sources.map(s => (
-                  <tr key={s.source}>
-                    <td style={td}>{s.source}</td>
-                    <td style={td}>{s.count}</td>
-                    <td style={td}>{s.samples.map((t, i) => <div key={i}>{t}</div>)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
-        {data.observations.length === 0 && <p className="detail-muted">窗口内无观测数据</p>}
-      </Section>
-
-      {/* R292：人工触发的价值发现实验 */}
-      <Section title="价值发现实验（人工触发 · 烧 LLM · 允许 0 结果）" defaultOpen>
-        <ValueDiscoverySection obsDates={data.observations.map(o => o.date)} />
+      {/* 价值发现实验：页底折叠区，顶栏按钮直达 */}
+      <Section title="价值发现实验（人工触发 · 烧 LLM · 允许 0 结果）"
+               open={vdOpen} onToggle={setVdOpen}>
+        <ValueDiscoverySection obsDates={(data.observations || []).map(o => o.date)} />
       </Section>
     </div>
   )

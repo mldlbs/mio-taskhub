@@ -106,6 +106,11 @@ def test_material_panel_classification_and_metrics(tmp_path, monkeypatch):
     ok_insight = next(i for i in body["insights"] if i["id"] == "obs_a")
     assert ok_insight["same_day_sources"].get("bilibili") == 1
 
+    # 日刊流全文阅读：sections 全文字段（task 164e9081，纯增量，preview 保留）
+    assert ok_insight["sections"] == [{"title": "发生了什么", "content": "给定信息没有出现 GitHub 字样"}]
+    assert failed["sections"] == []
+    assert "给定信息没有出现 GitHub 字样" in ok_insight["preview"]
+
     # 选题记录
     assert body["topics"][0]["topic"] == "【GitHub】"
 
