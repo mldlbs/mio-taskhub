@@ -1332,7 +1332,7 @@ input, textarea, select { font-family: inherit; }
   background: rgba(6, 8, 11, 0.6);
 }
 .drawer {
-  width: min(50vw, 1000px);
+  width: min(75vw, 1600px);
   height: 100%;
   display: flex;
   flex-direction: column;
