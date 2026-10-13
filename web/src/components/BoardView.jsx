@@ -1,11 +1,33 @@
 import { useEffect, useRef, useState } from 'react'
-import { LANES, STAGES, fmtDur } from '../constants'
+import { LANES, STAGES, fmtDur, parseUtc } from '../constants'
 import TaskCard from './TaskCard'
+
+const SCENES = [
+  { id: 'today', label: '今日聚焦' },
+  { id: 'overdue', label: '逾期' },
+  { id: 'all', label: '全部' },
+]
+
+function isToday(iso) {
+  if (!iso) return false
+  const d = parseUtc(iso)
+  if (!d || Number.isNaN(+d)) return false
+  const n = new Date()
+  return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate()
+}
+
+function isOverdue(t) {
+  if (!t.due_at) return false
+  if (t.state === 'completed' || t.state === 'cancelled') return false
+  const d = parseUtc(t.due_at)
+  return d && !Number.isNaN(+d) && d < new Date()
+}
 
 export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, focus, groupBy = 'state' }) {
   const [dragging, setDragging] = useState(null)
   const [overPos, setOverPos] = useState(null)
   const [flashId, setFlashId] = useState(null)
+  const [scene, setScene] = useState('all')
   const laneRefs = useRef({})
 
   const lanes = groupBy === 'stage' ? STAGES : LANES
@@ -20,17 +42,27 @@ export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, fo
     return () => clearTimeout(t)
   }, [focus])
 
+  const filtered = scene === 'all' ? tasks
+    : scene === 'today' ? tasks.filter(t => isToday(t.due_at) || t.stage === 'ready' || t.stage === 'implementing')
+    : tasks.filter(isOverdue)
+
   const byLane = Object.fromEntries(lanes.map(l => [
     l.id,
-    [...tasks.filter(t => (t[groupField] || '') === l.id)].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0)),
+    [...filtered.filter(t => (t[groupField] || '') === l.id)].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0)),
   ]))
 
   const laneTotal = (id) => byLane[id].reduce((s, t) => s + (t.est_duration_min || 0), 0)
-  const totalTasks = tasks.length
-  const totalDur = tasks.reduce((s, t) => s + (t.est_duration_min || 0), 0)
+  const totalTasks = filtered.length
+  const totalDur = filtered.reduce((s, t) => s + (t.est_duration_min || 0), 0)
   const doneLane = groupBy === 'stage' ? 'done' : 'completed'
   const doneCount = (byLane[doneLane] || []).length
   const progress = totalTasks ? Math.round((doneCount / totalTasks) * 100) : 0
+
+  const sceneCounts = {
+    today: tasks.filter(t => isToday(t.due_at) || t.stage === 'ready' || t.stage === 'implementing').length,
+    overdue: tasks.filter(isOverdue).length,
+    all: tasks.length,
+  }
 
   const clearDrag = () => { setDragging(null); setOverPos(null) }
 
@@ -60,6 +92,19 @@ export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, fo
         <span className="board-stats__bar" aria-hidden="true">
           <span className="board-stats__fill" style={{ width: `${progress}%` }} />
         </span>
+      </div>
+
+      <div className="board-scenes">
+        {SCENES.map(s => (
+          <button
+            key={s.id}
+            className={`board-scene${scene === s.id ? ' is-on' : ''}`}
+            onClick={() => setScene(s.id)}
+          >
+            {s.label}
+            <span className="board-scene__count">{sceneCounts[s.id]}</span>
+          </button>
+        ))}
       </div>
 
       <div className="pipeline">

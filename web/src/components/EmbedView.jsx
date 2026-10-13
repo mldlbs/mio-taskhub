@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../api'
+import { STATE_META, STAGE_META, prio, compositeLabel } from '../constants'
 import FlowView from './FlowView'
+
+const STAGE_FLOW = ['brainstorming', 'design', 'planning', 'ready', 'implementing', 'review', 'done']
 
 export default function EmbedView() {
   const [tasks, setTasks] = useState([])
@@ -49,6 +52,16 @@ export default function EmbedView() {
   const ready = tasks.filter(t => t.stage === 'ready').length
   const running = tasks.filter(t => t.stage === 'implementing').length
 
+  const stageIdx = sel ? STAGE_FLOW.indexOf(sel.stage) : -1
+  const stagePct = stageIdx >= 0 ? Math.round((stageIdx + 1) / STAGE_FLOW.length * 100) : 0
+  const stageMeta = sel?.stage ? STAGE_META[sel.stage] : null
+  const stateMeta = sel?.state ? STATE_META[sel.state] : null
+  const prioMeta = sel ? prio(sel.priority) : null
+  const compLabel = sel ? compositeLabel(sel.state, sel.stage || 'ready') : null
+  const accLines = sel?.acceptance_criteria
+    ? sel.acceptance_criteria.split(/\n+/).map(s => s.trim()).filter(Boolean)
+    : []
+
   return (
     <div className="embed">
       <header className="embed__bar">
@@ -65,7 +78,19 @@ export default function EmbedView() {
             : null}
       </header>
 
-      <FlowView tasks={tasks} onOpen={openTask} onAdvance={advance} onCancel={cancel} />
+      {tasks.length === 0 && !err ? (
+        <div className="embed__empty">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2" />
+            <rect x="9" y="3" width="6" height="4" rx="1" />
+            <path d="M9 14h6M9 18h4" />
+          </svg>
+          <p>暂无任务</p>
+          <span>在任务中心创建任务后，这里会实时显示进度</span>
+        </div>
+      ) : (
+        <FlowView tasks={tasks} onOpen={openTask} onAdvance={advance} onCancel={cancel} />
+      )}
 
       {sel && (
         <div className="embed__detail" role="dialog" aria-label="任务详情">
@@ -73,15 +98,49 @@ export default function EmbedView() {
             <h3>{sel.title}</h3>
             <button className="btn btn--ghost" onClick={closeSel}>×</button>
           </div>
+
           <div className="embed__detail-meta">
-            <span>阶段: {sel.stage}</span>
-            <span>状态: {sel.state}</span>
-            <span>优先级: {sel.priority}</span>
-            {sel.target_agent_type && <span>执行: {sel.target_agent_type}</span>}
+            {stateMeta && (
+              <span className={`state-chip is-${stateMeta.tone}`}>
+                <i></i>{stateMeta.label}
+              </span>
+            )}
+            {stageMeta && (
+              <span className={`chip chip--${stageMeta.tone}`}>{stageMeta.label}</span>
+            )}
+            {prioMeta && (
+              <span className={`np-row__prio np-row__prio--p${prioMeta.p}`}>{prioMeta.label} · {prioMeta.text}</span>
+            )}
+            {compLabel && (
+              <span className={`chip chip--composite chip--${compLabel.tone}`}>{compLabel.label}</span>
+            )}
+            {sel.target_agent_type && <span className="chip chip--agent">执行: {sel.target_agent_type}</span>}
           </div>
-          {sel.description && <p className="embed__detail-desc">{sel.description}</p>}
+
+          {sel.stage && (
+            <div className="stage-bar embed__stage-bar" title={`${stageIdx + 1}/${STAGE_FLOW.length} · ${stagePct}% · ${stageMeta?.label || sel.stage}`}>
+              <div className="stage-bar__fill" style={{ width: stagePct + '%' }} />
+            </div>
+          )}
+
+          {sel.description && (
+            <div className="embed__card">
+              <div className="embed__card-title">📋 描述</div>
+              <p className="embed__detail-desc">{sel.description}</p>
+            </div>
+          )}
+
           {sel.acceptance_criteria && (
-            <p className="embed__detail-desc"><b>验收:</b> {sel.acceptance_criteria}</p>
+            <div className="embed__card">
+              <div className="embed__card-title">✅ 验收标准</div>
+              {accLines.length > 1 ? (
+                <ol className="embed__acc-list">
+                  {accLines.map((line, i) => <li key={i}>{line}</li>)}
+                </ol>
+              ) : (
+                <p className="embed__detail-desc">{sel.acceptance_criteria}</p>
+              )}
+            </div>
           )}
         </div>
       )}
