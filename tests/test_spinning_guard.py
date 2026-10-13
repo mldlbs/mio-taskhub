@@ -3,6 +3,10 @@
 
 覆盖：① 下游消费意愿检查（堆积超阈值则 skipped）；② 默认关闭开关；③ 历史归档脚本幂等可逆。
 不真连外部：全部走内存/临时 DB。
+T0.2（F4）：原①b 生成类 webhook 守卫 4 例已删除——产品侧
+CronEngine._should_skip_webhook_generation 已随生成守卫下线（grep 无
+max_pending_ideas/webhook 生成跳过消费方），无迁移目标；生成链仍由
+MIO_IDEA_AUTOGEN 默认关闭把关（见② 段用例）。
 """
 import os
 import uuid
@@ -104,67 +108,6 @@ def test_execute_job_records_skipped_status():
     assert after == before, "skipped 时不应新建任务"
     assert any(e.status == "skipped" for e in ex)
     assert job.last_status is not None
-
-
-# ---------- ①b 生成类 webhook 的消费意愿检查 ----------
-
-def _mk_webhook_job(db, url="http://127.0.0.1:48620/api/v1/ideas/templates/generate", **cfg):
-    job = ScheduledJob(
-        id=str(uuid.uuid4())[:8],
-        name="test-idea-webhook",
-        cron_expr="0 10 * * *",
-        action_type=ScheduledJobActionType.WEBHOOK,
-        action_config={"url": url, "method": "POST", **cfg},
-        enabled=True,
-    )
-    db.add(job)
-    db.commit()
-    db.refresh(job)
-    return job
-
-
-def _mk_new_ideas(db, n):
-    from mio_taskhub.models import Idea, IdeaStatus
-    for k in range(n):
-        db.add(Idea(id=f"idea{k:04d}", title=f"auto idea {k}",
-                    status=IdeaStatus.NEW, labels=["auto-generated"]))
-    db.commit()
-
-
-def test_webhook_guard_skips_when_unconsumed_ideas_pile_up():
-    from mio_taskhub.models import Idea, IdeaStatus
-    with Session(engine) as db:
-        job = _mk_webhook_job(db, max_pending_ideas=3)
-        _mk_new_ideas(db, 3)
-        reason = ce.CronEngine(poll_interval=999)._should_skip_webhook_generation(job, db)
-    assert reason and "未消费" in reason
-
-
-def test_webhook_guard_allows_below_threshold():
-    with Session(engine) as db:
-        job = _mk_webhook_job(db, max_pending_ideas=3)
-        _mk_new_ideas(db, 2)
-        assert ce.CronEngine(poll_interval=999)._should_skip_webhook_generation(job, db) is None
-
-
-def test_webhook_guard_ignores_non_generation_webhook():
-    """非生成类 webhook（url 不含生成端点且未标记）不受保护。"""
-    with Session(engine) as db:
-        job = _mk_webhook_job(db, url="http://example.com/notify", max_pending_ideas=1)
-        _mk_new_ideas(db, 5)
-        assert ce.CronEngine(poll_interval=999)._should_skip_webhook_generation(job, db) is None
-
-
-def test_webhook_guard_counts_only_unconsumed_new():
-    """只有 NEW 状态且 auto-generated 的想法计入；已评审的不算。"""
-    from mio_taskhub.models import Idea, IdeaStatus
-    with Session(engine) as db:
-        job = _mk_webhook_job(db, max_pending_ideas=2)
-        db.add(Idea(id="done0001", title="reviewed", status=IdeaStatus.FERMENTING,
-                    labels=["auto-generated"]))
-        db.add(Idea(id="done0002", title="manual", status=IdeaStatus.NEW, labels=[]))
-        db.commit()
-        assert ce.CronEngine(poll_interval=999)._should_skip_webhook_generation(job, db) is None
 
 
 # ---------- ② 默认关闭开关 ----------
