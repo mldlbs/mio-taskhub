@@ -462,7 +462,14 @@ def _upsert_change_tracking_task(i: Idea, diff: dict, db: Session, reason: str =
         id=str(uuid.uuid4())[:8],
         title=title,
         description=description,
-        stage=TaskStage.REVIEW,
+        # 建单落READY（可领取），**不是** REVIEW。
+        # 原因：所有领取入口（claim.py:68主动 claim、background.py:389 自动派单）
+        # 都只选 stage==READY；若建单即 REVIEW，该任务既不在 claim 候选也不在
+        # 派单候选，成为事实上的孤儿态——实测 2026-09-28 建的 5 条[变更]任务
+        # 从未被任何 agent 领过（claimed_at=None、taskevent 0 条），滞留 3~9 天。
+        # 出路 T6(COMPLETED+REVIEW→DONE) 虽存在，但需要先由 claim/dispatcher
+        # 把 state 推到 COMPLETED，而那一步恰好被 stage 过滤挡住。
+        stage=TaskStage.READY,
         idea_id=i.id,
         task_kind=TaskKind.CHANGE_TRACKING,
     )

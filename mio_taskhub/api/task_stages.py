@@ -69,7 +69,12 @@ STAGE_ARTIFACT_REQUIREMENTS = {
 # （design / planning 已门控 spec+api / plan）间接保证。
 # 严格 kind：未显式设状态时，只要任务已进入文档生命周期（doc_statuses 非空）就算缺失并阻断。
 # 目的：堵住「没有 requirement 也能批准 spec/api 进 design」的缺口。
-# 向后兼容：完全未跟踪（doc_statuses 为空）的历史任务仍按旧逻辑放行。
+# 向后兼容：由 task.doc_gate_exempt 显式豁免（迁移把存量历史任务全部置 True）。
+# 2026-10-10 审计 P0-1 修正：此前「doc_statuses 为空即放行」被当成历史任务豁免，但新建任务
+# 的 doc_statuses 本来就是空的 —— 等于 spec/api/plan 门控在常态路径上从未生效（实测可无任何
+# 文档 approved 直达 ready）。现改为：**凡该 kind 的文档已实际落盘（文件存在），就必须有
+# 显式状态且达到 required**；只登记路径未落盘不阻断（允许先声明位置、边做边写）。
+# 「是否豁免」只看 doc_gate_exempt 这一个显式字段，不再靠推断。
 STRICT_KINDS = {"requirement"}
 
 LIFECYCLE_GATE = {
@@ -78,16 +83,62 @@ LIFECYCLE_GATE = {
     "planning": {"plan": "approved"},
 }
 
+# 研发流水线顺序。用于**累计门控**：move（拖拽）可任意跳转，若只按「目标阶段」查
+# LIFECYCLE_GATE，跳过 design 直接进 planning/ready 就能绕过 design 的文档门槛
+# （2026-10-10 审计实测：design 被 422 拦下，但 planning/ready 仍 200 直达）。
+# 改为「目标阶段及其之前所有阶段的门槛取并集」，跳阶段不再等于免检。
+STAGE_PIPELINE = ("brainstorming", "design", "planning", "ready",
+                  "implementing", "review", "done")
+
+
+def _gates_upto(dst) -> dict:
+    """目标阶段及其之前所有阶段的文档门槛合并（跳阶段不得绕过前序门槛）。"""
+    val = getattr(dst, "value", dst)
+    if val not in STAGE_PIPELINE:
+        return {}
+    merged: dict = {}
+    for st in STAGE_PIPELINE[:STAGE_PIPELINE.index(val) + 1]:
+        merged.update(LIFECYCLE_GATE.get(st) or {})
+    return merged
+
+
+def _doc_written(t: Task, kind: str) -> bool:
+    """该 kind 的文档是否已**实际落盘**（有内容等着被批准）。
+
+    与 `doc_path_of`（只判断路径是否登记）区分开：
+      · 只登记路径、文件还没写 → 不阻断（允许「先声明产出物位置，边做边写」）；
+      · 文件已写出 → 必须走完生命周期并 approved，否则阻断。
+    2026-10-10 审计 P0-1：真正要堵的是「文档写完了却没批准就进下一阶段」，
+    而不是「还没写文档就先进阶段」。
+    workspace 缺失 / 路径不可解析时按「未落盘」处理，不阻断。
+    """
+    try:
+        from mio_taskhub.read_evidence import resolve_doc_path
+        p = resolve_doc_path(t, kind)
+        return bool(p is not None and p.is_file())
+    except OSError:
+        return False
+
 
 def _check_lifecycle_gate(t: Task, dst: TaskStage, force: bool = False):
     """进入目标阶段前校验文档生命周期状态已达门槛。
 
-    仅当 doc_statuses[kind] 有显式状态时才校验（未设置则不阻断，向后兼容）。
+    豁免：仅 `task.doc_gate_exempt=True`（显式字段，迁移把存量历史任务置 True）时不校验。
+    2026-10-10 审计 P0-1：原实现用「doc_statuses 是否为空」推断「历史任务」并放行，但新建
+    任务的 doc_statuses 本来就是空的，等于 spec/api/plan 门控在常态路径上从未生效（实测可无任何
+    文档 approved 直达 ready）。现改为：
+      · 该 kind 已落盘（文件存在）→ 必须有显式状态且达到 required；
+      · 该 kind 未落盘 → 放行（本阶段不涉及「已写但未批」的文档）；
+      · STRICT_KINDS（requirement）另有一道：只要任务已跟踪文档链，无状态即阻断。
+      · 门槛按**累计**方式取「目标阶段之前所有阶段」的并集 —— move 可任意跳转，
+        只查目标阶段会让「跳过 design 直进 planning/ready」绕过前序门槛。
     未达门槛且未 force → 抛 HTTPException(422, {message, gate})；
     force 绕过 → 返回被绕过的条目列表（供调用方留痕），否则返回空列表。
     """
-    gate = LIFECYCLE_GATE.get(getattr(dst, "value", dst)) or {}
+    gate = _gates_upto(dst)
     if not gate:
+        return []
+    if getattr(t, "doc_gate_exempt", False):
         return []
     statuses = dict(getattr(t, "doc_statuses", None) or {})
     tracked = bool(statuses)                 # 已进入文档生命周期（显式设过任一状态）
@@ -95,15 +146,17 @@ def _check_lifecycle_gate(t: Task, dst: TaskStage, force: bool = False):
     for kind, required in gate.items():
         entry = statuses.get(kind)
         if not entry:                       # 从未设置状态
-            if kind in STRICT_KINDS and tracked:
+            written = _doc_written(t, kind)
+            if written or (kind in STRICT_KINDS and tracked):
                 blocked.append({
                     "kind": kind,
                     "current": None,
                     "required": required,
                     "has_doc": bool(doc_path_of(t, kind)),
+                    "written": written,
                 })
             continue
-        cur = (entry or {}).get("state")
+        cur = entry.get("state")
         if reached_state(kind, cur, required):
             continue
         blocked.append({
@@ -178,10 +231,11 @@ def _apply_stage_requirements(t: Task, dst: TaskStage, body: dict, strict: bool 
             if any_doc:
                 # 只给了文档时留一条指向它的提示，避免文本字段为空
                 text = f"见审查文档 {doc_path_of(t, kinds[0])}"
-            elif strict:
-                raise HTTPException(422, req["error"])
             else:
-                text = "（拖拽完成）"
+                # 2026-10-10 审计 P0-2：原先此处 strict=False（拖拽路径）会自动填
+                # 「（拖拽完成）」——用一条看起来像审查结论的假记录解锁 done 门控，
+                # 事后无法从数据上区分「真审查」与「拖拽自动填」。现两条路径一致拒绝。
+                raise HTTPException(422, req["error"])
         setattr(t, field, text)
         return
 

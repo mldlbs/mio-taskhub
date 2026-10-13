@@ -17,6 +17,7 @@ import StatsView from './components/StatsView'
 import ObservabilityView from './components/ObservabilityView'
 import MemoryView from './components/MemoryView'
 import MioRuntimeView from './components/MioRuntimeView'
+import MaterialPanelView from './components/MaterialPanelView'
 import SettingsView from './components/SettingsView'
 import ScheduledJobsView from './components/ScheduledJobsView'
 import CreateModal from './components/CreateModal'
@@ -398,7 +399,7 @@ export default function App() {
             <ErrorBoundary onError={(e) => {
               console.error('[App ErrorBoundary]', e);
               try {
-                fetch('/api/memory/observer/ingest', {
+                fetch('/api/v1/memory/observer/ingest', {
                   method: 'POST', headers: {'Content-Type': 'application/json'},
                   body: JSON.stringify({
                     trace_id: 'web-ui-' + Date.now(),
@@ -451,6 +452,9 @@ export default function App() {
             )}
             {view === 'mio' && (
               <MioRuntimeView />
+            )}
+            {view === 'material' && (
+              <MaterialPanelView />
             )}
             {view === 'settings' && (
               <SettingsView />

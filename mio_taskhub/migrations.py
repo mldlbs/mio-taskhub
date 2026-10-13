@@ -168,6 +168,24 @@ def _migrate_task(conn):
         # kind -> {state, at, note}（文档生命周期状态机，JSON）。历史行回填 '{}'。
         conn.execute(text("ALTER TABLE task ADD COLUMN doc_statuses JSON"))
         conn.execute(text("UPDATE task SET doc_statuses = '{}' WHERE doc_statuses IS NULL"))
+    if "grab_mode" not in tcols_m1:
+        # FR-1：调度方式标记。True = 仅允许 Agent 主动领取（不进 dispatcher 候选）。
+        # **默认值必须是 0（False）** —— 存量任务行为必须与改造前完全一致。
+        # 不加索引：候选查询已有 (state, stage) 条件，加布尔列索引收益极低。
+        conn.execute(text(
+            "ALTER TABLE task ADD COLUMN grab_mode BOOLEAN NOT NULL DEFAULT 0"))
+        conn.execute(text("UPDATE task SET grab_mode = 0 WHERE grab_mode IS NULL"))
+    if "doc_gate_exempt" not in tcols_m1:
+        # 文档链门控豁免（2026-10-10 审计 P0-1）。
+        # 背景：此前「doc_statuses 为空 → 不校验」被当成历史任务豁免，但**新建任务的
+        # doc_statuses 本来就是空的**，等于 spec/api/plan 的生命周期门控在常态路径上从未生效
+        # （实测：新任务可无任何文档 approved 一路走到 ready）。
+        # 修法：把豁免从「隐式推断」改为「显式数据」。列默认 0（受门控），并把**加此列之前
+        # 已存在的全部存量任务**置 1，保证历史数据行为与改造前完全一致。
+        # 该 UPDATE 只在首次加列时执行一次，之后新建任务不再被置 1。
+        conn.execute(text(
+            "ALTER TABLE task ADD COLUMN doc_gate_exempt BOOLEAN NOT NULL DEFAULT 0"))
+        conn.execute(text("UPDATE task SET doc_gate_exempt = 1 WHERE doc_gate_exempt = 0"))
 
 
 def _migrate_idea(conn):

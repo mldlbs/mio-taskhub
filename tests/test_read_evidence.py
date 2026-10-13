@@ -126,6 +126,43 @@ def test_build_claim_context(tmp_path):
         assert "不等于已读" in ctx["note"] or "不构成已读" in ctx["note"]
 
 
+# ── lessons 注入（任务 28f8fceb FR-2 / TC-7~ TC-10）────────────────────────
+
+def test_claim_context_includes_lessons(tmp_path):
+    """TC-7 / AC-2.1：claim 上下文含 lessons 字段，且既有键完全不受影响。"""
+    _mk_task(tmp_path)
+    with Session(engine) as db:
+        task = db.get(Task, "t1")
+        ctx = re_mod.build_claim_context(task)
+    # 新增字段
+    assert "lessons" in ctx
+    assert set(ctx["lessons"]) == {"test_hints", "file_layout", "pitfalls",
+                                  "source_count"}
+    # 既有字段语义未变（TC-10 / AC-2.4）
+    assert ctx["branch"] == "task-t1"
+    assert set(ctx["required_reads"]) == {"spec", "api", "requirement"}
+    assert ctx["required_fr"] == ["FR-1", "FR-2"]
+    assert "content" in ctx["documents"]["spec"]
+
+
+def test_claim_context_survives_lessons_error(tmp_path, monkeypatch):
+    """TC-9 / AC-2.3：lessons 取值抛异常时，claim 上下文仍正常返回。"""
+    _mk_task(tmp_path)
+
+    def boom(*a, **kw):
+        raise RuntimeError("lessons 炸了")
+
+    monkeypatch.setattr("mio_taskhub.api.task_lessons.recent_lessons", boom)
+    with Session(engine) as db:
+        task = db.get(Task, "t1")
+        ctx = re_mod.build_claim_context(task)   # 不得抛
+    # 降级为空结构，其余部分完好
+    assert ctx["lessons"]["source_count"] == 0
+    assert ctx["lessons"]["test_hints"] == []
+    assert ctx["branch"] == "task-t1"
+    assert "content" in ctx["documents"]["spec"]
+
+
 # ── API 端到端 ─────────────────────────────────────────────────────────────
 
 def _make_ready_task(tmp_path):

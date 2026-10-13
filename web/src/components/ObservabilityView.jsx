@@ -9,6 +9,71 @@ function fmtNum(n) {
   if (n === null || n === undefined) return '—'
   return n
 }
+
+function BigMetric({ label, value, tone }) {
+  return (
+    <div className={`obs-big${tone ? ' obs-big--' + tone : ''}`}>
+      <span className="obs-big__value mono">{value}</span>
+      <span className="obs-big__label">{label}</span>
+    </div>
+  )
+}
+
+function SloChart({ snaps }) {
+  if (!snaps || snaps.length === 0) return null
+
+  const data = snaps.slice(-24)
+  const W = 600
+  const H = 160
+  const PAD = { top: 16, right: 16, bottom: 24, left: 44 }
+  const iw = W - PAD.left - PAD.right
+  const ih = H - PAD.top - PAD.bottom
+  const n = data.length
+
+  const x = (i) => PAD.left + (n === 1 ? iw / 2 : (i / (n - 1)) * iw)
+  const y = (v) => PAD.top + ih - ((v ?? 0)) * ih
+
+  const line = (key) =>
+    data.map((d, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(d[key]).toFixed(1)}`).join(' ')
+
+  return (
+    <div className="obs-slo-chart">
+      <svg viewBox={`0 0 ${W} ${H}`} className="obs-slo-chart__svg">
+        {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+          <g key={f}>
+            <line x1={PAD.left} x2={W - PAD.right} y1={y(f)} y2={y(f)} stroke="var(--line)" strokeWidth="0.5" />
+            <text x={PAD.left - 6} y={y(f) + 4} textAnchor="end" fontSize="9" fill="var(--ink-faint)">{(f * 100).toFixed(0)}%</text>
+          </g>
+        ))}
+        {data.map((d, i) => (
+          <g key={i}>
+            <rect x={x(i) - 10} y={PAD.top} width="20" height={ih} fill="transparent">
+              <title>{`${new Date(d.ts * 1000).toLocaleTimeString()}: 可用性 ${fmtPct(d.availability)} · 成功率 ${fmtPct(d.success_rate)}`}</title>
+            </rect>
+            {i % Math.ceil(n / 6) === 0 && (
+              <text x={x(i)} y={H - 8} textAnchor="middle" fontSize="9" fill="var(--ink-faint)">
+                {new Date(d.ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </text>
+            )}
+          </g>
+        ))}
+        <path d={line('availability')} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d={line('success_rate')} fill="none" stroke="rgb(34,197,94)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        {data.map((d, i) => (
+          <g key={i}>
+            <circle cx={x(i)} cy={y(d.availability)} r="2.5" fill="var(--accent)" stroke="var(--bg)" strokeWidth="1" />
+            <circle cx={x(i)} cy={y(d.success_rate)} r="2.5" fill="rgb(34,197,94)" stroke="var(--bg)" strokeWidth="1" />
+          </g>
+        ))}
+      </svg>
+      <div className="obs-slo-chart__legend">
+        <span><i style={{ background: 'var(--accent)' }} />可用性</span>
+        <span><i style={{ background: 'rgb(34,197,94)' }} />成功率</span>
+      </div>
+    </div>
+  )
+}
+
 function MetricCard({ label, value, tone }) {
   return (
     <div className={`obs-card${tone ? ' obs-card--' + tone : ''}`}>
@@ -66,18 +131,22 @@ export default function ObservabilityView({ onOpenTask }) {
         <button className="obs-refresh" onClick={load}>刷新</button>
       </header>
 
+      <div className="obs-big-row">
+        <BigMetric label="SLO 可用性" value={fmtPct(s.slo_availability)} tone={s.slo_availability != null && s.slo_availability < 0.99 ? 'warn' : 'ok'} />
+        <BigMetric label="任务成功率" value={fmtPct(s.task_success_rate)} tone={s.task_success_rate != null && s.task_success_rate < 0.95 ? 'warn' : 'ok'} />
+        <BigMetric label="活跃告警" value={activeCount} tone={activeCount > 0 ? 'danger' : 'ok'} />
+        <BigMetric label="未确认洞察" value={fmtNum(s.insights_unacknowledged)} tone={s.insights_unacknowledged > 0 ? 'warn' : undefined} />
+      </div>
+
       <section className="stats-section">
         <h3>系统概览</h3>
         <div className="obs-cards">
-          <MetricCard label="SLO 可用性" value={fmtPct(s.slo_availability)} tone={s.slo_availability != null && s.slo_availability < 0.99 ? 'warn' : 'ok'} />
           <MetricCard label="错误预算剩余" value={fmtPct(s.error_budget_remaining)} />
-          <MetricCard label="任务成功率" value={fmtPct(s.task_success_rate)} />
           <MetricCard label="任务失败率" value={fmtPct(s.task_failure_rate)} tone={s.task_failure_rate != null && s.task_failure_rate > 0.05 ? 'warn' : undefined} />
           <MetricCard label="CPU" value={s.cpu_percent != null ? s.cpu_percent + '%' : '—'} />
           <MetricCard label="内存" value={s.memory_percent != null ? s.memory_percent + '%' : '—'} />
           <MetricCard label="DB 池使用" value={s.db_pool_utilization != null ? (s.db_pool_utilization * 100).toFixed(0) + '%' : '—'} />
           <MetricCard label="活跃线程" value={fmtNum(s.active_threads)} />
-          <MetricCard label="未确认洞察" value={fmtNum(s.insights_unacknowledged)} />
           <MetricCard label="24h 审计事件" value={fmtNum(s.audit_events_24h)} />
         </div>
       </section>
@@ -162,20 +231,7 @@ export default function ObservabilityView({ onOpenTask }) {
         <h3>SLO 历史 · 近 24h {sloSnaps.length} 点</h3>
         {sloSnaps.length === 0
           ? <div className="obs-empty">暂无快照（每 5 分钟落库）</div>
-          : <div className="obs-table">
-              <div className="obs-row obs-row--head"><span>时间</span><span>可用性</span><span>成功率</span><span>失败率</span><span>延迟(ms)</span><span>CPU</span><span>内存</span></div>
-              {sloSnaps.slice(-24).map((s2, i) => (
-                <div key={i} className="obs-row obs-slo">
-                  <span className="mono">{new Date(s2.ts * 1000).toLocaleTimeString()}</span>
-                  <span className="mono">{fmtPct(s2.availability)}</span>
-                  <span className="mono">{fmtPct(s2.success_rate)}</span>
-                  <span className="mono">{fmtPct(s2.failure_rate)}</span>
-                  <span className="mono">{s2.latency_avg_ms != null ? s2.latency_avg_ms.toFixed(0) : '—'}</span>
-                  <span className="mono">{s2.cpu_percent != null ? s2.cpu_percent.toFixed(1) : '—'}</span>
-                  <span className="mono">{s2.memory_percent != null ? s2.memory_percent.toFixed(1) : '—'}</span>
-                </div>
-              ))}
-            </div>}
+          : <SloChart snaps={sloSnaps} />}
       </section>
 
       {proc && (

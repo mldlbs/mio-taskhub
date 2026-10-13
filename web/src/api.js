@@ -142,7 +142,7 @@ export const api = {
   status: (agent) => req('GET', '/status' + (agent ? `?agent=${encodeURIComponent(agent)}` : '')),
   // Memory Gateway (v3)
   memoryHealth: async () => {
-    const r = await fetch('/api/memory/health')
+    const r = await fetch('/api/v1/memory/health')
     if (!r.ok) throw new Error(`memory/health HTTP ${r.status}`)
     return r.json()
   },
@@ -218,6 +218,13 @@ export const api = {
   mioFerment: () => req('GET', '/mio/ferment'),
   mioFermentSync: (id) => req('POST', `/mio/ferment/${id}/sync`),
   mioFermentRun: (limit = 5) => req('POST', `/mio/creativity/ferment?limit=${limit}`),
+  mioMaterialPanel: (days = 7, limit = 200) => req('GET', `/mio/material-panel?days=${days}&limit=${limit}`),
+  valueDiscoveryRun: (date, internalIssues, label) => req('POST', '/mio/value-discovery', { date, internal_issues: internalIssues, label }),
+  valueDiscoveryList: () => req('GET', '/mio/value-discovery'),
+  schedulerStatus: () => req('GET', '/mio/scheduler-status'),
+  schedulerActivate: () => req('POST', '/mio/scheduler-activate', {}),
+  schedulerRestart: () => req('POST', '/mio/scheduler-restart', {}),
+  schedulerStop: () => req('POST', '/mio/scheduler-stop', {}),
 
   // Gate Status
   gateStatus: () => req('GET', '/ideas/gate/status'),

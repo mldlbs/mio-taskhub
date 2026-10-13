@@ -13,7 +13,7 @@ Set-Location $root
 Write-Host ''
 Write-Host '[0/6] 杀掉所有 mio-taskhub 进程 ...'
 Get-WmiObject Win32_Process | Where-Object {
-    $_.CommandLine -like '*mio-taskhub*' -and $_.CommandLine -notlike '*mcp*'
+    $_.Name -eq 'mio-taskhub.exe'
 } | ForEach-Object {
     Write-Host "  killing PID $($_.ProcessId): $($_.ProcessName)"
     Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
@@ -66,7 +66,7 @@ Write-Host '[3/6] PyInstaller 打包 ...'
 & "E:\work\code\agent-dev\mio-taskhub\.venv\Scripts\python.exe" -m PyInstaller mio-taskhub.spec --noconfirm --clean
 if ($LASTEXITCODE -ne 0) { throw 'PyInstaller 失败' }
 
-$distDir = Join-Path $root 'dist\mio-taskhub'
+$distDir = Join-Path $root 'dist\mio-taskhub-v3'
 $internalDir = Join-Path $distDir '_internal'
 
 # ---------- 4) 验证关键依赖 ----------

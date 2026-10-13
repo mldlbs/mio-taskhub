@@ -131,3 +131,55 @@ def test_done_stage_dependency_no_alert():
     child = _mk("dc", stage="planning", depends_on=[parent["id"]])
     data = client.get("/api/v1/board/summary").json()
     assert not any("依赖阻塞" in a["message"] for a in data["alerts"])
+
+
+# ── READY 阶段依赖盲区告警（2026-10-07）────────────────────────────────
+# 既有告警只覆盖 stage ∈ {brainstorming, design, planning}；READY 任务不受
+# 依赖门控（claim.py:68 / background.py:389 都不检查 depends_on），因此需要
+# 独立可见性。以下只验证「暴露问题」，不改变任何领取行为。
+
+def test_ready_with_cancelled_dep_reports_deadlock():
+    """死结：前置已取消 → 依赖链永远不会被放行，必须报warning。"""
+    parent = _mk("dead-parent", stage="cancelled")
+    child = _mk("dead-child", stage="ready", depends_on=[parent["id"]])
+    data = client.get("/api/v1/board/summary").json()
+    hits = [a for a in data["alerts"] if child["id"] in a["message"]]
+    assert hits, "祖先已取消的 READY 任务应报依赖死结"
+    assert any(a["level"] == "warning" and "依赖死结" in a["message"] for a in hits)
+
+
+def test_ready_with_pending_dep_reports_info():
+    """越级：前置仍在进行 → READY 无门控，可能被提前领走，报 info。"""
+    parent = _mk("pend-parent", stage="ready")
+    child = _mk("pend-child", stage="ready", depends_on=[parent["id"]])
+    data = client.get("/api/v1/board/summary").json()
+    hits = [a for a in data["alerts"] if child["id"] in a["message"]]
+    assert hits, "前置未完成的 READY 任务应提示可能被提前领走"
+    assert any(a["level"] == "info" for a in hits)
+    # 明确提示「无依赖门控」，让读的人知道这是机制缺口
+    assert any("无依赖门控" in a["message"] for a in hits)
+
+
+def test_ready_dep_satisfied_no_new_alert():
+    """前置已完成 → 不产生新告警（避免噪声）。"""
+    parent = _mk("ok-parent", stage="ready")
+    claim = client.post("/api/v1/tasks/claim", params={"agent": "ok-agent"}).json()
+    # 把 parent 领走并完成
+    client.post(f"/api/v1/runs/{claim['id']}/heartbeat", json={"progress": 100})
+    client.post(f"/api/v1/runs/{claim['id']}/result", json={"success": True, "result": "ok"})
+    _mk("ok-child", stage="ready", depends_on=[parent["id"]])
+    data = client.get("/api/v1/board/summary").json()
+    assert not any("依赖死结" in a["message"] for a in data["alerts"])
+
+
+def test_ready_dependency_alert_does_not_change_claim_behaviour():
+    """关键：告警是纯可见性——依赖未满足的 READY 任务**仍可被 claim**。
+
+    这条测试锁定「本轮不改行为」的边界：若将来加了 READY 阶段门控，
+    它会失败并提醒同步更新文案与预期。
+    """
+    parent = _mk("beh-parent", stage="ready")
+    child = _mk("beh-child", stage="ready", depends_on=[parent["id"]])
+    r = client.post("/api/v1/tasks/claim",
+                    params={"agent": "beh-agent", "task_id": child["id"]})
+    assert r.status_code == 200, "本轮不改领取行为，依赖未满足也仍可领"

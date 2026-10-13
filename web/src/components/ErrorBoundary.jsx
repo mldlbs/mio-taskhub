@@ -4,7 +4,7 @@ import { Component } from 'react'
  * 错误边界：组件渲染时抛错时显示降级 UI 而非全白屏。
  * - componentDidCatch 捕获子组件错误
  * - 显示错误摘要 + 重试按钮（reset state）
- * - 可选 onError 回调（用于上报到 /api/memory/observer/ingest）
+ * - 可选 onError 回调（用于上报到 /api/v1/memory/observer/ingest）
  */
 export default class ErrorBoundary extends Component {
   constructor(props) {

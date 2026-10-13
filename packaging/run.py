@@ -45,7 +45,8 @@ def main():
         return
     from run_hub import main as hub_main
 
-    hub_main()
+    # hub [--worker]：--worker 为 supervisor 拉起 worker 子进程的内部参数
+    hub_main(worker="--worker" in sys.argv[1:])
 
 
 if __name__ == "__main__":

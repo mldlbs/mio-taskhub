@@ -134,6 +134,53 @@ def wait_pid_exit(pid: int, timeout: float = 60.0, poll: float = 0.5) -> bool:
     return not pid_alive(pid)
 
 
+def list_processes_under(root) -> list:
+    """枚举映像路径位于 root 目录下的 (pid, exe)；无 psutil/无权限时跳过。"""
+    try:
+        import psutil
+    except ImportError:  # noqa: F401 —— 打包产物恒有 psutil，源码环境缺依赖时降级
+        return []
+    root_s = os.path.normcase(str(Path(root).resolve()))
+    out = []
+    for info in psutil.process_iter(["pid", "exe"]):
+        try:
+            exe = info.info.get("exe") or ""
+            if exe and os.path.normcase(os.path.dirname(exe)).startswith(root_s):
+                out.append((int(info.info["pid"]), exe))
+        except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError, TypeError):
+            continue
+    return out
+
+
+def purge_processes_under(root, timeout: float = 10.0) -> bool:
+    """强杀 root 目录下的所有进程直至清空；超时仍有残留返回 False。
+
+    挂死的 worker/supervisor 以映像句柄钉住 install 目录 → install→backup
+    rename 必失败（PermissionError 13），更新替换前必须清场。
+    """
+    try:
+        import psutil
+    except ImportError:
+        return not list_processes_under(root)
+    me = os.getpid()
+    deadline = time.monotonic() + timeout
+    while True:
+        left = list_processes_under(root)
+        if not left:
+            return True
+        for pid, _exe in left:
+            if pid == me:
+                continue
+            try:
+                psutil.Process(pid).kill()
+            except Exception:  # noqa: BLE001 —— 进程可能已先行退出
+                pass
+        if time.monotonic() >= deadline:
+            time.sleep(1.0)
+            return not list_processes_under(root)
+        time.sleep(0.5)
+
+
 def read_runtime(path=None) -> dict:
     p = Path(path) if path else default_runtime_path()
     try:
@@ -268,9 +315,13 @@ def run_apply_update(argv) -> int:
     start_ts = time.time()
     _apply_log("apply 开始：version=%s target=%s pid=%d" % (version, target, pid))
 
-    # 1) 等 hub 退出
+    # 1) 等 hub 退出（超时不致命：挂死实例由 1.5 清场强杀）
     if not wait_pid_exit(pid, timeout=60.0):
-        _apply_log("等待 hub(%d) 退出超时，放弃替换" % pid)
+        _apply_log("等待 hub(%d) 退出超时（疑似优雅退出挂起），转清场" % pid)
+
+    # 1.5) 清场：install 下残留进程钉住目录会使 rename 失败
+    if not purge_processes_under(target, timeout=10.0):
+        _apply_log("install 残留进程清理失败，放弃替换")
         return 1
 
     # 2) 校验 zip 指纹（在解压前）

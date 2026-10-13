@@ -70,7 +70,7 @@ def test_heartbeat_tool(mcp_ctx):
     _call("taskhub_create_task", {"title": "HB", "stage": "ready"})
     claim = _call("taskhub_claim", {"agent": "mcp-agent"})
     rid = claim["id"]
-    hb = _call("taskhub_heartbeat", {"run_id": rid, "progress": 50, "checkpoint": "step1"})
+    hb = _call("taskhub_heartbeat", {"run_id": rid, "agent": "mcp-agent", "progress": 50, "checkpoint": "step1"})
     assert hb["state"] == "running"
     assert hb["progress"] == 50
 
@@ -79,7 +79,7 @@ def test_submit_result_success(mcp_ctx):
     _call("taskhub_create_task", {"title": "Result", "stage": "ready"})
     claim = _call("taskhub_claim", {"agent": "mcp-agent"})
     rid = claim["id"]
-    res = _call("taskhub_submit_result", {"run_id": rid, "success": True, "result": "done"})
+    res = _call("taskhub_submit_result", {"run_id": rid, "agent": "mcp-agent", "success": True, "result": "done"})
     assert res["state"] == "finished"
     tasks = _call("taskhub_list_tasks", {})
     titles = {t["title"]: t["state"] for t in tasks["tasks"]}
@@ -90,7 +90,7 @@ def test_submit_result_failure_retries(mcp_ctx):
     _call("taskhub_create_task", {"title": "Retry", "max_retries": 3, "stage": "ready"})
     claim = _call("taskhub_claim", {"agent": "mcp-agent"})
     rid = claim["id"]
-    res = _call("taskhub_submit_result", {"run_id": rid, "success": False, "result": "boom"})
+    res = _call("taskhub_submit_result", {"run_id": rid, "agent": "mcp-agent", "success": False, "result": "boom"})
     assert res["state"] == "finished"
     tasks = _call("taskhub_list_tasks", {})
     state = {t["title"]: t["state"] for t in tasks["tasks"]}["Retry"]
@@ -427,7 +427,7 @@ def test_read_evidence_gate_via_mcp(mcp_ctx, tmp_path, monkeypatch):
     assert claim["task_id"] == tid
     assert claim["required_reads"] == ["spec"] and claim["branch"] == f"task-{tid}"
 
-    blocked = _call("taskhub_submit_result", {"run_id": rid, "success": True, "result": "x"})
+    blocked = _call("taskhub_submit_result", {"run_id": rid, "agent": "mcp-rg", "success": True, "result": "x"})
     assert "error" in blocked and "422" in blocked["error"]
 
     status = _call("taskhub_read_status", {"run_id": rid})
@@ -437,7 +437,7 @@ def test_read_evidence_gate_via_mcp(mcp_ctx, tmp_path, monkeypatch):
           {"task_id": tid, "kind": "spec", "run_id": rid, "agent": "mcp-rg"})
     assert _call("taskhub_read_status", {"run_id": rid})["passed"] is True
 
-    ok = _call("taskhub_submit_result", {"run_id": rid, "success": True, "result": "done"})
+    ok = _call("taskhub_submit_result", {"run_id": rid, "agent": "mcp-rg", "success": True, "result": "done"})
     assert ok.get("task_state") == "completed"
 
 
@@ -458,3 +458,57 @@ def test_claim_named_task_not_claimable_returns_error(mcp_ctx):
     _call("taskhub_create_task", {"title": "Alternative p2", "priority": 2, "stage": "ready"})
     claim = _call("taskhub_claim", {"agent": "mcp-agent", "task_id": created["id"]})
     assert "error" in claim and "409" in claim["error"], claim
+
+
+def test_claim_carries_lessons(mcp_ctx):
+    """FR-2 / AC-2.1：MCP claim 响应里必须带 lessons（任务 28f8fceb）。
+
+    agent 主要通过 MCP 接 taskhub，若lessons 只在 REST 存在，MCP 侧等于没有。
+    这里用 ASGI transport 让 MCP 打到进程内 app（真实链路）。
+    """
+    ws = "/lessons-ws"
+    # 造一条同 workspace 的已完成历史任务，含测试证据
+    old = _call("taskhub_create_task", {"title": "历史任务", "workspace": ws,
+                                        "project": "lp", "stage": "ready"})
+    from mio_taskhub.db import Session as _S, engine
+    from mio_taskhub.models import Task, TaskState, Run, RunState
+    import uuid as _uuid
+    with _S(engine) as s:
+        t = s.get(Task, old["id"])
+        t.state = TaskState.COMPLETED
+        s.add(t)
+        s.add(Run(id=str(_uuid.uuid4())[:8], task_id=t.id, agent_name="x",
+                  state=RunState.FINISHED,
+                  result="完成。测试：pytest tests/ -q 77 passed。"))
+        s.commit()
+
+    _call("taskhub_create_task", {"title": "新任务", "workspace": ws,
+                                  "project": "lp", "stage": "ready"})
+    claim = _call("taskhub_claim", {"agent": "lessons-agent", "workspace": ws,
+                                    "project": "lp"})
+    assert "lessons" in claim, sorted(claim.keys())
+    ls = claim["lessons"]
+    assert set(ls) == {"test_hints", "file_layout", "pitfalls", "source_count"}
+    # 没有历史时不得报错
+    assert isinstance(ls["test_hints"], list)
+
+
+def test_claim_lessons_never_blocks(mcp_ctx):
+    """AC-2.3：lessons 取值异常时 claim 仍应成功（软信息不得阻断主流程）。"""
+    from mio_taskhub.api import task_lessons as tl
+
+    def boom(*a, **kw):
+        raise RuntimeError("lessons 炸了")
+
+    orig = tl.recent_lessons
+    tl.recent_lessons = boom
+    try:
+        _call("taskhub_create_task", {"title": "阻断验证", "workspace": "/boom-ws",
+                                      "project": "bp", "stage": "ready"})
+        claim = _call("taskhub_claim", {"agent": "boom-agent", "workspace": "/boom-ws",
+                                        "project": "bp"})
+    finally:
+        tl.recent_lessons = orig
+    assert claim.get("id"), claim
+    # lessons 降级为空结构
+    assert claim["lessons"]["source_count"] == 0

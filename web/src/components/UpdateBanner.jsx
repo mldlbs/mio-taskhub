@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 
-const ACTIONABLE = ['available', 'downloading', 'ready', 'needs_manual', 'failed']
+const ACTIONABLE = ['available', 'downloading', 'ready', 'applying', 'done', 'needs_manual', 'failed']
 
 export default function UpdateBanner({ eventTick, onOpenSettings }) {
   const [st, setSt] = useState(null)
@@ -47,11 +47,14 @@ export default function UpdateBanner({ eventTick, onOpenSettings }) {
     available: `发现新版本 v${st.latest}`,
     downloading: `正在下载 ${st.progress || 0}%`,
     ready: `已下载 v${st.latest}，重启应用更新`,
+    applying: '正在应用更新，即将自动重启…',
+    done: '更新完成，正在重启…',
     needs_manual: `v${st.latest} 需手动更新（跨代不兼容）`,
     failed: `更新失败：${st.error || '见 apply.log'}`,
   }[state]
 
-  const tone = state === 'available' || state === 'ready' ? 'is-active'
+  const tone = state === 'available' || state === 'ready'
+      || state === 'applying' || state === 'done' ? 'is-active'
     : state === 'failed' ? 'is-error' : ''
 
   return (

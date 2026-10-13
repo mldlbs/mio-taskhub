@@ -1,6 +1,7 @@
 # tests/test_mio_runtime.py
 """Mio Agent Runtime 低耦合适配：只读 MIO_HOME + CLI 白名单 + digest 定时。"""
 import json
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -340,6 +341,94 @@ def test_mio_insight_api(tmp_path, monkeypatch):
     monkeypatch.setattr(mio, "run_mio", fake)
     j = client.get("/api/v1/mio/insight").json()
     assert j["available"] is True and j["items"][0]["score"] == 77
+
+
+# ── mio_cli：cmd shim → node 直调（P0 吞参修复，2026-10-08）──────────────
+
+def _make_shim(tmp_path, monkeypatch, with_js=True, with_node=True):
+    prefix = tmp_path / "npm"
+    prefix.mkdir(parents=True)
+    shim = prefix / "mio.cmd"
+    shim.write_text("@echo off\r\n", encoding="utf-8")
+    if with_js:
+        js = prefix.joinpath(*mio._RUNTIME_JS_REL)
+        js.parent.mkdir(parents=True)
+        js.write_text("//stub", encoding="utf-8")
+    monkeypatch.delenv("MIO_CLI", raising=False)
+    if with_node:
+        monkeypatch.setenv("MIO_NODE", str(tmp_path / "node.exe"))
+        (tmp_path / "node.exe").write_text("", encoding="utf-8")
+    else:
+        monkeypatch.delenv("MIO_NODE", raising=False)
+        monkeypatch.setattr(mio.shutil, "which",
+                            lambda n: None if n in ("node", "node.exe") else str(shim))
+    monkeypatch.setattr(mio.shutil, "which",
+                        lambda n: str(shim) if n == "mio.cmd" else None)
+    return shim, prefix
+
+
+def test_mio_cli_converts_cmd_shim_to_node_direct(monkeypatch, tmp_path):
+    """解析到 mio.cmd 且 runtime 包在位 → node 直调 bin/mio.js（%* 吞参绕过）。"""
+    shim, prefix = _make_shim(tmp_path, monkeypatch)
+    cmd = mio.mio_cli()
+    assert cmd == [str(tmp_path / "node.exe"),
+                   str(prefix.joinpath(*mio._RUNTIME_JS_REL))]
+
+
+def test_mio_cli_falls_back_to_shim_without_js(monkeypatch, tmp_path):
+    """runtime 包不在位 → 回退 shim（向后兼容，不猜路径）。"""
+    shim, _ = _make_shim(tmp_path, monkeypatch, with_js=False)
+    assert mio.mio_cli() == [str(shim)]
+
+
+def test_mio_cli_falls_back_to_shim_without_node(monkeypatch, tmp_path):
+    """node 解析不到 → 回退 shim。"""
+    shim, _ = _make_shim(tmp_path, monkeypatch, with_node=False)
+    assert mio.mio_cli() == [str(shim)]
+
+
+def test_mio_cli_env_override_cmd_converts(monkeypatch, tmp_path):
+    """MIO_CLI 指向 .cmd：能转换就 node 直调，不能就原样透传。"""
+    shim, prefix = _make_shim(tmp_path, monkeypatch)
+    monkeypatch.setenv("MIO_CLI", str(shim))
+    assert mio.mio_cli() == [str(tmp_path / "node.exe"),
+                             str(prefix.joinpath(*mio._RUNTIME_JS_REL))]
+
+    shim2 = tmp_path / "bare.cmd"
+    shim2.write_text("", encoding="utf-8")
+    monkeypatch.setenv("MIO_CLI", str(shim2))
+    assert mio.mio_cli() == [str(shim2)]
+
+
+def test_mio_cli_env_override_js_unchanged(monkeypatch, tmp_path):
+    """MIO_CLI 指向 .js：维持原有 node 直调语义。"""
+    js = tmp_path / "x.js"
+    js.write_text("", encoding="utf-8")
+    monkeypatch.setenv("MIO_CLI", str(js))
+    assert mio.mio_cli() == ["node", str(js)]
+
+
+def test_mio_cli_real_chain_chinese_pipe_intact(tmp_path, monkeypatch):
+    """真实链路 argv 完整性（本机装了 mio runtime 才跑）：
+
+    中文/空格/`|` 必须原样到达 runtime——用 `policy check` 的 action 回显
+    验证，MIO_HOME 指向临时目录隔离。曾因 mio.cmd 的 %* 转发，生产链路
+    中文 source 全丢（`|` 直接致命），这是防回归的端到端断言。
+    """
+    import shutil as sh
+    if not (sh.which("mio.cmd") or sh.which("mio")):
+        pytest.skip("mio runtime not installed")
+    monkeypatch.setenv("MIO_HOME", str(tmp_path / "miohome"))
+    (tmp_path / "miohome").mkdir()
+    cmd = mio.mio_cli()
+    assert cmd, "mio CLI not resolvable"
+    # 本机 runtime 在位时必须是 node 直调（不再经 cmd.exe）
+    assert Path(cmd[0]).name.lower().startswith("node"), f"expected node direct, got {cmd}"
+    action = "中文动作 | 带管道 与 空格 —— P0 回归"
+    r = mio.run_mio(["--json", "policy", "check", action, "--project", "pytest-isolated"])
+    assert r["ok"], r["stderr"]
+    data = json.loads(r["stdout"])
+    assert data.get("action") == action
 
 
 # ── MCP 脚本 / Node 可移植解析（替代写死绝对路径）────────────────────────

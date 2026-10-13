@@ -222,7 +222,9 @@ def main() -> int:
 
             def _hb():
                 while not stop_hb.wait(60):
-                    req("POST", "/runs/%s/heartbeat" % run_id, {"progress": 50})
+                    # 带 agent：服务端据此校验 run 所有权（P0 d1b54de0）
+                    req("POST", "/runs/%s/heartbeat?agent=%s"
+                        % (run_id, urllib.parse.quote(args.agent)), {"progress": 50})
 
             threading.Thread(target=_hb, daemon=True).start()
             print("[idle-worker] exec(%s): %s" % ("shell" if use_shell else "argv",
@@ -238,7 +240,8 @@ def main() -> int:
             finally:
                 stop_hb.set()
 
-        req("POST", "/runs/%s/result" % run_id, {"success": bool(ok), "result": str(msg)[:2000]})
+        req("POST", "/runs/%s/result?agent=%s" % (run_id, urllib.parse.quote(args.agent)),
+            {"success": bool(ok), "result": str(msg)[:2000]})
         print("[idle-worker] submitted run=%s success=%s" % (run_id, ok))
         done += 1
         if args.once or (args.max and done >= args.max):

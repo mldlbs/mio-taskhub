@@ -332,14 +332,50 @@ def memory(limit: int = 20) -> dict:
 
 # ── CLI（白名单 + 超时 + 降级）────────────────────────────────────────────
 
+_RUNTIME_JS_REL = ("node_modules", "mio-agent-runtime", "bin", "mio.js")
+
+
+def _node_direct_from_shim(shim: str) -> Optional[List[str]]:
+    """mio.cmd/mio.bat shim → node 直调包内 bin/mio.js。
+
+    背景（2026-10-08 实证）：cmd shim 末行 `%*` 无引号转发会吞中文参数、
+    `|` 直接致命——生产 job 的 observer 洞察 source 因此从未进入配对器，
+    creativity 退化成「模板自配模板」。shim 同目录能找到 runtime 包且有
+    node 时，一律转为 node 直调；否则返回 None 由调用方回退 shim。
+    """
+    js = Path(shim).parent.joinpath(*_RUNTIME_JS_REL)
+    if not js.is_file():
+        return None
+    node = resolve_node()
+    if not node:
+        return None
+    return [node, str(js)]
+
+
 def mio_cli() -> Optional[List[str]]:
-    """解析 mio CLI 命令。优先 env MIO_CLI（可为 .cmd 或 .js 路径）。"""
+    """解析 mio CLI 命令。优先 env MIO_CLI（可为 .cmd 或 .js 路径）。
+
+    .cmd/.bat shim 一律尝试转 node 直调（绕过 cmd.exe 的 %* 吞参缺陷，
+    见 `_node_direct_from_shim`）；转换条件不满足时回退原 shim 并留日志。
+    """
     override = (os.environ.get("MIO_CLI") or "").strip()
     if override:
-        return ["node", override] if override.lower().endswith(".js") else [override]
+        low = override.lower()
+        if low.endswith(".js"):
+            return ["node", override]
+        if low.endswith((".cmd", ".bat")):
+            direct = _node_direct_from_shim(override)
+            if direct:
+                return direct
+        return [override]
     for name in ("mio.cmd", "mio.bat", "mio"):
         p = shutil.which(name)
         if p:
+            if p.lower().endswith((".cmd", ".bat")):
+                direct = _node_direct_from_shim(p)
+                if direct:
+                    return direct
+                logger.warning("mio CLI keeps cmd shim %s: node/mio.js not resolvable", p)
             return [p]
     return None
 

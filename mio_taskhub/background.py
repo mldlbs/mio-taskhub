@@ -377,10 +377,19 @@ def _assign_to_idle_agents():
 
     先排任务（priority desc, created_at asc），逐任务找匹配空闲 agent，
     agent 分到任务后即标记忙（一 tick 一个 agent 最多一单）。
+
+    FR-4 派单让位：`grab_mode=true` 的任务**不进入**本候选集，只由Agent 主动
+    经大厅 +既有 `claim()` 领取。`grab_mode=false`（含全部存量任务）的行为
+    与改造前逐条一致——这是硬约束，回归见tests/test_grab_mode.py。
     """
     with Session(engine) as db:
         ready = db.exec(
-            select(Task).where(Task.state == TaskState.QUEUED, Task.stage == TaskStage.READY)
+            select(Task).where(
+                Task.state == TaskState.QUEUED,
+                Task.stage == TaskStage.READY,
+                # 派单让位：排除主动领取型任务
+                Task.grab_mode == False,  # noqa: E712
+            )
             .order_by(Task.priority.desc(), Task.created_at.asc())
         ).all()
         now = datetime.now(timezone.utc)
@@ -415,9 +424,19 @@ def _assign_to_idle_agents():
                 db.rollback()
                 continue
             task = db.get(Task, run.task_id)
+            # 同项目参考（任务 28f8fceb FR-2）：后台派单不经 claim 端点，
+            # 因此不走 build_claim_context；这里把lessons 挂进事件载荷，
+            # 让 idle 派单路径的 agent 也能拿到「这个项目怎么测」。
+            # 纯旁路：取不到就置空 dict，不影响派单。
+            try:
+                from mio_taskhub.api.task_lessons import recent_lessons
+                lessons = recent_lessons(db, workspace=task.workspace or "",
+                                         project=task.project or "")
+            except Exception:
+                lessons = {}
             event = emit_event(db, type="task_assigned", entity="task", entity_id=task.id,
                                run_id=run.id, payload={"agent": target.name, "reason": "idle_assign",
-                                                       "run_id": run.id})
+                                                      "run_id": run.id, "lessons": lessons})
             db.add(task)
             db.commit()
             broadcast_for_event(event)

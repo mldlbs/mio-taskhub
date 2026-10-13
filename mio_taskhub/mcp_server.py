@@ -40,6 +40,7 @@ mcp = FastMCP(
         "- 推进阶段用 taskhub_advance_stage，需带产出物路径/审查结论，缺失时先向用户要。\n"
         "- 任务完成后用 taskhub_submit_result 提交，并向用户一句话汇报结果（成功/失败+原因）。\n"
         "执行类流程：taskhub_register 注册 → taskhub_claim 领取 → taskhub_heartbeat 心跳 → taskhub_submit_result 提交结果。\n"
+        "- **taskhub_heartbeat 与 taskhub_submit_result 必须传 agent（与 claim 时同一个 agent 名）**：服务端校验 run 所有权，传错返 403；run 已结束再提交返 409。\n"
         "- 空闲时周期性调用 taskhub_agent_heartbeat 保持在线，否则超时会被标记离线；未注册时调用会自动注册。"
         "文档强制 consult（开发前必读，Read Evidence 门控）：\n"
         "- taskhub_claim 会返回 branch / required_reads / required_fr / documents（内联预览，**不等于已读**）。\n"
@@ -47,7 +48,11 @@ mcp = FastMCP(
         "- 写代码/测试时引用 requirement 里的 FR-n 编号（可追溯，详见仓库 doc-consult-enforcement-plan.md）。\n"
         "- 代码分支命名为 task-<id>（id 为 8 位十六进制）；本地 pre-push 钩子校验 spec/api/plan 已 approved 且引用的 FR-n 真实存在。\n"
         "- taskhub_submit_result 成功路径会校验 ReadEvidence：required reads 缺失或文档版本已变更 → 422（服务端强制，绕不过）；可用 taskhub_read_status 查看还差哪些。\n"
-        "- spec/api/plan 未批准时先用 taskhub_set_doc_status 推进其生命周期再编码。"
+        "- spec/api/plan 未批准时先用 taskhub_set_doc_status 推进其生命周期再编码。\n"
+        "同项目参考（软信息，只给参考不强制）：\n"
+        "- claim 返回的 lessons 字段来自**同workspace 近期已完成任务**，含 test_hints（这个项目测试怎么跑）/ file_layout（文件通常放哪）/ pitfalls（已知坑）。\n"
+        "- **动手前先看 lessons**：照着 test_hints 的方式写测试，比事后被检查更有效。\n"
+        "- lessons 是空数组很常见（该项目暂无已完成任务），不是错误；source_count 为 0 即表示无历史可参考。"
     ),
 )
 
@@ -151,7 +156,7 @@ async def taskhub_agent_heartbeat(
     return _fmt(await _request("POST", "/agents/heartbeat", body={"name": name}))
 
 
-@_tool(name="taskhub_claim", title="领取一个任务", method="POST", path="/tasks/claim", read_only=False, destructive=False, desc="按关联度 + 优先级 + FIFO 领取一个排队任务，或按 task_id 直接认领指定任务，返回 Run id + task 详情，并内联 branch / required_reads / required_fr / documents（预览）。**必须领指定任务时务必传 task_id**：不传将按相关度挑选，可能领到其他任务（trace claim-taskid-mcp-drop-20260927）。**内联预览不等于已读**：动手前必须对 required_reads 逐一调用 taskhub_read_document(task_id, kind, run_id=<本 run>) 产生 ReadEvidence，否则 taskhub_submit_result 会被 422 拦截。")
+@_tool(name="taskhub_claim", title="领取一个任务", method="POST", path="/tasks/claim", read_only=False, destructive=False, desc="按关联度 + 优先级 + FIFO 领取一个排队任务，或按 task_id 直接认领指定任务，返回 Run id + task 详情，并内联 branch / required_reads / required_fr / documents（预览）+ lessons（同项目参考）。**必须领指定任务时务必传 task_id**：不传将按相关度挑选，可能领到其他任务（trace claim-taskid-mcp-drop-20260927）。**内联预览不等于已读**：动手前必须对 required_reads 逐一调用 taskhub_read_document(task_id, kind, run_id=<本 run>) 产生 ReadEvidence，否则 taskhub_submit_result 会被 422 拦截。**动手前先看 lessons.test_hints**：那是同项目近期已完成任务的测试做法，照着写比事后被检查有效；为空数组表示该项目暂无历史，不是错误。")
 async def taskhub_claim(
     agent: str = Field(description="当前 agent 名称，需先注册", min_length=1, max_length=64),
     agent_type: Optional[str] = Field(default=None, description="若设置，只领取匹配该类型的任务；不传则自动回查注册 agent_type", max_length=32),
@@ -178,27 +183,31 @@ async def taskhub_claim(
     return _fmt({**claim, "task": detail if "error" not in detail else {}})
 
 
-@_tool(name="taskhub_heartbeat", title="发送任务心跳", method="POST", path="/runs/{run_id}/heartbeat", read_only=False, destructive=False, desc="更新 run 状态为 running 并上报进度（0-100）。执行任务期间定期调用，避免被判定超时。")
+@_tool(name="taskhub_heartbeat", title="发送任务心跳", method="POST", path="/runs/{run_id}/heartbeat", read_only=False, destructive=False, desc="更新 run 状态为 running 并上报进度（0-100）。执行任务期间定期调用，避免被判定超时。**agent 必填**：服务端据此校验 run 所有权，传错会被 403 拒绝（run.not_owner）。")
 async def taskhub_heartbeat(
     run_id: str = Field(description="Run 唯一标识（claim 返回的 id）", min_length=1),
+    agent: str = Field(description="本次执行的 agent 名称（claim 时用的那个），用于所有权校验", min_length=1),
     progress: int = Field(default=50, description="进度百分比 0-100", ge=0, le=100),
     checkpoint: Optional[str] = Field(default=None, description="阶段检查点描述", max_length=500),
 ) -> str:
     body = {"progress": progress}
     if checkpoint is not None: body["checkpoint"] = checkpoint
-    return _fmt(await _request("POST", f"/runs/{run_id}/heartbeat", body=body))
+    return _fmt(await _request("POST", f"/runs/{run_id}/heartbeat",
+                               params={"agent": agent}, body=body))
 
 
-@_tool(name="taskhub_submit_result", title="提交任务执行结果", method="POST", path="/runs/{run_id}/result", read_only=False, destructive=False, desc="提交 run 的最终结果（成功/失败）。成功后任务标记 completed；失败时若未超最大重试次数会进入 retrying 并重新排队，否则标记 failed。**成功提交有 Read Evidence 前置门控**：本次 run 若未读过 required 文档（或文档在读取后被改动）会返回 422，先 taskhub_read_document(run_id=...) 补齐或用 taskhub_read_status 自查。失败提交不受该门控限制。")
+@_tool(name="taskhub_submit_result", title="提交任务执行结果", method="POST", path="/runs/{run_id}/result", read_only=False, destructive=False, desc="提交 run 的最终结果（成功/失败）。成功后任务标记 completed；失败时若未超最大重试次数会进入 retrying 并重新排队，否则标记 failed。**agent 必填**：服务端据此校验 run 所有权与状态可提交性，传错会被 403 拒绝（run.not_owner）、run 已结束会被 409 拒绝（run.not_submittable）。**成功提交有 Read Evidence 前置门控**：本次 run 若未读过 required 文档（或文档在读取后被改动）会返回 422，先 taskhub_read_document(run_id=...) 补齐或用 taskhub_read_status 自查。失败提交不受该门控限制。")
 async def taskhub_submit_result(
     run_id: str = Field(description="Run 唯一标识（claim 返回的 id）", min_length=1),
+    agent: str = Field(description="本次执行的 agent 名称（claim 时用的那个），用于所有权校验", min_length=1),
     success: bool = Field(default=True, description="是否成功"),
     result: str = Field(default="", description="结果描述 / 产出摘要", max_length=4000),
     exit_code: Optional[int] = Field(default=None, description="退出码（默认 0 成功 / 1 失败）"),
 ) -> str:
     body = {"success": success, "result": result}
     if exit_code is not None: body["exit_code"] = exit_code
-    return _fmt(await _request("POST", f"/runs/{run_id}/result", body=body))
+    return _fmt(await _request("POST", f"/runs/{run_id}/result",
+                               params={"agent": agent}, body=body))
 
 
 @_tool(name="taskhub_list_tasks", title="列出任务", method="GET", path="/tasks", read_only=True, destructive=False, desc="列出任务看板，可按状态 / 目标 agent 类型过滤。用于了解待办、进行中和历史任务。")
