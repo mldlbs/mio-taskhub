@@ -77,5 +77,5 @@ coll = COLLECT(
     exe_hub,
     a_hub.binaries,
     a_hub.datas,
-    name="mio-taskhub-v3",
+    name="mio-taskhub",
 )
