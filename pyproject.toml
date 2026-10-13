@@ -9,14 +9,19 @@ description = "Cross-agent task management hub (local single-user service)"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "fastapi>=0.110",
-    "uvicorn[standard]>=0.27",
-    "sqlmodel>=0.0.16",
-    "apscheduler>=3.10",
-    "pydantic>=2.6",
+    # 2026-10-13 钉死已知可用版本：CI 全新装到最新版（sqlmodel 0.0.48 /
+    # SQLAlchemy 2.1.4 等）后 32 个测试因 naive datetime 校验收紧而挂；
+    # 下列为本地全量 1113 passed 验证过的组合（T0.1/9784640a）。
+    "fastapi==0.141.1",
+    "starlette==1.6.0",
+    "uvicorn[standard]==0.52.4",
+    "sqlmodel==0.0.42",
+    "SQLAlchemy==2.0.52",
+    "apscheduler==3.11.3",
+    "pydantic==2.13.5",
     "websockets>=12.0",
-    "mcp>=1.2,<2",
-    "croniter>=2.0",
+    "mcp==1.29.1",
+    "croniter==6.2.4",
     "python-multipart>=0.0.9",
     "opentelemetry-sdk>=1.25",
     "opentelemetry-exporter-prometheus>=0.46b0",
