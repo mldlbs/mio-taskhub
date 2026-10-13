@@ -53,3 +53,57 @@ def test_json_formatter_exception():
     data = json.loads(output)
     assert "exception" in data
     assert "ValueError: boom" in data["exception"]
+
+
+def test_json_formatter_passes_through_extra_fields():
+    """F3：extra 字段（path/status/duration_ms）必须透传，旧键保留只新增。"""
+    from mio_taskhub.observability.logging_config import JSONFormatter
+    fmt = JSONFormatter()
+    logger = logging.getLogger("t05.extra")
+    record = logging.LogRecord(
+        name="t05.extra", level=logging.ERROR, pathname="x.py",
+        lineno=1, msg="request_error", args=(), exc_info=None,
+    )
+    record.request_id = "rid-1"
+    record.path = "/api/v1/tasks"
+    record.status = 500
+    record.duration_ms = 12.3
+    data = json.loads(fmt.format(record))
+    assert data["msg"] == "request_error"
+    assert data["request_id"] == "rid-1"   # 旧键保留
+    assert data["path"] == "/api/v1/tasks"
+    assert data["status"] == 500
+    assert data["duration_ms"] == 12.3
+
+
+def test_json_formatter_unserializable_extra_does_not_crash():
+    """default=str：不可序列化的 extra 值降级为字符串，不炸日志。"""
+    from mio_taskhub.observability.logging_config import JSONFormatter
+    fmt = JSONFormatter()
+    record = logging.LogRecord(
+        name="t", level=logging.INFO, pathname="x.py",
+        lineno=1, msg="m", args=(), exc_info=None,
+    )
+    record.obj = object()
+    data = json.loads(fmt.format(record))
+    assert "obj" in data
+
+
+def test_buffer_handler_passes_through_extra():
+    """F3：/api/v1/logs 的 LogBuffer entry 也要含 extra 字段。"""
+    from mio_taskhub.observability.logging_config import BufferHandler, log_buffer
+    h = BufferHandler()
+    before = len(log_buffer._buf)
+    record = logging.LogRecord(
+        name="t05.buf", level=logging.ERROR, pathname="x.py",
+        lineno=1, msg="request_error", args=(), exc_info=None,
+    )
+    record.path = "/api/v1/x"
+    record.status = 502
+    record.duration_ms = 7.7
+    h.emit(record)
+    entry = log_buffer._buf[-1]
+    assert len(log_buffer._buf) == before + 1
+    assert entry["path"] == "/api/v1/x"
+    assert entry["status"] == 502
+    assert entry["duration_ms"] == 7.7

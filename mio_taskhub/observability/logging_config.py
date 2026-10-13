@@ -51,6 +51,20 @@ def _get_trace_context() -> dict:
     return {"trace_id": trace_id_var.get(), "span_id": span_id_var.get()}
 
 
+# LogRecord 标准属性（非这些键的 record.__dict__ 条目即调用方 extra，透传到输出）
+_RESERVED_ATTRS = frozenset({
+    "name", "msg", "args", "levelname", "levelno", "pathname", "filename",
+    "module", "exc_info", "exc_text", "stack_info", "lineno", "funcName",
+    "created", "msecs", "relativeCreated", "thread", "threadName",
+    "processName", "process", "taskName", "message", "asctime",
+})
+
+
+def _extra_fields(record) -> dict:
+    """Collect caller-supplied `extra={...}` fields (e.g. path/status/duration_ms)."""
+    return {k: v for k, v in record.__dict__.items() if k not in _RESERVED_ATTRS}
+
+
 class JSONFormatter(logging.Formatter):
     def format(self, record):
         trace_ctx = _get_trace_context()
@@ -65,7 +79,10 @@ class JSONFormatter(logging.Formatter):
         }
         if record.exc_info and record.exc_info[0]:
             log_entry["exception"] = self.formatException(record.exc_info)
-        return json.dumps(log_entry, ensure_ascii=False)
+        # F3：透传 extra 字段（request_error 的 path/status/duration_ms 等），
+        # 旧键一律保留、只新增；default=str 保证不可序列化值不炸日志。
+        log_entry.update(_extra_fields(record))
+        return json.dumps(log_entry, ensure_ascii=False, default=str)
 
 
 class HumanReadableFormatter(logging.Formatter):
@@ -85,7 +102,9 @@ class HumanReadableFormatter(logging.Formatter):
         ts = self.formatTime(record, "%H:%M:%S")
         trace_ctx = _get_trace_context()
         tid = trace_ctx["trace_id"][:8] if trace_ctx["trace_id"] != "-" else "-"
-        return f"{color}{ts} [{record.levelname:<7}] {reset}{record.name}: {record.getMessage()} [req={request_id_var.get()} tid={tid}]"
+        extra = " ".join(f"{k}={v}" for k, v in _extra_fields(record).items())
+        tail = f" {extra}" if extra else ""
+        return f"{color}{ts} [{record.levelname:<7}] {reset}{record.name}: {record.getMessage()} [req={request_id_var.get()} tid={tid}]{tail}"
 
 
 class BufferHandler(logging.Handler):
@@ -104,6 +123,8 @@ class BufferHandler(logging.Handler):
                 "msg": record.getMessage(),
                 "request_id": getattr(record, "request_id", "-"),
             }
+            # F3：/api/v1/logs 面板同样能看到 path/status/duration_ms 等 extra
+            entry.update(_extra_fields(record))
             self._buffer.add(entry)
         except Exception:
             pass
