@@ -231,9 +231,19 @@ def stage_requirements():
     }
 
 
+# 取消原因枚举（F17/T0.6：task_cancelled 事件 payload 必须非空且可归因）。
+# manual=用户/API 主动取消；duplicate=重复任务；obsolete=需求失效；
+# superseded=被新任务取代；policy=策略/门控拒绝后放弃；other=其它（配 detail）。
+CANCEL_REASONS = ("manual", "duplicate", "obsolete", "superseded", "policy", "other")
+
+
 @router.delete("/{task_id}")
 def cancel_task(task_id: str, confirm: bool = Query(False),
+                reason: str = Query("manual"),
+                detail: str = Query(""),
                 db: Session = Depends(get_session)):
+    if reason not in CANCEL_REASONS:
+        raise HTTPException(400, f"invalid reason: {reason!r} (expected one of: {', '.join(CANCEL_REASONS)})")
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404)
@@ -245,15 +255,18 @@ def cancel_task(task_id: str, confirm: bool = Query(False),
         _, m1_event = apply_transition(
             t, State.CANCELLED, Stage(current_stage.value),
             ActorType.USER, "api:cancel_task",
-            reason="用户取消",
+            reason=f"用户取消[{reason}]",
         )
         db.add(m1_event)
     except IllegalTransition:
         raise HTTPException(409, f"task {task_id} 不可取消（终态）")
-    event = emit_event(db, type="task_cancelled", entity="task", entity_id=task_id)
+    event = emit_event(db, type="task_cancelled", entity="task", entity_id=task_id,
+                       payload={"reason": reason,
+                                **({"detail": detail} if detail else {})})
     db.add(t)
     db.commit()
-    return {"ok": True, "state": "cancelled", "policy": policy}
+    return {"ok": True, "state": "cancelled", "policy": policy,
+            "reason": reason, "detail": detail}
 
 
 @router.post("/{task_id}/retry")

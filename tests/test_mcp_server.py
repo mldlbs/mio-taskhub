@@ -108,8 +108,23 @@ def test_list_and_get_tool(mcp_ctx):
 
 def test_cancel_tool(mcp_ctx):
     created = _call("taskhub_create_task", {"title": "Cancel me"})
-    res = _call("taskhub_cancel_task", {"task_id": created["id"]})
+    res = _call("taskhub_cancel_task", {
+        "task_id": created["id"], "reason": "obsolete", "detail": "T0.6 透传验证",
+    })
     assert res["state"] == "cancelled"
+    assert res["reason"] == "obsolete"
+    # F17/T0.6：MCP 取消的事件 payload 必须含 reason（非 null）
+    from sqlmodel import Session, select
+    from mio_taskhub.db import engine
+    from mio_taskhub.models import Event
+    with Session(engine) as s:
+        ev = s.exec(select(Event).where(
+            Event.type == "task_cancelled", Event.entity_id == created["id"]
+        ).order_by(Event.id.desc())).first()
+    assert ev is not None and ev.payload
+    payload = json.loads(ev.payload)
+    assert payload["reason"] == "obsolete"
+    assert payload["detail"] == "T0.6 透传验证"
 
 
 def test_create_task_rich_fields(mcp_ctx):

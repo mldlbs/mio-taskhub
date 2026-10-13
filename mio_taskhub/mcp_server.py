@@ -14,6 +14,7 @@ import os
 import sys
 import time
 from typing import List, Optional
+from urllib.parse import quote
 import httpx
 from pydantic import Field
 from mcp.server.fastmcp import FastMCP
@@ -544,8 +545,13 @@ async def taskhub_move_to_stage(
 @_tool(name="taskhub_cancel_task", title="取消任务", method="DELETE", path="/tasks/{task_id}", read_only=False, destructive=True, desc="取消一个排队中的任务（标记为 cancelled）。")
 async def taskhub_cancel_task(
     task_id: str = Field(description="任务唯一标识", min_length=1),
+    reason: str = Field(default="manual", description="取消原因枚举：manual/duplicate/obsolete/superseded/policy/other"),
+    detail: str = Field(default="", description="可选自由文本补充说明（写入事件 payload.detail）"),
 ) -> str:
-    return _fmt(await _request("DELETE", f"/tasks/{task_id}"))
+    q = f"?reason={quote(reason, safe='')}"
+    if detail:
+        q += f"&detail={quote(detail, safe='')}"
+    return _fmt(await _request("DELETE", f"/tasks/{task_id}{q}"))
 
 
 @_tool(name="taskhub_retry_task", title="重试任务", method="POST", path="/tasks/{task_id}/retry", read_only=False, destructive=False, desc="手动重试一个已失败或退避中的任务，立即重入 queued/ready。")
