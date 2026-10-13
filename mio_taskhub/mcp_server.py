@@ -185,9 +185,18 @@ async def taskhub_heartbeat(
     progress: int = Field(default=50, description="进度百分比 0-100", ge=0, le=100),
     checkpoint: Optional[str] = Field(default=None, description="阶段检查点描述", max_length=500),
 ) -> str:
-    body = {"progress": progress}
+    body = {"progress": progress, "pid": os.getpid()}
     if checkpoint is not None: body["checkpoint"] = checkpoint
-    return _fmt(await _request("POST", f"/runs/{run_id}/heartbeat", body=body))
+    resp = await _request("POST", f"/runs/{run_id}/heartbeat", body=body)
+    # T0.7 生命周期埋点：agent 侧本地已发计数（fire-and-forget，全吞）。
+    # delivered=false + Hub 无 heartbeat 行 = 网络/Hub 侧丢的对账证据。
+    try:
+        from mio_taskhub.observability.lifecycle import note_heartbeat_sent
+        note_heartbeat_sent(run_id,
+                            delivered=not (isinstance(resp, dict) and "error" in resp))
+    except Exception:  # noqa: BLE001 — 埋点失败不影响心跳返回
+        pass
+    return _fmt(resp)
 
 
 @_tool(name="taskhub_submit_result", title="提交任务执行结果", method="POST", path="/runs/{run_id}/result", read_only=False, destructive=False, desc="提交 run 的最终结果（成功/失败）。成功后任务标记 completed；失败时若未超最大重试次数会进入 retrying 并重新排队，否则标记 failed。**成功提交有 Read Evidence 前置门控**：本次 run 若未读过 required 文档（或文档在读取后被改动）会返回 422，先 taskhub_read_document(run_id=...) 补齐或用 taskhub_read_status 自查。失败提交不受该门控限制。")
