@@ -42,7 +42,12 @@ def _claim(agent, title, max_retries=1, timeout_min=600):
                  max_retries=max_retries, timeout_min=timeout_min)
         s.add(t); s.commit(); s.refresh(t)
         tid = t.id
-    claim = client.post("/api/v1/tasks/claim", params={"agent": agent}).json()
+    # 显式带 task_id 直领：共享测试 DB 中按相关度抢卡会抢到别的
+    # 任务（其 required_reads 使迟到成功提交被 ReadEvidence 门控
+    # 422）——T0.9 冻结复现出的时序 flake，claim 显式带 task_id
+    # 即路线图 F2 缓解，行为与 tid 强绑定、确定性可复跑。
+    claim = client.post("/api/v1/tasks/claim",
+                        params={"agent": agent, "task_id": tid}).json()
     rid = claim["id"]
     # 让任务进入 RUNNING（真实路径：agent 上报心跳）
     client.post(f"/api/v1/runs/{rid}/heartbeat", json={"progress": 50})
