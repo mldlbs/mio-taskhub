@@ -1,12 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
-import { LANES, STATE_META, prio, fmtDur, fmtDate, compositeLabel, parseUtc } from '../constants'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { LANES, STATE_META, STAGE_META, prio, fmtDur, fmtDate, compositeLabel, parseUtc } from '../constants'
 import { api } from '../api'
 import DependencyGraph from './DependencyGraph'
 
 const tone = (s) => STATE_META[s]?.tone || 'dim'
 const ACTIVE = ['queued', 'claimed', 'running', 'retrying']
 
-// 已登记的文档类型：优先 doc_paths，回退旧的 spec_path / plan_path
 const docKindList = (task) => {
   const dp = (task && task.doc_paths) || {}
   const kinds = Object.keys(dp)
@@ -42,19 +41,56 @@ function payloadText(p) {
   return typeof p === 'string' ? p : JSON.stringify(p)
 }
 
+// 验收标准按行拆成可扫读列表；单行则整段展示
+function acceptanceLines(text) {
+  if (!text) return []
+  return String(text)
+    .split(/\r?\n/)
+    .map(s => s.replace(/^[\s]*[-*•·]\s*/, '').replace(/^\d+[.)、]\s*/, '').trim())
+    .filter(Boolean)
+}
+
+const STAGE_FLOW = ['brainstorming', 'design', 'planning', 'ready', 'implementing', 'review', 'done']
+
+function completionOf(task) {
+  const subs = task.subtasks || []
+  if (subs.length > 0) {
+    const done = subs.filter(s => s.status === 'done').length
+    return { pct: Math.round(done / subs.length * 100), label: `${done}/${subs.length}`, source: '子任务' }
+  }
+  const sidx = STAGE_FLOW.indexOf(task.stage)
+  if (sidx >= 0) {
+    return {
+      pct: Math.round((sidx + 1) / STAGE_FLOW.length * 100),
+      label: `${sidx + 1}/${STAGE_FLOW.length}`,
+      source: '阶段',
+    }
+  }
+  if (task.state === 'completed') return { pct: 100, label: '完成', source: '状态' }
+  if (task.state === 'failed') return { pct: 0, label: '失败', source: '状态' }
+  return { pct: 0, label: '—', source: '—' }
+}
+
+const TAB_DEFS = [
+  { id: 'deps',     label: '依赖' },
+  { id: 'subtasks', label: '子任务' },
+  { id: 'disc',     label: '讨论' },
+  { id: 'activity', label: '动态' },
+]
+
 export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onToggleSubtask, onAdvance, onOpenDocs, onOpenTask, onRetry }) {
   const closeRef = useRef(null)
-  const [saveAsTpl, setSaveAsTpl] = useState(null) // { title, category }
+  const [saveAsTpl, setSaveAsTpl] = useState(null)
   const [saveBusy, setSaveBusy] = useState(false)
   const [saveErr, setSaveErr] = useState(null)
   const [events, setEvents] = useState([])
   const [eventsLoading, setEventsLoading] = useState(false)
-  // 依赖编辑（前端手工建依赖；成环/自依赖由后端 check_cycle → 422 拦截）
   const [depEdit, setDepEdit] = useState(false)
   const [depList, setDepList] = useState([])
   const [depPick, setDepPick] = useState('')
   const [depBusy, setDepBusy] = useState(false)
   const [depErr, setDepErr] = useState(null)
+  const [tab, setTab] = useState('disc')
 
   useEffect(() => {
     closeRef.current?.focus()
@@ -69,10 +105,21 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
     api.getTaskEvents(task.id, 30).then(r => setEvents(r.events || [])).catch(() => setEvents([])).finally(() => setEventsLoading(false))
   }, [task?.id])
 
-  const STAGES = ['brainstorming','design','planning','ready','implementing','review','done']
-  const sidx = STAGES.indexOf(task.stage)
-  const spct = sidx >= 0 ? Math.round((sidx + 1) / STAGES.length * 100) : 0
+  // 有数据时自动选到最相关的 Tab
+  useEffect(() => {
+    if (!task?.id) return
+    const hasSub = (task.subtasks || []).length > 0
+    const hasDisc = (task.discussions || []).length > 0
+    const hasDeps = (task.depends_on || []).length > 0
+    if (hasDisc) setTab('disc')
+    else if (hasSub) setTab('subtasks')
+    else if (hasDeps) setTab('deps')
+    else setTab('activity')
+  }, [task?.id])
 
+  const sidx = STAGE_FLOW.indexOf(task.stage)
+  const spct = sidx >= 0 ? Math.round((sidx + 1) / STAGE_FLOW.length * 100) : 0
+  const comp = completionOf(task)
   const p = prio(task.priority)
   const i = LANES.findIndex(l => l.id === task.state)
   const prev = i > 0 ? LANES[i - 1] : null
@@ -102,6 +149,19 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
   const discGroups = task.discussions
     ? DISC_GROUPS.map(g => ({ ...g, items: task.discussions.filter(d => discGroupId(d.stage) === g.id) })).filter(g => g.items.length > 0)
     : []
+  const discCount = (task.discussions || []).length
+  const runCount = (task.runs || []).length
+  const docKinds = docKindList(task)
+  const docCount = docKinds.length
+  const accLines = acceptanceLines(task.acceptance_criteria)
+  const stageMeta = task.stage ? STAGE_META[task.stage] : null
+
+  const tabCounts = useMemo(() => ({
+    deps: (task.depends_on || []).length,
+    subtasks: (task.subtasks || []).length,
+    disc: discCount,
+    activity: (task.history || []).length + events.length + runCount,
+  }), [task, discCount, events.length, runCount])
 
   return (
     <div className="overlay drawer-overlay" onClick={onClose}>
@@ -116,15 +176,74 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
           <button className="modal__close" ref={closeRef} onClick={onClose} aria-label="关闭">×</button>
         </header>
 
+        {/* 仪表盘条：结论先行，数字大字化 */}
+        <div className="td-dash" aria-label="任务概览">
+          <div className="td-dash__hero">
+            <div
+              className="td-dash__ring"
+              style={{ '--pct': comp.pct }}
+              title={`${comp.source}完成度`}
+            >
+              <span className="td-dash__pct">{comp.pct}<em>%</em></span>
+            </div>
+            <div className="td-dash__hero-meta">
+              <span className="td-dash__hero-label">完成度</span>
+              <span className="td-dash__hero-sub mono">{comp.label}{comp.source !== '—' ? ` · ${comp.source}` : ''}</span>
+              {task.stage && (
+                <span className={`td-dash__stage chip chip--${stageMeta?.tone || 'dim'}`}>
+                  {stageMeta?.label || task.stage}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="td-dash__metrics">
+            <div className="td-dash__metric">
+              <span className="td-dash__m-label">优先级</span>
+              <span className={`np-row__prio np-row__prio--p${p.p} td-dash__prio`}>{p.label} · {p.text}</span>
+            </div>
+            <div className="td-dash__metric">
+              <span className="td-dash__m-label">讨论</span>
+              <b className="td-dash__num">{discCount}</b>
+            </div>
+            <div className="td-dash__metric">
+              <span className="td-dash__m-label">执行</span>
+              <b className="td-dash__num">{runCount}</b>
+            </div>
+            <div className="td-dash__metric">
+              <span className="td-dash__m-label">文档</span>
+              <b className="td-dash__num">{docCount}</b>
+            </div>
+            <div className="td-dash__metric">
+              <span className="td-dash__m-label">尝试</span>
+              <b className="td-dash__num">{task.attempt ?? 0}<em>/{task.max_retries ?? 3}</em></b>
+            </div>
+          </div>
+        </div>
+
+        {task.stage && (
+          <div className="stage-bar" title={`${sidx + 1}/${STAGE_FLOW.length} · ${spct}% · ${stageMeta?.label || task.stage}`}>
+            <div className="stage-bar__fill" style={{ width: spct + '%' }} />
+          </div>
+        )}
+
+        <div className="td-quick">
+          {(docKinds.length > 0 || task.workspace) && (
+            <button className="btn btn--primary" onClick={onOpenDocs}>
+              查看文档 · {docKinds.length ? docKinds.join(' / ') : '自动发现'}
+            </button>
+          )}
+          {task.review_result && (
+            <span className="td-quick__review" title={task.review_result}>有审查结论</span>
+          )}
+        </div>
+
+        {/* 核心信息：精简 kv（去掉已上仪表盘的优先级） */}
         <div className="drawer__meta">
           <div className="kv"><span>ID</span><b className="mono">{task.id}</b></div>
-          <div className="kv"><span>优先级</span><b>{p.label} · {p.text}</b></div>
           <div className="kv"><span>目标 Agent</span><b>{task.target_agent_type || '任意 agent'}</b></div>
           <div className="kv"><span>预估时长</span><b>{fmtDur(task.est_duration_min)}</b></div>
           <div className="kv"><span>排期</span><b>{scheduleOf(task)}</b></div>
           <div className="kv"><span>创建时间</span><b className="mono">{fmtDate(task.created_at)}</b></div>
-          <div className="kv"><span>尝试次数</span><b className="mono">{task.attempt ?? 0} / {task.max_retries ?? 3}</b></div>
-          <div className="kv"><span>最大重试</span><b className="mono">{task.max_retries ?? 3}</b></div>
           {task.retry_at && task.state === 'retrying' && (
             <div className="kv"><span>下次重试</span><b className="mono">{fmtDate(task.retry_at)} {retryCountdown !== null ? `(${retryCountdown}s 后)` : ''}</b></div>
           )}
@@ -137,24 +256,37 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
               <b className="mono">{fmtDate(task.due_at)}{overdue ? ' ⚠' : ''}</b>
             </div>
           )}
-          <div className="kv"><span>阶段</span><b>{task.stage || '—'}</b></div>
         </div>
 
-        {task.stage && (
-          <div className="stage-bar" title={`${sidx + 1}/${STAGES.length} · ${spct}%`}>
-            <div className="stage-bar__fill" style={{ width: spct + '%' }} />
-          </div>
-        )}
-
-        {(docKindList(task).length > 0 || task.workspace) && (
+        {task.review_result && (
           <section className="drawer__sec">
-            <button className="btn btn--primary" onClick={onOpenDocs}>
-              查看文档 · {docKindList(task).length ? docKindList(task).join(' / ') : '自动发现'}
-            </button>
+            <h3>审查结论</h3>
+            <p className="drawer__desc">{task.review_result}</p>
           </section>
         )}
-        {task.review_result && (
-          <div className="drawer__sec"><h3>审查结论</h3><p>{task.review_result}</p></div>
+
+        {/* 描述卡片 */}
+        {task.description && (
+          <section className="drawer__sec td-card">
+            <h3 className="td-card__title"><span className="td-card__icon" aria-hidden="true">☰</span>描述</h3>
+            <p className="drawer__desc td-card__body">{task.description}</p>
+          </section>
+        )}
+
+        {/* 验收标准：逐行扫读 */}
+        {task.acceptance_criteria && (
+          <section className="drawer__sec td-card">
+            <h3 className="td-card__title"><span className="td-card__icon" aria-hidden="true">✓</span>验收标准</h3>
+            {accLines.length > 1 ? (
+              <ol className="td-acc">
+                {accLines.map((line, idx) => (
+                  <li key={idx} className="td-acc__item">{line}</li>
+                ))}
+              </ol>
+            ) : (
+              <p className="drawer__desc td-card__body">{task.acceptance_criteria}</p>
+            )}
+          </section>
         )}
 
         {task.runs && task.runs.length > 0 && (
@@ -213,197 +345,210 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
           </section>
         )}
 
-        {task.description && (
-          <section className="drawer__sec">
-            <h3>描述</h3>
-            <p className="drawer__desc">{task.description}</p>
-          </section>
-        )}
-
-        {task.acceptance_criteria && (
-          <section className="drawer__sec">
-            <h3>验收标准</h3>
-            <p className="drawer__desc">{task.acceptance_criteria}</p>
-          </section>
-        )}
-
-        <section className="drawer__sec">
-          <h3>依赖</h3>
-          {(task.depends_on || []).length === 0 ? (
-            <p className="detail-muted">无前置任务</p>
-          ) : (
-            <ul className="dep-list">
-              {task.depends_on.map(did => {
-                const dep = (tasks || []).find(x => x.id === did)
-                return (
-                  <li key={did}>
-                    <span>{dep ? dep.title : did}</span>
-                    <span className="tag">{dep ? (dep.state === 'completed' || dep.stage === 'done' ? '已完成' : dep.state) : '缺失'}</span>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-          <div className="dep-edit">
-            {!depEdit ? (
-              <button className="btn btn--ghost btn--xs"
-                      onClick={() => { setDepList([...(task.depends_on || [])]); setDepPick(''); setDepErr(null); setDepEdit(true) }}>
-                编辑依赖
+        {/* 关系区：Tab 折叠，降低滚动深度 */}
+        <section className="drawer__sec td-tabs">
+          <div className="td-tabs__bar" role="tablist" aria-label="任务关系">
+            {TAB_DEFS.map(t => (
+              <button
+                key={t.id}
+                role="tab"
+                aria-selected={tab === t.id}
+                className={`td-tabs__tab${tab === t.id ? ' is-active' : ''}`}
+                onClick={() => setTab(t.id)}
+              >
+                {t.label}
+                {tabCounts[t.id] > 0 && <span className="td-tabs__count">{tabCounts[t.id]}</span>}
               </button>
-            ) : (
-              <div className="dep-edit__box">
-                <ul className="dep-list">
-                  {depList.length === 0 && <li className="detail-muted">（无前置）</li>}
-                  {depList.map(did => (
-                    <li key={did}>
-                      <span>{(tasks || []).find(x => x.id === did)?.title || did}</span>
-                      <button className="btn btn--ghost btn--xs"
-                              onClick={() => setDepList(l => l.filter(x => x !== did))}>移除</button>
-                    </li>
-                  ))}
-                </ul>
-                <div className="dep-edit__add">
-                  <select className="inp inp--xs" value={depPick} onChange={e => setDepPick(e.target.value)}>
-                    <option value="">选择前置任务…</option>
-                    {(tasks || [])
-                      .filter(x => x.id !== task.id && !depList.includes(x.id))
-                      .map(x => <option key={x.id} value={x.id}>{x.title}</option>)}
-                  </select>
-                  <button className="btn btn--ghost btn--xs" disabled={!depPick}
-                          onClick={() => { if (depPick) { setDepList(l => [...l, depPick]); setDepPick('') } }}>
-                    添加
-                  </button>
+            ))}
+          </div>
+
+          <div className="td-tabs__panel" role="tabpanel">
+            {tab === 'deps' && (
+              <>
+                {(task.depends_on || []).length === 0 ? (
+                  <p className="detail-muted">无前置任务</p>
+                ) : (
+                  <ul className="dep-list">
+                    {task.depends_on.map(did => {
+                      const dep = (tasks || []).find(x => x.id === did)
+                      return (
+                        <li key={did}>
+                          <span>{dep ? dep.title : did}</span>
+                          <span className="tag">{dep ? (dep.state === 'completed' || dep.stage === 'done' ? '已完成' : dep.state) : '缺失'}</span>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+                <div className="dep-edit">
+                  {!depEdit ? (
+                    <button className="btn btn--ghost btn--xs"
+                            onClick={() => { setDepList([...(task.depends_on || [])]); setDepPick(''); setDepErr(null); setDepEdit(true) }}>
+                      编辑依赖
+                    </button>
+                  ) : (
+                    <div className="dep-edit__box">
+                      <ul className="dep-list">
+                        {depList.length === 0 && <li className="detail-muted">（无前置）</li>}
+                        {depList.map(did => (
+                          <li key={did}>
+                            <span>{(tasks || []).find(x => x.id === did)?.title || did}</span>
+                            <button className="btn btn--ghost btn--xs"
+                                    onClick={() => setDepList(l => l.filter(x => x !== did))}>移除</button>
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="dep-edit__add">
+                        <select className="inp inp--xs" value={depPick} onChange={e => setDepPick(e.target.value)}>
+                          <option value="">选择前置任务…</option>
+                          {(tasks || [])
+                            .filter(x => x.id !== task.id && !depList.includes(x.id))
+                            .map(x => <option key={x.id} value={x.id}>{x.title}</option>)}
+                        </select>
+                        <button className="btn btn--ghost btn--xs" disabled={!depPick}
+                                onClick={() => { if (depPick) { setDepList(l => [...l, depPick]); setDepPick('') } }}>
+                          添加
+                        </button>
+                      </div>
+                      {depErr && <p className="dep-edit__err">{depErr}</p>}
+                      <div className="dep-edit__actions">
+                        <button className="btn btn--primary btn--xs" disabled={depBusy}
+                                onClick={async () => {
+                                  setDepBusy(true); setDepErr(null)
+                                  try {
+                                    await api.updateTask(task.id, { depends_on: depList })
+                                    setDepEdit(false)
+                                  } catch (e) {
+                                    setDepErr(e?.message || String(e))
+                                  } finally { setDepBusy(false) }
+                                }}>
+                          {depBusy ? '保存中…' : '保存依赖'}
+                        </button>
+                        <button className="btn btn--ghost btn--xs" onClick={() => setDepEdit(false)}>取消</button>
+                      </div>
+                      <p className="detail-muted dep-edit__hint">引用自身或构成依赖环会被后端拒绝（422）；保存后列表自动刷新。</p>
+                    </div>
+                  )}
                 </div>
-                {depErr && <p className="dep-edit__err">{depErr}</p>}
-                <div className="dep-edit__actions">
-                  <button className="btn btn--primary btn--xs" disabled={depBusy}
-                          onClick={async () => {
-                            setDepBusy(true); setDepErr(null)
-                            try {
-                              await api.updateTask(task.id, { depends_on: depList })
-                              setDepEdit(false)
-                            } catch (e) {
-                              setDepErr(e?.message || String(e))
-                            } finally { setDepBusy(false) }
-                          }}>
-                    {depBusy ? '保存中…' : '保存依赖'}
-                  </button>
-                  <button className="btn btn--ghost btn--xs" onClick={() => setDepEdit(false)}>取消</button>
+                <div style={{ marginTop: 12 }}>
+                  <DependencyGraph task={task} tasks={tasks} onOpen={onOpenTask} />
                 </div>
-                <p className="detail-muted dep-edit__hint">引用自身或构成依赖环会被后端拒绝（422）；保存后列表自动刷新。</p>
-              </div>
+              </>
+            )}
+
+            {tab === 'subtasks' && (
+              (!task.subtasks || task.subtasks.length === 0) ? (
+                <p className="detail-muted">无子任务</p>
+              ) : (
+                <div className="drawer__subtasks">
+                  {task.subtasks.map(st => {
+                    const done = st.status === 'done'
+                    return (
+                      <label key={st.id} className={`subtask-row${done ? ' is-done' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={done}
+                          onChange={() => onToggleSubtask(st.id, !done)}
+                          aria-label={`子任务 ${st.title}`}
+                        />
+                        <span className="subtask-title">{st.title}</span>
+                        <span className="subtask-status">{st.status}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              )
+            )}
+
+            {tab === 'disc' && (
+              discGroups.length === 0 ? (
+                <p className="detail-muted">暂无讨论</p>
+              ) : (
+                discGroups.map(g => (
+                  <div key={g.id} className="disc-group">
+                    <h4 className="disc-group__title">
+                      {g.label}
+                      <span className="disc-group__count">{g.items.length}</span>
+                    </h4>
+                    {g.items.map(d => (
+                      <div key={d.id} className="disc-block">
+                        <div className="disc-block__head">
+                          <b className="disc-block__topic">{d.topic}</b>
+                          <span className="disc-block__right">
+                            <span className="chip disc-stage">{discStageLabel(d.stage)}</span>
+                            <span className={`chip disc-status${d.status === 'closed' ? ' is-closed' : ''}`}>
+                              {d.status === 'closed' ? '已结束' : '进行中'}
+                            </span>
+                          </span>
+                        </div>
+                        {d.agent && <div className="disc-block__agent mono">{d.agent}</div>}
+                        {d.summary && <p className="disc-block__summary">{d.summary}</p>}
+                        {d.conclusions && (
+                          <p className="disc-block__concl"><em>结论:</em> {d.conclusions}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ))
+              )
+            )}
+
+            {tab === 'activity' && (
+              <>
+                {task.history && task.history.length > 0 && (
+                  <>
+                    <h4 className="td-subhead">执行历史 · {task.history.length}</h4>
+                    <div className="drawer__timeline">
+                      {task.history.map(h => (
+                        <div key={h.id} className="hist-row">
+                          <span className="hist-row__dot" aria-hidden="true" />
+                          <div className="hist-row__body">
+                            <div className="hist-row__head">
+                              <b>{h.type}</b>
+                              <span className="hist-row__at mono">{fmtDate(h.at)}</span>
+                            </div>
+                            {h.payload != null && <pre className="hist-row__payload mono">{payloadText(h.payload)}</pre>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {events.length > 0 ? (
+                  <>
+                    <h4 className="td-subhead">状态变更 · {events.length} 条</h4>
+                    <div className="event-timeline">
+                      {events.map(ev => {
+                        const cl = compositeLabel(ev.to_state, ev.to_stage)
+                        const actorLabel = ev.actor_type === 'agent' ? ev.actor_id : ev.actor_type === 'user' ? '用户' : '系统'
+                        return (
+                          <div key={ev.id} className={`event-row event-row--${cl.tone}`}>
+                            <span className="event-row__dot" aria-hidden="true" />
+                            <div className="event-row__body">
+                              <div className="event-row__head">
+                                <span className={`chip chip--composite chip--${cl.tone}`}>{cl.label}</span>
+                                <span className="event-row__actor mono">{actorLabel}</span>
+                                <span className="event-row__at mono">{fmtDate(ev.created_at)}</span>
+                              </div>
+                              {ev.reason && <div className="event-row__reason">{ev.reason}</div>}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  !eventsLoading && (task.history || []).length === 0 && (
+                    <p className="detail-muted">暂无执行历史与状态变更</p>
+                  )
+                )}
+                {!eventsLoading && events.length === 0 && (task.history || []).length > 0 && (
+                  <p className="detail-muted">暂无状态变更记录</p>
+                )}
+              </>
             )}
           </div>
-          <div style={{ marginTop: 12 }}>
-            <DependencyGraph task={task} tasks={tasks} onOpen={onOpenTask} />
-          </div>
         </section>
-
-        {task.subtasks && task.subtasks.length > 0 && (
-          <section className="drawer__sec">
-            <h3>子任务</h3>
-            <div className="drawer__subtasks">
-              {task.subtasks.map(st => {
-                const done = st.status === 'done'
-                return (
-                  <label key={st.id} className={`subtask-row${done ? ' is-done' : ''}`}>
-                    <input
-                      type="checkbox"
-                      checked={done}
-                      onChange={() => onToggleSubtask(st.id, !done)}
-                      aria-label={`子任务 ${st.title}`}
-                    />
-                    <span className="subtask-title">{st.title}</span>
-                    <span className="subtask-status">{st.status}</span>
-                  </label>
-                )
-              })}
-            </div>
-          </section>
-        )}
-
-        {task.discussions && task.discussions.length > 0 && (
-          <section className="drawer__sec">
-            <h3>讨论</h3>
-            {discGroups.map(g => (
-              <div key={g.id} className="disc-group">
-                <h4 className="disc-group__title">
-                  {g.label}
-                  <span className="disc-group__count">{g.items.length}</span>
-                </h4>
-                {g.items.map(d => (
-                  <div key={d.id} className="disc-block">
-                    <div className="disc-block__head">
-                      <b className="disc-block__topic">{d.topic}</b>
-                      <span className="disc-block__right">
-                        <span className="chip disc-stage">{discStageLabel(d.stage)}</span>
-                        <span className={`chip disc-status${d.status === 'closed' ? ' is-closed' : ''}`}>
-                          {d.status === 'closed' ? '已结束' : '进行中'}
-                        </span>
-                      </span>
-                    </div>
-                    {d.agent && <div className="disc-block__agent mono">{d.agent}</div>}
-                    {d.summary && <p className="disc-block__summary">{d.summary}</p>}
-                    {d.conclusions && (
-                      <p className="disc-block__concl"><em>结论:</em> {d.conclusions}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ))}
-          </section>
-        )}
-
-        {task.history && task.history.length > 0 && (
-          <section className="drawer__sec">
-            <h3>执行历史</h3>
-            <div className="drawer__timeline">
-              {task.history.map(h => (
-                <div key={h.id} className="hist-row">
-                  <span className="hist-row__dot" aria-hidden="true" />
-                  <div className="hist-row__body">
-                    <div className="hist-row__head">
-                      <b>{h.type}</b>
-                      <span className="hist-row__at mono">{fmtDate(h.at)}</span>
-                    </div>
-                    {h.payload != null && <pre className="hist-row__payload mono">{payloadText(h.payload)}</pre>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {events.length > 0 && (
-          <section className="drawer__sec">
-            <h3>状态变更 · {events.length} 条</h3>
-            <div className="event-timeline">
-              {events.map(ev => {
-                const cl = compositeLabel(ev.to_state, ev.to_stage)
-                const actorLabel = ev.actor_type === 'agent' ? ev.actor_id : ev.actor_type === 'user' ? '用户' : '系统'
-                return (
-                  <div key={ev.id} className={`event-row event-row--${cl.tone}`}>
-                    <span className="event-row__dot" aria-hidden="true" />
-                    <div className="event-row__body">
-                      <div className="event-row__head">
-                        <span className={`chip chip--composite chip--${cl.tone}`}>{cl.label}</span>
-                        <span className="event-row__actor mono">{actorLabel}</span>
-                        <span className="event-row__at mono">{fmtDate(ev.created_at)}</span>
-                      </div>
-                      {ev.reason && <div className="event-row__reason">{ev.reason}</div>}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </section>
-        )}
-        {events.length === 0 && !eventsLoading && (
-          <section className="drawer__sec">
-            <h3>状态变更</h3>
-            <p className="detail-muted">暂无状态变更记录</p>
-          </section>
-        )}
 
         <footer className="drawer__foot">
           {retryable && onRetry && (
