@@ -120,6 +120,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         print("[run_m] S4b 跳过（需 §9 P3 批准，--allow-s4b 显式开启）")
         scen_list = [s for s in scen_list if s != "S4b"]
 
+    n_override = args.replicates if args.replicates else None
+
     for rnd in range(1, args.rounds + 1):
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         git = _git_info()
@@ -131,9 +133,10 @@ def cmd_run(args: argparse.Namespace) -> int:
 
         # manifest（创建后只读；内容哈希由 summarize 记入 report）
         started = datetime.now(timezone.utc).isoformat()
+        n_eff = {s: (n_override or profiles.SCENARIO_N[s]) for s in scen_list}
         manifest = {
             "master_seed": seed, "round": rnd, "commit": git, "python": sys.version,
-            "n": dict(profiles.SCENARIO_N), "R": args.rounds,
+            "n": n_eff, "R": args.rounds, "probe_only": bool(args.probe_only),
             "env": {a: profiles.arm_env(a) for a in profiles.ARM_KEYS},
             "s4_env": profiles.S4_ENV, "t_limit_s": profiles.T_LIMIT_SECONDS,
             "started_at": started, "probes": None, "scenarios": list(scen_list),
@@ -167,9 +170,16 @@ def cmd_run(args: argparse.Namespace) -> int:
             continue
         print(f"[run_m] round {rnd} probes GREEN -> {round_dir}")
 
+        if args.probe_only:
+            manifest["finished_at"] = datetime.now(timezone.utc).isoformat()
+            (round_dir / "manifest.json").write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"[run_m] round {rnd} probe-only complete -> {round_dir}")
+            continue
+
         order = shuffled_scenarios(seed, list(scen_list))
         for scenario in order:
-            n = profiles.SCENARIO_N[scenario]
+            n = n_eff[scenario]
             reps = list(range(1, n + 1))
             for rep in reps:
                 first = coin_flip(seed, scenario, rep)
@@ -728,6 +738,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--scenarios", default="all", help="逗号分隔或 all")
     ap.add_argument("--out", default=str(REPO / "experiments" / "runs"))
     ap.add_argument("--allow-s4b", action="store_true")
+    ap.add_argument("--probe-only", action="store_true",
+                    help="只跑档位探针后结束（T1.3 探针校验）")
+    ap.add_argument("--replicates", type=int, default=0,
+                    help="覆盖每场景每档重复数（0=用 SCENARIO_N 预注册值）")
     ap.add_argument("--strict-probes", action="store_true",
                     help="探针失败立即退出（默认作废该轮继续）")
     ap.add_argument("--stop-on-err", action="store_true")

@@ -345,6 +345,53 @@ def test_s2_unit_live(tmp_path):
     assert statuses == {"T": 422, "C": 200}
 
 
+# ── 5.5 §6.3 复现判据（compare_runs） + T1.3 新 flag ──────────────────────
+def test_compare_runs_identical_is_consistent(tmp_path):
+    reps = list(range(1, 6))
+    rows = _mk_rows("S2", None, reps, t_status=422, c_status=200)
+    a = _write_round(tmp_path / "a", rows)
+    b = _write_round(tmp_path / "b", rows)
+    cmp = summarize.compare_runs(a, b)
+    assert cmp["consistent"] is True, cmp
+    assert cmp["matched_units"] == 10  # 5 rep × 2 arm
+    assert cmp["mismatches"] == []
+
+
+def test_compare_runs_mismatch_is_inconsistent(tmp_path):
+    reps = list(range(1, 6))
+    rows_a = _mk_rows("S2", None, reps, t_status=422, c_status=200)
+    rows_b = _mk_rows("S2", None, reps, t_status=422, c_status=200)
+    # B 轮 rep3 T 档逃逸（200 而非 422）
+    for r in rows_b:
+        if r["kind"] == "http" and r["arm"] == "T" and r["replicate"] == 3:
+            r["status"] = 200
+    a = _write_round(tmp_path / "a", rows_a)
+    b = _write_round(tmp_path / "b", rows_b)
+    cmp = summarize.compare_runs(a, b)
+    assert cmp["consistent"] is False
+    assert len(cmp["mismatches"]) == 1
+    m = cmp["mismatches"][0]
+    assert m["key"] == ("S2", "T", 3)
+    assert m["a"]["submit_status"] == 422
+    assert m["b"]["submit_status"] == 200
+
+
+def test_compare_runs_empty_is_inconsistent(tmp_path):
+    a = _write_round(tmp_path / "a", [])
+    b = _write_round(tmp_path / "b", [])
+    cmp = summarize.compare_runs(a, b)
+    assert cmp["consistent"] is False, "空 run 无单元可比 → 不得报一致"
+    assert cmp["matched_units"] == 0
+
+
+def test_probe_only_flag_in_run_m_help():
+    proc = subprocess.run([PY, str(HARNESS / "run_m.py"), "--help"],
+                          cwd=str(REPO), capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 0
+    assert "--probe-only" in proc.stdout
+    assert "--replicates" in proc.stdout
+
+
 # ── 6. CLI 可用（验收命令） ───────────────────────────────────────────────
 def test_run_m_help_and_summarize_help():
     for script, extra in (("run_m.py", ["--help"]), ("summarize.py", ["--help"]),

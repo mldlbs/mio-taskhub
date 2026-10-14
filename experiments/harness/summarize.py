@@ -518,14 +518,89 @@ def render_report(report: dict) -> str:
     return "\n".join(lines)
 
 
+def _extract_binary_outcomes(run_dir: Path) -> Dict[Tuple[str, str, int], dict]:
+    """从 raw/ 抽取单元二元结局：(scenario, arm, rep) -> {submit_status, task_state, recovered}。
+
+    从行内容推断 scenario/arm/rep（兼容 raw/{scen}/{arm}/{rep}.jsonl 与扁平 raw/*.jsonl）。
+    §6.3 复现判据：同 seed 同 commit 重跑 → 二元结局 100% 一致。
+    """
+    raw_root = run_dir / "raw"
+    if not raw_root.is_dir():
+        return {}
+    acc: Dict[Tuple[str, str, int], dict] = {}
+    for jf in sorted(raw_root.rglob("*.jsonl")):
+        for line in jf.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                obj = json.loads(line)
+            except Exception:
+                continue
+            scen, arm, rep = obj.get("scenario"), obj.get("arm"), obj.get("replicate")
+            if not scen or not arm or rep is None:
+                continue
+            key = (scen, arm, int(rep))
+            slot = acc.setdefault(key, {"submit_status": None, "task_state": None,
+                                        "recovered": None})
+            if obj.get("kind") == "http" and "/result" in str(obj.get("req", "")):
+                slot["submit_status"] = obj.get("status")
+            if obj.get("kind") == "state":
+                slot["task_state"] = obj.get("task_state")
+                if "recovered" in obj:
+                    slot["recovered"] = obj.get("recovered")
+    return acc
+
+
+def compare_runs(run_a: Path, run_b: Path) -> dict:
+    """§6.3 复现判据：同 seed 同 commit 重跑 → 二元结局 100% 一致。时延类不在此比较。"""
+    oa, ob = _extract_binary_outcomes(run_a), _extract_binary_outcomes(run_b)
+    keys = sorted(set(oa) | set(ob))
+    mismatches = []
+    only_a, only_b = [], []
+    for k in keys:
+        if k not in oa:
+            only_b.append(k)
+            continue
+        if k not in ob:
+            only_a.append(k)
+            continue
+        if oa[k] != ob[k]:
+            mismatches.append({"key": k, "a": oa[k], "b": ob[k]})
+    total = len(set(oa) & set(ob))
+    return {
+        "run_a": str(run_a), "run_b": str(run_b),
+        "units_a": len(oa), "units_b": len(ob), "matched_units": total,
+        "mismatches": mismatches, "only_a": [list(k) for k in only_a],
+        "only_b": [list(k) for k in only_b],
+        "consistent": not mismatches and not only_a and not only_b and total > 0,
+        "criterion": "binary_outcomes_100pct_identical",
+    }
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Mio-taskhub 实验只读汇总（04 §6.2）")
-    ap.add_argument("--run", required=True, help="轮目录（含 raw/ 与 manifest.json）")
+    ap.add_argument("--run", default=None, help="轮目录（含 raw/ 与 manifest.json）")
     ap.add_argument("--out", default=None, help="输出目录（默认 <run>/summary）")
     ap.add_argument("--db", default=None, help="第三方复算：只读 snapshots DB（比例类）")
     ap.add_argument("--only", default=None, choices=["proportions"], help="配合 --db 的过滤")
+    ap.add_argument("--compare", default=None, metavar="A,B",
+                    help="§6.3 复现判据：比较两轮目录的二元结局一致性")
     args = ap.parse_args(argv)
 
+    if args.compare:
+        parts = [p.strip() for p in args.compare.split(",") if p.strip()]
+        if len(parts) != 2:
+            print("[summarize] --compare 需要两个目录，逗号分隔", file=sys.stderr)
+            return 2
+        a, b = Path(parts[0]), Path(parts[1])
+        for p in (a, b):
+            if not p.exists():
+                print(f"[summarize] dir not found: {p}", file=sys.stderr)
+                return 2
+        cmp = compare_runs(a, b)
+        print(json.dumps(cmp, ensure_ascii=False, indent=2))
+        return 0 if cmp["consistent"] else 1
+
+    if not args.run:
+        ap.error("--run is required unless --compare is given")
     run_dir = Path(args.run)
     if not run_dir.exists():
         print(f"[summarize] run dir not found: {run_dir}", file=sys.stderr)

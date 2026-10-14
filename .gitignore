@@ -43,3 +43,6 @@ docs/*
 .coverage
 coverage.xml
 htmlcov/
+
+# 实验运行产物（临时，不入库）
+experiments/runs/
