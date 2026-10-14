@@ -24,10 +24,16 @@ def _env_int(name: str, default: int) -> int:
 # run 存活基线：任务未显式配置 timeout_min 时使用。
 # 2026-09-17 实测 agent 心跳间隔 67s~199s，原值 120s 过紧，会把仍在上报
 # progress 的 run 判死并永久 FAILED 掉任务。
-DEFAULT_TIMEOUT_SECONDS = _env_int("MIO_TASKHUB_TIMEOUT_SECONDS", 300)
+# 2026-10-14 T3.1：D1 实测 lag p50=302.7s vs timeout 300s（margin +8.1s），
+# 链路断占首启失败 70.9%。上调至 360s（+20% headroom）以覆盖心跳抖动。
+DEFAULT_TIMEOUT_SECONDS = _env_int("MIO_TASKHUB_TIMEOUT_SECONDS", 360)
 
 # agent 已 OFFLINE 时的回收上限：只收紧有效超时，绝不旁路 run 级新鲜度。
 AGENT_OFFLINE_TIMEOUT_SECONDS = _env_int("MIO_TASKHUB_AGENT_OFFLINE_SECONDS", 120)
+
+# T3.1 宽限期：agent 未标记 OFFLINE 但 lag 超过 base timeout 时，额外宽限窗口。
+# 用于覆盖「agent 在工作但心跳抖动到 300-360s」的边界情况（D1 链路断主因）。
+GRACE_PERIOD_SECONDS = _env_int("MIO_TASKHUB_GRACE_PERIOD_SECONDS", 60)
 
 
 @dataclass
@@ -55,12 +61,14 @@ class HeartbeatSweep:
         on_timeout: Callable[[str, str], None] = lambda rid, tid: None,
         on_alive: Callable[[str], None] = lambda rid: None,
         agent_offline_timeout: int = AGENT_OFFLINE_TIMEOUT_SECONDS,
+        grace_period: int = GRACE_PERIOD_SECONDS,
         on_tick: Optional[Callable[[], None]] = None,
         on_error: Optional[Callable[[], None]] = None,
     ):
         self.timeout = timeout_seconds
         self.interval = poll_interval
         self.agent_offline_timeout = agent_offline_timeout
+        self.grace_period = grace_period
         self._get_runs = get_runs
         self._on_timeout = on_timeout
         self._on_alive = on_alive
@@ -102,6 +110,8 @@ class HeartbeatSweep:
             窗口（timeout_seconds），agent OFFLINE 时最多按 offline 上限适度放宽（×2），
             绝不收到 120s。
           - 若 run 从未上报进度（never_started），用较紧的 offline 窗口快速回收僵尸 run。
+          - T3.1 宽限：agent 未 OFFLINE 且 progress>0 时，base timeout + GRACE_PERIOD，
+            覆盖心跳抖动边界（D1 链路断主因）。
         """
         timeout = getattr(run, "timeout_seconds", None) or self.timeout
         if run.agent_offline:
@@ -111,6 +121,10 @@ class HeartbeatSweep:
             else:
                 # 从未启动：可快速回收（但仍以 offline 上限为准）
                 timeout = min(timeout, self.agent_offline_timeout)
+        else:
+            # agent 在线（未标记 OFFLINE）：若已上报进度，给予宽限期覆盖心跳抖动
+            if getattr(run, "progress", 0) and run.progress > 0:
+                timeout = timeout + self.grace_period
         return timeout
 
     def _sweep(self):

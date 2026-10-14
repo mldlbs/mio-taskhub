@@ -142,6 +142,22 @@ def _task_detail(t: Task, db: Session) -> dict:
             retry_backoff = float((2 ** max(1, t.attempt)) * 2.0)
         except Exception:
             retry_backoff = None
+    # T3.1 用户可读诊断：分析最近失败 run 的 result 字段，给出 actionable 提示
+    diagnostic_hint = None
+    if t.state in (TaskState.FAILED, TaskState.RETRYING) and runs:
+        last_run = runs[0]
+        _res = (last_run.result or "").lower()
+        if "agent offline" in _res or "never started" in _res:
+            diagnostic_hint = (
+                f"Agent '{last_run.agent_name}' 未响应（{last_run.result}）。"
+                "可能原因：agent 进程崩溃、网络断开、或心跳间隔超过超时阈值。"
+                "建议：检查 agent 日志、确认 agent 进程存活、或提高 MIO_TASKHUB_TIMEOUT_SECONDS。"
+            )
+        elif "heartbeat timeout" in _res:
+            diagnostic_hint = (
+                f"Agent '{last_run.agent_name}' 心跳超时（{last_run.result}）。"
+                "agent 曾上报进度但随后停止心跳。建议检查 agent 是否卡死或 OOM。"
+            )
     return {
         "id": t.id, "title": t.title, "description": t.description, "state": t.state.value,
         "priority": t.priority, "target_agent_type": t.target_agent_type,
@@ -161,6 +177,7 @@ def _task_detail(t: Task, db: Session) -> dict:
         "plan_path": t.plan_path,
         "grab_mode": bool(t.grab_mode),
         "doc_gate_exempt": bool(getattr(t, "doc_gate_exempt", False)),
+        "diagnostic_hint": diagnostic_hint,
         "doc_paths": dict(t.doc_paths or {}),
         "doc_statuses": dict(getattr(t, "doc_statuses", None) or {}),
         "review_result": t.review_result,
