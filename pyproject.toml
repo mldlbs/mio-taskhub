@@ -48,6 +48,7 @@ include = ["mio_taskhub*"]
 testpaths = ["tests"]
 markers = [
     "e2e: 真服务端到端/并发压测（起真实 uvicorn，较慢；默认排除，用 pytest -m e2e 运行）",
+    "slow: 会起子进程的存活测试（harness 探针/单元实跑）",
 ]
 addopts = "-m 'not e2e'"
 

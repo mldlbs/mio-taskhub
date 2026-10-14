@@ -36,9 +36,63 @@ function scheduleOf(t) {
   return '立即执行'
 }
 
-function payloadText(p) {
-  if (p == null) return ''
-  return typeof p === 'string' ? p : JSON.stringify(p)
+// 执行历史类型 → 中文标签 + 配色（未知类型原样展示）
+const HIST_TYPE_META = {
+  requirement:  { label: '需求定稿',   tone: 'live' },
+  feasibility:  { label: '可行性调研', tone: 'ok-soft' },
+  result:       { label: '执行进展',   tone: 'ok' },
+  verification: { label: '验证',       tone: 'ok' },
+  discussion:   { label: '讨论',       tone: 'muted' },
+  review:       { label: '评审',       tone: 'warn' },
+  plan:         { label: '计划',       tone: 'muted' },
+  design:       { label: '设计',       tone: 'muted' },
+  created:      { label: '创建',       tone: 'muted' },
+  claimed:      { label: '认领',       tone: 'live' },
+  heartbeat:    { label: '心跳',       tone: 'muted' },
+  retry:        { label: '重试',       tone: 'warn' },
+  error:        { label: '错误',       tone: 'danger' },
+  failure:      { label: '失败',       tone: 'danger' },
+  done:         { label: '完成',       tone: 'ok' },
+  cancelled:    { label: '取消',       tone: 'muted' },
+}
+
+const HIST_TEXT_KEYS = ['raw', 'content', 'text', 'message', 'summary', 'result', 'detail', 'note']
+
+// payload 落库时是 JSON 字符串，常见形态：
+//   '{"raw": "…\\u9700…"}' / '"…中文…"' / 嵌套双层编码 / 纯文本
+// 逐层解包 + 解转义，还原成人能直接读的文字。
+function histPayload(p) {
+  if (p == null) return { text: '', json: false }
+  let v = p
+  for (let i = 0; i < 4 && typeof v === 'string'; i++) {
+    const s = v.trim()
+    if (!(s.startsWith('{') || s.startsWith('[') || s.startsWith('"'))) break
+    try {
+      v = JSON.parse(s)
+    } catch {
+      break
+    }
+  }
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    const key = HIST_TEXT_KEYS.find(k => typeof v[k] === 'string' && v[k].trim())
+    if (key) {
+      v = v[key]
+    } else {
+      return { text: JSON.stringify(v, null, 2), json: true }
+    }
+  } else if (Array.isArray(v)) {
+    return { text: JSON.stringify(v, null, 2), json: true }
+  }
+  let s = String(v)
+  // JSON 解析失败时残留的 \uXXXX 转义：补引号/换行后再按 JSON 解一次
+  if (/\\u[0-9a-fA-F]{4}/.test(s)) {
+    try {
+      s = JSON.parse(`"${s.replace(/\r/g, '\\r').replace(/\n/g, '\\n').replace(/"/g, '\\"')}"`)
+    } catch {
+      s = s.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    }
+  }
+  return { text: s.trim(), json: false }
 }
 
 // 验收标准按行拆成可扫读列表；单行则整段展示
@@ -77,6 +131,36 @@ const TAB_DEFS = [
   { id: 'disc',     label: '讨论' },
   { id: 'activity', label: '动态' },
 ]
+
+// 单条执行历史：类型标签 + 时间 + 解码后的正文（过长折叠可展开）
+function HistRow({ h }) {
+  const [open, setOpen] = useState(false)
+  const { text, json } = histPayload(h.payload)
+  const lines = text ? text.split('\n').length : 0
+  const long = text.length > 360 || lines > 6
+  const meta = HIST_TYPE_META[h.type] || { label: h.type || '记录', tone: 'muted' }
+  return (
+    <div className="hist-row">
+      <span className="hist-row__dot" aria-hidden="true" />
+      <div className="hist-row__body">
+        <div className="hist-row__head">
+          <span className={`chip chip--composite chip--${meta.tone}`}>{meta.label}</span>
+          <span className="hist-row__at mono">{fmtDate(h.at)}</span>
+        </div>
+        {text && (
+          <div className={`hist-row__text${json ? ' is-json' : ''}${long && !open ? ' is-clamped' : ''}`}>
+            {text}
+          </div>
+        )}
+        {long && (
+          <button type="button" className="hist-row__toggle" onClick={() => setOpen(o => !o)}>
+            {open ? '收起' : '展开全部'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
 
 export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onToggleSubtask, onAdvance, onOpenDocs, onOpenTask, onRetry }) {
   const closeRef = useRef(null)
@@ -499,18 +583,7 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
                   <>
                     <h4 className="td-subhead">执行历史 · {task.history.length}</h4>
                     <div className="drawer__timeline">
-                      {task.history.map(h => (
-                        <div key={h.id} className="hist-row">
-                          <span className="hist-row__dot" aria-hidden="true" />
-                          <div className="hist-row__body">
-                            <div className="hist-row__head">
-                              <b>{h.type}</b>
-                              <span className="hist-row__at mono">{fmtDate(h.at)}</span>
-                            </div>
-                            {h.payload != null && <pre className="hist-row__payload mono">{payloadText(h.payload)}</pre>}
-                          </div>
-                        </div>
-                      ))}
+                      {task.history.map(h => <HistRow key={h.id} h={h} />)}
                     </div>
                   </>
                 )}

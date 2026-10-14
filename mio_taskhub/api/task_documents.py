@@ -610,9 +610,11 @@ def set_doc_status(task_id: str, kind: str, body: dict, db: Session = Depends(ge
 
     # 质量门控：推进到 review/approved/done 时 errors 必须为 0；
     # 高规格 kind（requirement/spec/api）还须达到 MIN_SCORE 分数底线（force 可绕过但留痕）
+    # T1.7 P5：MIO_DOC_QUALITY_GATE=0 旁路质量门（仅棘轮仍生效；04 §8-2 兼容）
     from mio_taskhub.doc_quality import GATED_TARGETS, MIN_SCORE
     quality, forced = None, bool((body or {}).get('force'))
-    if state in GATED_TARGETS:
+    _qgate_off = (os.environ.get('MIO_DOC_QUALITY_GATE') or '').strip().lower() == '0'
+    if state in GATED_TARGETS and not _qgate_off:
         quality = _quality_for(t, kind)
         if quality and not forced:
             blockers = list(quality['errors'])

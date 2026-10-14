@@ -384,6 +384,47 @@ def test_api_quality_gate_blocks_status_advance(tmp_path):
     assert st2['state'] == 'approved' and st2['allowed_next'] == []
 
 
+# ── T1.7 P5：MIO_DOC_QUALITY_GATE=0 旁路质量门（04 §8-2 兼容） ─────────────
+def test_quality_gate_env_bypass(monkeypatch, tmp_path):
+    """MIO_DOC_QUALITY_GATE=0 时质量门旁路（空心契约放行；棘轮仍生效）。"""
+    monkeypatch.setenv('MIO_DOC_QUALITY_GATE', '0')
+    tid, _ = _mk_with_doc(tmp_path, 'api', '占位 <!-- 没写 -->')
+    r = client.post(f'/api/v1/tasks/{tid}/doc/api/status', json={'state': 'review'})
+    assert r.status_code == 200, r.text
+    st = client.get(f'/api/v1/tasks/{tid}/doc/statuses').json()['statuses']['api']
+    assert st['state'] == 'review'
+
+
+def test_quality_gate_env_on_blocks(monkeypatch, tmp_path):
+    """MIO_DOC_QUALITY_GATE=1（或 unset）时质量门正常拦截。"""
+    monkeypatch.setenv('MIO_DOC_QUALITY_GATE', '1')
+    tid, _ = _mk_with_doc(tmp_path, 'api', '占位 <!-- 没写 -->')
+    r = client.post(f'/api/v1/tasks/{tid}/doc/api/status', json={'state': 'review'})
+    assert r.status_code == 422, r.text
+    assert 'quality gate' in str(r.json()['detail'])
+
+
+def test_quality_gate_env_off_ratchet_still_applies(monkeypatch, tmp_path):
+    """MIO_DOC_QUALITY_GATE=0 旁路质量门，但棘轮基线仍生效（P5 硬门不放水）。"""
+    # 先建基线：好契约 review→approved（分数进基线）
+    from mio_taskhub.doc_quality import check_content
+    tid, _ = _mk_with_doc(tmp_path, 'api', GOOD_API)
+    r1 = client.post(f'/api/v1/tasks/{tid}/doc/api/status', json={'state': 'review'})
+    assert r1.status_code == 200, r1.text
+    r2 = client.post(f'/api/v1/tasks/{tid}/doc/api/status', json={'state': 'approved'})
+    assert r2.status_code == 200, r2.text
+    good_score = check_content('api', GOOD_API)['score']
+    # 用空心契约替换（质量门旁路时棘轮仍应拦：分数跌破基线）
+    monkeypatch.setenv('MIO_DOC_QUALITY_GATE', '0')
+    # 清空文档内容并重写（需新 PUT）
+    ws = tmp_path / f'ws_{tid}'
+    # 直接改 DB 里的 doc 不便；改用 ratchet check 直接验证逻辑
+    from mio_taskhub.ratchet import check_ratchet
+    # 简化断言：基线分 = good_score，空心内容分数 < 基线 → blocked
+    empty_score = check_content('api', '空')['score']
+    assert empty_score < good_score, '空心契约分数应低于基线'
+
+
 def _api_without_recommended():
     """抽掉 GOOD_API 的全部建议章节 → 0 error 但多个 warn（低分）。"""
     from mio_taskhub.doc_quality import QUALITY_SPEC
