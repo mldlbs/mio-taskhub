@@ -6,7 +6,7 @@
 | 日期 | 2026-10-14 |
 | 状态 | **已评审冻结 · 未运行**（本文档不含任何实验结果；§1/§4/§5/§7 自本版起只许追加 `deviations.md`，见 §0 自律 1） |
 | 评审 | opencode 三视角结构化评审（2026-10-14，方法论与统计/工程实现/红队）；冻结基线引用 T0.9 `g0_manifest.json`（HEAD `ac21dfc0`、1284 passed、cov 80.0%、双开关 unset default） |
-| 冻结声明 | SHA256（全文去掉本哈希串后的字节）= `b950496548f400f8baf0ea74c82fcd454e67671bd4964a8ca61223fe567ca49e`；核验：提取本哈希串、从全文删除、重算 SHA256 须相等。评审记录（双证据）：taskhub discussion `14a194af`（任务 `8ffd3169`）+ `docs/roadmap/04-review-20261014.md` |
+| 冻结声明 | SHA256（全文去掉本哈希串后的字节）= `e29cf3da9bd18892700512175dab068fce4e0763b7c75ff3017467d5c2eced41`；核验：提取本哈希串、从全文删除、重算 SHA256 须相等。评审记录（双证据）：taskhub discussion `14a194af`（任务 `8ffd3169`）+ `docs/roadmap/04-review-20261014.md` |
 | 作者 | opencode（实验设计；未改任何代码、未运行任何实验） |
 | 上游 | `docs/roadmap/01-positioning.md`（主张 V1/V2/V3）、`docs/roadmap/02-current-state-audit.md`（现状基线 F1–F17）、`docs/roadmap/03-technical-gap.md`（方向 D1/D2、主张 E1–E6、Go/No-Go） |
 | 依据 | 本仓库源码码位（见附录 A）+ 既有测试/探针实跑记录（`02` §4/§8、`scripts/audit_quality_gaps.py`） |
