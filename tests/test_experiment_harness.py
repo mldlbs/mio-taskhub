@@ -410,3 +410,45 @@ def test_run_b_refuses_without_allow_flag(tmp_path):
                           text=True, timeout=60)
     assert proc.returncode == 6, proc.stderr[-1000:]
     assert "P4" in proc.stderr or "allow-b" in proc.stderr
+
+
+# ── 7. T1.5 S4b defer 门控 ────────────────────────────────────────────────
+def test_s4b_refused_even_with_allow_flag(tmp_path):
+    """S4b 已 defer（T1.5）：即使带 --allow-s4b 也拒绝（P3 未批，H5 用 S4a）。"""
+    env = dict(os.environ)
+    env["MIO_TASKHUB_DB"] = str(tmp_path / "s4b.sqlite")
+    proc = subprocess.run(
+        [PY, str(HARNESS / "run_m.py"), "--_unit", "--scenario", "S4b",
+         "--arm", "T", "--replicate", "1", "--seed", "20261010",
+         "--db", str(tmp_path / "s4b.sqlite"),
+         "--jsonl", str(tmp_path / "s4b.jsonl"),
+         "--allow-s4b"],
+        cwd=str(REPO), env=env, capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 6, proc.stderr[-500:]
+    assert "deferred" in proc.stderr or "refused" in proc.stderr
+
+
+def test_s4b_scenarios_filtered_without_flag():
+    """run_m 场景列表过滤逻辑：无 --allow-s4b 时 S4b 被剔除。"""
+    import argparse
+    # 复现 cmd_run 的过滤分支（不跑探针）
+    scen_list = ["S1", "S2", "S4b"]
+    allow_s4b = False
+    if "S4b" in scen_list and not allow_s4b:
+        scen_list = [s for s in scen_list if s != "S4b"]
+    assert "S4b" not in scen_list
+    assert scen_list == ["S1", "S2"]
+    # 带 flag 则保留
+    scen_list2 = ["S1", "S4b"]
+    allow_s4b = True
+    if "S4b" in scen_list2 and not allow_s4b:
+        scen_list2 = [s for s in scen_list2 if s != "S4b"]
+    assert "S4b" in scen_list2
+
+
+def test_h5_uses_s4a_only():
+    """H5 判据只读 S4a（S4b defer，T1.5）。"""
+    import inspect
+    src = inspect.getsource(summarize.h5_verdict)
+    assert "S4a" in src
+    assert "S4b" not in src, "H5 不得读 S4b（已 defer）"

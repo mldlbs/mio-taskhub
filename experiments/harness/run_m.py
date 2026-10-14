@@ -725,8 +725,16 @@ def _unit_s4a(args) -> int:
 
 
 def cmd_allow_s4b(args) -> int:
-    """S4b：hub 侧 kill。默认拒绝（§9 P3 未批）。"""
-    print("[run_m] S4b refused: requires --allow-s4b (04 §9 P3 approval)", file=sys.stderr)
+    """S4b：hub 侧 kill。默认拒绝（§9 P3 未批）。
+
+    T1.5 defer 决定（2026-10-14）：S4b（可杀性实验/故障注入）暂不实施。
+    H5 结论以 S4a（真服务短超时恢复）为准。policy 预检：mio_policy_check
+    对「kill 个人 uvicorn 子进程（严格个人 DB 路径、禁止批量 kill）」返回
+    low risk / advisory / hardGate=false，无阻断记录。P3 批准后在此实现
+    真实 kill（仅 temp DB 路径、单进程、禁止批量）。
+    """
+    print("[run_m] S4b refused (deferred): requires --allow-s4b (04 §9 P3 approval); "
+          "T1.5 defer 2026-10-14, H5 uses S4a only", file=sys.stderr)
     return 6
 
 
