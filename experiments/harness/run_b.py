@@ -98,6 +98,12 @@ def assign_arm(master_seed: str, replicate: int) -> str:
 # 在 P4 批准并完成 B 系列前，V1 判定为「证据不足」而非「不支持」。
 # 双实例独立性（独立端口/独立 DB/独立档位 env）已有单测覆盖（HubInstance 不 start）。
 # P4 批准后：HubInstance.start() 可用（已实现），assign_arm 可用（已实现）。
+#
+# ── T2.2 V1 可用性 defer 确认（2026-10-14） ──────────────────────────────
+# T2.2 DoD：承 T1.6 defer 结论——V1=证据不足（P4 未批、真实 agent 不可用）。
+# 验收命令 run_b.py --tasks 60 --assign seed=... 无 --allow-b 时 exit 6 拒绝。
+# V1 判定需 n≥30/组 + McNemar/二项精确 + Holm 校正；当前样本 0 → 证据不足。
+# P4 批准后此 defer 自动失效，届时执行 run_b 完整流程并 summarize V1。
 
 
 def main(argv: Optional[List[str]] = None) -> int:

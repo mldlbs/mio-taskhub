@@ -486,3 +486,23 @@ def test_assign_arm_deterministic_and_balanced():
     # 不同 replicate 应出现 T 和 C（30 个样本几乎必有双 arm）
     arms = {run_b.assign_arm("20261010", i) for i in range(1, 31)}
     assert arms == {"T", "C"}
+
+
+# ── 9. T2.2 V1 可用性 defer 确认 ──────────────────────────────────────────
+def test_v1_defer_run_b_refuses_acceptance_cmd(tmp_path):
+    """T2.2 验收命令无 --allow-b → exit 6（V1=证据不足，P4 未批）。"""
+    env = dict(os.environ)
+    env["MIO_TASKHUB_DB"] = str(tmp_path / "v1.sqlite")
+    proc = subprocess.run(
+        [PY, str(HARNESS / "run_b.py"), "--tasks", "60", "--assign", "seed=20261010"],
+        cwd=str(REPO), env=env, capture_output=True, text=True, timeout=30)
+    assert proc.returncode == 6, proc.stderr[-300:]
+    assert "allow-b" in proc.stderr or "P4" in proc.stderr
+
+
+def test_v1_defer_doc_in_run_b():
+    """run_b.py 含 T2.2 V1 defer 注记。"""
+    src = (HARNESS / "run_b.py").read_text(encoding="utf-8")
+    assert "T2.2" in src
+    assert "V1" in src
+    assert "证据不足" in src
