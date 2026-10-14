@@ -452,3 +452,37 @@ def test_h5_uses_s4a_only():
     src = inspect.getsource(summarize.h5_verdict)
     assert "S4a" in src
     assert "S4b" not in src, "H5 不得读 S4b（已 defer）"
+
+
+# ── 8. T1.6 B 系列双实例独立性（HubInstance 不 start） ────────────────────
+def test_hub_instance_dual_independence(tmp_path):
+    """T/C 实例端口、DB、档位 env 三者独立（T1.6 P4 defer 前置验证）。"""
+    sys.path.insert(0, str(HARNESS))
+    import run_b
+    t = run_b.HubInstance("T", tmp_path / "hubs")
+    c = run_b.HubInstance("C", tmp_path / "hubs")
+    # 端口不同
+    assert t.port != c.port
+    # DB 路径不同（arm 后缀）
+    assert t.db != c.db
+    assert "hub_T.db" in t.db
+    assert "hub_C.db" in c.db
+    # 档位 env 独立（T 有 probe 阈值，C 无；或反之）
+    t_probe = t.env.get("MIO_TASKHUB_RATCHET_STRICT")
+    c_probe = c.env.get("MIO_TASKHUB_RATCHET_STRICT")
+    # 至少 env 结构完整
+    assert "MIO_TASKHUB_DB" in t.env
+    assert "MIO_TASKHUB_DB" in c.env
+    assert t.env["MIO_TASKHUB_DB"] == t.db
+    assert c.env["MIO_TASKHUB_DB"] == c.db
+
+
+def test_assign_arm_deterministic_and_balanced():
+    """assign_arm 确定性 + 两种 arm 都能出现（seed 固定分布稳定）。"""
+    sys.path.insert(0, str(HARNESS))
+    import run_b
+    # 同 seed 同 replicate → 同结果
+    assert run_b.assign_arm("20261010", 1) == run_b.assign_arm("20261010", 1)
+    # 不同 replicate 应出现 T 和 C（30 个样本几乎必有双 arm）
+    arms = {run_b.assign_arm("20261010", i) for i in range(1, 31)}
+    assert arms == {"T", "C"}

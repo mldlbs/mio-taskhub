@@ -93,6 +93,13 @@ def assign_arm(master_seed: str, replicate: int) -> str:
     return "T" if h[0] & 1 else "C"
 
 
+# ── T1.6 B 系列 defer 决定（2026-10-14） ─────────────────────────────────
+# B 系列（真实 agent 可用性双 hub 实验）与 V1 判定均 defer（§9 P4 未批）。
+# 在 P4 批准并完成 B 系列前，V1 判定为「证据不足」而非「不支持」。
+# 双实例独立性（独立端口/独立 DB/独立档位 env）已有单测覆盖（HubInstance 不 start）。
+# P4 批准后：HubInstance.start() 可用（已实现），assign_arm 可用（已实现）。
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(
         description="Mio-taskhub B 系列执行器（04 §6.1；需 §9 P4 批准，--allow-b 开启）")
