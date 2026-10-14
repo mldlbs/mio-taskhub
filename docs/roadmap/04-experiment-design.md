@@ -2,9 +2,11 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 | v0.1（首次成文） |
-| 日期 | 2026-10-10 |
-| 状态 | **设计待评审 · 未运行**（本文档不含任何实验结果） |
+| 版本 | v0.2（评审通过 · 判据冻结） |
+| 日期 | 2026-10-14 |
+| 状态 | **已评审冻结 · 未运行**（本文档不含任何实验结果；§1/§4/§5/§7 自本版起只许追加 `deviations.md`，见 §0 自律 1） |
+| 评审 | opencode 三视角结构化评审（2026-10-14，方法论与统计/工程实现/红队）；冻结基线引用 T0.9 `g0_manifest.json`（HEAD `ac21dfc0`、1284 passed、cov 80.0%、双开关 unset default） |
+| 冻结声明 | SHA256（全文去掉本哈希串后的字节）= `b950496548f400f8baf0ea74c82fcd454e67671bd4964a8ca61223fe567ca49e`；核验：提取本哈希串、从全文删除、重算 SHA256 须相等。评审记录（双证据）：taskhub discussion `14a194af`（任务 `8ffd3169`）+ `docs/roadmap/04-review-20261014.md` |
 | 作者 | opencode（实验设计；未改任何代码、未运行任何实验） |
 | 上游 | `docs/roadmap/01-positioning.md`（主张 V1/V2/V3）、`docs/roadmap/02-current-state-audit.md`（现状基线 F1–F17）、`docs/roadmap/03-technical-gap.md`（方向 D1/D2、主张 E1–E6、Go/No-Go） |
 | 依据 | 本仓库源码码位（见附录 A）+ 既有测试/探针实跑记录（`02` §4/§8、`scripts/audit_quality_gaps.py`） |
@@ -183,7 +185,7 @@
 
 | 项 | 固定值/规则 | 目的 |
 |---|---|---|
-| 代码版本 | 记录 `git rev-parse HEAD` + `git status --porcelain` 进 manifest；**实验期间禁止改动 `mio_taskhub/`**（违反 → 受影响轮次作废） | 可复现 |
+| 代码版本 | 记录 `git rev-parse HEAD` + `git status --porcelain` 进 manifest；**实验期间禁止改动 `mio_taskhub/`**（违反 → 受影响轮次作废）；冻结基线 = T0.9 `scripts/baseline_freeze.py` 产出 `g0_manifest.json`（HEAD `ac21dfc0`、1284 passed / 0 failed、coverage 80.0%、`MIO_READ_GATE`/`MIO_RATCHET_DISABLED` 均 unset default） | 可复现 |
 | Python | `.venv`（Python 3.12、pytest 9.1.1，同 `02` §1.2） | 消除环境漂移 |
 | DB | 每轮独立 temp 目录（`MIO_TASKHUB_DB`），**只碰 temp，绝不连生产库**（`C:\Users\admin\.mio_taskhub\taskhub.db` 只读引用属 P 系列，另批） | 隔离 + 非破坏 |
 | 观测/调度噪声 | `MIO_OBSERVER_AUTOSTART=0`、`MIO_DIGEST_DISABLED=1`、`MIO_CONTRACT_DISABLED=1`、`MIO_TASKHUB_RATE_LIMIT=100000`、`MIO_TASKHUB_TOKEN=""` | 降噪（F11/F8 类干扰） |
@@ -191,7 +193,7 @@
 | S4 时长参数 | 两档同用 `MIO_TASKHUB_TIMEOUT_SECONDS=5`、`MIO_TASKHUB_AGENT_OFFLINE_SECONDS=3`（sweep 轮询默认 10s：`heartbeat.py:54`，实例化 `background.py:594`）→ `T_limit = 2×(5+10) = 30s` | 压缩实验时长；两档同参保证可比 |
 | 限流/端口 | 随机空闲端口（`_free_port()` 模式） | 并行安全 |
 | 时间戳 | 结论性时间一律取服务器 `event.created_at`；客户端 `latency_ms` 只用于时延分布 | 防客户端时钟误差 |
-| 基线测试 | 每轮前跑 `pytest -q` 并留存输出；**已知红基线**：F4 `test_spinning_guard` 4 例（`02` §4.3）登记为"允许的已知失败"；**出现任何其他新失败 → 本轮不得开始** | 防"坏代码上跑实验" |
+| 基线测试 | 每轮前跑 `pytest -q` 并留存输出；**T0.2 后无已知红**（原 F4 `test_spinning_guard` 4 例死引用已删 `ba290e6`，冻结基线 1284 passed / 0 failed，见上方代码版本行）；**出现任何失败 → 本轮不得开始** | 防"坏代码上跑实验" |
 
 ### 5.4 失败处理（含 harness 自身失败）
 
@@ -250,7 +252,7 @@ experiments/
 cd E:\work\code\agent-dev\mio-taskhub
 git rev-parse HEAD; git status --porcelain        # 记录进 manifest
 $env:MIO_TEST_DB_PATH = "$env:TEMP\exp_baseline.db"
-.\.venv\Scripts\python.exe -m pytest -q           # 已知红：test_spinning_guard ×4（F4）
+.\.venv\Scripts\python.exe -m pytest -q           # 无已知红（T0.2 后基线 0 failed，见 §5.3）
 
 # 1) 运行 M 系列（3 轮；未经 §9 批准不得执行）
 .\.venv\Scripts\python.exe experiments\harness\run_m.py --seed 20261010 --rounds 3 --scenarios all
@@ -304,7 +306,7 @@ $env:MIO_TEST_DB_PATH = "$env:TEMP\exp_baseline.db"
 5. **样本自限**：B 系列可能因"系统健康 → 不派生任务"重演 n16 无法扩样（`03` §1.2 实验方法难度）→ 预设 4 周封顶即"证据不足"。
 6. **P 系列观察性混杂**：历史文档与新文档不可比、26/103 次流转缺 `quality_score`（F16）、45 分边界样本（G6b）→ V2 结论强度天然低于 M/B。
 7. **单机单库**：结论不外推到多进程并发 >1000、跨机部署（`03` §6.1 N6 触发条件）。
-8. **`docs/` 不入库（F6）**：本设计文档当前被 `.gitignore:31` 忽略——引用其结论前需先解决入库，否则"预注册"本身缺版本证据。
+8. **~~`docs/` 不入库（F6）~~ 已解决（评审修订 R2，2026-10-14）**：T0.4（`4e0a7b2`）解除 `.gitignore` 整体忽略、白名单纳入 40 份文档，本设计文档已入库具备版本证据；原风险留档仅提醒引用时核对 git 历史。
 
 ---
 
@@ -314,7 +316,7 @@ $env:MIO_TEST_DB_PATH = "$env:TEMP\exp_baseline.db"
 
 | # | 前置项 | 类型 | 状态 |
 |---|---|---|---|
-| P1 | 本文档评审通过（`docs/roadmap/01–03` 系列同规格评审） | 流程 | 待评审 |
+| P1 | 本文档评审通过（`docs/roadmap/01–03` 系列同规格评审） | 流程 | **已评审并冻结（2026-10-14，三视角结构化评审，修订 R1–R4 后通过；记录见文档头 + `04-review-20261014.md`）** |
 | P2 | `experiments/harness/*` 实现 + 代码评审（**功能冻结期的验证性代码**，需技术负责人确认不违反 2026-09-30 冻结决策） | 代码 | 未开始 |
 | P3 | **S4b（kill 实验子进程）批准**——仅杀本实验启动的 uvicorn 子进程与 temp DB，不触生产、不触他人进程；仍按"破坏性操作"预检（`mio_policy_check`）逐轮执行 | 破坏性审批 | 未申请 |
 | P4 | B 系列批准（消耗真实 agent 额度/时间；双 hub 实例端口与 DB 占用） | 资源审批 | 未申请 |
