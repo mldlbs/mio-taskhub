@@ -172,6 +172,10 @@ def heartbeat(run_id: str, body: dict = None, agent: str = None,
             "message": f"run {run.id} 已结束（state=finished），不再接受心跳",
             "state": run.state.value,
         })
+    # T0.7 生命周期埋点：heartbeat 是唯一写 RUNNING 的路径 → CLAIMED 即首心跳
+    first_heartbeat = run.state == RunState.CLAIMED
+    run.state = RunState.RUNNING
+    run.last_heartbeat = _now()
     if body.get("progress") is not None:
         run.progress = body["progress"]
     if body.get("checkpoint") is not None:
@@ -209,6 +213,22 @@ def heartbeat(run_id: str, body: dict = None, agent: str = None,
         db.add(m1_event)
     db.commit()
     db.refresh(run)
+    # T0.7 生命周期埋点（fire-and-forget，全吞，绝不影响心跳路径）：
+    # 首心跳 → agent_ready；带 pid → 异步探测回填 process_alive（pid 去重门控在模块内）。
+    try:
+        from mio_taskhub.observability.lifecycle import (
+            TYPE_AGENT_READY, probe_process_alive, record as lc_record,
+        )
+        if first_heartbeat:
+            lc_record(TYPE_AGENT_READY, run.id, {
+                "task_id": run.task_id, "agent_id": run.agent_name,
+                "attempt": run.attempt, "progress": run.progress,
+            })
+        _pid = body.get("pid")
+        if isinstance(_pid, int) and 0 < _pid < 2 ** 22:
+            probe_process_alive(run.id, _pid)
+    except Exception:  # noqa: BLE001 — 观测失败不得影响心跳
+        pass
     return {"id": run.id, "state": run.state.value, "progress": run.progress}
 
 

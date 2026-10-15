@@ -8,8 +8,11 @@ from mio_taskhub.main import app
 client = TestClient(app)
 
 
-def test_policy_check_fail_open_when_cli_unavailable(monkeypatch):
-    # conftest 把 MIO_HOME 指向不存在目录 → CLI 不可用 → unknown（不阻断）
+def test_policy_check_fail_open_when_cli_unavailable(monkeypatch, tmp_path):
+    # 隔离环境耦合：conftest 的 MIO_HOME 缺失目录可能被其他测试进程建出（is_dir→True
+    # →真跑 CLI），且 mio CLI 可能已在 PATH（node_global）→ 此处强制指向必不存在的目录。
+    missing = tmp_path / "mio_home_definitely_missing"
+    monkeypatch.setenv("MIO_HOME", str(missing))
     r = client.post("/api/v1/mio/policy/check",
                     json={"action": "taskhub:delete-task"})
     assert r.status_code == 200

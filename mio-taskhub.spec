@@ -1,4 +1,4 @@
-# -*- mode: python ; coding: utf-8 -*-
+﻿# -*- mode: python ; coding: utf-8 -*-
 import os
 from PyInstaller.utils.hooks import collect_submodules
 
@@ -67,7 +67,7 @@ exe_hub = EXE(
     pyz_hub,
     a_hub.scripts,
     exclude_binaries=True,
-    name="mio-taskhub",
+    name="mio-taskhub-v3",
     console=False,
     disable_windowed_traceback=True,
     icon=os.path.join(SPECPATH, "web", "public", "icon.ico"),

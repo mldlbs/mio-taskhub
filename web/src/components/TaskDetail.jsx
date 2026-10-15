@@ -162,6 +162,43 @@ function HistRow({ h }) {
   )
 }
 
+// 验收标准按行拆成可扫读列表；单行则整段展示
+function acceptanceLines(text) {
+  if (!text) return []
+  return String(text)
+    .split(/\r?\n/)
+    .map(s => s.replace(/^[\s]*[-*•·]\s*/, '').replace(/^\d+[.)、]\s*/, '').trim())
+    .filter(Boolean)
+}
+
+const STAGE_FLOW = ['brainstorming', 'design', 'planning', 'ready', 'implementing', 'review', 'done']
+
+function completionOf(task) {
+  const subs = task.subtasks || []
+  if (subs.length > 0) {
+    const done = subs.filter(s => s.status === 'done').length
+    return { pct: Math.round(done / subs.length * 100), label: `${done}/${subs.length}`, source: '子任务' }
+  }
+  const sidx = STAGE_FLOW.indexOf(task.stage)
+  if (sidx >= 0) {
+    return {
+      pct: Math.round((sidx + 1) / STAGE_FLOW.length * 100),
+      label: `${sidx + 1}/${STAGE_FLOW.length}`,
+      source: '阶段',
+    }
+  }
+  if (task.state === 'completed') return { pct: 100, label: '完成', source: '状态' }
+  if (task.state === 'failed') return { pct: 0, label: '失败', source: '状态' }
+  return { pct: 0, label: '—', source: '—' }
+}
+
+const TAB_DEFS = [
+  { id: 'deps',     label: '依赖' },
+  { id: 'subtasks', label: '子任务' },
+  { id: 'disc',     label: '讨论' },
+  { id: 'activity', label: '动态' },
+]
+
 export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onToggleSubtask, onAdvance, onOpenDocs, onOpenTask, onRetry }) {
   const closeRef = useRef(null)
   const [saveAsTpl, setSaveAsTpl] = useState(null)
