@@ -56,7 +56,7 @@ def test_first_start_stats_smoke():
         py = Path(sys.executable)
     proc = subprocess.run(
         [str(py), str(REPO / "scripts" / "first_start_stats.py"), "--min-n", "100"],
-        capture_output=True, text=True, timeout=30)
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
     # n≥100 → exit 0；DB 不可达 → exit 2；pytest 隔离 n=0 → exit 1（跳过）
     if proc.returncode == 1 and "n_first_start=0" in proc.stderr:
         pytest.skip("pytest DB isolation: n_first_start=0, skip real-DB smoke")

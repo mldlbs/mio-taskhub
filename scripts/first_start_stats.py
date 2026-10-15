@@ -23,6 +23,13 @@ from collections import Counter
 from pathlib import Path
 from typing import Optional
 
+# 强制 UTF-8 输出：CI（Windows cp1252）下中文会触发 UnicodeEncodeError（T4.3）。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 
 def _default_db() -> str:
     return os.environ.get("MIO_TASKHUB_DB") or str(

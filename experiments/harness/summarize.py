@@ -23,6 +23,13 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+# 强制 UTF-8 输出：CI（Windows cp1252）下 argparse --help 中文会 UnicodeEncodeError（T4.3）。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 ALPHA = 0.05
 N_H1 = 30  # H1-H4 预注册 n/档
 N_H5 = 42

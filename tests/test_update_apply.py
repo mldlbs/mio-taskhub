@@ -215,7 +215,16 @@ def test_list_and_purge_processes_under(tmp_path):
     proc = subprocess.Popen([str(exe), "-t", "127.0.0.1"],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
-        assert any(pid == proc.pid for pid, _ in list_processes_under(tmp_path))
+        # CI 上进程刚启动时 psutil 可能尚未取到 exe 映像路径，轮询至多 5s（T4.3）
+        import time as _t
+        deadline = _t.monotonic() + 5.0
+        listed = False
+        while _t.monotonic() < deadline:
+            if any(pid == proc.pid for pid, _ in list_processes_under(tmp_path)):
+                listed = True
+                break
+            _t.sleep(0.2)
+        assert listed, "进程启动后 5s 内未被 list_processes_under 列出"
         assert purge_processes_under(tmp_path, timeout=10.0) is True
         proc.wait(timeout=5)
         assert not any(pid == proc.pid for pid, _ in list_processes_under(tmp_path))

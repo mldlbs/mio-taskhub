@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """T3.4 gen_readme_stats.py 单测。"""
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -31,7 +32,8 @@ def test_collect_stats_returns_dict():
     sys.path.insert(0, str(REPO / "scripts"))
     from gen_readme_stats import collect_stats
     stats = collect_stats()
-    assert stats["version"] == "0.5.5"
+    # 版本随发布递增，只校验格式
+    assert re.match(r"^\d+\.\d+\.\d+$", stats["version"])
     assert stats["rest_endpoints"] > 0
     assert stats["mcp_tools"] > 0
     assert stats["test_functions"] > 0
@@ -49,8 +51,10 @@ def test_check_detects_drift():
     readme = REPO / "README.md"
     original = readme.read_text(encoding="utf-8")
     try:
-        # 人为改大版本号制造漂移
-        drifted = original.replace("v0.5.5", "v9.9.9", 1)
+        # 人为改大版本号制造漂移（读取当前版本）
+        m = re.search(r"v(\d+\.\d+\.\d+)", original)
+        cur = m.group(0) if m else "v0.0.0"
+        drifted = original.replace(cur, "v9.9.9", 1)
         readme.write_text(drifted, encoding="utf-8")
         r = _run("--check")
         assert r.returncode == 1

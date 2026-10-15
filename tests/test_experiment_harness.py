@@ -303,7 +303,7 @@ def _run_child(script_args, env_extra, timeout=180):
     env.update(env_extra)
     return subprocess.run([PY, str(HARNESS / "run_m.py"), *script_args],
                           cwd=str(REPO), env=env, capture_output=True,
-                          text=True, timeout=timeout)
+                          text=True, encoding="utf-8", errors="replace", timeout=timeout)
 
 
 @pytest.mark.slow
@@ -386,7 +386,7 @@ def test_compare_runs_empty_is_inconsistent(tmp_path):
 
 def test_probe_only_flag_in_run_m_help():
     proc = subprocess.run([PY, str(HARNESS / "run_m.py"), "--help"],
-                          cwd=str(REPO), capture_output=True, text=True, timeout=60)
+                          cwd=str(REPO), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
     assert proc.returncode == 0
     assert "--probe-only" in proc.stdout
     assert "--replicates" in proc.stdout
@@ -397,7 +397,7 @@ def test_run_m_help_and_summarize_help():
     for script, extra in (("run_m.py", ["--help"]), ("summarize.py", ["--help"]),
                           ("run_b.py", ["--help"])):
         proc = subprocess.run([PY, str(HARNESS / script), *extra],
-                              cwd=str(REPO), capture_output=True, text=True, timeout=60)
+                              cwd=str(REPO), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
         assert proc.returncode == 0, f"{script} --help failed: {proc.stderr}"
         assert proc.stdout.strip(), f"{script} --help 无输出"
 
@@ -407,7 +407,7 @@ def test_run_b_refuses_without_allow_flag(tmp_path):
     env["MIO_TASKHUB_DB"] = str(tmp_path / "b.sqlite")
     proc = subprocess.run([PY, str(HARNESS / "run_b.py"), "--tasks", "2"],
                           cwd=str(REPO), env=env, capture_output=True,
-                          text=True, timeout=60)
+                          text=True, encoding="utf-8", errors="replace", timeout=60)
     assert proc.returncode == 6, proc.stderr[-1000:]
     assert "P4" in proc.stderr or "allow-b" in proc.stderr
 
@@ -423,7 +423,7 @@ def test_s4b_refused_even_with_allow_flag(tmp_path):
          "--db", str(tmp_path / "s4b.sqlite"),
          "--jsonl", str(tmp_path / "s4b.jsonl"),
          "--allow-s4b"],
-        cwd=str(REPO), env=env, capture_output=True, text=True, timeout=60)
+        cwd=str(REPO), env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
     assert proc.returncode == 6, proc.stderr[-500:]
     assert "deferred" in proc.stderr or "refused" in proc.stderr
 
@@ -495,7 +495,7 @@ def test_v1_defer_run_b_refuses_acceptance_cmd(tmp_path):
     env["MIO_TASKHUB_DB"] = str(tmp_path / "v1.sqlite")
     proc = subprocess.run(
         [PY, str(HARNESS / "run_b.py"), "--tasks", "60", "--assign", "seed=20261010"],
-        cwd=str(REPO), env=env, capture_output=True, text=True, timeout=30)
+        cwd=str(REPO), env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
     assert proc.returncode == 6, proc.stderr[-300:]
     assert "allow-b" in proc.stderr or "P4" in proc.stderr
 

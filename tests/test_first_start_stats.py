@@ -141,12 +141,12 @@ def test_cli_min_n_gate(tmp_path):
         conn.close()
     # n=3 < min-n=100 → exit 1
     proc = subprocess.run([PY, str(SCRIPT), "--db", str(db), "--min-n", "100"],
-                          capture_output=True, text=True, timeout=60)
+                          capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
     assert proc.returncode == 1, proc.stderr
     assert "FAIL" in proc.stderr
     # min-n=3 → exit 0
     proc2 = subprocess.run([PY, str(SCRIPT), "--db", str(db), "--min-n", "3", "--json"],
-                           capture_output=True, text=True, timeout=60)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
     assert proc2.returncode == 0, proc2.stderr
     data = json.loads(proc2.stdout)
     assert data["n_first_start"] == 3
@@ -159,7 +159,7 @@ def test_cli_real_db_smoke():
     if not db.exists():
         pytest.skip("real db not found")
     proc = subprocess.run([PY, str(SCRIPT), "--db", str(db), "--json"],
-                          capture_output=True, text=True, timeout=60)
+                          capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
     assert proc.returncode in (0, 1), proc.stderr
     data = json.loads(proc.stdout)
     assert "n_first_start" in data
