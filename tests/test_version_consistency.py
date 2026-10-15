@@ -43,5 +43,9 @@ def test_changelog_version_ge_previous():
 def test_git_tag_exists_for_version():
     """T4.1：当前版本号应有对应 tag（在发布提交上打）。"""
     v = _version_py()
-    r = subprocess.run(["git", "tag", "-l", f"v{v}"], capture_output=True, text=True, cwd=REPO)
-    assert r.stdout.strip() == f"v{v}", f"缺 tag v{v}（tags: {subprocess.run(['git','tag','-l'],capture_output=True,text=True,cwd=REPO).stdout.split()})"
+    r = subprocess.run(["git", "tag", "-l"], capture_output=True, text=True, cwd=REPO)
+    tags = r.stdout.split()
+    if not tags:
+        import pytest
+        pytest.skip("仓库无 tag（浅克隆/CI 未取 tag）")
+    assert f"v{v}" in tags, f"缺 tag v{v}（tags: {tags}）"

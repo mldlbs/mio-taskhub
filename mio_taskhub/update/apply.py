@@ -140,12 +140,21 @@ def list_processes_under(root) -> list:
         import psutil
     except ImportError:  # noqa: F401 —— 打包产物恒有 psutil，源码环境缺依赖时降级
         return []
-    root_s = os.path.normcase(str(Path(root).resolve()))
+
+    def _norm(p: str) -> str:
+        # realpath 展开 8.3 短名与符号链接（CI tmp 路径可能是 RUNNER~1 短形式），
+        # 否则 normcase(dirname(exe)).startswith(root) 会因短/长名不一致漏判（T4.3）。
+        try:
+            return os.path.normcase(os.path.realpath(p))
+        except Exception:
+            return os.path.normcase(p)
+
+    root_s = _norm(str(root))
     out = []
     for info in psutil.process_iter(["pid", "exe"]):
         try:
             exe = info.info.get("exe") or ""
-            if exe and os.path.normcase(os.path.dirname(exe)).startswith(root_s):
+            if exe and _norm(os.path.dirname(exe)).startswith(root_s):
                 out.append((int(info.info["pid"]), exe))
         except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError, TypeError):
             continue

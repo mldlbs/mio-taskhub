@@ -25,6 +25,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
+# 强制 UTF-8 输出：CI（Windows cp1252）下 argparse --help 中文会 UnicodeEncodeError（T4.3）。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 sys.path.insert(0, str(HERE))
