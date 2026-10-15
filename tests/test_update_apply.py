@@ -215,16 +215,26 @@ def test_list_and_purge_processes_under(tmp_path):
     proc = subprocess.Popen([str(exe), "-t", "127.0.0.1"],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
-        # CI 上进程刚启动时 psutil 可能尚未取到 exe 映像路径，轮询至多 5s（T4.3）
+        # CI 上进程刚启动时 psutil 可能尚未取到 exe 映像路径，轮询至多 8s（T4.3）
         import time as _t
-        deadline = _t.monotonic() + 5.0
+        deadline = _t.monotonic() + 8.0
         listed = False
         while _t.monotonic() < deadline:
+            if proc.poll() is not None:
+                pytest.skip(f"复制的二进制提前退出 rc={proc.returncode}（环境限制）")
             if any(pid == proc.pid for pid, _ in list_processes_under(tmp_path)):
                 listed = True
                 break
-            _t.sleep(0.2)
-        assert listed, "进程启动后 5s 内未被 list_processes_under 列出"
+            _t.sleep(0.25)
+        if not listed:
+            # 区分「环境读不到映像路径」vs「list_processes_under 真漏判」：
+            # psutil 能解析但函数漏 → 真 bug（失败）；psutil 也读不到 → 环境限制（跳过）
+            try:
+                import psutil
+                psutil.Process(proc.pid).exe()
+            except Exception as e:  # noqa: BLE001
+                pytest.skip(f"环境无法读取子进程映像路径（psutil）: {e}")
+            raise AssertionError("进程存在且 psutil 可解析映像路径，但 list_processes_under 未列出（真 bug）")
         assert purge_processes_under(tmp_path, timeout=10.0) is True
         proc.wait(timeout=5)
         assert not any(pid == proc.pid for pid, _ in list_processes_under(tmp_path))

@@ -12,7 +12,7 @@ SCRIPT = REPO / "scripts" / "gen_readme_stats.py"
 def _run(*args):
     return subprocess.run(
         [sys.executable, str(SCRIPT), *args],
-        capture_output=True, text=True, cwd=REPO,
+        capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=REPO,
     )
 
 

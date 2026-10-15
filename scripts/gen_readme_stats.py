@@ -12,6 +12,13 @@ import re
 import sys
 from pathlib import Path
 
+# 强制 UTF-8 输出：CI（Windows cp1252）下打印中文 drift 详情会 UnicodeEncodeError（T4.3）。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -100,22 +107,24 @@ def collect_stats() -> dict:
 
 
 def write(readme_text: str, stats: dict) -> str:
-    """就地更新 README 中的数字。使用精确字符串替换避免 regex 损坏多字节文本。"""
+    """就地更新 README 中的数字（regex 定位，避免一次性 replace 二次失效）。"""
     text = readme_text
-    # version
     text = re.sub(r'v\d+\.\d+\.\d+', f'v{stats["version"]}', text, count=1)
-    # REST 端点
-    text = re.sub(r'\*\*\d+ 个 REST 端点\*\*', f'**{stats["rest_endpoints"]} 个 REST 端点**', text)
-    # MCP 工具
-    text = re.sub(r'\*\*\d+ 个 MCP 工具\*\*', f'**{stats["mcp_tools"]} 个 MCP 工具**', text)
-    # 测试用例
-    text = re.sub(r'\*\*\d+ 个用例\*\*', f'**{stats["test_functions"]} 个用例**', text)
-    # 后端 LOC：替换 "模块 / 13,749 行" 中的数字
-    text = text.replace("13,749", f'{stats["loc"]:,}')
-    # 前端 LOC：替换 "11,694 行"
-    text = text.replace("11,694", f'{stats["frontend_loc"]:,}')
-    # 前端文件数：替换 "40 文件 /"
-    text = text.replace("40 文件 /", f'{stats["frontend_files"]} 文件 /')
+    text = re.sub(r'\*\*\d+ 个 REST 端点\*\*',
+                  lambda m: f'**{stats["rest_endpoints"]} 个 REST 端点**', text)
+    text = re.sub(r'\*\*\d+ 个 MCP 工具\*\*',
+                  lambda m: f'**{stats["mcp_tools"]} 个 MCP 工具**', text)
+    text = re.sub(r'\*\*\d+ 个用例\*\*',
+                  lambda m: f'**{stats["test_functions"]} 个用例**', text)
+    # 后端 LOC：`模块 / N 行`
+    text = re.sub(r'(模块\s*/\s*)[\d,]+(\s*行)',
+                  lambda m: m.group(1) + f'{stats["loc"]:,}' + m.group(2), text)
+    # 前端 LOC：`文件 / N 行`（表格中第一个"文件 /"是前端行）
+    text = re.sub(r'(文件\s*/\s*)[\d,]+(\s*行)',
+                  lambda m: m.group(1) + f'{stats["frontend_loc"]:,}' + m.group(2), text, count=1)
+    # 前端文件数：`· N 文件 /`
+    text = re.sub(r'(·\s*)\d+(\s*文件\s*/)',
+                  lambda m: m.group(1) + f'{stats["frontend_files"]}' + m.group(2), text)
     return text
 
 

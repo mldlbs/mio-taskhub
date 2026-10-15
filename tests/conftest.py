@@ -19,6 +19,11 @@ os.environ.setdefault(
     os.path.join(tempfile.gettempdir(), "mio_home_tests_missing"),
 )
 
+# F2 修复（T4.3）：关闭 insight_remediator 后台自动建任务——它会创建 ready 任务，
+# 污染 claim/挑选类用例（如 test_claim_only_picks_ready），造成跨用例 flaky。
+os.environ.setdefault("MIO_INSIGHT_AUTOTASK", "0")
+os.environ.setdefault("MIO_INSIGHT_AUTOTASK_PRECHECK", "0")
+
 from sqlmodel import select  # noqa: E402
 from mio_taskhub.db import engine, init_db  # noqa: E402
 from mio_taskhub.models import SQLModel, Task, Run, Agent  # noqa: E402
