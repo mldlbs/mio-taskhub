@@ -178,3 +178,37 @@ Idea → Task → Agent → Evidence → Insight → Remediation → Task
 | 人工介入次数 | 自动化程度 |
 
 **方向**：不再扩功能，转向"证明已有闭环的增量价值"。
+
+---
+
+## 9. 逐项定档（T3.6 / 2026-10-14 收口）
+
+> 要求：能力地图**每项**三选一（**保留 / 延后 / 删除**），依据来自 §1 证据与 §7 拍板。
+> 本表覆盖 §1 活跃 + §1 接线未用 + §1 真孤儿 + §4 稳定能力，**不留待定项**。
+
+| 能力 | 裁决 | 依据 |
+|---|---|---|
+| task lifecycle | **保留** | 活跃（298 task），核心 |
+| claim/run | **保留** | 活跃（137 run） |
+| 真实 agent 消费 | **保留** | 活跃（opencode 2/2） |
+| evidence（ReadEvidence） | **保留** | 活跃（33），差异化能力 |
+| docs chain | **保留** | 活跃（45 挂 doc） |
+| idea funnel | **保留** | 活跃（41→36） |
+| discussion | **保留** | 活跃（53/48 结论） |
+| remediation/insight 消费环 | **保留** | 本轮打通（7→4） |
+| built-in alert | **保留** | 活跃（alertaudit 31） |
+| SLO 快照 | **保留** | 有消费（UI+report），§0 已撤销"无消费"误判 |
+| dep 快照 | **保留** | 有 metrics/report 消费 |
+| event log | **保留** | 活跃（1547） |
+| scheduled/cron | **保留** | 活跃（111 执行） |
+| 空闲计划 + 消费 guard | **保留** | 活跃（guard 生产生效） |
+| 自更新 | **延后** | 实现但未生产验证；无外部分发前不投 |
+| templates / roleprompt / ratchet | **保留** | 活跃（8/5/29） |
+| **custom alertrule** | **延后** | §7：保留 API 不补 UI，标记 experimental，待明确场景 |
+| **taskreview** | **延后** | §7：降级冻结，不接线 |
+| **appconfig** | **保留** | 条件性空（env 覆盖时 0），非死代码 |
+| **ideauserpref** | **保留** | 逻辑活跃，仅未触发 |
+| **`Plan` 表** | **删除** | §7：真孤儿，已执行（task 1213d8ad，plan 表 1→0） |
+| **outboxevent** | **保留** | 非孤儿，是"未触发"（adr 写路径 + git_sync worker 存在） |
+
+**定档统计**：保留 **19** / 延后 **3**（自更新、custom alertrule、taskreview）/ 删除 **1**（Plan 表）。**0 项待定**。
