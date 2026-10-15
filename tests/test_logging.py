@@ -103,7 +103,8 @@ def test_buffer_handler_passes_through_extra():
     record.duration_ms = 7.7
     h.emit(record)
     entry = log_buffer._buf[-1]
-    assert len(log_buffer._buf) == before + 1
+    # log_buffer 是 maxlen=1000 的环形缓冲：跑满后 append 不再增长（本次 emit 仍是最新一条）。
+    assert len(log_buffer._buf) == min(before + 1, log_buffer._buf.maxlen)
     assert entry["path"] == "/api/v1/x"
     assert entry["status"] == 502
     assert entry["duration_ms"] == 7.7
