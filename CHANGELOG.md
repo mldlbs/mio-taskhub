@@ -1,6 +1,33 @@
 # Changelog
 
-## Unreleased
+## v0.6.0 (2026-10-14)
+
+> roadmap-05 G2–G3 收口：执行生命周期加固 + 开源前置 + 能力收敛。
+
+### Added — D1 生命周期化（T3.1，FR: 无 / roadmap-05）
+- `heartbeat.py`：默认超时 300→360s（+20% headroom，覆盖实测心跳抖动 p50=302.7s）；新增 `GRACE_PERIOD_SECONDS=60` 宽限期，agent 在线且 progress>0 时 base+grace，避免链路断误杀。
+- `api/tasks.py`：`_task_detail` 新增 `diagnostic_hint` 字段，FAILED/RETRYING 任务返回用户可读诊断（agent offline / heartbeat timeout 原因 + 建议）。
+
+### Added — 开源前置（T3.4，FR: 无 / roadmap-05）
+- `LICENSE`（MIT, Copyright 2026 mldlbs）入库，解除法律阻塞。
+- `scripts/gen_readme_stats.py`：README 统计从代码派生（版本/REST 端点/MCP 工具/测试数/LOC/前端），`--write` 更新、`--check` 校验漂移（CI 用），消除人工维护漂移。
+
+### Added — 冷启 Quickstart 计时（T3.5，FR: 无 / roadmap-05）
+- `scripts/coldstart_timing.py`：冷启 hub + register→claim→submit 闭环计时 harness；实测 hub 冷启中位 3.9s、闭环 0.13s。
+- `docs/roadmap/t35-coldstart-report.md`：计时报告 + 8 项秒坑清单。
+
+### Changed — 能力地图定档 + 技术债取舍（T3.6，FR: 无 / roadmap-05）
+- `docs/taskhub/capability-map-20261001.md` §9：逐项定档（保留 19 / 延后 3 / 删除 1），0 项待定。
+- `docs/roadmap/02-current-state-audit.md` §9.1：技术债逐项取舍，P0/P1 全清零，P2/P3 登记延后。
+
+### Docs — G2 实验结论回写（T2.5，FR: 无 / roadmap-05）
+- `01-positioning.md` §4.2 / `03-technical-gap.md` §6.2·§7：V1 证据不足 / V2 观测支持 / V3 部分成立（81.9%）/ D1 命中「部分成立」档。
+
+### Deferred — 条件性任务（T3.2 / T3.3，FR: 无 / roadmap-05）
+- T3.2（D2-b 协议化）：前置 V1 成立未满足（证据不足）→ defer。
+- T3.3（D3 回执）：前置外部审查者 0 → defer。
+
+## v0.5.5 (2026-10-05)
 
 ### Changed — 记忆视图合并观测模块 + 旧路径 404 修复（任务 e4c3bc51，FR-1~FR-6）
 
