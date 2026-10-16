@@ -178,6 +178,21 @@ def main() -> int:
 
     req("POST", "/agents/register", {"name": args.agent, "agent_type": "cli"})
 
+    # P1-OBS/T4.3 保活：空闲时周期性上报 **agent** 心跳（与 run 心跳不同）。
+    # 否则空闲 >180s 会被 `_mark_stale_agents` 置 OFFLINE，且 claim 防御（拒绝非 ONLINE
+    # agent）会使其无法领取任务——长驻 idle worker 必须自证存活。
+    _stop_agent_hb = threading.Event()
+    _ka_secs = float(os.environ.get("IDLE_KEEPALIVE_SECONDS", "60") or 60)
+
+    def _agent_keepalive():
+        while not _stop_agent_hb.wait(_ka_secs):
+            try:
+                req("POST", "/agents/heartbeat", {"name": args.agent})
+            except Exception:  # noqa: BLE001
+                pass
+
+    threading.Thread(target=_agent_keepalive, daemon=True, name="agent-keepalive").start()
+
     done = 0
     idle_since = None
     while True:
