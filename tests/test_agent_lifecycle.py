@@ -126,17 +126,15 @@ def test_first_heartbeat_emits_agent_ready_and_process_alive():
 
 
 def test_process_alive_dead_pid_backfills_false():
-    proc = subprocess.Popen([sys.executable, "-c", "pass"])
-    proc.wait(timeout=10)
-    dead_pid = proc.pid
-    # PID 复用竞态（CI 高并发）：该 pid 可能已被新进程复用 → 探测必然 alive=True。
-    # 复用则跳过（环境限制，非被测逻辑错误）。
+    # 用一个确定不存在的 PID（远大于系统可分配范围），彻底消除
+    # 「spawn→exit→PID 被复用」竞态——CI 高并发下该竞态已多次致 flaky。
     try:
         import psutil
-        if psutil.pid_exists(dead_pid):
-            pytest.skip(f"PID {dead_pid} 已被复用（CI 竞态），跳过")
+        if psutil.pid_exists(999999999):
+            pytest.skip("PID 999999999 意外存在")
     except ImportError:
         pass
+    dead_pid = 999999999
     assert lc.probe_process_alive("rundead", dead_pid, force=True)
     import time
     got = []
