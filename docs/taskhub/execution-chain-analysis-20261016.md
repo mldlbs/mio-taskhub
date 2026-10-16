@@ -42,6 +42,13 @@
 `opencode`(10-13) / `idle-worker-opencode`(10-03) 的 **agent 心跳停更**但仍在跑任务
 → 注册状态 OFFLINE 与真实存活不符 → 其 run 走紧窗口被提前回收。
 
+### P5 · bounce_count 不因 retry 重置（retry 失去意义）
+
+- 幽灵洪泛致合法任务被反复派给幽灵 → `never_started` requeue → `bounce_count++`
+- 实测 **T0.1 卡 3 天**（10-10→10-13），被 dispatcher 派给幽灵 6 次 → bounce 累积到 **14**
+- `bounce>=max_bounces(6)` → FAILED；手动 retry（T16）**未重置 bounce** → 首个 never_started 立即再 FAILED → retry 无效
+- 事件统计：`task_assigned 397` / `reaper_decision 505` / `agent_offline 159`（幽灵驱动的高churn）
+
 ---
 
 ## 3. 修复（本轮）
@@ -54,6 +61,12 @@ agent 不置 OFFLINE**——有活跃 run 即证明存活。否则其 run 会因
 > 权衡：真死 agent 的 run 清理从 120s 延到 360s（仍有界）。
 
 **测试**：`test_active_run_agent_not_marked_offline`（有活跃 run 不置 OFFLINE）。
+
+**`mio_taskhub/api/task_stages.py::retry_task`**：**手动 retry 重置 `bounce_count=0`**——
+手动重试 = 全新尝试，清空 never_started bounce 累积（否则 retry 后首个 never_started
+立即再触发 FAILED，retry 失去意义）。
+
+**测试**：`test_retry_resets_bounce_count` / `test_retry_from_failed_reopens`。
 
 ---
 

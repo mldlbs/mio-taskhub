@@ -335,6 +335,10 @@ def retry_task(task_id: str, body: dict = None, db: Session = Depends(get_sessio
         t.attempt = 0
         t.retry_count = 0
     t.retry_at = None
+    # T4.3/P1-OBS：手动重试 = 全新尝试 → 清空 never_started bounce 累积。
+    # 否则受幽灵洪泛/提前回收影响的任务 bounce 已达上限（6+），retry 后首个 never_started
+    # 立即再触发 FAILED，retry 失去意义（实测 T0.1 bounce 累积到 14）。
+    t.bounce_count = 0
     from mio_taskhub.workflow.transitions import apply_transition
     from mio_taskhub.workflow.state_machine import State, Stage, ActorType, IllegalTransition
     current_stage = t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
