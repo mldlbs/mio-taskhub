@@ -33,8 +33,12 @@ def _row(tid):
 
 
 def _mk_online_agent(name, agent_type=""):
+    from datetime import datetime, timezone
     with Session(engine) as s:
-        s.add(Agent(name=name, agent_type=agent_type, status=AgentStatus.ONLINE))
+        # P1-OBS/T4.3：dispatcher 现要求 agent 有心跳（last_heartbeat 非空）才派单，
+        # 测试的在线 agent 需带心跳（模拟真实注册）。
+        s.add(Agent(name=name, agent_type=agent_type, status=AgentStatus.ONLINE,
+                    last_heartbeat=datetime.now(timezone.utc)))
         s.commit()
 
 

@@ -400,7 +400,13 @@ def _assign_to_idle_agents():
                     run_at = run_at.replace(tzinfo=timezone.utc)
                 if run_at > now:
                     continue
-            agents = db.exec(select(Agent).where(Agent.status == AgentStatus.ONLINE)).all()
+            agents = db.exec(select(Agent).where(
+                Agent.status == AgentStatus.ONLINE,
+                # P1-OBS/T4.3：只派给「曾证明存活」的 agent——从未心跳（last_heartbeat
+                # IS NULL）的注册项（如幽灵/非执行者）不得进入派单池。仅凭 status=ONLINE
+                # 无法区分「执行者」与「非执行者」，此处以心跳存在性作为执行者门槛。
+                Agent.last_heartbeat.is_not(None),
+            )).all()
             target = None
             for a in agents:
                 if a.agent_type and t.target_agent_type and a.agent_type != t.target_agent_type:

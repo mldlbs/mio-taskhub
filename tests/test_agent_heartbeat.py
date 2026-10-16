@@ -131,6 +131,31 @@ def test_unregistered_agent_blind_claim_still_works():
     assert r.status_code == 200
 
 
+def test_dispatcher_skips_never_heartbeat_agent():
+    """P1-OBS/T4.3：dispatcher 不把任务派给从未心跳的 ONLINE agent（幽灵/非执行者）。"""
+    from mio_taskhub.models import Task, TaskState
+    # ONLINE 但 last_heartbeat=None（幽灵特征）
+    with Session(engine) as s:
+        s.add(Agent(name="ghost-disp", agent_type="cli", status=AgentStatus.ONLINE))
+        s.commit()
+    client.post("/api/v1/tasks", json={"title": "ghost-disp-task", "stage": "ready"})
+    background._assign_to_idle_agents()
+    with Session(engine) as s:
+        t = s.exec(select(Task).where(Task.title == "ghost-disp-task")).first()
+        assert t.state == TaskState.QUEUED, "从未心跳的 agent 不应被派单"
+
+
+def test_dispatcher_assigns_to_heartbeat_agent():
+    """对照：有心跳的 ONLINE agent 正常被派单。"""
+    from mio_taskhub.models import Task, TaskState
+    _mk_agent("hb-disp", status=AgentStatus.ONLINE)  # _mk_agent 设 last_heartbeat
+    client.post("/api/v1/tasks", json={"title": "hb-disp-task", "stage": "ready"})
+    background._assign_to_idle_agents()
+    with Session(engine) as s:
+        t = s.exec(select(Task).where(Task.title == "hb-disp-task")).first()
+        assert t.state == TaskState.CLAIMED, "有心跳的 agent 应被派单"
+
+
 def test_stale_agent_no_longer_assigned():
     _mk_agent("stale2", hb_age_sec=600)
     client.post("/api/v1/tasks", json={"title": "stale-task", "stage": "ready"})
