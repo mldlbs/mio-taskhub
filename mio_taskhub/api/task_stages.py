@@ -4,7 +4,8 @@ from sqlmodel import Session, select
 from mio_taskhub.db import get_session
 from mio_taskhub.events import emit_event
 from mio_taskhub.policy_guard import guard_action
-from mio_taskhub.models import Task, TaskState, TaskStage, Discussion
+from mio_taskhub.models import Task, TaskState, TaskStage, Discussion, Run, RunState
+from mio_taskhub.utils import _now
 from mio_taskhub.workflow.transitions import apply_transition, _orm_to_status_state, _orm_to_status_stage
 from mio_taskhub.api.task_helpers import parse_enum
 from mio_taskhub.doc_paths import DOC_KINDS, doc_path_of, merge_doc_paths, sync_legacy_fields
@@ -258,8 +259,33 @@ def _commit_task_and_events(task, db, m1_events):
     db.add(task)
     for ev in m1_events:
         db.add(ev)
+    _close_active_runs_if_terminal(db, task)
     db.commit()
     db.refresh(task)
+
+
+def _close_active_runs_if_terminal(db, task):
+    """任务进入终态（completed/failed/cancelled）时关闭其活跃 run（CLAIMED/RUNNING）。
+
+    T4.3/P1-OBS 执行链：`stage/move` 到 done/cancelled 此前**不关 run** → run 悬挂到
+    reaper 回收（历史实测 run b5ae9267 悬挂 24h）。此处保证「任务终态 ⇒ 其活跃 run 关闭」，
+    使 run 生命周期与 task 一致。
+    """
+    from mio_taskhub.workflow.state_machine import is_terminal
+    if not is_terminal(task):
+        return
+    runs = db.exec(
+        select(Run).where(
+            Run.task_id == task.id,
+            Run.state.in_([RunState.CLAIMED, RunState.RUNNING]),
+        )
+    ).all()
+    for r in runs:
+        r.state = RunState.FINISHED
+        r.finished_at = _now()
+        if not r.result:
+            r.result = f"task {task.state.value} (closed by stage transition)"
+        db.add(r)
 
 
 @router.get("/stages/requirements", response_model=dict)

@@ -49,6 +49,13 @@
 - `bounce>=max_bounces(6)` → FAILED；手动 retry（T16）**未重置 bounce** → 首个 never_started 立即再 FAILED → retry 无效
 - 事件统计：`task_assigned 397` / `reaper_decision 505` / `agent_offline 159`（幽灵驱动的高churn）
 
+### P6 · 任务移到终态不关闭活跃 run（run 悬挂）
+
+- `stage/move` 到 `done`/`cancelled` 只迁移 **task** 状态，**不关闭其 CLAIMED/RUNNING run**
+- 实测 **run b5ae9267 悬挂 23.9h**（task 03:34 已 completed，run 24h 后才被 reaper 回收）
+- 叠加历史「心跳重开 finished run」bug（**已修**：`runs.py` 心跳对 finished run 返回 409，`test_tc_s5` 覆盖）
+- 长 run 全在 09-28~10-05（修复前）；10-06 后无
+
 ---
 
 ## 3. 修复（本轮）
@@ -67,6 +74,12 @@ agent 不置 OFFLINE**——有活跃 run 即证明存活。否则其 run 会因
 立即再触发 FAILED，retry 失去意义）。
 
 **测试**：`test_retry_resets_bounce_count` / `test_retry_from_failed_reopens`。
+
+**`mio_taskhub/api/task_stages.py::_commit_task_and_events`**：任务进入终态
+（completed/failed/cancelled）时**关闭其活跃 run**（`_close_active_runs_if_terminal`）——
+保证「task 终态 ⇒ 其 run 关闭」，杜绝 run 悬挂。
+
+**测试**：`test_terminal_closes_run.py`（done / cancelled 各一）。
 
 ---
 
