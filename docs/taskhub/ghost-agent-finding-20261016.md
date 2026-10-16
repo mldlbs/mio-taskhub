@@ -92,15 +92,24 @@ select(Agent).where(
 |---|---|---|
 | 3 | `mio_taskhub/api/claim.py::claim_for` | **claim 侧防御**：已注册但非 ONLINE 的 agent 不得领新任务（未注册盲领 INV-1 仍放行）。幽灵被置 OFFLINE 后不再反复抢占。 |
 
-### 幽灵来源（已排查）
+### 幽灵来源（已定位）
 
-- `agent` 表无 `agent_registered` 事件（inv1）→ **非经 API 注册**；
-- 仓库代码仅 `api/agents.py` 创建 Agent 行，且均设 `last_heartbeat` → **非当前代码创建**；
-- 全 workspace 与 git 历史无 `inv1-a` 定义（`inv1` 仅出现在 `test_grab_mode.py` 的 INV-1 不变量场景名，非 agent 名）。
-- **结论**：由**外部进程直接写 `taskhub.db`**（未定位）。建议排查本机其他 agent 会话/负载工具。
+- `agent` 表无 `agent_registered` 事件（inv1）→ **非经 `/agents/register` API 注册**；
+- 仓库代码仅 `api/agents.py` 创建 Agent 行，且均设 `last_heartbeat` → **非本仓库代码创建**；
+- 全 workspace 与 git 历史无 `inv1-a` 定义（`inv1` 仅出现在 `test_grab_mode.py` 的 INV-1 场景名，非 agent 名）。
+
+**定位结论（证据）**：`.mio-intelligence/memory.jsonl` 记录（workbuddy，2026-10-15）：
+
+> "任务被 **Mio 执行器**抢走了 —— 我刚要领取 6147c3aa 时，**Mio 侧的 idle 执行器 inv1-a** 在 10:49:50 通过 **idle_assign** 自动接手"
+
+→ **inv1-* 是 Mio intelligence layer 侧的「idle 执行器」**（由 Mio runtime / workbuddy host 拉起），
+经 dispatcher 的 `idle_assign` 抢占 taskhub 任务，但**未上报心跳/未真正启动** → 被 reaper 回收为 `never_started`。
+
+**性质**：非恶意，是 **Mio↔taskhub 集成的 idle 执行器缺陷**（抢卡不启动）。已由本次三处修复缓解
+（幽灵被置 OFFLINE + claim 防御拦截 + 统计不再误判）。
 
 ### 遗留（未做）
 
-1. **幽灵来源定位**：外部进程写库未找到；建议审计谁在 2026-10-07 04:42 直接 insert `agent` 表。
-2. **生产清理**：`inv1-a..e` 修复后下次 sweep（180s）会置 OFFLINE，无需手工。
+1. **Mio idle 执行器修复**：`inv1-*` 侧应在 claim 后**上报心跳并真正执行**，否则应停止 idle_assign 抢占（属 Mio runtime 仓库，非本仓库）。
+2. **生产清理**：`inv1-a..e` 修复后下次 sweep（180s）自动置 OFFLINE，无需手工。
 3. **盲领风险评估**：claim 现放行未注册 agent 的盲领（INV-1），是设计特性；是否需限流/令牌待评估。
