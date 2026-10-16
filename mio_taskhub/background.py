@@ -457,6 +457,10 @@ def _mark_stale_agents():
     此前被 `is_not(None)` 条件跳过，导致**永久卡在 ONLINE**——其 run 被 reaper 判为
     "agent 在线→链路断"，把 `never_started` 误计为链路断。现以 `registered_at` 兜底：
     从未心跳且注册已超时的 agent 同样置 OFFLINE。
+
+    T4.3/P1-OBS 执行链修复：**有活跃 run（CLAIMED/RUNNING）的 agent 不置 OFFLINE**——
+    有活跃 run 即证明存活。否则其 run 会因 `agent_offline=True` 走 120s 紧窗口被**提前
+    回收**（实测 opencode 的 run p50 在 127s 被回收，30/34 为同任务后续又完成的浪费尝试）。
     """
     # SQLite 存储的 datetime 无 tzinfo（naive UTC），故 cutoff 也用 naive 比较
     cutoff = (datetime.now(timezone.utc) - timedelta(seconds=AGENT_TIMEOUT_SECONDS)).replace(tzinfo=None)
@@ -471,7 +475,17 @@ def _mark_stale_agents():
                 ),
             )
         ).all()
+        # 有活跃 run 的 agent 视为存活：不置 OFFLINE（防其 run 被紧窗口提前回收）
+        active = {
+            run.agent_name for run in db.exec(
+                select(Run).where(
+                    Run.state.in_([RunState.CLAIMED, RunState.RUNNING])
+                )
+            ).all()
+        }
         for a in stale:
+            if a.name in active:
+                continue
             a.status = AgentStatus.OFFLINE
             event = emit_event(db, type="agent_offline", entity="agent",
                                entity_id=a.name, payload={"reason": "heartbeat_timeout"})

@@ -78,6 +78,20 @@ def test_stale_agent_marked_offline():
     assert _agent_status("stale1") == AgentStatus.OFFLINE
 
 
+def test_active_run_agent_not_marked_offline():
+    """P1-OBS 执行链：有活跃 run 的 agent 不置 OFFLINE（防其 run 被 120s 紧窗口提前回收）。"""
+    from mio_taskhub.models import Task, TaskStage
+    _mk_agent("busy-stale", status=AgentStatus.ONLINE, hb_age_sec=9999)  # 心跳陈旧
+    with Session(engine) as s:
+        t = Task(title="busy-stale-task", stage=TaskStage.READY)
+        s.add(t); s.commit(); s.refresh(t)
+    # 以该 agent 领取 → 产生活跃 run
+    r = client.post("/api/v1/tasks/claim", params={"agent": "busy-stale"})
+    assert r.status_code == 200
+    background._mark_stale_agents()
+    assert _agent_status("busy-stale") == AgentStatus.ONLINE, "有活跃 run 不应被置 OFFLINE"
+
+
 def test_fresh_agent_stays_online():
     _mk_agent("fresh1", hb_age_sec=10)
     background._mark_stale_agents()
