@@ -244,6 +244,9 @@ def _on_timeout(run_id: str, task_id: str):
         agent = db.get(Agent, run.agent_name)
         agent_offline = agent is None or agent.status == AgentStatus.OFFLINE
         never_started = not (run.progress or 0) > 0
+        # P1-OBS P2：记录回收前真实 run 状态（区分 claimed=从未心跳 vs running=曾心跳），
+        # 供事后区分「进程未起」与「起了未报进度」。语义仍以 progress==0 为兼容基准。
+        _run_state_before = run.state.value if hasattr(run.state, "value") else str(run.state)
         if never_started:
             kind = "never_started"
         elif agent_offline:
@@ -315,7 +318,8 @@ def _on_timeout(run_id: str, task_id: str):
                     "last_heartbeat": (_last_hb.isoformat() if _last_hb else None),
                     "heartbeat_lag_seconds": _hb_lag,
                     "effective_timeout_seconds": _eff,
-                    "run_state_before": "CLAIMED/RUNNING",
+                    "run_state_before": _run_state_before,
+                    "run_heartbeated": _run_state_before == "running",
                     "reaper_kind": _decision,
                     "decision_reason": f"now-last_heartbeat={_hb_lag}s > effective_timeout={_eff}s"
                                        if _hb_lag is not None else "no heartbeat",

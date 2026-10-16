@@ -89,7 +89,16 @@ agent 不置 OFFLINE**——有活跃 run 即证明存活。否则其 run 会因
 
 ---
 
+**`mio_taskhub/background.py::_on_timeout`**（P2 观测细化）：`reaper_decision` 记录**真实
+`run_state_before`**（claimed=从未心跳 vs running=曾心跳）+ `run_heartbeated` 标志——
+供事后区分「进程未起」与「起了未报进度」。**语义仍以 `progress==0` 为兼容基准**（不改行为）。
+
+**测试**：`test_reaper_state_before.py`。
+
+---
+
 ## 4. 遗留
 
-1. **`never_started` 语义细化**（P2）：区分「进程未起」vs「起了未报进度」（需 agent 侧启动埋点，暂缺）。
-2. **agent 侧心跳纪律**（P4 已由 run 心跳同步刷新缓解）：agent 仍应周期性 `taskhub_agent_heartbeat`。
+1. **`never_started` 语义彻底细化**（P2）：本轮回填观测字段；若要按 `run_state_before`
+   改变归桶/requeue 语义，需评估对失败率的影响（暂保守不改）。
+2. **agent 侧心跳纪律**（P4 已由 run 心跳同步刷新缓解）。
