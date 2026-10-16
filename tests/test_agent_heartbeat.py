@@ -116,6 +116,21 @@ def test_null_heartbeat_fresh_agent_stays_online():
     assert _agent_status("ghost2") == AgentStatus.ONLINE
 
 
+def test_offline_agent_cannot_claim():
+    """P1-OBS/T4.3 防御：已注册但 OFFLINE 的 agent 不得领任务（防幽灵/僵尸抢占）。"""
+    _mk_agent("dead-agent", status=AgentStatus.OFFLINE)
+    client.post("/api/v1/tasks", json={"title": "dead-agent-task", "stage": "ready"})
+    r = client.post("/api/v1/tasks/claim", params={"agent": "dead-agent"})
+    assert r.status_code == 204  # 无任务可领（被拒）
+
+
+def test_unregistered_agent_blind_claim_still_works():
+    """INV-1：未注册 agent 的盲领不受影响（防御只针对已注册非 ONLINE）。"""
+    client.post("/api/v1/tasks", json={"title": "blind-task", "stage": "ready"})
+    r = client.post("/api/v1/tasks/claim", params={"agent": "never-registered"})
+    assert r.status_code == 200
+
+
 def test_stale_agent_no_longer_assigned():
     _mk_agent("stale2", hb_age_sec=600)
     client.post("/api/v1/tasks", json={"title": "stale-task", "stage": "ready"})
@@ -129,7 +144,8 @@ def test_stale_agent_no_longer_assigned():
 
 def test_agent_offline_recycles_run():
     """agent OFFLINE 后其 run 被 _on_timeout 回收（即使 task.timeout_min 很大）。"""
-    _mk_agent("zombie", status=AgentStatus.OFFLINE)
+    # P1-OBS/T4.3：claim 现拒绝 OFFLINE agent → 先 ONLINE 领取再置 OFFLINE（模拟掉线）
+    _mk_agent("zombie", status=AgentStatus.ONLINE)
     from mio_taskhub.models import Task, TaskState, Run, RunState, TaskStage
     with Session(engine) as s:
         t = Task(title="zombie-task", stage=TaskStage.READY, timeout_min=600)  # 10 分钟超时
@@ -137,6 +153,10 @@ def test_agent_offline_recycles_run():
         tid = t.id
     claim = client.post("/api/v1/tasks/claim", params={"agent": "zombie"}).json()
     rid = claim["id"]
+    with Session(engine) as s:
+        a = s.get(Agent, "zombie")
+        a.status = AgentStatus.OFFLINE
+        s.add(a); s.commit()
     # 人为制造 run 心跳过期（但未到 task.timeout_min）
     with Session(engine) as s:
         run = s.get(Run, rid)
@@ -159,7 +179,7 @@ def test_scheduler_tick_runs_all_three():
 
 def test_sweep_recycles_offline_agent_run_despite_large_timeout():
     """端到端：agent OFFLINE 时，即使 task.timeout_min 很大，sweep 也回收其 run。"""
-    _mk_agent("sweep-zombie", status=AgentStatus.OFFLINE)
+    _mk_agent("sweep-zombie", status=AgentStatus.ONLINE)
     from mio_taskhub.models import Task, TaskStage, TaskState, Run, RunState
     with Session(engine) as s:
         t = Task(title="sweep-zombie-task", stage=TaskStage.READY, timeout_min=600)
@@ -168,9 +188,11 @@ def test_sweep_recycles_offline_agent_run_despite_large_timeout():
     claim = client.post("/api/v1/tasks/claim", params={"agent": "sweep-zombie"}).json()
     rid = claim["id"]
     with Session(engine) as s:
+        a = s.get(Agent, "sweep-zombie")
+        a.status = AgentStatus.OFFLINE
         run = s.get(Run, rid)
         run.last_heartbeat = datetime.now(timezone.utc) - timedelta(seconds=200)  # 未到 run 超时
-        s.add(run); s.commit()
+        s.add(a); s.add(run); s.commit()
     # 直接跑 sweep（走真实触发路径）
     sweep = background.HeartbeatSweep(get_runs=background._get_runs,
                                   on_timeout=background._on_timeout, on_alive=lambda r: None)
@@ -189,12 +211,17 @@ def test_sweep_recycles_offline_agent_run_despite_large_timeout():
 
 def _claim_offline_agent_task(agent_name, title, timeout_min=None):
     from mio_taskhub.models import Task, TaskStage
-    _mk_agent(agent_name, status=AgentStatus.OFFLINE)
+    # P1-OBS/T4.3：claim 现拒绝 OFFLINE agent → 先 ONLINE 领取，再置 OFFLINE（模拟掉线）
+    _mk_agent(agent_name, status=AgentStatus.ONLINE)
     with Session(engine) as s:
         t = Task(title=title, stage=TaskStage.READY, timeout_min=timeout_min)
         s.add(t); s.commit(); s.refresh(t)
         tid = t.id
     claim = client.post("/api/v1/tasks/claim", params={"agent": agent_name}).json()
+    with Session(engine) as s:
+        a = s.get(Agent, agent_name)
+        a.status = AgentStatus.OFFLINE
+        s.add(a); s.commit()
     return tid, claim["id"]
 
 

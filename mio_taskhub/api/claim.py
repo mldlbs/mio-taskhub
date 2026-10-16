@@ -3,7 +3,7 @@ from datetime import timezone
 from sqlmodel import Session, select
 from sqlalchemy import case, Integer, func
 from sqlalchemy import update as sa_update
-from mio_taskhub.models import Task, TaskState, TaskStage, Agent
+from mio_taskhub.models import Task, TaskState, TaskStage, Agent, AgentStatus
 from mio_taskhub.api.runs import find_existing_run, create_run
 from mio_taskhub.utils import _now
 
@@ -37,6 +37,13 @@ def claim_for(agent: str, db: Session, agent_type: Optional[str] = None,
     existing = find_existing_run(db, agent)
     if existing:
         return existing
+
+    # P1-OBS/T4.3 防御：已注册但非 ONLINE 的 agent 不得领新任务（防幽灵/僵尸抢占）。
+    # 未注册 agent（盲领，INV-1）仍放行——不查表即不存在记录。幽灵 agent（心跳缺失被
+    # `_mark_stale_agents` 置 OFFLINE 后）由此被拒，不再反复抢占真实任务。
+    ag = db.get(Agent, agent)
+    if ag is not None and ag.status != AgentStatus.ONLINE:
+        return None
 
     if not agent_type:
         agent_type = lookup_agent_type(db, agent) or agent_type

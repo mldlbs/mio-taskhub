@@ -84,8 +84,23 @@ select(Agent).where(
 
 ---
 
-## 6. 遗留（未做）
+## 6. 后续修复与遗留
 
-1. **幽灵 agent 的来源**：仓库内无 "inv1" 字样 → 由**外部进程**直接写库/注册（未定位）。需排查谁创建 inv1-*。
-2. **claim 侧防御**：`claim` 是否应拒绝 `last_heartbeat=None` 或 OFFLINE 的 agent？现幽灵仍可抢任务（本任务亦被抢）。
-3. **生产清理**：`inv1-a..e` 仍 ONLINE（修复后下次 sweep 会置 OFFLINE）。
+### 已做
+
+| # | 修复 | 说明 |
+|---|---|---|
+| 3 | `mio_taskhub/api/claim.py::claim_for` | **claim 侧防御**：已注册但非 ONLINE 的 agent 不得领新任务（未注册盲领 INV-1 仍放行）。幽灵被置 OFFLINE 后不再反复抢占。 |
+
+### 幽灵来源（已排查）
+
+- `agent` 表无 `agent_registered` 事件（inv1）→ **非经 API 注册**；
+- 仓库代码仅 `api/agents.py` 创建 Agent 行，且均设 `last_heartbeat` → **非当前代码创建**；
+- 全 workspace 与 git 历史无 `inv1-a` 定义（`inv1` 仅出现在 `test_grab_mode.py` 的 INV-1 不变量场景名，非 agent 名）。
+- **结论**：由**外部进程直接写 `taskhub.db`**（未定位）。建议排查本机其他 agent 会话/负载工具。
+
+### 遗留（未做）
+
+1. **幽灵来源定位**：外部进程写库未找到；建议审计谁在 2026-10-07 04:42 直接 insert `agent` 表。
+2. **生产清理**：`inv1-a..e` 修复后下次 sweep（180s）会置 OFFLINE，无需手工。
+3. **盲领风险评估**：claim 现放行未注册 agent 的盲领（INV-1），是设计特性；是否需限流/令牌待评估。
