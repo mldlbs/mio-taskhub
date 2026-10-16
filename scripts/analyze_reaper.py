@@ -34,12 +34,15 @@ MIN_SAMPLES = 30
 
 BUCKET_TRULY_DEAD = "truly_dead"
 BUCKET_LINK_BROKEN = "link_broken"
+BUCKET_NEVER_STARTED = "never_started"
 BUCKET_INSUFFICIENT = "insufficient"
 BUCKET_LABELS = {
     BUCKET_TRULY_DEAD: "真死",
     BUCKET_LINK_BROKEN: "链路断",
+    BUCKET_NEVER_STARTED: "未启动",
     BUCKET_INSUFFICIENT: "观测不足",
 }
+ALL_BUCKETS = (BUCKET_TRULY_DEAD, BUCKET_LINK_BROKEN, BUCKET_NEVER_STARTED, BUCKET_INSUFFICIENT)
 
 
 def _default_db() -> Path:
@@ -82,12 +85,17 @@ def load_process_probes(root: Path) -> dict:
 
 
 def classify(payload: dict, probes: dict):
-    """返回 (bucket, reason)。探针 > agent_status 启发式。"""
+    """返回 (bucket, reason)。探针 > reaper_kind(never_started) > agent_status 启发式。"""
     run_id = payload.get("run_id")
     if run_id in probes:
         if probes[run_id] is False:
             return BUCKET_TRULY_DEAD, "process_alive=false (T0.7 probe)"
         return BUCKET_LINK_BROKEN, "process_alive=true (T0.7 probe)"
+    # T4.3/P1-OBS：never_started（claim 后从未心跳）单独归桶——
+    # 其 agent_status 可能是幽灵/合成 agent 卡 ONLINE，**不代表 run 真的"链路断"**。
+    # 此前按 agent_status=online 误判为链路断，把幽灵抢占计成心跳抖动。
+    if payload.get("reaper_kind") == "never_started":
+        return BUCKET_NEVER_STARTED, "reaper_kind=never_started (claim 后从未心跳)"
     status = payload.get("agent_status")
     if status == "offline":
         return BUCKET_TRULY_DEAD, "agent_status=offline (hub registration expired)"
@@ -154,7 +162,7 @@ def scatter_histogram(rows):
 
 
 def analyze(samples, probes):
-    buckets = {BUCKET_TRULY_DEAD: [], BUCKET_LINK_BROKEN: [], BUCKET_INSUFFICIENT: []}
+    buckets = {b: [] for b in ALL_BUCKETS}
     for s in samples:
         bucket, reason = classify(s["payload"], probes)
         s["bucket"] = bucket
@@ -185,8 +193,8 @@ def main(argv=None):
     gate = "PASS" if n >= MIN_SAMPLES else "FAIL"
     print(f"[analyze_reaper] gate n>={MIN_SAMPLES}: {gate}")
     print()
-    print("== 三分占比 ==")
-    for b in (BUCKET_TRULY_DEAD, BUCKET_LINK_BROKEN, BUCKET_INSUFFICIENT):
+    print("== 四分占比 ==")
+    for b in ALL_BUCKETS:
         items = buckets[b]
         pct = (len(items) / n * 100) if n else 0.0
         top_agents: dict = {}
@@ -218,7 +226,7 @@ def main(argv=None):
 
     print()
     print("== 分桶 lag 分位（p50/p95） ==")
-    for b in (BUCKET_TRULY_DEAD, BUCKET_LINK_BROKEN, BUCKET_INSUFFICIENT):
+    for b in ALL_BUCKETS:
         vals = sorted(s["payload"].get("heartbeat_lag_seconds")
                       for s in buckets[b] if s["payload"].get("heartbeat_lag_seconds") is not None)
         if vals:
@@ -246,6 +254,7 @@ def main(argv=None):
     print(f"CONCLUSION n={n} gate={gate} "
           f"truly_dead={len(buckets[BUCKET_TRULY_DEAD])} "
           f"link_broken={len(buckets[BUCKET_LINK_BROKEN])} "
+          f"never_started={len(buckets[BUCKET_NEVER_STARTED])} "
           f"insufficient={len(buckets[BUCKET_INSUFFICIENT])}")
     return 0 if n >= MIN_SAMPLES else 2
 

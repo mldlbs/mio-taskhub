@@ -90,6 +90,32 @@ def test_offline_agent_not_touched():
     assert _agent_status("off1") == AgentStatus.OFFLINE
 
 
+def test_null_heartbeat_stale_agent_marked_offline():
+    """P1-OBS/T4.3：注册但从未心跳（last_heartbeat=None）且注册已超时的 agent → OFFLINE。
+
+    此前 `last_heartbeat.is_not(None)` 条件会跳过它，导致幽灵/合成 agent 永久卡 ONLINE
+    （inv1-* 实证），其 run 被误判为「链路断」。
+    """
+    with Session(engine) as s:
+        a = Agent(name="ghost1", agent_type="cli", status=AgentStatus.ONLINE)
+        a.last_heartbeat = None
+        a.registered_at = datetime.now(timezone.utc) - timedelta(seconds=600)
+        s.add(a); s.commit()
+    background._mark_stale_agents()
+    assert _agent_status("ghost1") == AgentStatus.OFFLINE
+
+
+def test_null_heartbeat_fresh_agent_stays_online():
+    """刚注册（registered_at 新）但未心跳的 agent 不应立即置 OFFLINE。"""
+    with Session(engine) as s:
+        a = Agent(name="ghost2", agent_type="cli", status=AgentStatus.ONLINE)
+        a.last_heartbeat = None
+        a.registered_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+        s.add(a); s.commit()
+    background._mark_stale_agents()
+    assert _agent_status("ghost2") == AgentStatus.ONLINE
+
+
 def test_stale_agent_no_longer_assigned():
     _mk_agent("stale2", hb_age_sec=600)
     client.post("/api/v1/tasks", json={"title": "stale-task", "stage": "ready"})

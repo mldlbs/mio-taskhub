@@ -446,6 +446,11 @@ def _mark_stale_agents():
     """把超过 AGENT_TIMEOUT_SECONDS 未心跳的 agent 标记为 OFFLINE。
 
     只改 agent status，不动 Run（run 由 _on_timeout 回收）。DB 层过滤，不全表遍历。
+
+    T4.3/P1-OBS：`last_heartbeat IS NULL` 的 agent（注册但从未心跳，如幽灵/合成 agent）
+    此前被 `is_not(None)` 条件跳过，导致**永久卡在 ONLINE**——其 run 被 reaper 判为
+    "agent 在线→链路断"，把 `never_started` 误计为链路断。现以 `registered_at` 兜底：
+    从未心跳且注册已超时的 agent 同样置 OFFLINE。
     """
     # SQLite 存储的 datetime 无 tzinfo（naive UTC），故 cutoff 也用 naive 比较
     cutoff = (datetime.now(timezone.utc) - timedelta(seconds=AGENT_TIMEOUT_SECONDS)).replace(tzinfo=None)
@@ -453,8 +458,11 @@ def _mark_stale_agents():
         stale = db.exec(
             select(Agent).where(
                 Agent.status != AgentStatus.OFFLINE,
-                Agent.last_heartbeat.is_not(None),
-                Agent.last_heartbeat < cutoff,
+                (
+                    (Agent.last_heartbeat.is_not(None)) & (Agent.last_heartbeat < cutoff)
+                ) | (
+                    (Agent.last_heartbeat.is_(None)) & (Agent.registered_at < cutoff)
+                ),
             )
         ).all()
         for a in stale:
