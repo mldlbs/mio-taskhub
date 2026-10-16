@@ -27,11 +27,19 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+# 强制 UTF-8 输出：CI（Windows cp1252）下中文 print 会 UnicodeEncodeError（T4.3）。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 HUB = os.environ.get("MIO_TASKHUB_URL") or "http://127.0.0.1:48620/api/v1"
 
