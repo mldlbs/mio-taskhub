@@ -56,27 +56,37 @@ def test_idle_worker_registers_and_keepalives(tmp_path):
     srv = http.server.HTTPServer(("127.0.0.1", 0), _FakeHub)
     port = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
+    env = dict(__import__("os").environ)
+    env["MIO_TASKHUB_URL"] = f"http://127.0.0.1:{port}/api/v1"
+    env["IDLE_KEEPALIVE_SECONDS"] = "1"  # 缩短（源码默认 60）
+    p = subprocess.Popen(
+        [sys.executable, str(IDLE), "w", "--interval", "0.3",
+         "--idle-timeout", "20", "--project", ""],
+        cwd=str(REPO), env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        encoding="utf-8", errors="replace",
+    )
     try:
-        env = dict(__import__("os").environ)
-        env["MIO_TASKHUB_URL"] = f"http://127.0.0.1:{port}"
-        env["IDLE_KEEPALIVE_SECONDS"] = "1"  # 缩短（源码默认 60）
-        # --once 会因无任务立即退出；保活线程可能来不及跑满间隔 → 用 --idle-timeout 留驻
-        p = subprocess.Popen(
-            [sys.executable, str(IDLE), "w", "--interval", "0.3",
-             "--idle-timeout", "3", "--project", ""],
-            cwd=str(REPO), env=env,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-        try:
-            time.sleep(2.5)
-        finally:
-            p.terminate()
-            try:
-                p.wait(timeout=5)
-            except Exception:
-                p.kill()
+        # CI 上子进程启动较慢 → 轮询至多 15s
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            if any("/agents/register" in c for c in _FakeHub.calls):
+                break
+            time.sleep(0.3)
+        # 再留时间给保活线程（间隔 1s）触发一次
+        deadline2 = time.time() + 5
+        while time.time() < deadline2:
+            if any("/agents/heartbeat" in c for c in _FakeHub.calls):
+                break
+            time.sleep(0.3)
     finally:
+        p.terminate()
+        try:
+            out = p.communicate(timeout=5)[0]
+        except Exception:
+            p.kill()
+            out = ""
         srv.shutdown()
     paths = _FakeHub.calls
-    assert any("/agents/register" in c for c in paths), f"未注册: {paths}"
-    assert any("/agents/heartbeat" in c for c in paths), f"未发 agent 保活心跳: {paths}"
+    assert any("/agents/register" in c for c in paths), f"未注册: {paths}\nworker输出:\n{out}"
+    assert any("/agents/heartbeat" in c for c in paths), f"未发 agent 保活心跳: {paths}\nworker输出:\n{out}"
