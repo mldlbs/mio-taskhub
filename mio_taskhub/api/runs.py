@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from sqlalchemy import update as sa_update
 from mio_taskhub.db import get_session
-from mio_taskhub.models import Run, RunState, Task, TaskEvent, TaskState, TaskStage
+from mio_taskhub.models import Run, RunState, Task, TaskEvent, TaskState, TaskStage, Agent, AgentStatus
 from mio_taskhub.utils import _now
 from mio_taskhub.events import emit_event
 from mio_taskhub.workflow.transitions import apply_transition, _orm_to_status_stage
@@ -211,6 +211,15 @@ def heartbeat(run_id: str, body: dict = None, agent: str = None,
         db.add(task)
     if m1_event is not None:
         db.add(m1_event)
+    # P1-OBS 执行链 P4：run 心跳 = agent 存活证据 → 同步刷新 agent 心跳并置 ONLINE。
+    # 否则 agent 因未单独上报 agent 心跳被 `_mark_stale_agents` 置 OFFLINE，其 run 走
+    # 120s 紧窗口被提前回收（实测 opencode run p50=127s 被回收）。
+    if run.agent_name:
+        ag = db.get(Agent, run.agent_name)
+        if ag is not None:
+            ag.status = AgentStatus.ONLINE
+            ag.last_heartbeat = _now()
+            db.add(ag)
     db.commit()
     db.refresh(run)
     # T0.7 生命周期埋点（fire-and-forget，全吞，绝不影响心跳路径）：

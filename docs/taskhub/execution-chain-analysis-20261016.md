@@ -81,11 +81,15 @@ agent 不置 OFFLINE**——有活跃 run 即证明存活。否则其 run 会因
 
 **测试**：`test_terminal_closes_run.py`（done / cancelled 各一）。
 
+**`mio_taskhub/api/runs.py::heartbeat`**：**run 心跳 = agent 存活证据 → 同步刷新 agent
+心跳并置 ONLINE**（P4）。否则 agent 因未单独上报 agent 心跳被置 OFFLINE，其 run 走
+120s 紧窗口被提前回收。
+
+**测试**：`test_run_heartbeat_refreshes_agent.py`。
+
 ---
 
 ## 4. 遗留
 
-1. **agent 侧心跳纪律**：agent 应在 claim 后周期性 `taskhub_heartbeat`(run) +
-   `taskhub_agent_heartbeat`（保 agent ONLINE）。本仓库已给 `idle_worker` 加保活；
-   其他宿主（opencode 会话等）需自行遵守。
-2. **`never_started` 语义细化**：区分「进程未起」vs「起了未报进度」（需 agent 侧启动埋点，暂缺）。
+1. **`never_started` 语义细化**（P2）：区分「进程未起」vs「起了未报进度」（需 agent 侧启动埋点，暂缺）。
+2. **agent 侧心跳纪律**（P4 已由 run 心跳同步刷新缓解）：agent 仍应周期性 `taskhub_agent_heartbeat`。
