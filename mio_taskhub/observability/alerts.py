@@ -103,12 +103,15 @@ class AlertManager:
         now = time.time()
 
         total = hm.get("request_count_total", 0)
-        errors = sum(hm.get("error_count", {}).values())
+        # P1-OBS/F10：只计**服务端错误（5xx）**——4xx 是客户端错误（404/422/409 等正常操作），
+        # 不应触发告警。此前 `sum(error_count.values())` 把 4xx 计入 → 实测 79.5% 误报
+        # （11139 全 4xx、0 个 5xx），HighHttpErrorRate 长期空转告警。
+        errors = hm.get("error_count", {}).get("5xx", 0)
         if total > 10 and errors / total > 0.05:
             results.append(Alert(
                 name="HighHttpErrorRate",
                 severity="warning",
-                message=f"HTTP 错误率 {errors/total*100:.1f}%（{errors}/{total} 请求）超过 5% 阈值",
+                message=f"HTTP 服务端错误率 {errors/total*100:.1f}%（{errors}/{total} 请求，仅 5xx）超过 5% 阈值",
                 fired_at=now,
                 value=errors / total,
             ))

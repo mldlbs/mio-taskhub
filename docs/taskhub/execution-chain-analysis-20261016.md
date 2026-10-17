@@ -56,6 +56,12 @@
 - 叠加历史「心跳重开 finished run」bug（**已修**：`runs.py` 心跳对 finished run 返回 409，`test_tc_s5` 覆盖）
 - 长 run 全在 09-28~10-05（修复前）；10-06 后无
 
+### P7 · HighHttpErrorRate 把 4xx 计入错误（F10 空转告警）
+
+- `alerts.py::_check_http` 用 `sum(error_count.values())`（**4xx + 5xx**）算错误率
+- 实测：**14006 请求中 11139 全是 4xx、0 个 5xx** → 告警报 **79.5%**（纯误报）
+- 4xx（404/422/409）是正常客户端操作，不应触发「服务端错误率」告警
+
 ---
 
 ## 3. 修复（本轮）
@@ -94,6 +100,11 @@ agent 不置 OFFLINE**——有活跃 run 即证明存活。否则其 run 会因
 供事后区分「进程未起」与「起了未报进度」。**语义仍以 `progress==0` 为兼容基准**（不改行为）。
 
 **测试**：`test_reaper_state_before.py`。
+
+**`mio_taskhub/observability/alerts.py::_check_http` + `report.py::_collect_http`**（F10）：
+错误率**只计服务端错误（5xx）**——4xx 是正常客户端错误，不计入。消除 HighHttpErrorRate 空转告警。
+
+**测试**：`test_http_error_alert.py`（4xx 不触发 / 5xx 触发 / 无错误不触发）。
 
 ---
 

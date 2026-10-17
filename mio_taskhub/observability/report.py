@@ -56,13 +56,17 @@ def _collect_database() -> dict:
 def _collect_http() -> dict:
     hm = get_http_metrics()
     total = hm.get("request_count_total", 0)
-    errors = sum(hm.get("error_count", {}).values())
-    rate = (errors / total) if total else 0.0
+    by_class = hm.get("error_count", {})
+    errors = sum(by_class.values())
+    # P1-OBS/F10：`error_rate` 只计服务端错误（5xx）——4xx 是正常客户端错误，不应算失败率。
+    server_errors = by_class.get("5xx", 0)
+    rate = (server_errors / total) if total else 0.0
     return {
         "request_count_total": total,
         "active_requests": hm.get("active_requests", 0),
-        "errors_by_class": hm.get("error_count", {}),
+        "errors_by_class": by_class,
         "error_count_total": errors,
+        "server_error_count": server_errors,
         "error_rate": round(rate, 4),
         "total_duration_ms": round(sum(hm.get("total_duration_ms", {}).values()), 1),
     }
