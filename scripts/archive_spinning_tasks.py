@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sqlmodel import Session, select  # noqa: E402
 
 from mio_taskhub.db import engine  # noqa: E402
-from mio_taskhub.models import Task, TaskState, TaskKind  # noqa: E402
+from mio_taskhub.models import Task, TaskState, TaskKind, TaskStage  # noqa: E402
 
 ARCHIVE_LABEL = "archived:spinning"
 ARCHIVE_NOTE = "assessment-20260930:P1-1 空转垃圾任务归档"
@@ -81,12 +81,21 @@ def run(apply: bool, undo: bool) -> int:
                 # claim 候选只认 QUEUED/READY，转 CANCELLED 才真正不再被消费；
                 # cancel 是状态变化非删除，--undo 可恢复。
                 if ARCHIVE_LABEL in labels and t.state == TaskState.CANCELLED:
+                    # 已归档但 stage 未同步 → 补正（幂等）
+                    if t.stage != TaskStage.CANCELLED:
+                        if apply:
+                            t.stage = TaskStage.CANCELLED
+                            db.add(t)
+                        changed += 1
                     continue
                 if ARCHIVE_LABEL not in labels:
                     labels.append(ARCHIVE_LABEL)
                 if apply:
                     t.labels = labels
                     t.state = TaskState.CANCELLED
+                    # 一致性（同 cancel_task）：终态 cancelled 时 stage 也置 CANCELLED
+                    if t.stage != TaskStage.CANCELLED:
+                        t.stage = TaskStage.CANCELLED
                     db.add(t)
             changed += 1
             if changed <= 10:
