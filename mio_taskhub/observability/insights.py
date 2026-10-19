@@ -49,7 +49,8 @@ class InsightsEngine:
                     "anomaly", f"Critical: {metric_name} low",
                     f"{metric_name} = {value:.4f} below critical threshold {thresholds['critical_low']}",
                     severity="critical", metric_name=metric_name, metric_value=value,
-                    baseline=thresholds["critical_low"], recommendation=RECOMMENDATIONS.get(metric_name, "")
+                    baseline=thresholds["critical_low"], recommendation=RECOMMENDATIONS.get(metric_name, ""),
+                    low=True,
                 )
                 insights.append(insight)
             elif "warn" in thresholds and value >= thresholds["warn"]:
@@ -65,14 +66,15 @@ class InsightsEngine:
                     "anomaly", f"Warning: {metric_name} low",
                     f"{metric_name} = {value:.4f} below warning threshold {thresholds['warn_low']}",
                     severity="warning", metric_name=metric_name, metric_value=value,
-                    baseline=thresholds["warn_low"], recommendation=RECOMMENDATIONS.get(metric_name, "")
+                    baseline=thresholds["warn_low"], recommendation=RECOMMENDATIONS.get(metric_name, ""),
+                    low=True,
                 )
                 insights.append(insight)
         return insights
 
     def store(self, kind: str, title: str, description: str, severity: str = "info",
               metric_name: str = None, metric_value: float = None, baseline: float = None,
-              recommendation: str = None, auto_action: str = None) -> dict:
+              recommendation: str = None, auto_action: str = None, low: bool = False) -> dict:
         try:
             with engine.connect() as conn:
                 # Dedup: skip re-inserting an already-unacknowledged insight with the
@@ -89,7 +91,7 @@ class InsightsEngine:
                     # 同时做恢复检测：若本次调用给出的值已回到阈值以内，说明告警
                     # 自愈，把该行标 acknowledged，避免化石快照永久驻留、反复触发
                     # 派单（task e83cc9e2 变更 4）。
-                    recovered = self._is_recovered(metric_value, baseline)
+                    recovered = self._is_recovered(metric_value, baseline, low)
                     try:
                         conn.execute(
                             text("UPDATE insight SET ts = :ts, metric_value = :mv, "
@@ -118,16 +120,22 @@ class InsightsEngine:
             logger.exception("Failed to store insight")
             return {}
 
-    def _is_recovered(self, metric_value, baseline) -> bool:
+    def _is_recovered(self, metric_value, baseline, low: bool = False) -> bool:
         """判断本次值是否已回到阈值以内（告警自愈）。
 
-        仅当 baseline 为「高阈值」型（value >= baseline 触发）时才判恢复：
-        实时值 < baseline 即恢复。低阈值/无法解析时返回 False，保守不误 ack。
+        - 高阈值型（value >= baseline 触发）：实时值 < baseline 即恢复。
+        - 低阈值型（value <= baseline 触发，low=True）：实时值 >= baseline 才恢复。
+
+        P1-OBS 修复：此前不区分方向，一律用 `value < baseline`，导致**低阈值**洞察
+        （如 success_rate low，baseline=0.90、value=0.86）被误判为已恢复 → 立即 ack →
+        下轮扫描又新建，抖动成灾（实测 7585 条 ack=1 的 success_rate-low 洞察）。
         """
         if metric_value is None or baseline is None:
             return False
         try:
-            return float(metric_value) < float(baseline)
+            v = float(metric_value)
+            b = float(baseline)
+            return v >= b if low else v < b
         except (TypeError, ValueError):
             return False
 

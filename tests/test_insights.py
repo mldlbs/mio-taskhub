@@ -123,3 +123,29 @@ def test_store_missing_baseline_not_recovered():
         severity="critical", metric_name="no_baseline", metric_value=0.5,
     )
     assert row.get("recovered") is False
+
+def test_is_recovered_low_threshold_direction():
+    """P1-OBS：低阈值洞察（success_rate low）不应被 `value < baseline` 误判为已恢复。"""
+    from mio_taskhub.observability.insights import InsightsEngine
+    e = InsightsEngine()
+    # 低阈值型：0.86 < 0.90 仍在告警 → 未恢复
+    assert e._is_recovered(0.86, 0.90, low=True) is False
+    # 低阈值型：0.95 >= 0.90 → 恢复
+    assert e._is_recovered(0.95, 0.90, low=True) is True
+    # 高阈值型（默认）：0.03 < 0.05 → 恢复
+    assert e._is_recovered(0.03, 0.05) is True
+    # 高阈值型：0.10 >= 0.05 → 未恢复
+    assert e._is_recovered(0.10, 0.05) is False
+
+
+def test_low_insight_not_acked_when_still_breaching():
+    """低阈值指标仍在告警时，重复 evaluate 不应产生新洞察（不误 ack）。"""
+    from mio_taskhub.observability.insights import InsightsEngine
+    from mio_taskhub.db import engine
+    from sqlalchemy import text
+    e = InsightsEngine()
+    e.evaluate({"taskhub_task_success_rate": 0.86})   # 首次
+    e.evaluate({"taskhub_task_success_rate": 0.86})   # 再次（同值）
+    with engine.connect() as c:
+        n = c.execute(text("SELECT COUNT(*) FROM insight WHERE title='Warning: taskhub_task_success_rate low'")).fetchone()[0]
+    assert n == 1, f"同值重复 evaluate 应去重为 1 条，实得 {n}"

@@ -95,6 +95,12 @@
   （**含 QUEUED**）→ 正常排队任务被计为 stalled（看板显示 26 个"卡死"）
 - 与 `remediation.evaluate_stalled_tasks` 的 `ACTIVE_STATES`（不含 QUEUED）语义不一致
 
+### P13 · 低阈值洞察被误判「已恢复」致抖动（insight 表 7585 条）
+
+- `insights._is_recovered` 不区分方向，一律 `value < baseline` 判恢复
+- 对**低阈值**洞察（`success_rate low`，baseline=0.90、value=0.86）→ 误判恢复 → 立即 ack
+  → 下轮扫描又新建 → 抖动成灾（实测 **7585 条 ack=1** 的 success_rate-low 洞察，每 ~2min 一条）
+
 ---
 
 ## 3. 修复（本轮）
@@ -172,6 +178,11 @@ FAILED/CANCELLED 评审任务（标题「…」想法评审）并归档（`archi
 CLAIMED/RUNNING/RETRYING（对齐 remediation 的 `ACTIVE_STATES`），不再把正常排队的 QUEUED 计入。
 
 **测试**：`test_metrics.py::test_stalled_metric_excludes_queued`。
+
+**`mio_taskhub/observability/insights.py`**（P13）：`_is_recovered` 区分方向——低阈值型
+（`low=True`）用 `value >= baseline` 判恢复；`store`/`evaluate` 透传 `low`。
+
+**测试**：`test_insights.py::test_is_recovered_low_threshold_direction`。
 
 ---
 
