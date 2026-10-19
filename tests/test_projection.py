@@ -245,3 +245,19 @@ class TestProjectionReplay:
         errors = _compare(actual, proj)
         assert not errors, "投影不匹配:\n" + "\n".join(errors)
         assert actual.last_transition_at == events[-1].created_at
+
+
+def test_completed_at_not_overwritten_by_stage_change():
+    """P1-OBS：COMPLETED→REVIEW→DONE 阶段迁移不应覆盖 completed_at（投影差 1s 的根因）。"""
+    import time as _t
+    t = _mk("proj_completed_once")
+    _apply(t.id, State.QUEUED, Stage.READY, ActorType.USER)
+    _apply(t.id, State.CLAIMED, Stage.READY, ActorType.AGENT, "claim")
+    _apply(t.id, State.CLAIMED, Stage.IMPLEMENTING, ActorType.AGENT, "impl")
+    _apply(t.id, State.RUNNING, Stage.IMPLEMENTING, ActorType.AGENT, "start")
+    _apply(t.id, State.COMPLETED, Stage.IMPLEMENTING, ActorType.AGENT, "finish")
+    first = _get_task(t.id).completed_at
+    _t.sleep(0.05)
+    _apply(t.id, State.COMPLETED, Stage.REVIEW, ActorType.USER, "to review")
+    _apply(t.id, State.COMPLETED, Stage.DONE, ActorType.SYSTEM, "finalize")
+    assert _get_task(t.id).completed_at == first, "completed_at 被阶段迁移覆盖"

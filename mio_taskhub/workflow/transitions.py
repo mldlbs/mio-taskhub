@@ -72,11 +72,13 @@ def apply_transition(
         task.running_started_at = now
     if to_stage == Stage.REVIEW and task.review_started_at is None:
         task.review_started_at = now
-    if to_state == State.COMPLETED:
+    # P1-OBS：终态时间戳只在**首次**进入该终态时设——否则 COMPLETED→REVIEW→DONE 等
+    # 阶段迁移会反复覆盖 completed_at（实测投影回放与实测差 1s 的根因）。
+    if to_state == State.COMPLETED and task.completed_at is None:
         task.completed_at = now
-    if to_state == State.FAILED:
+    if to_state == State.FAILED and task.failed_at is None:
         task.failed_at = now
-    if to_state == State.CANCELLED:
+    if to_state == State.CANCELLED and task.cancelled_at is None:
         task.cancelled_at = now
     task.last_transition_at = now
 

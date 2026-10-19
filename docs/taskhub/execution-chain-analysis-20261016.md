@@ -75,6 +75,12 @@
 - 但长任务（>30min）**不迁移状态属正常**，其 run 在正常心跳 → 被误判停滞并 `requeue_task`
 - `requeue_task` 只把 task 置 QUEUED，**不关活跃 run**（同 P6 类问题）
 
+### P10 · 终态时间戳被阶段迁移反复覆盖
+
+- `apply_transition` **每次** `to_state==COMPLETED` 都重写 `task.completed_at`
+- `COMPLETED→REVIEW→DONE` 的阶段迁移会覆盖完成时间 → 投影回放与实测差 1s（`test_projection` CI flaky）
+- 同 `failed_at`/`cancelled_at`（应只在**首次**进入终态时设）
+
 ---
 
 ## 3. 修复（本轮）
@@ -129,6 +135,12 @@ agent 不置 OFFLINE**——有活跃 run 即证明存活。否则其 run 会因
 **有近期 run 心跳**的任务（长任务不迁移状态属正常）——避免误排丢在途工作。
 
 **测试**：`test_remediation.py::test_task_with_fresh_run_heartbeat_not_stalled`。
+
+**`mio_taskhub/workflow/transitions.py::apply_transition`**（P10）：终态时间戳
+（`completed_at`/`failed_at`/`cancelled_at`）**只在首次进入终态时设**（同 `claimed_at`），
+不再被后续阶段迁移覆盖。
+
+**测试**：`test_projection.py::test_completed_at_not_overwritten_by_stage_change`。
 
 ---
 
