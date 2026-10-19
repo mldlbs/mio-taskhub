@@ -156,6 +156,12 @@ agent 不置 OFFLINE**——有活跃 run 即证明存活。否则其 run 会因
 
 **测试**：`test_idea_review_scanner.py::test_due_skips_recently_attempted_after_failure`。
 
+**`scripts/archive_spinning_tasks.py`**（P11 残留清理）：识别 `task_kind=REVIEW` 的
+FAILED/CANCELLED 评审任务（标题「…」想法评审）并归档（`archived:spinning` + CANCELLED）。
+生产库归档 **1489** 条（FAILED 1505→35）。
+
+**测试**：`test_archive_spinning.py`。
+
 ---
 
 ## 4. 遗留

@@ -21,18 +21,24 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sqlmodel import Session, select  # noqa: E402
 
 from mio_taskhub.db import engine  # noqa: E402
-from mio_taskhub.models import Task, TaskState  # noqa: E402
+from mio_taskhub.models import Task, TaskState, TaskKind  # noqa: E402
 
 ARCHIVE_LABEL = "archived:spinning"
 ARCHIVE_NOTE = "assessment-20260930:P1-1 空转垃圾任务归档"
 
-# 需归档的自动生成任务：标题前缀匹配，或由 cron 生成（label cron:<id>）
+# 需归档的自动生成任务：标题前缀匹配，或带 cron 生成（label cron:<id>）
 SPINNING_TITLE_PREFIXES = ("[定时] 自动生成创意想法",)
 
 
 def _is_spinning(t) -> bool:
     labels = t.labels or []
     if any((t.title or "").startswith(p) for p in SPINNING_TITLE_PREFIXES):
+        return True
+    # idea 评审任务（task_kind=REVIEW，标题「…」想法评审）——P11 空转风暴残留：
+    # 评审任务失败后被反复重建（已加退避修复），历史 FAILED 残留归档。
+    if (getattr(t, "task_kind", None) == TaskKind.REVIEW
+            and (t.title or "").endswith("想法评审")
+            and t.state in (TaskState.FAILED, TaskState.CANCELLED)):
         return True
     # 由 cron job 生成（label cron:<job_id>）且带 auto 标记
     has_cron = any(str(x).startswith("cron:") for x in labels)
@@ -43,10 +49,11 @@ def run(apply: bool, undo: bool) -> int:
     with Session(engine) as db:
         # 空转任务：未认领（无 claimed_at）且处于排队态；涵盖 CANCELLED 与 QUEUED 两类
         # （CANCELLED = 已被清理的垃圾；QUEUED 且长期未认领 = 正在堆积的垃圾）。
+        # 另含 REVIEW 类（idea 评审）——P11 风暴残留的 FAILED 评审任务（已认领，故单列）。
         tasks = db.exec(
             select(Task).where(
-                Task.claimed_at.is_(None),
-                Task.state.in_([TaskState.CANCELLED, TaskState.QUEUED]),
+                (Task.claimed_at.is_(None) & Task.state.in_([TaskState.CANCELLED, TaskState.QUEUED]))
+                | (Task.task_kind == TaskKind.REVIEW)
             )
         ).all()
         targets = [t for t in tasks if _is_spinning(t)]
