@@ -74,3 +74,32 @@ def test_due_after_interval(monkeypatch):
 def test_scanner_get_due_uses_enabled(monkeypatch):
     monkeypatch.setattr(idea_review, "ENABLED", False)
     assert idea_review.IdeaReviewScanner()._get_due() == []
+
+def test_due_skips_recently_attempted_after_failure(monkeypatch):
+    """P1-OBS：评审任务失败后，退避窗口内不应立即重建（防空转风暴）。"""
+    from datetime import datetime, timezone
+    from mio_taskhub.models import TaskState, TaskStage
+    monkeypatch.setattr(idea_review, "INITIAL_DELAY_MIN", 0)
+    iid = _seed_idea()
+    with Session(engine) as s:
+        t = Task(title="评审", task_kind=TaskKind.REVIEW, idea_id=iid,
+                 target_agent_type="idea-reviewer", state=TaskState.FAILED,
+                 stage=TaskStage.IMPLEMENTING, created_at=datetime.now(timezone.utc))
+        s.add(t); s.commit()
+    assert idea_review._due_idea_ids() == []   # 退避窗口内不重建
+
+
+def test_due_allows_after_backoff_elapsed(monkeypatch):
+    """退避窗口过后可重建。"""
+    from datetime import datetime, timedelta, timezone
+    from mio_taskhub.models import TaskState, TaskStage
+    monkeypatch.setattr(idea_review, "INITIAL_DELAY_MIN", 0)
+    monkeypatch.setattr(idea_review, "RETRY_BACKOFF_MIN", 60)
+    iid = _seed_idea()
+    with Session(engine) as s:
+        t = Task(title="评审", task_kind=TaskKind.REVIEW, idea_id=iid,
+                 target_agent_type="idea-reviewer", state=TaskState.FAILED,
+                 stage=TaskStage.IMPLEMENTING,
+                 created_at=datetime.now(timezone.utc) - timedelta(minutes=120))
+        s.add(t); s.commit()
+    assert idea_review._due_idea_ids() == [iid]

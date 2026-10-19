@@ -81,6 +81,14 @@
 - `COMPLETED→REVIEW→DONE` 的阶段迁移会覆盖完成时间 → 投影回放与实测差 1s（`test_projection` CI flaky）
 - 同 `failed_at`/`cancelled_at`（应只在**首次**进入终态时设）
 
+### P11 · idea_review 任务空转风暴（严重）
+
+- 实测 3h 内 **1445 idea_review 任务创建 / 4376 领取 / 2914 重试**（event 从 4.4k 涨到 20k）
+- 根因：`idea_review._has_inflight_review` 只认 QUEUED/CLAIMED/RUNNING/RETRYING（**不含 FAILED**）
+  → 评审任务失败后下轮扫描（60s）**立即重建** → 「建→失败→建」风暴
+- 触发：`idle-worker-hermes`（night_runner spawn）领取 idea-reviewer 任务，`hermes -z` Node 报错
+  → 任务失败 → 无退避重建
+
 ---
 
 ## 3. 修复（本轮）
@@ -141,6 +149,12 @@ agent 不置 OFFLINE**——有活跃 run 即证明存活。否则其 run 会因
 不再被后续阶段迁移覆盖。
 
 **测试**：`test_projection.py::test_completed_at_not_overwritten_by_stage_change`。
+
+**`mio_taskhub/ideas/idea_review.py::_due_idea_ids`**（P11）：新增 `_recently_attempted`
+退避——同一 idea 若在 `RETRY_BACKOFF_MIN`（默认 60）内已派过评审任务（**含失败**），不再重建。
+消除空转风暴。
+
+**测试**：`test_idea_review_scanner.py::test_due_skips_recently_attempted_after_failure`。
 
 ---
 

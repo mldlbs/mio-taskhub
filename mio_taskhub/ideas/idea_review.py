@@ -7,7 +7,7 @@
 - MIO_IDEA_REVIEW_ENABLED          默认 1
 """
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from sqlmodel import Session, select
 from mio_taskhub.db import engine
 from mio_taskhub.models import (Idea, IdeaStatus, Task, TaskKind, TaskStage,
@@ -18,6 +18,9 @@ from mio_taskhub.events import emit_event, broadcast_for_event
 INTERVAL_MIN = int(os.environ.get("MIO_IDEA_REVIEW_INTERVAL_MIN", "1440"))
 INITIAL_DELAY_MIN = int(os.environ.get("MIO_IDEA_REVIEW_INITIAL_DELAY_MIN", "60"))
 ENABLED = os.environ.get("MIO_IDEA_REVIEW_ENABLED", "1") not in ("0", "false", "")
+# 失败/完成后的重建退避：同一 idea 若近期已派过评审任务（含失败），在该窗口内不再重建。
+# 防「评审任务失败→无在途→下轮扫描立即重建」的空转风暴（实测 3h 内 1445 任务 / 4376 领取）。
+RETRY_BACKOFF_MIN = int(os.environ.get("MIO_IDEA_REVIEW_RETRY_BACKOFF_MIN", "60"))
 
 # 评审命中的非终态（去重参照：排队/领取/运行/重试均视为在途）
 _INFLIGHT_STATES = [TaskState.QUEUED, TaskState.CLAIMED,
@@ -40,6 +43,22 @@ def _has_inflight_review(db: Session, idea_id: str) -> bool:
     return t is not None
 
 
+def _recently_attempted(db: Session, idea_id: str, now: datetime) -> bool:
+    """该 idea 近期是否已派过评审任务（**含已失败/已完成**）——退避窗口内不再重建。
+
+    修复空转风暴：评审任务失败后 `_has_inflight_review` 为 False，原逻辑下轮扫描
+    （默认 60s）立即重建，形成「建→失败→建」风暴。
+    """
+    cutoff = (now - timedelta(minutes=RETRY_BACKOFF_MIN)).replace(tzinfo=None)
+    t = db.exec(select(Task).where(
+        Task.idea_id == idea_id,
+        Task.task_kind == TaskKind.REVIEW,
+        Task.created_at.is_not(None),
+        Task.created_at >= cutoff,
+    )).first()
+    return t is not None
+
+
 def _due_idea_ids() -> list:
     """返回需要评审（且无在途评审任务）的 idea id。"""
     now = datetime.now(timezone.utc)
@@ -48,6 +67,8 @@ def _due_idea_ids() -> list:
         due = []
         for i in ideas:
             if _has_inflight_review(db, i.id):
+                continue
+            if _recently_attempted(db, i.id, now):
                 continue
             created = _utc(i.created_at) or now
             last = _utc(i.last_reviewed_at)
