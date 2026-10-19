@@ -93,12 +93,26 @@ class RemediationEngine:
         """Reset a stuck task back to queued state."""
         try:
             from sqlmodel import Session, select
-            from mio_taskhub.models import Task, TaskState
+            from mio_taskhub.models import Task, TaskState, Run, RunState
+            from mio_taskhub.utils import _now
             with Session(engine) as session:
                 task = session.get(Task, task_id)
                 if task and task.state not in (TaskState.COMPLETED, TaskState.FAILED, TaskState.CANCELLED):
                     task.state = TaskState.QUEUED
                     task.retry_count = (task.retry_count or 0) + 1
+                    # P1-OBS（同 P6）：重排任务时关闭其活跃 run，避免 run 悬挂。
+                    runs = session.exec(
+                        select(Run).where(
+                            Run.task_id == task_id,
+                            Run.state.in_([RunState.CLAIMED, RunState.RUNNING]),
+                        )
+                    ).all()
+                    for r in runs:
+                        r.state = RunState.FINISHED
+                        r.finished_at = _now()
+                        if not r.result:
+                            r.result = "requeued by remediation"
+                        session.add(r)
                     session.add(task)
                     session.commit()
                     self.log("requeue_task", f"Requeued task {task_id}", success=True)

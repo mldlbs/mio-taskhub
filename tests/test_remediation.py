@@ -189,3 +189,17 @@ def test_task_with_stale_run_heartbeat_is_stalled():
     _seed_run("dead-running", "r2", RunState.RUNNING, hb_minutes_ago=120)
     actions = RemediationEngine().evaluate_stalled_tasks()
     assert any(a["task_id"] == "dead-running" for a in actions)
+
+
+def test_requeue_task_closes_active_run():
+    """P1-OBS（同 P6）：remediation 重排任务时应关闭其活跃 run。"""
+    from sqlmodel import Session
+    from mio_taskhub.db import engine as db_engine
+    from mio_taskhub.models import TaskState, RunState, Run
+    from mio_taskhub.observability.remediation import RemediationEngine
+    _seed_task("requeue-me", TaskState.RUNNING, minutes_ago=120)
+    _seed_run("requeue-me", "rr1", RunState.RUNNING, hb_minutes_ago=120)
+    res = RemediationEngine().requeue_task("requeue-me")
+    assert res["success"] is True
+    with Session(db_engine) as s:
+        assert s.get(Run, "rr1").state == RunState.FINISHED
