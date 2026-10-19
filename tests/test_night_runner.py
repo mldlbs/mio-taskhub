@@ -66,3 +66,25 @@ def test_tick_disabled_stops_agents():
                                                        "window_end": "07:00", "agents": []}):
         runner.tick()
     assert runner._procs == {}
+
+
+def test_spawn_passes_api_prefixed_url(monkeypatch):
+    """night_runner 传给子进程的 MIO_TASKHUB_URL 必须含 /api/v1（否则 idle_worker claim 405）。"""
+    captured = {}
+
+    class _FakeProc:
+        pid = 4242
+
+        def poll(self):
+            return 0
+
+    def _fake_popen(cmd, **kw):
+        captured["env"] = kw.get("env")
+        return _FakeProc()
+
+    monkeypatch.delenv("MIO_TASKHUB_URL", raising=False)
+    with patch("subprocess.Popen", _fake_popen):
+        runner = nr.NightRunner()
+        res = runner._spawn({"agent": "u", "command": "cmd /c exit 0"})
+    assert res["ok"] is True
+    assert captured["env"]["MIO_TASKHUB_URL"].endswith("/api/v1"), captured["env"].get("MIO_TASKHUB_URL")

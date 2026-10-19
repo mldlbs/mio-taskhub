@@ -62,6 +62,13 @@
 - 实测：**14006 请求中 11139 全是 4xx、0 个 5xx** → 告警报 **79.5%**（纯误报）
 - 4xx（404/422/409）是正常客户端操作，不应触发「服务端错误率」告警
 
+### P8 · night_runner spawn 失败 / 子进程 URL 缺 /api/v1（F9）
+
+- `night_runner.json` 的 `idle-worker-opencode.cwd` 指向**不存在的** `dist\mio-taskhub`
+  （实际 `dist\mio-taskhub-v3`）→ 每天 00:00 spawn precheck 失败「脚本不存在」
+- `night_runner._spawn` 把 `MIO_TASKHUB_URL` 设为**裸 hub base**（无 `/api/v1`）传给子进程
+  → idle_worker claim 到 `/tasks/claim` → **405**
+
 ---
 
 ## 3. 修复（本轮）
@@ -105,6 +112,12 @@ agent 不置 OFFLINE**——有活跃 run 即证明存活。否则其 run 会因
 错误率**只计服务端错误（5xx）**——4xx 是正常客户端错误，不计入。消除 HighHttpErrorRate 空转告警。
 
 **测试**：`test_http_error_alert.py`（4xx 不触发 / 5xx 触发 / 无错误不触发）。
+
+**`mio_taskhub/scheduling/night_runner.py::_spawn`**（F9）：子进程 `MIO_TASKHUB_URL` 补
+`/api/v1` 前缀（`{url}` 占位仍用裸 hub base）；`~/.mio_taskhub/night_runner.json` 的
+`idle-worker-opencode.cwd` 修正为 `dist\mio-taskhub-v3`。
+
+**测试**：`test_night_runner.py::test_spawn_passes_api_prefixed_url`。
 
 ---
 

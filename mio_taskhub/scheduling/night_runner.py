@@ -133,6 +133,12 @@ class NightRunner:
         cmd = agent_cfg["command"]
         url = os.environ.get("MIO_TASKHUB_URL", "http://127.0.0.1:48620")
         token = os.environ.get("MIO_TASKHUB_TOKEN", "")
+        # 子进程的 MIO_TASKHUB_URL 须含 API 前缀 `/api/v1`——idle_worker 等客户端以此
+        # 拼 `/tasks/claim`；若给裸 hub base（无 /api/v1）会请求到 `/tasks/claim` → 405。
+        # {url} 占位（给 agent 提示词）仍用裸 hub base。
+        api_url = url.rstrip("/")
+        if not api_url.endswith("/api/v1"):
+            api_url = api_url + "/api/v1"
         cmd = cmd.replace("{url}", url).replace("{token}", token)
         # {project} = 空闲执行范围（顶层 projects；空 = 全部项目）
         scope = load_config().get("projects") or []
@@ -144,7 +150,7 @@ class NightRunner:
             return {"ok": False, "error": "precheck failed", "hint": hint, "cmd": cmd}
         try:
             proc = subprocess.Popen(cmd, shell=True, cwd=cwd,
-                                    env={**os.environ, "MIO_TASKHUB_URL": url},
+                                    env={**os.environ, "MIO_TASKHUB_URL": api_url},
                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             self._procs[name] = proc
             logger.info(f"spawned {name}: pid={proc.pid}")
