@@ -101,6 +101,11 @@
 - 对**低阈值**洞察（`success_rate low`，baseline=0.90、value=0.86）→ 误判恢复 → 立即 ack
   → 下轮扫描又新建 → 抖动成灾（实测 **7585 条 ack=1** 的 success_rate-low 洞察，每 ~2min 一条）
 
+### P14 · depmetricssnapshot 无界增长（cleanup 未接线）
+
+- `DepMetricsPersist.cleanup(days=7)` 存在但**从未被调用**——`_dep_persist_loop` 只 `snapshot()`
+- 实测 depmetricssnapshot **44754 行 / 跨 33 天**（~1356 行/天），无界增长
+
 ---
 
 ## 3. 修复（本轮）
@@ -183,6 +188,11 @@ CLAIMED/RUNNING/RETRYING（对齐 remediation 的 `ACTIVE_STATES`），不再把
 （`low=True`）用 `value >= baseline` 判恢复；`store`/`evaluate` 透传 `low`。
 
 **测试**：`test_insights.py::test_is_recovered_low_threshold_direction`。
+
+**`mio_taskhub/main.py::_dep_persist_loop`**（P14）：每轮 snapshot 后调用
+`_dep_persist.cleanup()`（保留 7 天），防 depmetricssnapshot 无界增长。
+
+**测试**：`test_dep_persist.py::test_dep_persist_loop_calls_cleanup`。
 
 ---
 

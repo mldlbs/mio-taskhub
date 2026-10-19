@@ -111,6 +111,12 @@ async def lifespan(app):
         while True:
             time.sleep(300)
             _dep_persist.snapshot()
+            # P1-OBS：周期性清理超保留期的快照——此前只 snapshot 不 cleanup，
+            # 致 depmetricssnapshot 无界增长（实测 33 天 44754 行）。
+            try:
+                _dep_persist.cleanup()
+            except Exception:
+                pass
     _dep_persist_thread = threading.Thread(target=_dep_persist_loop, daemon=True, name="dep-persist")
     _dep_persist_thread.start()
     register_thread("dep-persist", _dep_persist_thread, _dep_persist)
