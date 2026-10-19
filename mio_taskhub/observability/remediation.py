@@ -50,6 +50,15 @@ class RemediationEngine:
                       AND COALESCE(last_transition_at, created_at) IS NOT NULL
                       AND COALESCE(retry_count, 0) < COALESCE(max_retries, 3)
                       AND (julianday('now') - julianday(COALESCE(last_transition_at, created_at))) * 1440.0 > :minutes
+                      -- P1-OBS：排除「有近期 run 心跳」的任务——长任务（>30min）不迁移状态属正常，
+                      -- 不应因 last_transition_at 陈旧被误判为停滞而重排（否则丢 agent 在途工作）。
+                      AND NOT EXISTS (
+                          SELECT 1 FROM run r
+                          WHERE r.task_id = task.id
+                            AND r.state IN ('CLAIMED', 'RUNNING')
+                            AND r.last_heartbeat IS NOT NULL
+                            AND (julianday('now') - julianday(r.last_heartbeat)) * 1440.0 < :minutes
+                      )
                     ORDER BY age_minutes DESC
                 """), {"minutes": minutes})
                 actions = []

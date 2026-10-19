@@ -69,6 +69,12 @@
 - `night_runner._spawn` 把 `MIO_TASKHUB_URL` 设为**裸 hub base**（无 `/api/v1`）传给子进程
   → idle_worker claim 到 `/tasks/claim` → **405**
 
+### P9 · 停滞检测误伤「有心跳的长任务」
+
+- `remediation.py::evaluate_stalled_tasks` 用 `last_transition_at` 判停滞（>30min）
+- 但长任务（>30min）**不迁移状态属正常**，其 run 在正常心跳 → 被误判停滞并 `requeue_task`
+- `requeue_task` 只把 task 置 QUEUED，**不关活跃 run**（同 P6 类问题）
+
 ---
 
 ## 3. 修复（本轮）
@@ -118,6 +124,11 @@ agent 不置 OFFLINE**——有活跃 run 即证明存活。否则其 run 会因
 `idle-worker-opencode.cwd` 修正为 `dist\mio-taskhub-v3`。
 
 **测试**：`test_night_runner.py::test_spawn_passes_api_prefixed_url`。
+
+**`mio_taskhub/observability/remediation.py::evaluate_stalled_tasks`**（P9）：停滞判定排除
+**有近期 run 心跳**的任务（长任务不迁移状态属正常）——避免误排丢在途工作。
+
+**测试**：`test_remediation.py::test_task_with_fresh_run_heartbeat_not_stalled`。
 
 ---
 
