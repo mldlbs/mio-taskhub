@@ -142,10 +142,13 @@ def render_metrics() -> str:
                     lines.append(f'taskhub_task_stage_dwell_seconds{{stage="{stage}"}} {avg_dwell:.1f}')
 
             # Tasks stuck in stage > threshold (stalled) - using last_transition_at
+            # P1-OBS：只计「已该 agent 接手、却迟迟没推进」的状态（CLAIMED/RUNNING/RETRYING）——
+            # 此前 `state NOT IN (terminal)` 把**正常排队的 QUEUED** 也算 stalled，致虚高
+            # （与 remediation.evaluate_stalled_tasks 的 ACTIVE_STATES 语义对齐）。
             stalled_rows = s.exec(text("""
                 SELECT stage, COUNT(*) as stuck_count
                 FROM task
-                WHERE state NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')
+                WHERE state IN ('CLAIMED', 'RUNNING', 'RETRYING')
                 AND last_transition_at IS NOT NULL
                 AND (julianday('now') - julianday(last_transition_at)) * 86400.0 > 300
                 GROUP BY stage

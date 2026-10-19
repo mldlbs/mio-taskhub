@@ -227,3 +227,20 @@ def test_primary_rate_null_labels_not_excluded():
     text = client.get("/metrics").text
     assert _gauge(text, "taskhub_task_failure_rate") == 1.0
     assert _gauge(text, "taskhub_task_attempted_total") == 1
+
+
+def test_stalled_metric_excludes_queued():
+    """P1-OBS：stalled 指标只计 CLAIMED/RUNNING/RETRYING，不含正常排队的 QUEUED。"""
+    from mio_taskhub.models import TaskState, TaskStage
+    with Session(engine) as s:
+        s.add(Task(id="stall-q", title="queued", state=TaskState.QUEUED,
+                   stage=TaskStage.READY,
+                   last_transition_at=datetime.now(timezone.utc) - timedelta(hours=2)))
+        s.add(Task(id="stall-c", title="claimed", state=TaskState.CLAIMED,
+                   stage=TaskStage.IMPLEMENTING,
+                   last_transition_at=datetime.now(timezone.utc) - timedelta(hours=2)))
+        s.commit()
+    text = client.get("/metrics").text
+    total = sum(float(l.rsplit(" ", 1)[1]) for l in text.splitlines()
+                if l.startswith("taskhub_task_stalled_total{"))
+    assert total == 1, f"应只计 CLAIMED（=1），实得 {total}"

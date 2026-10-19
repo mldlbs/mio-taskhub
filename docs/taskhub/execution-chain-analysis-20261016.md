@@ -89,6 +89,12 @@
 - 触发：`idle-worker-hermes`（night_runner spawn）领取 idea-reviewer 任务，`hermes -z` Node 报错
   → 任务失败 → 无退避重建
 
+### P12 · stalled 指标把 QUEUED 误计为停滞
+
+- `metrics.py` 的 `taskhub_task_stalled_total` 用 `state NOT IN (COMPLETED,FAILED,CANCELLED)`
+  （**含 QUEUED**）→ 正常排队任务被计为 stalled（看板显示 26 个"卡死"）
+- 与 `remediation.evaluate_stalled_tasks` 的 `ACTIVE_STATES`（不含 QUEUED）语义不一致
+
 ---
 
 ## 3. 修复（本轮）
@@ -161,6 +167,11 @@ FAILED/CANCELLED 评审任务（标题「…」想法评审）并归档（`archi
 生产库归档 **1489** 条（FAILED 1505→35）。
 
 **测试**：`test_archive_spinning.py`。
+
+**`mio_taskhub/observability/metrics.py`**（P12）：`taskhub_task_stalled_total` 只计
+CLAIMED/RUNNING/RETRYING（对齐 remediation 的 `ACTIVE_STATES`），不再把正常排队的 QUEUED 计入。
+
+**测试**：`test_metrics.py::test_stalled_metric_excludes_queued`。
 
 ---
 
