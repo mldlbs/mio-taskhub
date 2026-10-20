@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.6.1 (2026-10-20)
+
+> 执行链可靠性收口（P1–P14）：幽灵 agent、提前回收、空转风暴、指标抖动、无界增长。
+
+### Fixed — 执行链与生命周期
+- **幽灵 agent 反复抢占**（P3）：`_mark_stale_agents` 处理 `last_heartbeat=None`；dispatcher 加心跳门槛；`claim_for` 拒绝非 ONLINE agent；`analyze_reaper` 加 `never_started` 独立桶（修正"链路断 70.7%"→真实 0.4%）。
+- **OFFLINE agent run 被 120s 紧窗口提前回收**（P1）：`_mark_stale_agents` 跳过有活跃 run 的 agent。
+- **run 心跳同步刷新 agent 心跳**（P4）：跑任务即保 ONLINE。
+- **手动 retry 重置 bounce_count**（P5）：防幽灵洪泛致 retry 立即再 FAILED。
+- **任务到终态关闭活跃 run**（P6）：修 run 悬挂（曾悬 23.9h）。
+- **终态时间戳只在首次进入时设**（P10）：修 `COMPLETED→REVIEW→DONE` 覆盖 `completed_at`。
+- **停滞检测排除有心跳的长任务**（P9）；`remediation.requeue_task` 关 run。
+
+### Fixed — 可观测与后台任务
+- **idea_review 空转风暴**（P11）：失败退避 `_recently_attempted`（此前 3h 内 1445 任务 / 4376 领取）。
+- **低阈值洞察误判恢复致抖动**（P13）：`_is_recovered` 区分方向（此前 7585 条 success_rate-low）。
+- **depmetricssnapshot 无界增长**（P14）：`_dep_persist_loop` 补 `cleanup()`。
+- **stalled 指标把 QUEUED 误计**（P12）；**HighHttpErrorRate 把 4xx 计入**（P7/F10）；**night_runner 子进程 URL 缺 `/api/v1`**（P8/F9）。
+- **`never_started` 观测细化**（P2）：reaper_decision 记录真实 `run_state_before` + `run_heartbeated`。
+
+### Added — 运维脚本
+- `scripts/archive_spinning_tasks.py`：识别 REVIEW 空转残留并归档。
+- `scripts/coldstart_timing.py` / `scripts/repro_build.py` / `scripts/gen_readme_stats.py` / `scripts/release_checklist.py`（G2–G4 交付）。
+
 ## v0.6.0 (2026-10-14)
 
 > roadmap-05 G2–G3 收口：执行生命周期加固 + 开源前置 + 能力收敛。
