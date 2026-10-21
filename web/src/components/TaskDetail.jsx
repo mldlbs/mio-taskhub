@@ -54,6 +54,8 @@ const HIST_TYPE_META = {
   failure:      { label: '失败',       tone: 'danger' },
   done:         { label: '完成',       tone: 'ok' },
   cancelled:    { label: '取消',       tone: 'muted' },
+  // 窄门禁（d468e633 FR-5）：提交被拦截
+  rejected:     { label: '已拦截',     tone: 'danger' },
 }
 
 const HIST_TEXT_KEYS = ['raw', 'content', 'text', 'message', 'summary', 'result', 'detail', 'note']
@@ -378,6 +380,12 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
             <h3>完成报告 · {task.runs.length} 次执行</h3>
             {task.runs.map(r => {
               const ok = r.state === 'FINISHED' && (r.exit_code ?? 0) === 0
+              // 窄门禁（d468e633 FR-5/6）：block 级 → 红框拦截卡；
+              // warn 级 → 琥珀提示行（文案已由后端保证含「不影响放行」）。
+              const anns = r.annotations || []
+              const blocked = anns.filter(a => a.level === 'block')
+              const warns = anns.filter(a => a.level !== 'block')
+              const ds = r.diff_summary
               return (
                 <div key={r.id} className={`run-report${ok ? ' is-ok' : r.exit_code ? ' is-fail' : ''}`}>
                   <div className="run-report__head">
@@ -386,7 +394,28 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
                     <span className="hist-row__at mono">
                       {r.started_at ? fmtDate(r.started_at) : ''}{r.finished_at ? ` → ${fmtDate(r.finished_at)}` : ''}
                     </span>
+                    {r.rejections > 0 && (
+                      <span className="chip chip--due">被拒 {r.rejections} 次</span>
+                    )}
                   </div>
+                  {blocked.map((a, i) => (
+                    <div key={`b${i}`} className="run-report__blocked">
+                      <b>已被拦截</b>
+                      <span>{a.message}</span>
+                    </div>
+                  ))}
+                  {warns.map((a, i) => (
+                    <div key={`w${i}`} className="run-report__warn">
+                      <b>提示</b>
+                      <span>{a.message}</span>
+                    </div>
+                  ))}
+                  {ds && ds.reason && (
+                    <div className="run-report__diff mono">
+                      改动证据：{ds.reason}
+                      {ds.changed !== undefined ? `（changed=${String(ds.changed)}）` : ''}
+                    </div>
+                  )}
                   {r.result && <pre className="run-report__body mono">{r.result}</pre>}
                 </div>
               )

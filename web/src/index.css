@@ -3575,6 +3575,32 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
     overflow-y: auto;
   }
 
+  /* --- 窄门禁拦截卡片 / 标注行（d468e633 FR-5/6） --- */
+  .run-report__blocked {
+    display: flex; align-items: flex-start; gap: 8px;
+    margin-top: 6px; padding: 8px 10px;
+    background: rgba(248,113,113,0.10);
+    border-left: 3px solid var(--danger);
+    border-radius: 4px;
+    font-size: 12px; line-height: 1.55; color: var(--danger);
+  }
+  .run-report__blocked b { flex: none; font-weight: 600; }
+  .run-report__blocked span { flex: 1; word-break: break-word; }
+  .run-report__warn {
+    display: flex; align-items: flex-start; gap: 8px;
+    margin-top: 6px; padding: 8px 10px;
+    background: rgba(251,191,36,0.08);
+    border-left: 3px solid var(--warn);
+    border-radius: 4px;
+    font-size: 12px; line-height: 1.55; color: var(--ink-dim);
+  }
+  .run-report__warn b { flex: none; font-weight: 600; color: var(--warn); }
+  .run-report__warn span { flex: 1; word-break: break-word; }
+  .run-report__diff {
+    margin-top: 6px; font-size: 11.5px; color: var(--ink-dim);
+    font-family: var(--font-mono); word-break: break-word;
+  }
+
   /* --- stats dashboard --- */
   .stats-view { max-width: none; } /* stats panel: full width */
   /* topology hints (task 6eecdad8) */

@@ -96,6 +96,19 @@ def create_run(db, agent, task):
         started_at=_now(),
         last_heartbeat=_now(),
     )
+    # 窄门禁（d468e633 FR-1）：run 创建时拍「前」快照。
+    # 必须在 run 创建时拍 —— 若等到 submit 才拍，无法区分「本次 run 的改动」
+    # 与「run 开始前工作区就有的脏」。
+    # 采集失败只记 warning，不阻断 claim（fail-open）。
+    try:
+        from mio_taskhub.diff_gate import snapshot as _dg_snapshot
+        snap = _dg_snapshot(getattr(task, "workspace", "") or "")
+        if snap.ok:
+            run.diff_summary = {"before": snap.brief()}
+        else:
+            run.diff_summary = {"before": None, "collect_error": snap.error}
+    except Exception:
+        pass
     db.add(run)
     return run
 
@@ -268,6 +281,38 @@ def read_evidence_status(run_id: str, db: Session = Depends(get_session)):
     return check_read_gate(db, task, run_id)
 
 
+@router.get("/{run_id}/diff-evidence")
+def run_diff_evidence(run_id: str, db: Session = Depends(get_session)):
+    """查看本次 run 的改动证据与门禁判定（供 Agent 提交前自查）。
+
+    与 `submit_result` 的门禁**同一套判据**（`diff_gate.check_diff_gate`），
+    所以这里返回的 `would_block` 就是真正提交时会拦截与否。
+
+    注意：这是**只读**查询，不改 run 任何字段，也不落任何事件。
+    """
+    run = db.get(Run, run_id)
+    if not run:
+        raise HTTPException(404, "run not found")
+    task = db.get(Task, run.task_id)
+    from mio_taskhub.diff_gate import check_diff_gate
+
+    verdict = check_diff_gate(db, task, run, {})
+    before = (run.diff_summary or {}).get("before")
+    after = (run.diff_summary or {}).get("after")
+    return {
+        "run_id": run.id,
+        "task_id": run.task_id,
+        "mode": verdict.mode,
+        "would_block": verdict.blocked,
+        "skipped": verdict.skipped,
+        "reason": verdict.reason,
+        "files_changed": verdict.files_changed,
+        "before": before,
+        "after": after,
+        "changed": (run.diff_summary or {}).get("changed"),
+    }
+
+
 @router.post("/{run_id}/result")
 def submit_result(run_id: str, body: dict, agent: str = None,
                   db: Session = Depends(get_session)):
@@ -286,6 +331,10 @@ def submit_result(run_id: str, body: dict, agent: str = None,
         gate = check_read_gate(db, task, run_id)
         if gate["enforced"] and not gate["passed"]:
             raise HTTPException(422, detail=_read_gate_detail(gate))
+    # 窄门禁（d468e633 FR-3）：「声明成功但零改动」→ 422 拒绝。
+    # 放在 ReadEvidence 之后 —— 读证门控纯查库、更便宜且更基础，先报读证问题。
+    if success and task is not None:
+        _apply_diff_gate(db, task, run, body)
     run.result = body.get("result", "")
     run.exit_code = body.get("exit_code", 0 if success else 1)
     run.finished_at = _now()
@@ -316,6 +365,133 @@ def submit_result(run_id: str, body: dict, agent: str = None,
                 "task_state": task_state, "retry_at": task.retry_at.isoformat(),
                 "backoff_seconds": payload.get("backoff_seconds")}
     return {"id": run.id, "state": run.state.value, "result": run.result, "task_state": task_state}
+
+
+def _apply_diff_gate(db, task, run, body):
+    """窄门禁：判定并处理「声明成功但零改动」（d468e633 FR-3/5/6/7）。
+
+    与 `submit_result` 主流程分离：本函数要么**放行**（返回 None），
+    要么**抛 HTTPException(422)** —— 抛之前必须把拦截证据落库并 commit。
+
+    三个必踩的坑（实现时逐条对照，见 spec §六）：
+      1. `db.py:52-54` 的 `get_session` 退出时只 close 不 commit
+         → **抛 422 前必须先 db.commit()**，否则拦截事件随会话丢弃、人永远看不到。
+      2. `events.py:43-48` 的 `MESSAGE_TYPES` 不含 `run`
+         → 事件必须 `entity="task"`，否则广播成 `event_update`，前端不弹 toast。
+      3. 拦截事件**不要**塞 `TaskEvent`：`TaskDetail.jsx` 对 TaskEvent 走
+         `compositeLabel(ev.to_state, ev.to_stage)`，null,null 会渲染成 `null·null`
+         → 改走 `HistoryEvent`。
+    """
+    import json as _json
+    from mio_taskhub.diff_gate import (
+        MAX_REJECTIONS, check_diff_gate, merge_annotations,
+    )
+    from mio_taskhub.events import emit_event
+    from mio_taskhub.models import HistoryEvent
+    from mio_taskhub.utils import _now
+
+    verdict = check_diff_gate(db, task, run, body)
+
+    # 记录判定结论（无论放行与否都留痕，便于事后回答「为何没拦」）
+    summary = dict(run.diff_summary or {})
+    summary["after"] = {
+        "files": verdict.files_changed,
+        "insertions": verdict.insertions,
+        "deletions": verdict.deletions,
+    }
+    summary["changed"] = verdict.reason == "has_changes"
+    summary["reason"] = verdict.reason
+    summary["mode"] = verdict.mode
+    run.diff_summary = summary
+
+    if not verdict.blocked:
+        # 放行路径：豁免/有改动/warn 档 → 只写标注，不拦、不弹 toast
+        # **off 档不留标注** —— 契约写「off → 200 且无标注」：
+        # 门禁完全关闭时不该在业务数据里留任何痕迹。
+        if verdict.reason != "gate_off" and (
+                verdict.skipped or verdict.reason == "empty_diff_warn"):
+            msg = verdict.message or ""
+            if "不影响放行" not in msg:
+                msg = (msg + "；本项为标注，不影响放行") if msg else "本项为标注，不影响放行"
+            run.annotations = merge_annotations(run.annotations, [{
+                "code": verdict.reason,
+                "level": "warn",
+                "message": msg,
+                "at": _now().isoformat(),
+            }])
+        db.add(run)
+        # 标注必须落库 —— submit_result 主流程在写 run 终态时会一并 commit，
+        # 但本函数是**前置**门禁，主流程可能因后续异常回滚。
+        # 这里显式 commit，保证「跳过判定的原因」事后查得到（FR-8 可观测）。
+        db.commit()
+        return None
+
+    # ── 拦截路径 ──────────────────────────────────────────────────────
+    run.rejections = (run.rejections or 0) + 1
+    run.annotations = merge_annotations(run.annotations, [{
+        "code": "run.empty_diff",
+        "level": "block",
+        "message": verdict.message,
+        "at": _now().isoformat(),
+    }])
+    db.add(run)
+
+    # 可见性 ①：WS 事件（entity 必须是 task，否则前端不弹 toast）
+    emit_event(db, type="run.result_rejected", entity="task",
+               entity_id=task.id, run_id=run.id,
+               payload={"code": "run.empty_diff", "message": verdict.message,
+                        "rejections": run.rejections,
+                        "max_rejections": MAX_REJECTIONS})
+    # 可见性 ②：执行历史（走 HistoryEvent，不走 TaskEvent —— 见坑 ③）
+    db.add(HistoryEvent(
+        task_id=task.id, type="rejected",
+        payload=_json.dumps({"message": verdict.message,
+                             "rejections": run.rejections,
+                             "code": "run.empty_diff"},
+                            ensure_ascii=False),
+    ))
+    db.commit()          # ★ 必须先落库再抛：get_session 退出不 commit
+
+    if run.rejections > MAX_REJECTIONS:
+        # 连续被拒**超过**上限（默认 2，即第 3 次）→ 判本次执行失败，
+        # 交既有重试机制。
+        # 语义：「被拒 2 次以内可继续重试」—— 前 2 次是 422（请改完重试），
+        # 第 3 次才是「本次执行失败」。
+        # 此时**不再抛 422** —— 已不是「请重试」，而是「本次执行失败」。
+        run.exit_code = 1
+        run.state = RunState.FINISHED
+        run.finished_at = _now()
+        run.result = verdict.message
+        db.add(run)
+        try:
+            m1_events = []
+            payload = {"success": False, "state": None}
+            _handle_failure(task, run, m1_events, payload)
+            for ev in m1_events:
+                db.add(ev)
+        except Exception:
+            pass
+        db.commit()
+        raise HTTPException(409, detail={
+            "code": "run.empty_diff_repeated",
+            "message": (f"连续 {run.rejections} 次声明 success 但工作区零改动，"
+                        f"本次执行判定失败：{verdict.message}"),
+            "hint": ("请在工作区实际完成改动后重新领取；"
+                     "若本任务确无代码产出，用 PATCH /tasks/{id} 设置 diff_gate_exempt=true。"),
+            "files_changed": 0,
+            "rejections": run.rejections,
+            "max_rejections": MAX_REJECTIONS,
+        })
+
+    raise HTTPException(422, detail={
+        "code": "run.empty_diff",
+        "message": verdict.message,
+        "hint": ("先在工作区实际完成改动（提交或保留改动均可）再 submit_result；"
+                 "若本任务确无代码产出，用 PATCH /tasks/{id} 设置 diff_gate_exempt=true。"),
+        "files_changed": 0,
+        "rejections": run.rejections,
+        "max_rejections": MAX_REJECTIONS,
+    })
 
 
 def _handle_success(task, run, m1_events, db=None):

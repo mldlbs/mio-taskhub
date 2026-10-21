@@ -160,6 +160,10 @@ class Task(SQLModel, table=True):
     # 迁移会把「加此列之前已存在」的历史任务全部置 True，保证存量行为不变；
     # 之后新建的任务默认受门控约束。历史任务如需恢复约束，置 False 即可。
     doc_gate_exempt: bool = False
+    # 窄门禁豁免（2026-10-21 任务 d468e633 FR-10）。True = 本任务不参与
+    # 「声明成功但零改动」拦截。迁移会把加此列之前已存在的存量任务全部置 True，
+    # 保证迁移前行为不变；之后新建的任务默认受门禁约束。
+    diff_gate_exempt: bool = False
     review_result: str = ""
     idea_id: str = Field(default="", index=True)   # 拆解来源 idea
     # M1: 生命周期时间戳 + 计数器
@@ -272,6 +276,14 @@ class Run(SQLModel, table=True):
     finished_at: Optional[datetime] = None
     result: Optional[str] = None
     exit_code: Optional[int] = None
+    # 窄门禁（d468e633 FR-11）：本次 run 期间的改动证据。
+    # diff_summary = {before: Snapshot摘要, after: Snapshot摘要, changed: bool, reason: str}
+    # 未采集为 None（不是 {}）——「没采到」与「采到空」是两种不同状态。
+    diff_summary: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    # 标注列表：每项 {code, level, message, at}；level ∈ {block, warn}
+    annotations: list = Field(default_factory=list, sa_column=Column(JSON))
+    # 本 run 累计被拒次数（窄门禁拒绝不消耗 attempt，达上限才判本次执行失败）
+    rejections: int = 0
 
 class Subtask(SQLModel, table=True):
     id: Optional[str] = Field(default_factory=_uuid, primary_key=True)

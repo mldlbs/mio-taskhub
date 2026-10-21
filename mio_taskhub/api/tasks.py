@@ -177,6 +177,7 @@ def _task_detail(t: Task, db: Session) -> dict:
         "plan_path": t.plan_path,
         "grab_mode": bool(t.grab_mode),
         "doc_gate_exempt": bool(getattr(t, "doc_gate_exempt", False)),
+        "diff_gate_exempt": bool(getattr(t, "diff_gate_exempt", False)),
         "diagnostic_hint": diagnostic_hint,
         "doc_paths": dict(t.doc_paths or {}),
         "doc_statuses": dict(getattr(t, "doc_statuses", None) or {}),
@@ -194,6 +195,11 @@ def _task_detail(t: Task, db: Session) -> dict:
             "attempt": r.attempt, "progress": r.progress,
             "started_at": _fmt(r.started_at), "finished_at": _fmt(r.finished_at),
             "exit_code": r.exit_code, "result": r.result,
+            # 窄门禁（d468e633 FR-11）：改动证据 / 标注 / 被拒次数。
+            # diff_summary 未采集为 None（不是 {}）——「没采到」与「采到空」是两种状态。
+            "diff_summary": getattr(r, "diff_summary", None),
+            "annotations": list(getattr(r, "annotations", None) or []),
+            "rejections": int(getattr(r, "rejections", 0) or 0),
         } for r in runs],
     }
 
@@ -222,13 +228,15 @@ def update_task(task_id: str, body: dict, db: Session = Depends(get_session)):
                 # FR-1：可改调度方式
                 "grab_mode",
                 # 2026-10-10 审计 P0-1：可显式开关文档链门控（豁免需可回溯，故暴露为字段）
-                "doc_gate_exempt"]
+                "doc_gate_exempt",
+                # 窄门禁（d468e633 FR-10）：可显式豁免「声明成功但零改动」拦截
+                "diff_gate_exempt"]
     for k in editable:
         if k in body:
             v = body[k]
             if k == "due_at":
                 v = parse_dt(v, "due_at")
-            if k in ("grab_mode", "doc_gate_exempt"):
+            if k in ("grab_mode", "doc_gate_exempt", "diff_gate_exempt"):
                 v = bool(v)
             if k == "depends_on":
                 t.depends_on = normalize_depends(v)

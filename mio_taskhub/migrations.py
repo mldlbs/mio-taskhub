@@ -14,6 +14,9 @@ def run_migrations(target_engine=None):
 
         if "task" in tables:
             _migrate_task(conn)
+            _migrate_task_diff_gate(conn)
+        if "run" in tables:
+            _migrate_run_diff_gate(conn)
         if "idea" in tables:
             _migrate_idea(conn)
             _migrate_idea_assumption_link(conn)
@@ -186,6 +189,44 @@ def _migrate_task(conn):
         conn.execute(text(
             "ALTER TABLE task ADD COLUMN doc_gate_exempt BOOLEAN NOT NULL DEFAULT 0"))
         conn.execute(text("UPDATE task SET doc_gate_exempt = 1 WHERE doc_gate_exempt = 0"))
+
+
+def _migrate_task_diff_gate(conn):
+    """窄门禁豁免列（2026-10-21 任务 d468e633 FR-10）。
+
+    与 `_migrate_task` 里的 `doc_gate_exempt` 同一套路：
+    列默认 0（受门禁），并把**加此列之前已存在的全部存量任务**置 1，
+    保证迁移前行为完全不变。该 UPDATE 只在首次加列时执行一次。
+
+    幂等：列已存在则整段跳过，重复执行不报错。
+    """
+    cols = {c["name"] for c in inspect(conn).get_columns("task")}
+    if "diff_gate_exempt" in cols:
+        return
+    conn.execute(text(
+        "ALTER TABLE task ADD COLUMN diff_gate_exempt BOOLEAN NOT NULL DEFAULT 0"))
+    conn.execute(text(
+        "UPDATE task SET diff_gate_exempt = 1 WHERE diff_gate_exempt = 0"))
+
+
+def _migrate_run_diff_gate(conn):
+    """窄门禁的 run 侧三列（d468e633 FR-11）。
+
+    diff_summary / annotations 为 JSON，rejections 为整数计数。
+    存量 run 一律留空（None / [] / 0）——「没采到」不是「采到空」。
+
+    幂等：列已存在则整段跳过。
+    """
+    cols = {c["name"] for c in inspect(conn).get_columns("run")}
+    if "diff_summary" not in cols:
+        conn.execute(text("ALTER TABLE run ADD COLUMN diff_summary JSON"))
+    if "annotations" not in cols:
+        conn.execute(text("ALTER TABLE run ADD COLUMN annotations JSON"))
+        conn.execute(text("UPDATE run SET annotations = '[]' WHERE annotations IS NULL"))
+    if "rejections" not in cols:
+        conn.execute(text(
+            "ALTER TABLE run ADD COLUMN rejections INTEGER NOT NULL DEFAULT 0"))
+        conn.execute(text("UPDATE run SET rejections = 0 WHERE rejections IS NULL"))
 
 
 def _migrate_idea(conn):

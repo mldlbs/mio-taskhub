@@ -165,6 +165,12 @@ export default function App() {
             else if (ev.type === 'task.cancelled') addToast(`「${ev.entity_id}」 已取消`, 'warn')
             else if (ev.type === 'task.completed') addToast(`「${ev.entity_id}」 已完成`, 'ok')
             else if (ev.type === 'task.failed') addToast(`「${ev.entity_id}」 失败`, 'danger')
+            // 窄门禁（d468e633 FR-5）：提交被拦截 —— 打断式红色通知。
+            // 后端发 entity="task"（events.py 的 MESSAGE_TYPES 不含 run），
+            // 所以走 task_update 通道才能收到。
+            else if (ev.type === 'run.result_rejected') {
+              addToast(`「${ev.entity_id}」 提交被拦截：${p.message || '零改动'}`, 'danger')
+            }
           } else if (data.type === 'idea_update' && data.event) {
             addToast(`想法更新: ${data.event.entity_id}`, 'info')
           } else if (data.type === 'memory_update' && data.event) {
