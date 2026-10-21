@@ -219,7 +219,10 @@ def check_diff_gate(db, task, run, body) -> Verdict:
                                                     "rejections": run.rejections},
                                                    ensure_ascii=False)))
             db.commit()          # ★ 必须先落库再抛：get_session 退出不 commit
-            if run.rejections >= MAX_REJECTIONS:
+            # 上限判定用 **>** 而非 >=：requirement FR-5 写「被拒 2 次以内可继续重试，
+            # 达到上限则判失败」—— 即前 2 次是 422（请改完重试），第 3 次才判失败。
+            # 若用 >=，第 2 次就判失败，等于只给 1 次重试机会，与 FR-5 矛盾。
+            if run.rejections > MAX_REJECTIONS:
                 run.exit_code = 1
                 run.state = RunState.FINISHED
                 run.finished_at = _now()
@@ -235,7 +238,11 @@ def check_diff_gate(db, task, run, body) -> Verdict:
                 "rejections": run.rejections,
                 "max_rejections": MAX_REJECTIONS,
             })
-        elif verdict.skipped or verdict.reason == "empty_diff_warn":
+        elif verdict.reason != "gate_off" and (
+                verdict.skipped or verdict.reason == "empty_diff_warn"):
+            # **off 档不留标注** —— 契约写「off → 200 且无标注」：
+            # 门禁完全关闭时不该在业务数据里留任何痕迹。
+            # 其余豁免/warn 档写 warn 标注，文案含「不影响放行」（FR-6）。
             run.annotations = merge_annotations(run.annotations, [{
                 "code": verdict.reason, "level": "warn",
                 "message": verdict.message or _skip_message(verdict),
@@ -282,7 +289,7 @@ def check_diff_gate(db, task, run, body) -> Verdict:
 | Agent 已 commit 改动 | `head` 变化 → 算有改动 | 正常放行 |
 | Agent 新建未跟踪文件 | `porcelain` 含 `??` 行 → 算有改动 | 正常放行 |
 | 同一 workspace 两个活跃 run | 跳过判定 | 否（标注「并发冲突」） |
-| 连续被拒 3 次 | 达到 `MAX_REJECTIONS` → 判 run 失败并交既有重试 | 第 3 次起不再 422，转失败流程 |
+| 连续被拒 3 次 | 第 3 次 `rejections > MAX_REJECTIONS` → 判 run 失败并交既有重试 | 前 2 次 422（可重试），第 3 次 409 转失败流程 |
 | Agent 一直不重试 | run 停在 running，被看门狗超时回收 | 走既有超时路径，不新增语义 |
 | 判定为「无改动」但 Agent 确实做了文档类改动 | 文档类任务应置 `diff_gate_exempt=true` | 否（豁免后跳过） |
 
@@ -293,9 +300,10 @@ def check_diff_gate(db, task, run, body) -> Verdict:
 | `mio_taskhub/diff_gate.py` | 新增 | 采集 + 判定 + 豁免，纯函数为主 |
 | `mio_taskhub/models.py` | 改 | `Run` 加 3 字段；`Task` 加 `diff_gate_exempt` |
 | `mio_taskhub/migrations.py` | 改 | `_migrate_run_diff` + `_migrate_task_diff_gate`，幂等，存量置豁免 |
-| `mio_taskhub/api/runs.py` | 改 | `create_run` 拍前快照；`submit_result` 插门禁 |
+| `mio_taskhub/api/runs.py` | 改 | `create_run` 拍前快照；`submit_result` 插门禁；新增 `GET /runs/{id}/diff-evidence` 只读自查端点 |
 | `mio_taskhub/api/tasks.py` | 改 | `editable` 与 bool 白名单加 `diff_gate_exempt`；`_task_detail` 的 `runs[]` 增补 3 字段 |
-| `web/src/api.js` | 改 | 错误码读取 + message 优先 |
+| `web/src/api.js` | 改 | 错误码读取 + message 优先（**已由 P1-2 完成**，本任务无需再改） |
 | `web/src/App.jsx` | 改 | 拦截 toast 分支 |
 | `web/src/components/TaskDetail.jsx` | 改 | 拦截卡片 + 标注行 + `HIST_TYPE_META` |
-| `tests/test_run_diff_gate.py` | 新增 | 10 条用例，见 `test` 文档 |
+| `web/src/index.css` | 改 | `.run-report__blocked` / `__warn` / `__diff` 样式 |
+| `tests/test_run_diff_gate.py` | 新增 | 18 条用例（TC-1~TC-10 + 单元 + 只读端点），见 `test` 文档 |

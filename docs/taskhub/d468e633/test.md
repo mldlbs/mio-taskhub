@@ -65,10 +65,20 @@
 | TC-4 | FR-3 | workspace 指向非 git 目录 | 提交 success | 200；标注 `reason=collect_failed`；无 422 |
 | TC-5 | FR-3 | `task.diff_gate_exempt=true` | 提交 success | 200；标注 `reason=task_exempt` |
 | TC-6 | FR-2 FR-3 FR-10 | 任务 `workspace` 为空；`task_kind=idea_review` | 提交 success | 均 200；标注原因分别为 `no_workspace` / `task_kind_exempt`；`GET /tasks/{id}` 的 `runs[]` 含 `diff_summary`/`annotations`/`rejections` 三字段 |
-| TC-7 | FR-4 | `MIO_DIFF_GATE=block` | 连续 3 次提交 success（均零改动） | 前 2 次 422；第 3 次触发上限 → run 判失败（exit_code=1、state=finished）；任务进入既有 retry/failed 流程 |
-| TC-8 | FR-5 | 同 TC-1 | 拦截后**直接查库** | `Event` 表有 `type='run.result_rejected'` 且 `entity='task'` 的记录；`HistoryEvent` 表有 `type='rejected'` 的记录；两条都不可缺失（验证「先 commit 再抛」的时序） |
+| TC-7 | FR-4 | `MIO_DIFF_GATE=block` | 连续 3 次提交 success（均零改动） | 前 2 次 422（可重试）；第 3 次 `rejections > MAX_REJECTIONS` → 409 `run.empty_diff_repeated`，run 判失败（exit_code=1、state=finished） |
+| TC-8 | FR-5 | 同 TC-1 | 拦截后**直接查库** | `Event` 表有 `type='run.result_rejected'` 且 `entity='task'` 的记录；`HistoryEvent` 表有 `type='rejected'` 的记录；run.annotations 含 `level='block'`；三条都不可缺失（验证「先 commit 再抛」的时序） |
 | TC-9 | FR-6 FR-9 | `MIO_DIFF_GATE=warn` | 零改动提交 success | 200（不拦）；`annotations` 含 `level='warn'` 且 message 含「不影响放行」；不产生 WS toast 事件；迁移子用例：老库启动后新列存在、存量任务豁免为真、重复执行迁移不报错 |
-| TC-10 | FR-8 | 同一零改动场景，分别置 `MIO_DIFF_GATE=off` / `warn` / `block` | 三次提交 | off → 200 且无标注；warn → 200 且有 warn 标注；block → 422 |
+| TC-10 | FR-8 | 同一零改动场景，分别置 `MIO_DIFF_GATE=off` / `warn` / `block` | 三次提交 | off → 200 且**无标注**；warn → 200 且有 warn 标注；block → 422 |
+
+### 补充用例（实现时新增）
+
+| 编号 | 覆盖 FR | 场景 | 预期 |
+|---|---|---|---|
+| TC-11 | FR-5 | `GET /runs/{id}/diff-evidence` 只读自查 | 200；返回 mode/would_block/reason/before/after；**不改 run 任何字段**（state 仍 running、rejections=0、annotations 空） |
+| TC-12 | FR-2 | `differs()` 纯函数边界 | 采不到信息（ok=False）一律返回 True（视为有改动，不拦）；head 变 / porcelain 变 / 增删行>0 三条判据各自命中 |
+| TC-13 | FR-6 | `merge_annotations()` 同 code 去重 | 同 code 只保留最新一条；不同 code 累加 |
+| TC-14 | FR-8 | `MIO_DIFF_GATE` 非法值 | 未设 / 非法值 → 按 `warn` 处理；大小写不敏感（`BLOCK` → `block`） |
+| TC-15 | FR-3 | `snapshot()` 非 git 目录 / 空路径 | ok=False + error，不抛异常 |
 
 ## 验收流程
 
