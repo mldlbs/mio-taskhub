@@ -141,9 +141,16 @@ $bundle = Join-Path $root 'dist\mio-taskhub-installer'
 Remove-Item -Recurse -Force $bundle -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $bundle | Out-Null
 Copy-Item -Force $setupExe $bundle
+Copy-Item -Force $uninstallExe $bundle
 Copy-Item -Force $zip $bundle
 Copy-Item -Force (Join-Path $root 'packaging\安装说明.txt') $bundle
 Write-Host "  安装包目录: $bundle" -ForegroundColor Green
+
+# 一致性校验：安装器 exe ↔ payload zip 里的 uninstall.exe ↔ 独立安装包目录
+# 必须同源。实测踩过：重建了 uninstall.exe 却没重打 zip → 用户装到的是
+# 旧卸载器 → 静默卸载异常退出（rc=23、目录还在）。
+& "$root\.venv\Scripts\python.exe" (Join-Path $root 'scripts\check_installer_bundle.py')
+if ($LASTEXITCODE -ne 0) { throw '安装器分发产物不一致' }
 } else {
     Write-Host '[6/6] Quick 模式，跳过 zip ...'
 }

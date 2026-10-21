@@ -94,16 +94,58 @@ def _debug(msg: str) -> None:
         pass
 
 
+def _journal(msg: str) -> None:
+    """**无条件**写一条操作日志到 installer.log。
+
+    为什么单独一条通道：进程清理是卸载流程里最容易出问题的一步
+    （杀不掉 → 目录删不掉）。出问题时唯一能查的线索就是这个文件，
+    所以这里**不设开关** —— 静默失败比多写几行糟糕得多。
+    """
+    try:
+        from .entry_support import log_path
+        with open(log_path("installer.log"), "a", encoding="utf-8") as f:
+            f.write("[proc] %s\n" % msg)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _taskkill_tree(pid: int) -> None:
-    """按进程树强杀（兜底）。失败不抛异常。"""
+    """强杀指定 pid（**不带 /T**，见下）。失败不抛异常。
+
+    **为什么不用 `taskkill /F /T`**：`/T` 会连带杀掉该 pid 的**整棵子孙树**。
+    在真实场景里这会误伤：hub supervisor 常常是从用户的 shell / 脚本里
+    启动的，`/T` 顺着父链往上会波及**启动者**（实测把 bash 一起杀掉，
+    卸载器连日志都没来得及写就消失了，表现为「进程秒退、目录还在、
+    退出码 23」）。
+
+    正确做法：只杀目标 pid 本身（`/F` 不带 `/T`），
+    子孙进程由 `psutil` 的 `children(recursive=True)` 单独枚举，
+    避免把无关的祖先/兄弟进程卷进来。
+    """
     try:
         subprocess.run(
-            ["taskkill", "/F", "/T", "/PID", str(pid)],
+            ["taskkill", "/F", "/PID", str(pid)],
             capture_output=True, timeout=15,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except Exception:  # noqa: BLE001
         pass
+
+
+def _child_pids(pid: int) -> list:
+    """列出 pid 的**子孙** pid（不含自己）。取不到就返回空表。"""
+    out = []
+    try:
+        import psutil
+        p = psutil.Process(pid)
+        for c in p.children(recursive=True):
+            try:
+                out.append(c.pid)
+            except Exception:  # noqa: BLE001
+                continue
+    except Exception:  # noqa: BLE001
+        pass
+    return out
 
 
 def purge_processes_under(root, timeout: float = 10.0) -> bool:
@@ -117,23 +159,34 @@ def purge_processes_under(root, timeout: float = 10.0) -> bool:
 
     while True:
         left = list_processes_under(root)
-        _debug("purge root=%s left=%s me=%s frozen=%s exe=%s"
-               % (root, left, me, getattr(sys, "frozen", False), sys.executable))
+        _journal("purge root=%s left=%s me=%s frozen=%s exe=%s"
+                 % (root, left, me, getattr(sys, "frozen", False), sys.executable))
         if not left:
             return True
         for pid, _exe in left:
             if pid == me:
                 continue
+            # 先记下子孙 pid 并**单独杀**（子先父后）——
+            # 不靠 taskkill /T（那会连启动者一起杀掉，见 _taskkill_tree 注释）。
+            kids = _child_pids(pid)
+            for kpid in kids:
+                try:
+                    psutil.Process(kpid).kill()
+                    _journal("kill child pid=%s (of %s)" % (kpid, pid))
+                except Exception as e:  # noqa: BLE001
+                    _journal("kill child pid=%s failed: %r" % (kpid, e))
             try:
                 psutil.Process(pid).kill()
+                _journal("kill sent pid=%s" % pid)
             except Exception as e:  # noqa: BLE001
-                _debug("kill pid=%s failed: %r" % (pid, e))
-            # 兜底：进程树强杀（worker 是 supervisor 的子进程）
+                _journal("kill pid=%s failed: %r" % (pid, e))
+            # 兜底：只杀目标 pid 本身
             _taskkill_tree(pid)
         if time.monotonic() >= deadline:
             time.sleep(0.5)
-            _debug("purge timeout, left=%s" % list_processes_under(root))
-            return not list_processes_under(root)
+            left2 = list_processes_under(root)
+            _journal("purge timeout, left=%s" % left2)
+            return not left2
         time.sleep(0.3)
 
 

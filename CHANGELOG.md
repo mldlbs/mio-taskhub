@@ -63,10 +63,36 @@
 - **占位符被 Entry 盖住只剩尾巴**（显示成「ip」）：Entry 不透明，嵌在 Canvas 上
   会遮住占位符文字。空值时把 Entry 的 window item 设为 hidden。
 
+### Fixed — 静默卸载异常退出（rc=23，目录还在）
+三个独立缺陷叠在一起，2026-10-21 逐个定位：
+
+1. **payload zip 里的 uninstall.exe 是旧版本** —— 重建了 `dist_installer/uninstall.exe`
+   却没重打 `dist/mio-taskhub-win64.zip`（14:08 打的 zip vs 16:19 的 exe）。
+   用户装到机器上的是旧卸载器 → 静默卸载直接异常退出，**进程秒退、目录还在、
+   退出码 23**，且因 `disable_windowed_traceback=True` 连 traceback 都被吞掉，
+   完全无从排查。
+   对策：新增 `scripts/check_installer_bundle.py` 校验「安装器 exe ↔ payload zip ↔
+   独立安装包目录」三者同源；`build.ps1` 步骤 6 结束时强制跑一次，不一致直接 throw。
+2. **`uninstall_entry.py` 没透传 `--dir`** —— 调 `cli_main(['uninstall','--yes'])`，
+   把 `--dir` 丢了 → CLI 只能靠注册表推断安装目录。已加 `_passthrough`。
+3. **`taskkill /F /T` 误伤** —— `/T` 会连带杀掉目标 pid 的整棵子孙树，
+   顺着父链往上会波及**启动卸载器的人**（实测把 bash 一起杀掉）。
+   改为：只杀目标 pid 本身（`/F` 不带 `/T`），子孙进程由
+   `psutil.children(recursive=True)` 单独枚举、子先父后地杀。
+
+另外给 CLI 加了顶层异常兜底：内部异常统一落 `installer.log`（含 traceback），
+返回码 23 区分于业务失败的 1，不再静默退出。
+
+### Added
+- `scripts/check_installer_bundle.py` —— 校验安装器分发产物一致性
+  （安装器 exe ↔ payload zip 里的 uninstall.exe ↔ `dist/mio-taskhub-installer/`）。
+- 发布检查清单新增第 ⑧ 项「安装器产物一致」。
+
 ### Tests
-- `tests/test_installer.py`（30 用例）：payload 布局契约、安装/卸载、注册表读写、
+- `tests/test_installer.py`（33 用例）：payload 布局契约、安装/卸载、注册表读写、
   快捷方式创建删除、只读文件删除、进程路径匹配回归、payload 自动定位回归、
-  自更新保留卸载器。全量 1499 passed / 0 failed。
+  自更新保留卸载器、**payload 卸载器不得是旧版**、**--dir 必须透传**、
+  **CLI 内部异常必须留痕**。全量 1502 passed / 0 failed。
 
 ## v0.6.1 (2026-10-20)
 

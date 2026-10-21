@@ -170,6 +170,78 @@ def test_is_installed(tmp_path):
     assert install_mod.is_installed(target) is True
 
 
+# ────────────── payload 里的卸载器必须是「当前这一版」 ──────────────
+
+def test_payload_uninstaller_is_not_stale(tmp_path):
+    """**回归**：payload 里打包的 uninstall.exe 不能是旧版本。
+
+    实测踩过（2026-10-21）：`dist/mio-taskhub-win64.zip` 是 14:08 打的，
+    之后重建了 `dist_installer/uninstall.exe`（16:19），但**没重新打 zip**。
+    于是安装到用户机器上的是**旧卸载器** —— 它连 `--dir` 都不透传，
+    静默卸载直接异常退出（rc=23），表现为「卸载没反应、目录还在」。
+
+    对策：
+    1. 打包流程里 zip 必须用**当次构建**的 uninstall.exe（build.ps1 负责）
+    2. 这里加一条测试：payload 里的 uninstall.exe 必须与 dist_installer 下
+       当前产物**同哈希** —— 谁改了没重打 zip，测试立刻红。
+    """
+    repo = Path(__file__).resolve().parents[1]
+    zip_path = repo / "dist" / "mio-taskhub-win64.zip"
+    live = repo / "dist_installer" / "uninstall.exe"
+    if not zip_path.exists() or not live.exists():
+        pytest.skip("未构建安装包产物（dist/ 与 dist_installer/ 不齐）")
+    import hashlib
+
+    def _sha(p: Path) -> str:
+        return hashlib.sha256(p.read_bytes()).hexdigest()
+
+    with zipfile.ZipFile(zip_path) as zf:
+        names = zf.namelist()
+        assert UNINSTALL_EXE_NAME in names, (
+            "payload 里没有 %s" % UNINSTALL_EXE_NAME)
+        in_zip = hashlib.sha256(zf.read(UNINSTALL_EXE_NAME)).hexdigest()
+    assert in_zip == _sha(live), (
+        "payload 里的 %s 与 dist_installer/ 下的当前产物不一致 —— "
+        "重新构建后必须重打 payload zip（build.ps1 步骤 4.5）"
+        % UNINSTALL_EXE_NAME)
+
+
+def test_uninstall_entry_forwards_dir_argument():
+    """**回归**：uninstall.exe 必须把 --dir 透传给 CLI。
+
+    实测踩过：旧版 uninstall_entry.py 调 `cli_main(['uninstall', '--yes'])`，
+    **丢掉了 --dir** → CLI 走 `detect_install_dir()`（读注册表），
+    静默卸载在「注册表指向别的目录」时会卸错地方。
+    """
+    src = (Path(__file__).resolve().parents[1]
+           / "packaging" / "uninstall_entry.py")
+    text = src.read_text(encoding="utf-8")
+    assert "_passthrough" in text or "--dir" in text, (
+        "uninstall_entry.py 没有透传 --dir")
+    if "_passthrough" in text:
+        assert "setup_entry" in text or "from mio_taskhub.installer" in text
+
+
+def test_cli_reports_internal_error_instead_of_silent_exit():
+    """**回归**：CLI 内部异常必须留痕，不能静默退出。
+
+    打包成无黑框 exe 后 `disable_windowed_traceback=True` 会吞掉 traceback，
+    用户只看到「进程秒退、目录还在、退出码 23」，完全无从排查。
+    """
+    from mio_taskhub.installer import cli
+
+    def _boom(_args):
+        raise RuntimeError("故意炸的")
+
+    orig = cli._cmd_uninstall
+    cli._cmd_uninstall = _boom
+    try:
+        rc = cli.main(["uninstall", "--yes", "--dir", "x"])
+    finally:
+        cli._cmd_uninstall = orig
+    assert rc == 23, "内部异常应返回 23（区别于业务失败的 1）"
+
+
 # ──────────────────── 只读文件删除 ────────────────────
 
 def test_force_rmtree_removes_readonly_files(tmp_path):

@@ -113,7 +113,23 @@ def main(argv=None) -> int:
     if not getattr(args, "func", None):
         parser.print_help()
         return 2
-    return args.func(args)
+    try:
+        return args.func(args)
+    except Exception:  # noqa: BLE001
+        # **绝不能让异常静默消失**：打包成无黑框 exe 后
+        # `disable_windowed_traceback=True` 会把 traceback 吞掉，
+        # 用户只看到「进程退出、目录还在」，完全无从排查。
+        # 统一落到 installer.log（含 traceback），返回码 23 标识「内部错误」。
+        import traceback
+        tb = traceback.format_exc()
+        _print("[error] 安装器内部错误：\n%s" % tb)
+        try:
+            from .entry_support import log_path
+            with open(log_path("installer.log"), "a", encoding="utf-8") as f:
+                f.write("[traceback]\n%s\n" % tb)
+        except Exception:  # noqa: BLE001
+            pass
+        return 23
 
 
 if __name__ == "__main__":

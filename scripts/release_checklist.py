@@ -119,6 +119,20 @@ def check_known_limits() -> dict:
             "detail": f"逐项定档={has_verdict} 无待定={no_pending}"}
 
 
+def check_installer_bundle() -> dict:
+    """安装器分发产物一致性（安装器 exe ↔ payload zip ↔ 独立安装包目录）。
+
+    实测踩过（2026-10-21）：重建了 uninstall.exe 却没重打 payload zip →
+    用户装到的是旧卸载器 → 静默卸载异常退出（rc=23、目录还在）。
+    """
+    r = _run([sys.executable, "scripts/check_installer_bundle.py"], timeout=300)
+    ok = r.returncode == 0
+    detail = (r.stdout or r.stderr or "").strip().splitlines()
+    tail = " / ".join(detail[-2:]) if detail else ""
+    return {"item": "⑧ 安装器产物一致", "status": "是" if ok else "否",
+            "detail": tail[:200]}
+
+
 def main():
     with_ci = "--ci" in sys.argv
     results = [
@@ -129,6 +143,7 @@ def main():
         check_first_run(),
         check_release(),
         check_known_limits(),
+        check_installer_bundle(),
     ]
     all_green = all(r["status"] == "是" for r in results)
     if "--json" in sys.argv:

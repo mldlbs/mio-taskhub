@@ -188,6 +188,27 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1
 - **Entry 是不透明的，嵌在 Canvas 上会盖住占位符** —— 空值时把 Entry 的
   window item `state="hidden"`，否则占位符只剩尾巴（显示成「ip」）。
 
+### 打包 / 分发产物的三个坑（2026-10-21 实战）
+
+1. **payload zip 里的 `uninstall.exe` 必须是「当次构建」的那份** ——
+   重建了 `dist_installer/uninstall.exe` 却没重打 `dist/mio-taskhub-win64.zip`，
+   用户装到机器上就是**旧卸载器** → 静默卸载异常退出（rc=23、目录还在）。
+   手工重建单个产物最容易踩这个。
+   对策：`scripts/check_installer_bundle.py` 校验「安装器 exe ↔ payload zip ↔
+   `dist/mio-taskhub-installer/`」三者同源；`build.ps1` 步骤 6 强制跑一次。
+
+2. **无黑框 exe 的 traceback 会被吞** —— PyInstaller 的
+   `disable_windowed_traceback=True` 让异常**完全静默**：用户只看到
+   「进程秒退、目录还在、退出码 23」。
+   对策：`cli.main()` 加顶层 try/except，异常落 `installer.log`（含 traceback），
+   返回码 **23** 区分于业务失败的 1。
+
+3. **`taskkill /F /T` 会误伤** —— `/T` 连带杀掉目标 pid 的整棵子孙树，
+   顺着父链往上会波及**启动卸载器的人**（实测把 bash 一起杀掉，
+   于是卸载器「秒退」且没留下任何日志）。
+   对策：只杀目标 pid 本身（`/F` 不带 `/T`），子孙进程由
+   `psutil.children(recursive=True)` 单独枚举、**子先父后**地杀。
+
 ### 自动更新与发版
 
 程序启动后会自动检查 GitHub Releases 是否有新版本；有新版本时托盘提示、面板顶部出现"立即更新"条，
