@@ -131,11 +131,16 @@ MIO_TASKHUB_DB="E:/hermes/cache/scratch/p12_reg2.db" .venv/Scripts/python.exe \
 ### 4.3 全量测试
 
 ```bash
-MIO_TASKHUB_DB="E:/hermes/cache/scratch/p12_full2.db" .venv/Scripts/python.exe \
+MIO_TASKHUB_DB="E:/hermes/cache/scratch/p12_final.db" .venv/Scripts/python.exe \
   -m pytest tests/ -q --tb=line
 ```
 
-**结果：见 §5**。
+**结果：1468 passed, 2 skipped, 4 deselected, 3 warnings in 528.22s (0:08:48)，0 failed。**
+
+（首轮全量曾有 3 处失败，均为断言旧行为的既有测试，已按 §5 改写：
+`test_readme_stats.py::test_check_passes`（README 统计漂移）、
+`test_task_doc_paths.py::test_done_gate_still_accepts_review_text`、
+`test_terminal_closes_run.py::test_move_to_done_closes_active_run`。）
 
 ### 4.4 前端构建
 
