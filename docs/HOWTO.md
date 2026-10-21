@@ -180,6 +180,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1
   完整路径走悬停提示。
 - **验证 GUI 必须用真正的 `mainloop()`** —— 用 `root.update()` 手动循环会报
   `main thread is not in main loop`（测试脚本的锅，不是程序 bug）。
+- **兜底行不能放在 `place()` 布局的容器里** —— 卡片内容区用 `place()` 定位，
+  在里面 `pack()` 的控件**不会显示**。兜底行要放在卡片**外面**的独立槽位。
+- **不要用 `pack(before=...)` 定位** —— `winfo_children()[-1]` 可能是被
+  `pack_forget()` 掉的控件（如日志面板），Tcl 报 `window "..." isn't packed`。
+  靠 pack 顺序确定位置。
+- **Entry 是不透明的，嵌在 Canvas 上会盖住占位符** —— 空值时把 Entry 的
+  window item `state="hidden"`，否则占位符只剩尾巴（显示成「ip」）。
 
 ### 自动更新与发版
 

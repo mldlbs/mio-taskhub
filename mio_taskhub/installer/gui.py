@@ -206,6 +206,13 @@ class _Field(tk.Canvas):
             self.configure(cursor="hand2")
         else:
             self._display_var.set(full)
+        # Entry 是**不透明**的，嵌在 Canvas 上会盖住占位符文字（只剩尾巴）。
+        # 空值时把 Entry 隐藏，让占位符完整显示。
+        try:
+            self.itemconfigure(self._entry_window,
+                               state="hidden" if not full else "normal")
+        except Exception:  # noqa: BLE001
+            pass
         if not full and self._placeholder:
             self.create_text(11, h / 2, text=self._placeholder, fill="#5b6675",
                              anchor="w", font=_font(10), tags="rounded")
@@ -526,27 +533,32 @@ class InstallerApp(_Base):
         self.root.after(80, self._auto_find_payload)
 
     def _build(self):
-        card, body = self._card(self.body)
-        card.pack(fill="x")
-
         # 「安装包」这一行**默认不显示**。
         # 真实分发时 setup.exe 与 payload zip 在同一目录 → 自动找到，用户无需操作。
         # 让人去「选安装包」是多余的一步（还会让人困惑「这必须吗？我该选什么？」）。
         # 只有**自动定位失败**时才把这一行显示出来，作为兜底入口。
-        self._payload_row = tk.Frame(body, bg=CARD)
-        _label(self._payload_row, "未找到安装包，请手动选择", 9, "#e3b341",
-               bg=CARD).pack(anchor="w")
-        row1 = tk.Frame(self._payload_row, bg=CARD)
+        #
+        # 放在**卡片外面**的独立槽位里：卡片内容区是用 place() 布局的，
+        # 在里面 pack() 不会生效（控件会看不见）。槽位用 pack 挂到卡片**之前**，
+        # 顺序靠 pack 顺序确定（不用 pack(before=...)，那会引用到未 pack 的控件）。
+        self._payload_slot = tk.Frame(self.body, bg=BG)
+        self._payload_slot.pack(fill="x", pady=(0, 12))
+        _label(self._payload_slot, "未找到安装包，请手动选择", 9, "#e3b341",
+               bg=BG).pack(anchor="w")
+        row1 = tk.Frame(self._payload_slot, bg=BG)
         row1.pack(fill="x", pady=(6, 0))
         row1.columnconfigure(0, weight=1)
         self._field_payload = _Field(row1, self.var_payload,
-                                     placeholder="选择 mio-taskhub-win64.zip",
-                                     parent_bg=CARD, display_basename=True)
+                                     placeholder="请选择安装包文件（mio-taskhub-win64.zip）",
+                                     parent_bg=BG, display_basename=True)
         self._field_payload.grid(row=0, column=0, sticky="ew")
         _Button(row1, "选择文件…", self._browse_payload, kind="secondary", width=88,
-                height=36, parent_bg=CARD).grid(row=0, column=1, sticky="e",
-                                                padx=(10, 0))
-        self._payload_row.pack_forget()
+                height=36, parent_bg=BG).grid(row=0, column=1, sticky="e",
+                                              padx=(10, 0))
+        self._payload_slot.pack_forget()
+
+        card, body = self._card(self.body)
+        card.pack(fill="x")
 
         _label(body, "安装位置", 9, "#b3becb", bg=CARD).pack(anchor="w", pady=(18, 0))
         row2 = tk.Frame(body, bg=CARD)
@@ -554,7 +566,7 @@ class InstallerApp(_Base):
         row2.columnconfigure(0, weight=1)
         # 安装目录显示 basename + 完整路径走悬停提示：完整路径太长会截断成
         # "C:\Users\admin\AppData\L..."，用户看不出装到哪了。
-        self._field_dir = _Field(row2, self.var_dir, placeholder="选择安装目录",
+        self._field_dir = _Field(row2, self.var_dir, placeholder="请选择安装目录",
                                  parent_bg=CARD, display_basename=True)
         self._field_dir.grid(row=0, column=0, sticky="ew")
         _Button(row2, "选择文件夹…", self._browse_dir, kind="secondary", width=88,
@@ -621,15 +633,23 @@ class InstallerApp(_Base):
         self._mark_payload_ok()
 
     def _show_payload_row(self, message: str) -> None:
-        """显示「安装包」兜底行（仅自动定位失败时）。"""
-        self._payload_row.pack(fill="x", pady=(0, 0), before=self.body.winfo_children()[-1])
+        """显示「安装包」兜底行（仅自动定位失败时）。
+
+        不用 `pack(before=...)` 定位 —— `winfo_children()[-1]` 可能是被
+        `pack_forget()` 掉的控件（如日志面板），Tcl 会报
+        `window "..." isn't packed`。槽位用 pack 顺序定位，稳。
+        """
+        try:
+            self._payload_slot.pack(fill="x", pady=(0, 12))
+        except Exception:  # noqa: BLE001
+            pass
         self.status.configure(text="等待选择安装包")
         self.notice.show("err", "需要安装包", message)
 
     def _mark_payload_ok(self) -> None:
         """已找到安装包：隐藏兜底行 + 状态栏肯定反馈。"""
         try:
-            self._payload_row.pack_forget()
+            self._payload_slot.pack_forget()
         except Exception:  # noqa: BLE001
             pass
         self.status.configure(text="已找到安装包，随时可以开始安装")

@@ -56,6 +56,12 @@
 - 后台线程回 UI 线程加 `_ui_call()` 兜底：主线程不在 mainloop 时 `root.after()` 抛
   `RuntimeError` 且发生在工作线程 → 界面会永远卡在「正在安装」。
 - 窗口销毁时清理 after 队列，消掉 `invalid command name ... (after script)` 残留。
+- **「找不到安装包」兜底路径崩溃**（打包版实测）：兜底行原本放在卡片内容区里，
+  而该区用 `place()` 布局 → `pack()` 不生效；且 `pack(before=...)` 引用到被
+  `pack_forget()` 的日志面板 → Tcl 报 `window "..." isn't packed`。
+  改为卡片外的独立槽位 + 靠 pack 顺序定位。
+- **占位符被 Entry 盖住只剩尾巴**（显示成「ip」）：Entry 不透明，嵌在 Canvas 上
+  会遮住占位符文字。空值时把 Entry 的 window item 设为 hidden。
 
 ### Tests
 - `tests/test_installer.py`（30 用例）：payload 布局契约、安装/卸载、注册表读写、
