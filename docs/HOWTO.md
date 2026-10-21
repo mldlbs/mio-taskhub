@@ -87,7 +87,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1
 # 产物:
 #   dist/mio-taskhub-v3/              绿色版目录
 #   dist/mio-taskhub-win64.zip        绿色版 zip（自动更新用）
-#   dist/mio-taskhub-installer/       独立安装包（setup.exe + zip + 安装说明）
+#   dist/mio-taskhub-installer/       独立安装包（setup.exe + uninstall.exe + zip + 安装说明）
+#   dist_installer/                   单独的安装器 / 卸载器 exe
+#
+# 手工只重建了单个产物时，必须重跑一致性校验：
+python scripts/check_installer_bundle.py
 ```
 
 产物包含：
