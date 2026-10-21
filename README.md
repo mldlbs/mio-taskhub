@@ -7,7 +7,7 @@
 | 维度 | 现状 |
 |------|------|
 | 版本 | v0.6.1 |
-| 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 76 模块 / 24,125 行 |
+| 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 76 模块 / 24,146 行 |
 | 对外能力 | **162 个 REST 端点** · **47 个 MCP 工具** · WebSocket 实时广播 · React Web UI |
 | 任务文档 | **22 类文档 kind** · **7 件套文档链** · **9 类生命周期状态机** · 质量 lint + 状态门控 + 修订指令 |
 | 前端 | React 18 + Vite 5 · 48 文件 / 11,762 行 · 10 个视图 |
@@ -294,6 +294,10 @@ python packaging/agent_wrapper.py opencode list
 
 ### 5.2 想法工作台
 
+> **⚠️ 属冻结项**（2026-10-21 决策 §3）：53 条想法仅 1 条采纳、无交付追踪 ——
+> **停止扩张**（不新增 idea 相关的调度与宣称），已有端点保留。
+> 详见 [`docs/taskhub/frozen-scope-20261021.md`](docs/taskhub/frozen-scope-20261021.md)。
+
 想法是任务的**上游**，流程刻意做得比任务轻：
 
 1. `taskhub_add_idea` 记下来（`new`）
@@ -302,6 +306,7 @@ python packaging/agent_wrapper.py opencode list
 4. 任务全部完成后想法可回流 `formed`，继续演进为 ADR
 
 配套还有**想法评分**（`/ideas/{id}/score`、`/ideas/scores`、`/ideas/search`、`/ideas/stats/summary`、`/ideas/{id}/related`、`/ideas/export`）与**每晚自动评审**（`IdeaReviewScanner`）：到期想法自动生成 `task_kind=idea_review` 的评审任务，交给评审 Agent 返回 4 项判定清单。
+**⚠️ 自动评审默认已关**（2026-10-21 冻结「idea 子系统扩张」：53 条仅 1 条采纳、无交付追踪）——需显式置 `MIO_IDEA_REVIEW_ENABLED=1` 才恢复。
 
 ### 5.3 讨论会话
 
@@ -317,6 +322,10 @@ python packaging/agent_wrapper.py opencode list
 - **空闲计划（plan）**：`GET /api/v1/plans/night` 汇总空闲可执行任务，`POST /nightrun/spawn-now` 立即拉起空闲批处理，`NightRunner` 在空闲窗口把计划落成实际任务
 
 ### 5.6 记忆网关（Memory Gateway）
+
+> **⚠️ 属冻结项**（2026-10-21 决策 §3）：无省时证据 —— **停止投入、停止当价值宣称**。
+> 代理端点保留（解冻有据时可直接启用）。
+> 详见 [`docs/taskhub/frozen-scope-20261021.md`](docs/taskhub/frozen-scope-20261021.md)。
 
 把 `mio-intelligence` 的 MCP 工具**代理**成 HTTP 端点，让任意 Agent 不装 MCP 也能读写记忆。单例进程内 MCP 客户端，纯代理不持久化。
 
@@ -338,6 +347,10 @@ UX 增强：MCP 子进程死亡后自动重启（默认最多 3 次）、端点�
 **记忆观测投影（Memory Observatory）**：`GET /api/v1/memory/observatory/data?logs=1` 只读把 `MIO_HOME/memory.jsonl` + `experience_reuse.jsonl` 投影成图谱 JSON（实体/关系/meta，mtime 缓存），与 Memory Gateway 无关、不走 MCP、零写入；对应 Web UI「记忆」视图的默认 tab「记忆观测」（卡片网格、类型筛选、本地过滤、复用热度、出入边 ego、提示词片段、项目/来源聚合；任务 e4c3bc51 起与「记忆网关」tab 合并为单入口）。默认隐藏 `note+task-outcome` 日志实体，`logs=1` 展开；`MIO_OBSERVATORY_HIDE_LOGS` 设任意非空值强制隐藏。规格见 [`docs/taskhub/spec-memory-observatory.md`](docs/taskhub/spec-memory-observatory.md)。
 
 ### 5.7 ADR 投影到 Git
+
+> **⚠️ 属冻结项**（2026-10-21 决策 §3）：无省时证据 —— **停止投入、停止当价值宣称**。
+> 投影逻辑保留（解冻有据时可直接启用）。
+> 详见 [`docs/taskhub/frozen-scope-20261021.md`](docs/taskhub/frozen-scope-20261021.md)。
 
 ADR 状态流转后，`GitSyncWorker` 通过 Outbox 模式把决策记录投影成 `docs/adr/ADR-xxx.md` 落盘（`MIO_TASKHUB_ADR_DIR` 可覆盖目录）。Outbox 事件带自动清理，避免表无限增长。
 
@@ -533,6 +546,11 @@ React 18 + Vite 5，单页应用，13 个视图用左侧图标栏切换。生产
 ---
 
 ## 8. 可观测性
+
+> **⚠️ 本节属冻结项**（2026-10-21 决策 `docs/taskhub/product-decision-20261020.md` §3）：
+> 单用户本地工具，无人看指标 —— **停止投入、停止当价值宣称**。
+> 端点与实现保留（解冻有据时可直接启用），但不再新增功能。
+> 详见 [`docs/taskhub/frozen-scope-20261021.md`](docs/taskhub/frozen-scope-20261021.md)。
 
 ### 健康与探针
 

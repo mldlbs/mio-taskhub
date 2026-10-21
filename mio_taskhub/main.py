@@ -61,7 +61,8 @@ async def lifespan(app):
     app.state.background = start_background_jobs()
     start_git_sync_worker()
 
-    # Mio 观测守护自启（fail-open；env MIO_OBSERVER_AUTOSTART=0/false/no/off 关闭）
+    # Mio 观测守护自启（**默认关** —— 冻结项，见 docs/taskhub/frozen-scope-20261021.md；
+    # env MIO_OBSERVER_AUTOSTART=1/true/yes/on 显式开启）
     try:
         from mio_taskhub import mio_runtime as _mio_core
         if _mio_core.available() and _mio_core.autostart_enabled():

@@ -190,15 +190,23 @@ def test_status_payload_includes_research(tmp_path, monkeypatch):
     assert "observer" in data
 
 
-def test_autostart_flag_default_on_and_kill_switch(monkeypatch):
-    """自启默认开；MIO_OBSERVER_AUTOSTART=0/false/no/off 关闭。"""
+def test_autostart_flag_default_off_and_kill_switch(monkeypatch):
+    """自启**默认关**（2026-10-21 冻结 observer 机会发现）；显式 1/true/yes/on 才开。
+
+    冻结依据：`docs/taskhub/product-decision-20261020.md` §3「observer 机会发现」。
+    原语义是「默认开 + 0/false/no/off 关闭」—— 冻结项继续在生产调度里跑，
+    等于「冻结」只停留在文档上。改为默认关，需要单独观察时显式开启。
+    """
     monkeypatch.delenv("MIO_OBSERVER_AUTOSTART", raising=False)
-    assert mio.autostart_enabled() is True
-    for v in ("0", "false", "no", "off"):
+    assert mio.autostart_enabled() is False
+    # 显式开启
+    for v in ("1", "true", "yes", "on"):
+        monkeypatch.setenv("MIO_OBSERVER_AUTOSTART", v)
+        assert mio.autostart_enabled() is True
+    # 显式关闭 + 非法值
+    for v in ("0", "false", "no", "off", "bogus"):
         monkeypatch.setenv("MIO_OBSERVER_AUTOSTART", v)
         assert mio.autostart_enabled() is False
-    monkeypatch.setenv("MIO_OBSERVER_AUTOSTART", "1")
-    assert mio.autostart_enabled() is True
 
 
 # ── digest 定时 ───────────────────────────────────────────────────────────

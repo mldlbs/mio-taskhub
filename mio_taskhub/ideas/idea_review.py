@@ -17,7 +17,13 @@ from mio_taskhub.events import emit_event, broadcast_for_event
 
 INTERVAL_MIN = int(os.environ.get("MIO_IDEA_REVIEW_INTERVAL_MIN", "1440"))
 INITIAL_DELAY_MIN = int(os.environ.get("MIO_IDEA_REVIEW_INITIAL_DELAY_MIN", "60"))
-ENABLED = os.environ.get("MIO_IDEA_REVIEW_ENABLED", "1") not in ("0", "false", "")
+# 2026-10-21 冻结（docs/taskhub/product-decision-20261020.md §3「idea 子系统扩张」）：
+# 53 条想法仅 1 条采纳、无交付追踪 —— 停止自动扩张调度。
+# 原语义为默认开（"1"），冻结项继续每 24 分钟建一批评审任务，
+# 等于「冻结」只停留在文档上。改为默认关，需要单独观察时置
+# MIO_IDEA_REVIEW_ENABLED=1 显式开启。
+ENABLED = os.environ.get("MIO_IDEA_REVIEW_ENABLED", "0").strip().lower() in (
+    "1", "true", "yes", "on")
 # 失败/完成后的重建退避：同一 idea 若近期已派过评审任务（含失败），在该窗口内不再重建。
 # 防「评审任务失败→无在途→下轮扫描立即重建」的空转风暴（实测 3h 内 1445 任务 / 4376 领取）。
 RETRY_BACKOFF_MIN = int(os.environ.get("MIO_IDEA_REVIEW_RETRY_BACKOFF_MIN", "60"))

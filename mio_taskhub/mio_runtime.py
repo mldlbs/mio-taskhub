@@ -190,6 +190,8 @@ def observer_state() -> dict:
 
 
 _FALSE_ENV = ("0", "false", "no", "off")
+# 显式开启的取值（用于默认关闭的开关，如冻结的 observer 自启）
+_TRUE_ENV = ("1", "true", "yes", "on")
 
 
 def _today_observations_path() -> Path:
@@ -294,9 +296,21 @@ def observer_ensure() -> dict:
 
 
 def autostart_enabled() -> bool:
-    """观测守护随 hub 自启开关：默认开；env MIO_OBSERVER_AUTOSTART=0/false/no/off 关闭。"""
+    """观测守护随 hub 自启开关：**默认关**（冻结项）。
+
+    2026-10-21 冻结（`docs/taskhub/product-decision-20261020.md` §3「observer 机会发现」）：
+    素材噪声大、洞察错配、有效产出≈0 —— 停止把它当 taskhub 核心价值闭环去调度。
+    决策 §0：会误触发又没有明确信号的检查，只能降级；observer 属「无明确信号」这一档。
+
+    **默认改关**（原为默认开）：冻结项继续在生产调度里跑，等于「冻结」只停留在文档上。
+    需要单独观察 observer 时显式置 `MIO_OBSERVER_AUTOSTART=1` 开。
+
+    引擎本体属上游 mio agent runtime，不在本仓删除范围 —— 本仓只停自启调度。
+    """
     raw = os.environ.get("MIO_OBSERVER_AUTOSTART")
-    return raw is None or raw.strip().lower() not in _FALSE_ENV
+    if raw is None:
+        return False                      # 默认关（冻结）
+    return raw.strip().lower() in _TRUE_ENV
 
 
 # ── 汇总 / 明细 ───────────────────────────────────────────────────────────
