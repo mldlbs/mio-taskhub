@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
+from sqlalchemy import delete
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
@@ -48,9 +49,8 @@ def _mk_task(tid, state, *, failed=False, cancelled=False, labels=None):
 def _cleanup(*ids):
     with Session(engine) as s:
         for tid in ids:
-            s.query(TaskEvent).filter(TaskEvent.task_id == tid).delete()
-            s.get(Task, tid)
-            s.query(Task).filter(Task.id == tid).delete()
+            s.exec(delete(TaskEvent).where(TaskEvent.task_id == tid))
+            s.exec(delete(Task).where(Task.id == tid))
         s.commit()
 
 
