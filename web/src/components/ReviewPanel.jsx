@@ -63,6 +63,7 @@ export default function ReviewPanel({ task, onSubmit }) {
   const [reviews, setReviews] = useState([])
   const [loading, setLoading] = useState(false)
   const [loadBusy, setLoadBusy] = useState(true)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     if (!task?.id) return
@@ -87,12 +88,21 @@ export default function ReviewPanel({ task, onSubmit }) {
     }
     setLoading(true)
     try {
+      // P1-2：approve 必须显式填审阅人。后端现在拒空 reviewer
+      // （review.reviewer_required），前端不再静默兜底成 '用户' ——
+      // 静默兜底等于替用户伪造一个身份，且让「谁审的」永远查不到。
+      const who = reviewer.trim()
+      if (decision === 'approve' && !who) {
+        setError('批准前必须填写审阅人（用于确认验收独立于执行者）')
+        setLoading(false)
+        return
+      }
       await api.submitReview(task.id, {
         decision,
         checklist,
         summary: summary.trim(),
         comments: comments.trim(),
-        reviewer: reviewer.trim() || '用户',
+        reviewer: who,
       })
       // 重新加载审阅历史
       const data = await api.listReviews(task.id)
@@ -100,9 +110,14 @@ export default function ReviewPanel({ task, onSubmit }) {
       setChecklist({})
       setSummary('')
       setComments('')
+      setError('')
       onSubmit && onSubmit(task.id, decision)
     } catch (e) {
-      alert('提交失败: ' + e.message)
+      // P1-2：后端按码返回业务说明（自审 / 缺评审证据），
+      // 直接展示 message + hint，别只丢一句「提交失败」。
+      const msg = e?.message || String(e)
+      const hint = e?.hint ? '\n\n' + e.hint : ''
+      setError(msg + hint)
     } finally {
       setLoading(false)
     }
@@ -169,10 +184,17 @@ export default function ReviewPanel({ task, onSubmit }) {
             className="rp__input"
             value={reviewer}
             onChange={e => setReviewer(e.target.value)}
-            placeholder="你的名字或 agent ID"
+            placeholder="你的名字或 agent ID（必填，用于确认验收独立于执行者）"
           />
         </div>
       </div>
+
+      {error && (
+        <div className="rp__error" role="alert">
+          <span className="rp__error__icon">⚠</span>
+          <span className="rp__error__msg">{error}</span>
+        </div>
+      )}
 
       <div className="rp__actions">
         <button

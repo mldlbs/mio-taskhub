@@ -25,6 +25,16 @@ def test_move_backwards():
     assert r.json()["stage"] == "brainstorming"
 
 
+def _approve(tid, reviewer="human-reviewer"):
+    """提交真实 approve 评审记录（P1-2 后进 done 的必要证据）。"""
+    r = client.post(f"/api/v1/tasks/{tid}/reviews", json={
+        "decision": "approve", "reviewer": reviewer,
+        "summary": "已核对变更范围与测试结果，无阻断问题",
+    })
+    assert r.status_code == 200, r.text
+    return r
+
+
 def test_move_to_done_requires_review_result():
     """2026-10-10 审计 P0-2：拖拽路径不再自动补「（拖拽完成）」。
 
@@ -35,14 +45,29 @@ def test_move_to_done_requires_review_result():
     t = _mk("move3", stage="review")
     r = client.post(f"/api/v1/tasks/{t['id']}/stage/move", json={"target_stage": "done"})
     assert r.status_code == 422
-    assert r.json()["detail"] == "done stage requires review_result or a review document"
+    assert "review_result" in str(r.json()["detail"])
     # 不得留下假审查记录
     assert client.get(f"/api/v1/tasks/{t['id']}").json()["review_result"] == ""
 
 
+def test_move_to_done_requires_review_evidence():
+    """P1-2：纯文本 review_result 不足以进 done —— 需真实评审证据。
+
+    原行为：显式提供 review_result 文本即放行，且不产生任何 TaskReview 记录，
+    「approved」在 DB 里无痕，事后无法区分「真审过」与「自己写了句话」。
+    """
+    t = _mk("move3c", stage="review")
+    r = client.post(f"/api/v1/tasks/{t['id']}/stage/move",
+                    json={"target_stage": "done", "review_result": "ok"})
+    assert r.status_code == 422
+    assert r.json()["detail"]["code"] == "review.evidence_missing"
+    assert client.get(f"/api/v1/tasks/{t['id']}/reviews").json() == []
+
+
 def test_move_to_done_with_review_result():
-    # 显式提供 review_result 时放行
+    # P1-2：先有真实 approve 记录，再带 review_result 进 done
     t = _mk("move3b", stage="review")
+    _approve(t["id"])
     r = client.post(f"/api/v1/tasks/{t['id']}/stage/move",
                     json={"target_stage": "done", "review_result": "ok"})
     assert r.status_code == 200
@@ -118,7 +143,9 @@ def test_move_missing_target_422():
 def test_move_done_from_ready_via_review():
     # 原实现按 src 阶段直跳 (completed,ready) → 未定义转换 → 500；
     # 现经 T18 挪 review + T5 + T6 完成
+    # P1-2：进 done 前需真实 approve 评审记录
     t = _mk("moveready", stage="ready")
+    _approve(t["id"])
     r = client.post(f"/api/v1/tasks/{t['id']}/stage/move",
                     json={"target_stage": "done", "review_result": "验收复核"})
     assert r.status_code == 200, r.text
@@ -128,6 +155,7 @@ def test_move_done_from_ready_via_review():
 
 def test_move_done_from_implementing():
     t = _mk("moveimpl", stage="implementing")
+    _approve(t["id"])
     r = client.post(f"/api/v1/tasks/{t['id']}/stage/move",
                     json={"target_stage": "done", "review_result": "ok"})
     assert r.status_code == 200, r.text
@@ -147,6 +175,7 @@ def test_move_done_from_completed_implementing():
         db_t.stage = TaskStage.IMPLEMENTING
         s.add(db_t)
         s.commit()
+    _approve(t["id"])
     r = client.post(f"/api/v1/tasks/{t['id']}/stage/move",
                     json={"target_stage": "done", "review_result": "ok"})
     assert r.status_code == 200, r.text

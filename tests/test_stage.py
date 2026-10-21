@@ -46,9 +46,29 @@ def test_advance_to_done_requires_review_result():
     r = client.post(f"/api/v1/tasks/{tid}/stage", json={"target_stage": "done"})
     assert r.status_code == 422
 
-def test_advance_to_done_with_review():
+
+def test_advance_to_done_requires_review_evidence():
+    """P1-2：只有 review_result 纯文本不够 —— 需真实评审证据。
+
+    原行为：纯文本即可进 done（且不产生任何 TaskReview 记录），
+    「approved」在 DB 里无痕。现需 approve 记录或实际落盘的 review 文档。
+    """
     tid = _mk(stage="review")
-    r = client.post(f"/api/v1/tasks/{tid}/stage", json={"target_stage": "done", "review_result": "approved"})
+    r = client.post(f"/api/v1/tasks/{tid}/stage",
+                    json={"target_stage": "done", "review_result": "approved"})
+    assert r.status_code == 422
+    assert r.json()["detail"]["code"] == "review.evidence_missing"
+
+
+def test_advance_to_done_with_review():
+    """P1-2：先提交 approve 评审记录，再进 done。"""
+    tid = _mk(stage="review")
+    rv = client.post(f"/api/v1/tasks/{tid}/reviews", json={
+        "decision": "approve", "reviewer": "human-reviewer",
+        "summary": "已核对变更范围与测试结果，无阻断问题",
+    })
+    assert rv.status_code == 200
+    r = client.post(f"/api/v1/tasks/{tid}/stage", json={"target_stage": "done"})
     assert r.status_code == 200
     assert r.json()["stage"] == "done"
 

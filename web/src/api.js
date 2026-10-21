@@ -26,7 +26,11 @@ export class ApiError extends Error {
     this.userMessage = ERROR_MESSAGES[status] || `请求失败 (${status})`
     if (detail && typeof detail === 'object') {
       if (detail.hint) this.hint = detail.hint
+      // 后端错误码有两种写法：`error`（policy 门控）与 `code`（业务门控，
+      // 如 review.self_approval / review.evidence_missing）—— 两种都要读到，
+      // 否则前端按码渲染专用文案时拿不到码。
       if (detail.error) this.error_code = detail.error
+      if (detail.code) this.error_code = detail.code
     }
   }
 }
@@ -40,7 +44,13 @@ async function req(method, path, body) {
   const data = await r.json().catch(() => ({}))
   if (!r.ok) {
     const detail = data && data.detail
-    const msg = typeof detail === 'string' ? detail : (detail?.detail || detail?.error || (detail ? JSON.stringify(detail) : `HTTP ${r.status}`))
+    // 优先级：detail.message（后端业务文案）→ detail.detail → detail.error
+    // → 兜底按状态码。原先缺 detail.message 一档，导致后端写的
+    // 「拒绝提交：…」这类说明被 JSON.stringify 成一行乱码。
+    const msg = typeof detail === 'string'
+      ? detail
+      : (detail?.message || detail?.detail || detail?.error
+         || (detail ? JSON.stringify(detail) : `HTTP ${r.status}`))
     throw new ApiError(msg, r.status, detail, url)
   }
   return data

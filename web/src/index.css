@@ -3856,6 +3856,11 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
 .rp__textarea { width: 100%; padding: 8px 10px; background: var(--bg-2); border: 1px solid var(--line-strong); border-radius: 7px; color: var(--ink); font-size: 13px; resize: vertical; min-height: 60px; font-family: inherit; box-sizing: border-box; }
 .rp__textarea:focus { outline: none; border-color: var(--accent); }
 
+/* P1-2：评审提交被拒（自审 / 缺评审证据）的错误条 */
+.rp__error { display: flex; align-items: flex-start; gap: 8px; padding: 9px 11px; background: rgba(248,113,113,0.10); border-left: 3px solid var(--danger); border-radius: 4px; color: var(--danger); font-size: 12px; line-height: 1.5; }
+.rp__error__icon { flex: none; font-size: 13px; line-height: 1.35; }
+.rp__error__msg { flex: 1; white-space: pre-wrap; word-break: break-word; }
+
 /* Actions */
 .rp__actions { display: flex; gap: 10px; }
 .rp__btn { flex: 1; padding: 10px 0; font-size: 13px; font-weight: 600; border-radius: 8px; }

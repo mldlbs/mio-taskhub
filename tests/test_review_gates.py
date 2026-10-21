@@ -1,11 +1,19 @@
 # -*- coding: utf-8 -*-
-"""评审门控测试（2026-10-10 审计 P0-4）。
+"""评审门控测试（2026-10-10 审计 P0-4；2026-10-21 P1-2 收窄）。
 
 修复的两个缺口：
 1. 评审人身份隔离 —— 原先 `reviewer` 是自由字符串，执行该任务的 agent 可以自己
-   approve 自己，「独立验收」名存实亡。现默认拒绝自审，`self_review=true` 可显式放行。
+   approve 自己，「独立验收」名存实亡。
 2. approve 结论内容下限 —— 原先 `summary` 是自由字符串，写 "x" 也会写入
    `review_result` 并满足 done 门控。现未登记 review 文档时长度不足即 422。
+
+**P1-2 变更**（决策文档 product-decision-20261020.md §4）：
+- 删除 `self_review=true` 显式绕过通道 —— 自审**恒**被拒
+- 新增：空 reviewer 被拒（review.reviewer_required）
+  （原实现 `if reviewer and not self_review` 在 reviewer 为空时短路，
+   完全跳过自审检查）
+- 新增：进入 done 需真实评审证据（approve 记录 或 实际落盘的 review 文档）
+  —— 原实现 `review_result` 纯文本即可解锁 done，且不产生任何 TaskReview 记录
 """
 from fastapi.testclient import TestClient
 from sqlmodel import Session
@@ -62,17 +70,37 @@ def test_other_reviewer_can_approve():
     assert t["review_result"] == GOOD_SUMMARY
 
 
-def test_self_review_allowed_with_explicit_flag():
-    """确有需要时显式声明自审——放行，但记录里 reviewer 仍是真实执行者，可审计。"""
+def test_self_review_bypass_channel_removed():
+    """P1-2：`self_review=true` 绕过通道已删除 —— 自审恒被拒。
+
+    原语义（2026-10-10 P0-4）：「确有需要时显式声明自审——放行」。
+    P1-2 收窄：决策文档要求「同一 agent 自审恒 409，无绕过」——
+    显式绕过通道存在时，「独立验收」就仍是名存实亡。
+    """
     tid = _mk()
     _add_run(tid, "worker-a")
     r = client.post(f"/api/v1/tasks/{tid}/reviews", json={
         "decision": "approve", "reviewer": "worker-a",
         "summary": GOOD_SUMMARY, "self_review": True,
     })
-    assert r.status_code == 200
-    revs = client.get(f"/api/v1/tasks/{tid}/reviews").json()
-    assert revs[-1]["reviewer"] == "worker-a"
+    assert r.status_code == 409
+    assert r.json()["detail"]["code"] == "review.self_approval"
+    # 不得留下任何 TaskReview 记录（不产生假证据）
+    assert client.get(f"/api/v1/tasks/{tid}/reviews").json() == []
+
+
+def test_empty_reviewer_rejected():
+    """P1-2：空 reviewer 被拒 —— 无法证明验收独立于执行者。"""
+    tid = _mk()
+    _add_run(tid, "worker-a")
+    for body in (
+        {"decision": "approve", "reviewer": "", "summary": GOOD_SUMMARY},
+        {"decision": "approve", "summary": GOOD_SUMMARY},
+    ):
+        r = client.post(f"/api/v1/tasks/{tid}/reviews", json=body)
+        assert r.status_code == 409, f"应被拒，实际 {r.status_code}"
+        assert r.json()["detail"]["code"] == "review.reviewer_required"
+    assert client.get(f"/api/v1/tasks/{tid}/reviews").json() == []
 
 
 def test_reject_by_executor_is_allowed():

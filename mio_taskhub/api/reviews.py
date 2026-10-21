@@ -5,6 +5,7 @@ from sqlmodel import Session, select
 from mio_taskhub.db import get_session
 from mio_taskhub.doc_paths import doc_path_of
 from mio_taskhub.models import Task, TaskStage, TaskReview, Run
+from mio_taskhub.review_guard import assert_reviewable
 from mio_taskhub.utils import _now
 from mio_taskhub.events import emit_event
 
@@ -80,23 +81,17 @@ def submit_review(task_id: str, body: dict, db: Session = Depends(get_session)):
     summary = (body.get("summary") or "").strip()
 
     if decision == "approve":
-        # 2026-10-10 审计 P0-4：评审人身份隔离。
-        # 原先 reviewer 是自由字符串，执行该任务的 agent 可以自己 approve 自己 ——
-        # 「独立验收」名存实亡。现默认拒绝自审；确有需要时显式传 self_review=true 放行。
-        if reviewer and not body.get("self_review"):
-            last_run = db.exec(
-                select(Run).where(Run.task_id == task_id)
-                .order_by(Run.started_at.desc())).first()
-            if last_run is not None and last_run.agent_name == reviewer:
-                raise HTTPException(409, detail={
-                    "code": "review.self_approval",
-                    "message": (f"评审人 '{reviewer}' 是本任务最近的执行者，"
-                                f"不能自我 approve；请由他人评审，"
-                                f"或显式传 self_review=true 声明为自审"),
-                    "reviewer": reviewer,
-                    "executor": last_run.agent_name,
-                    "hint": "自审会在 TaskReview 中留痕，请确认这是有意为之",
-                })
+        # P1-2（决策文档 product-decision-20261020.md §4）：删 self_review 绕过通道
+        # + 禁空 reviewer。判据集中在 review_guard.assert_reviewable()（单一事实源），
+        # 与 task_stages.py 的 done 门控共用，避免两处判据漂移。
+        #
+        # 修复前的两条绕过（实测确认）：
+        #   ① `if reviewer and not body.get("self_review")` —— reviewer 为空时短路，
+        #      **完全跳过**自审检查 → 空 reviewer 可 approve
+        #   ② `self_review=true` —— 显式绕过通道
+        allowed, detail = assert_reviewable(db, task_id, reviewer, decision)
+        if not allowed:
+            raise HTTPException(409, detail=detail)
         # 结论内容下限：未登记 review 文档时，summary 太短不构成可追溯的审查结论
         if len(summary) < MIN_APPROVE_SUMMARY and not doc_path_of(t, "review"):
             raise HTTPException(422, detail={

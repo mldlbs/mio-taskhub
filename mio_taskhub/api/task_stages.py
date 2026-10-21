@@ -246,6 +246,95 @@ def _apply_stage_requirements(t: Task, dst: TaskStage, body: dict, strict: bool 
         raise HTTPException(422, req["error"])
 
 
+def _check_review_evidence(db: Session, t: Task, dst: TaskStage, body: dict):
+    """P1-2：进入 done 阶段前的**评审证据**门控。
+
+    背景（决策文档 product-decision-20261020.md §4 P1-2）：实测确认 `done` 阶段
+    存在多条「不产生任何 TaskReview 记录就能 approve」的绕过路径：
+
+      ① `review_result` 纯文本直达 done（advance / move 两条路都试过 → 200）
+      ② 只登记 review 文档路径但**文件根本没写** → review_result 被自动填成
+         「见审查文档 xxx.md」—— 一条看起来像审查结论的**假记录**
+
+    这两条都让「approved」在 DB 里完全无痕 —— 审阅历史是空的，review_result
+    是句自说自话的文本。P1-2 的判据是「approved 不可信」，故必须堵住。
+
+    门控判据（进入 done 时）：
+      - 必须有**真实评审证据**：一条 `decision='approve'` 的 TaskReview 记录
+        **或** 一个**实际落盘**的 review 文档（文件存在且非空）
+      - 若走的是「本次请求直接提供 review_result 文本」的路径，则该文本的
+        提供者不得是本任务最近的执行者（自审）—— 但文本路径本身不构成
+        「独立验收」证据，故**要求同时存在 TaskReview 记录**。
+
+    豁免（fail-open，避免误伤合法流程）：
+      - `force=true` → 跳过（留痕，与既有门控一致）
+      - 任务无任何执行者记录（纯人工任务）→ 放行（无自审概念，且人工验收
+        本就走 UI 的 ReviewPanel → submit_review → 留 TaskReview）
+
+    与 `reviews.py` 共用 `review_guard`（单一事实源），避免两处判据漂移。
+    """
+    if dst != TaskStage.DONE:
+        return
+    if (body or {}).get("force"):
+        return
+
+    # 1) 独立评审记录（真实 approve）
+    from mio_taskhub.models import TaskReview
+    reviews = db.exec(
+        select(TaskReview).where(
+            TaskReview.task_id == t.id,
+            TaskReview.decision == "approve",
+        )
+    ).all()
+    from mio_taskhub.review_guard import last_executor
+    executor = (last_executor(db, t.id) or "").strip()
+    if reviews:
+        if not executor:
+            # 任务无执行者记录（纯人工任务）→ 无自审概念，approve 记录即有效证据
+            return
+        others = [r for r in reviews
+                  if (r.reviewer or "").strip() != executor]
+        if others:
+            return  # 有他人 approve → 放行
+        # approve 全部来自执行者本人 → 自审无效
+        raise HTTPException(409, detail={
+            "code": "review.self_approval",
+            "message": (f"本任务的 approve 记录全部来自执行者 '{executor}' "
+                        f"本人（自审），不能据此判定验收通过；"
+                        f"请由他人独立验收后重试"),
+            "executor": executor,
+            "hint": "「独立验收」要求审阅人与执行者不同",
+        })
+
+    # 2) 实际落盘的 review 文档（文件存在且有内容）
+    review_path = doc_path_of(t, "review")
+    if review_path:
+        try:
+            from mio_taskhub.read_evidence import resolve_doc_path
+            p = resolve_doc_path(t, "review")
+            if p is not None and p.is_file() and p.stat().st_size > 0:
+                return  # 有真实审查文档 → 放行
+        except OSError:
+            pass
+
+    # 3) 都没有 → 拦截
+    has_approve = bool(reviews)
+    raise HTTPException(422, detail={
+        "code": "review.evidence_missing",
+        "message": ("进入 done 需要真实评审证据："
+                    + ("已有 approve 记录但审阅人是执行者本人（自审无效）"
+                       if has_approve else
+                       "既无 approve 评审记录，也无实际落盘的 review 文档")
+                    + "；review_result 纯文本不足以构成独立验收"),
+        "has_approve_record": has_approve,
+        "has_review_doc": bool(review_path),
+        "hint": ("先 POST /api/v1/tasks/{id}/reviews 提交 decision=approve 的评审记录"
+                 "（审阅人不得是本任务的执行者），"
+                 "或写入并登记 review 文档（doc_paths['review']，文件须实际存在）"
+                 "；紧急情况可带 force=true 跳过并留痕"),
+    })
+
+
 def _transition_to_stage(task, to_state, stage, actor_type, actor_id, reason, m1_events):
     """Apply a single state transition and collect the resulting event."""
     t, event = apply_transition(task, to_state, stage, actor_type, actor_id, reason)
@@ -409,6 +498,7 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
         if not discussions:
             raise HTTPException(422, f"{dst.value} stage requires at least one discussion record")
     _apply_stage_requirements(t, dst, body)
+    _check_review_evidence(db, t, dst, body)
     forced_gate = _check_lifecycle_gate(t, dst, force=bool((body or {}).get("force")))
     m1_events = []
     try:
@@ -462,6 +552,17 @@ def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
     if src in (TaskStage.DONE, TaskStage.CANCELLED):
         raise HTTPException(400, f"cannot move terminal stage {src.value}")
     _apply_stage_requirements(t, dst, body, strict=False)
+    # P1-2：先判「有没有走到 done 的合法路径」，再判评审证据。
+    # 顺序很重要：failed/retrying 任务没有完成路径，属状态机层面的 409；
+    # 若先撞评审门控会误报 422 review.evidence_missing，把「状态机拒绝」
+    # 伪装成「缺评审证据」，掩盖真实原因。
+    cur_s_pre = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
+    if dst == TaskStage.DONE and cur_s_pre not in (
+            TaskState.QUEUED, TaskState.CLAIMED, TaskState.COMPLETED):
+        raise HTTPException(
+            409, f"不可移动到 done：状态 {cur_s_pre.value} 无完成路径"
+                 "（failed/retrying 请先 retry，running 请等待 agent 提交）")
+    _check_review_evidence(db, t, dst, body)
     if src == dst:
         db.add(t)
         db.commit()
