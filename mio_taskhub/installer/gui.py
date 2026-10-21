@@ -723,10 +723,18 @@ class UninstallerApp(_Base):
         row.pack(fill="x", pady=(6, 0))
         row.columnconfigure(0, weight=1)
         _Field(row, self.var_dir, placeholder="安装目录",
-               parent_bg=CARD).grid(row=0, column=0, sticky="ew")
+               parent_bg=CARD, display_basename=True).grid(row=0, column=0, sticky="ew")
 
-        _Check(body, "同时删除用户数据（数据库 / 日志 / 备份，不可恢复）",
-               self.var_purge, parent_bg=CARD).pack(anchor="w", pady=(18, 0))
+        self._check_purge = _Check(body, "同时删除用户数据（数据库 / 日志 / 备份）",
+                                  self.var_purge, parent_bg=CARD)
+        self._check_purge.pack(anchor="w", pady=(18, 0))
+
+        # 不可恢复操作的警告：默认**琥珀色**（潜在风险），
+        # **勾选后变红**（即将执行）—— 不可恢复的操作要显眼。
+        self._purge_warn = _label(body, "⚠ 勾选后将永久删除任务数据，无法恢复",
+                                  9, "#e3b341", bg=CARD)
+        self._purge_warn.pack(anchor="w", pady=(6, 0))
+        self.var_purge.trace_add("write", self._on_purge_change)
 
         self.log = _LogPane(self.body)
         self.log.pack_forget()
@@ -740,6 +748,12 @@ class UninstallerApp(_Base):
                 parent_bg=BG).pack(side="right", padx=(0, 10))
 
         self.status.configure(text="准备就绪")
+
+    def _on_purge_change(self, *_args) -> None:
+        """勾选「删除用户数据」时强化警告 + 改按钮文案（不可恢复操作要显眼）。"""
+        on = bool(self.var_purge.get())
+        self._purge_warn.configure(fg=DANGER if on else "#e3b341")
+        self._btn_uninstall.set_text("卸载并删除数据" if on else "卸载")
 
     def _start(self):
         self._btn_uninstall.set_enabled(False)
