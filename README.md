@@ -7,12 +7,12 @@
 | 维度 | 现状 |
 |------|------|
 | 版本 | v0.6.1 |
-| 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 76 模块 / 24,254 行 |
+| 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 76 模块 / 25,899 行 |
 | 对外能力 | **163 个 REST 端点** · **47 个 MCP 工具** · WebSocket 实时广播 · React Web UI |
 | 任务文档 | **22 类文档 kind** · **7 件套文档链** · **9 类生命周期状态机** · 质量 lint + 状态门控 + 修订指令 |
 | 前端 | React 18 + Vite 5 · 48 文件 / 11,762 行 · 10 个视图 |
-| 测试 | **1305 个用例**（55 文件 / 8,480 行）· GitHub Actions（windows-latest / py3.12） |
-| 部署 | pip 源码 · Docker 多阶段镜像 · Windows 单 EXE 绿色版（免 Python） |
+| 测试 | **1333 个用例**（55 文件 / 8,480 行）· GitHub Actions（windows-latest / py3.12） |
+| 部署 | pip 源码 · Docker 多阶段镜像 · Windows 单 EXE 绿色版（免 Python）· Windows 安装包（图形安装 + 正规卸载） |
 
 ---
 
@@ -24,6 +24,13 @@
 - 全部版本与更新说明：[Releases](https://github.com/mldlbs/mio-taskhub/releases)
 - 校验（可选）：`Get-FileHash mio-taskhub-win64.zip -Algorithm SHA256`
 - 使用：解压 → 双击 `mio-taskhub.exe` 启动本地 hub（`http://127.0.0.1:48620`）→ 双击 `setup-agent.bat` 接入本机 Agent
+
+> **Windows 安装包（推荐给非技术用户）**
+
+- **下载最新版**：[`mio-taskhub-setup.exe`](https://github.com/mldlbs/mio-taskhub/releases/latest/download/mio-taskhub-setup.exe)
+- 使用：双击 `mio-taskhub-setup.exe` → 图形安装向导 → 装到 `%LOCALAPPDATA%\Programs\mio-taskhub`
+- 装完桌面和开始菜单有快捷方式；卸载走 Windows「应用和功能」或安装目录里的 `uninstall.exe`
+- 用户数据（数据库/日志/备份）**卸载时默认保留**在 `%USERPROFILE%\.mio_taskhub`
 
 > 源码安装、Docker、Linux 见 §3 快速开始。
 
@@ -165,7 +172,8 @@ new ──> fermenting ──> formed ──> broken_down ──> (任务全部�
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1
-# 产物：dist/mio-taskhub/（绿色版目录）+ dist/mio-taskhub-绿色版.zip
+# 产物：dist/mio-taskhub-v3/（绿色版目录）+ dist/mio-taskhub-win64.zip
+#      + dist/mio-taskhub-installer/（独立安装包目录）
 ```
 
 拿到 zip 后：
@@ -177,7 +185,28 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1
 单 EXE 按参数分派三种角色：默认 = hub，`mcp` = MCP stdio 服务端，`widget` = 置顶浮动看板（可收进托盘）。
 数据落在 `%USERPROFILE%\.mio_taskhub\taskhub.db`，换机器复制该文件即可。
 
-### 3.2 源码运行
+### 3.2 Windows 安装包（图形安装 / 正规卸载）
+
+不想手动解压、或需要「应用和功能」里能卸载，就用安装包：
+
+```powershell
+# dist/mio-taskhub-installer/ 目录里：
+#   mio-taskhub-setup.exe        ← 双击这个（图形安装向导）
+#   mio-taskhub-win64.zip        ← 安装包本体（setup 自动找到它）
+```
+
+| 能力 | 说明 |
+|------|------|
+| 安装目录 | 默认 `%LOCALAPPDATA%\Programs\mio-taskhub`（用户级，**不需要管理员**） |
+| 快捷方式 | 开始菜单 + 桌面各一个 |
+| 卸载入口 | Windows 设置 → 应用 → 「mio-taskhub 任务中心」→ 卸载；或安装目录里的 `uninstall.exe` |
+| 用户数据 | 卸载时**默认保留** `%USERPROFILE%\.mio_taskhub`（勾选「同时删除用户数据」才清空） |
+| 静默模式 | `mio-taskhub-setup.exe --silent` / `uninstall.exe --silent`（CI、批量部署） |
+
+安装器内部实现见 [`mio_taskhub/installer/`](mio_taskhub/installer/)：安装与卸载动作在
+`install.py`，注册表项在 `registry.py`，快捷方式在 `shortcuts.py`，进程清理在 `processes.py`。
+
+### 3.3 源码运行
 
 ```bash
 pip install -e ".[dev]"          # 或 uv sync
@@ -201,7 +230,7 @@ mio-taskhub-mcp                  # 启动 MCP stdio 服务端
 
 > 注意：API 路径前缀是 `/api/v1`，但 **文档页没有该前缀**（`/docs`，不是 `/api/v1/docs`）。
 
-### 3.3 Docker
+### 3.4 Docker
 
 ```bash
 docker compose up -d
@@ -715,9 +744,11 @@ mio_taskhub/
 └── observability/       # metrics / alerts / dep_metrics / otel / logging_config / report
 
 web/src/                 # React SPA（components/ 含全部视图）
-tests/                   # 641 个用例
+tests/                   # 1305 个用例
 docs/                    # 规格、ADR、审计报告、HOWTO
 packaging/               # 构建脚本、setup 脚本、Prometheus 配置、WorkBuddy skill
+mio_taskhub/installer/   # 安装 / 卸载子系统（安装器、卸载器、注册表、快捷方式）
+scripts/make_zip.py      # 确定性 zip 打包（替代 Compress-Archive）
 ```
 
 ### 测试
@@ -738,15 +769,25 @@ cd web && npm run dev         # 前端热更新开发
 
 ### 打包
 
-唯一打包 spec 是根目录 `mio-taskhub.spec`，**不要在别处复制副本**。一键脚本 `packaging/build.ps1` 依次执行：`npm run build` → PyInstaller → 复制 setup 脚本/使用说明/WorkBuddy skill/widget 入口 → 压缩 zip。
+主程序唯一打包 spec 是根目录 `mio-taskhub.spec`，安装器是 `mio-taskhub-installer.spec`，**都不要在别处复制副本**。一键脚本 `packaging/build.ps1` 依次执行：`npm run build` → PyInstaller（主程序）→ PyInstaller（安装器/卸载器）→ 复制 setup 脚本/使用说明/WorkBuddy skill/widget 入口 → 压缩 zip → 组装独立安装包目录。
+
+产物：
+
+| 路径 | 内容 |
+|------|------|
+| `dist/mio-taskhub-v3/` | 绿色版目录（主程序本体） |
+| `dist/mio-taskhub-win64.zip` | 绿色版 zip（自动更新用） |
+| `dist/mio-taskhub-installer/` | 独立安装包：`mio-taskhub-setup.exe` + zip + 安装说明 |
 
 踩过的坑（改打包时务必注意）：
 
 - 统一入口是 `packaging/run.py`，按 `sys.argv[1]` 分派 hub / mcp / widget
-- 无黑框模式（`console=False`）下 stdout 为 `None`，`run.py` 需重定向到日志文件，否则 uvicorn 日志配置会崩；MCP 分支走 stdio 不做重定向
+- 无黑框模式（`console=False`）下 stdout 为 `None`，`run.py` 需重定向到日志文件，否则 uvicorn 日志配置会崩；MCP 分支走 stdio 不做重定向。**安装器同样受此影响** → `mio_taskhub/installer/entry_support.py` 统一重绑 stdio
+- **zip 用 `scripts/make_zip.py` 打，不要用 `Compress-Archive`**：① 打包产物的 `base_library.zip` 是只读的 → Compress-Archive 抛 `UnauthorizedAccessError`；② 它的输出布局不稳定（实测发布资产顶层带一层 `mio-taskhub-v3/`），而更新器按平铺校验 → **自动更新永远装不上**；③ 成员顺序/时间戳不稳定 → 不可复现
+- payload 布局契约（根目录即内容 / 顶层前缀自动剥离）由 `mio_taskhub/payload_layout.py` 统一，安装器与更新器共用
 - `.ps1` 必须存为 **UTF-8 with BOM**，否则 PowerShell 5.1 按 ANSI 读取中文会解析失败
 - 排除重型依赖（torch/pandas/scipy 等）见 spec 的 `excludes`，否则体积会膨胀到 GB 级
-- 打包目标为 Windows 64 位；Mac/Linux 需在对应系统重打
+- 打包目标为 Windows 64 位；Mac/Linux 需在对应系统重打（安装器/卸载器同理，只覆盖 Windows）
 
 ---
 
@@ -763,6 +804,7 @@ cd web && npm run dev         # 前端热更新开发
 | [`docs/architecture-audit-v3-2026-09-10.md`](docs/architecture-audit-v3-2026-09-10.md) | 最新架构审计（评分 80/100） |
 | [`CHANGELOG.md`](CHANGELOG.md) | 版本变更记录 |
 | [`packaging/使用说明.txt`](packaging/使用说明.txt) | 面向非开发用户的图文说明 |
+| [`packaging/安装说明.txt`](packaging/安装说明.txt) | 面向非开发用户的安装 / 卸载说明 |
 
 ---
 

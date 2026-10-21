@@ -1,0 +1,38 @@
+# -*- coding: utf-8 -*-
+"""发布脚本的资产清单（发版时该上传哪些文件、latest.json 怎么写）。
+
+**单一事实源**：`packaging/release.ps1` 与 `scripts/release_checklist.py`
+都从这里取，避免「打包产了但没上传」「latest.json 指向不存在的资产」。
+
+资产分两类：
+- `payload`：程序本体（绿色版 zip）—— 客户端自动更新用它
+- `installer`：独立安装包（setup exe + payload）—— 给人手动安装用
+"""
+from __future__ import annotations
+
+#: 客户端自动更新用的程序 zip（latest.json 的 assets 里指向它）
+PAYLOAD_ASSET = "mio-taskhub-win64.zip"
+
+#: 独立安装包目录名（build.ps1 产出：dist/mio-taskhub-installer/）
+INSTALLER_BUNDLE_DIR = "mio-taskhub-installer"
+
+#: 独立安装包里的安装器 exe（用户双击它）
+INSTALLER_EXE = "mio-taskhub-setup.exe"
+
+#: 安装包目录内要上传的资产（相对 dist/）
+INSTALLER_BUNDLE_ASSETS = (
+    "%s/%s" % (INSTALLER_BUNDLE_DIR, INSTALLER_EXE),
+    "%s/%s" % (INSTALLER_BUNDLE_DIR, PAYLOAD_ASSET),
+)
+
+#: latest.json 里 assets[].format 的取值
+PAYLOAD_FORMAT = "zip"
+
+#: 自更新支持的平台（与 update/manifest.py 的 asset_for 保持一致）
+PAYLOAD_OS = "windows"
+PAYLOAD_ARCH = "x64"
+
+
+def all_release_assets() -> tuple:
+    """所有需要上传的资产（相对 dist/ 目录）。"""
+    return (PAYLOAD_ASSET,) + INSTALLER_BUNDLE_ASSETS

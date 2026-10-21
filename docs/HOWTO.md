@@ -82,22 +82,73 @@ python agent_wrapper.py claude-code claim # claude-code 领下一个
 
 ```bash
 pip install pyinstaller
-# 一键打包：构建前端 + PyInstaller + 复制分发文件 + 压缩 zip
+# 一键打包：构建前端 + PyInstaller + 复制分发文件 + 压缩 zip + 组装安装包
 powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1
-# 产物: dist/mio-taskhub/ （绿色版目录）+ dist/mio-taskhub-win64.zip
+# 产物:
+#   dist/mio-taskhub-v3/              绿色版目录
+#   dist/mio-taskhub-win64.zip        绿色版 zip（自动更新用）
+#   dist/mio-taskhub-installer/       独立安装包（setup.exe + zip + 安装说明）
 ```
 
 产物包含：
 - `mio-taskhub.exe`：单 EXE，按参数分派三种功能
   - 双击 → 任务中心 hub，自动开浏览器
   - `mio-taskhub.exe mcp` → MCP 服务端（agent 经 stdio 调用，人不用碰）
-  - `mio-taskhub.exe widget` → 置顶浮动任务面板（可收进系统托盘）
+  - `mio-taskhub.exe widget` → 置顶浮动任务面板（可收进托盘）
 - `mio-taskhub-widget.bat`：双击启动浮动面板的入口
 - `setup-agent.bat`：一键识别并配置 opencode / claude code / codex / workbuddy（双击）
+- `uninstall.exe`：卸载程序（图形向导 / `--silent` 静默卸载）
 - `使用说明.txt`：给最终用户的图文说明
 
 小白使用流程：① 双击 mio-taskhub.exe → ② 双击 setup-agent.bat →
 ③ 重启 agent 说"使用 mio-taskhub 领取任务"。全程免 Python、免联网。
+
+### 安装器 / 卸载器（独立安装包）
+
+不想让用户手动解压、或希望能在 Windows「应用和功能」里卸载时，用安装包：
+
+| 资产 | 路径 | 说明 |
+|------|------|------|
+| 安装器 | `dist/mio-taskhub-installer/mio-taskhub-setup.exe` | 双击 → 图形安装向导；`--silent` 静默安装 |
+| 卸载器 | 随 payload 分发到安装目录的 `uninstall.exe` | 图形卸载向导；`--silent` 静默卸载 |
+
+实现落在 `mio_taskhub/installer/`：
+
+| 模块 | 职责 |
+|------|------|
+| `paths.py` | 路径与常量单一事实源（安装目录/注册表键/关键项） |
+| `install.py` | 安装与卸载的**核心动作**（与 UI 解耦，可单测） |
+| `registry.py` | 「应用和功能」HKCU 注册表项（用户级，免管理员） |
+| `shortcuts.py` | 开始菜单 / 桌面 .lnk 快捷方式（COM，不依赖 pywin32） |
+| `processes.py` | 卸载前清理占用安装目录的进程 |
+| `payload.py` | payload 定位 / 解压 / 校验（契约见 `mio_taskhub/payload_layout.py`） |
+| `gui.py` | Tkinter 安装向导 + 卸载向导 |
+| `cli.py` | 无界面命令行入口（CI / 批量部署） |
+| `entry_support.py` | 无黑框 exe 的 stdio 重绑（`sys.stdout` 为 None 的兜底） |
+
+打包入口：`packaging/setup_entry.py`（→ `mio-taskhub-setup.exe`）与
+`packaging/uninstall_entry.py`（→ `uninstall.exe`），spec 是 `mio-taskhub-installer.spec`。
+
+**改安装器时务必注意的坑**：
+
+- **无黑框 exe 的 `sys.stdout` 是 `None`** —— 直接 `print()` 会抛 AttributeError。
+  所有输出走 `entry_support.ensure_stdio()` / `emit()`。
+- **卸载器运行在待删目录里** → Windows 锁住自己的 exe 映像，目录删不掉。
+  `_self_delete_dir()` 派发一个**带重试**的 .bat（`rmdir` 失败就等 2 秒再试）。
+  两个细节：① 必须用 `Popen` 不能用 `run`（run 会等 cmd 结束 → 死锁）；
+  ② 批处理里的 for 变量要写 `%%i`，且用 f-string 生成（`%` 格式化会把 `%%i` 变成 `%i`）。
+- **派发的 cmd 必须设 `cwd` 到待删目录之外** —— cmd 继承当前工作目录，
+  会把要删的目录自己锁住（实测：文件全删了，目录壳子留着）。
+- **卸载器被改名成 `uninstall.exe` 时必须默认走卸载流程** —— 安装器会把自身
+  复制进安装目录当卸载器用（`setup_entry.py` 的 `_invoked_as_uninstaller()`）。
+- **进程路径匹配不能用 `realpath("")`** —— 裸 exe 名（无目录部分）经
+  `realpath("")` 会变成**当前工作目录**，把 Windows 的 `Registry` 等系统进程
+  误判成占用者 → 永远删不掉（`processes._is_under()` 已挡）。
+- **自更新会整体替换安装目录** → 卸载器会被一起换掉。
+  `update/apply.py` 的 `_preserve_uninstaller()` 在替换前把它拷进 staging。
+- **payload 布局契约只有一份** —— `mio_taskhub/payload_layout.py`。
+  历史发布的 zip 顶层带一层 `mio-taskhub-v3/`，而更新器按「根目录即内容」校验
+  → **自动更新装不上**（2026-10-21 实测）。现在解压统一自动剥离顶层前缀。
 
 ### 自动更新与发版
 

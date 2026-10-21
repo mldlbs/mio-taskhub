@@ -25,6 +25,13 @@ $Repo      = 'mio-taskhub'
 $AssetName = 'mio-taskhub-win64.zip'
 $tag       = "v$Version"
 
+# 资产清单以 mio_taskhub/release_assets.py 为准（唯一事实源）
+$installerDir = 'dist\mio-taskhub-installer'
+$installerAssets = @(
+    "$installerDir\mio-taskhub-setup.exe",
+    "$installerDir\mio-taskhub-win64.zip"
+)
+
 $token = $env:GH_TOKEN
 if (-not $token) { $token = $env:GITHUB_TOKEN }
 if (-not $token) {
@@ -121,5 +128,14 @@ function Upload-Asset([string]$filePath) {
 Write-Host "[5/5] upload assets ..."
 Upload-Asset $zip
 Upload-Asset $jsonPath
+# 独立安装包（给人手动安装用）：setup exe + payload 一起上传
+foreach ($rel in $installerAssets) {
+    $p = Join-Path $root $rel
+    if (Test-Path $p) {
+        Upload-Asset $p
+    } else {
+        Write-Host "  [skip] 缺少安装包资产：$rel" -ForegroundColor Yellow
+    }
+}
 
 Write-Host "[done] https://github.com/$Owner/$Repo/releases/tag/$tag"

@@ -89,6 +89,22 @@ foreach ($c in $checks) {
 }
 if ($failed) { throw '关键依赖缺失，打包可能不完整' }
 
+# ---------- 4.5) 构建安装器 / 卸载器 ----------
+Write-Host '[4.5/6] 构建安装器 / 卸载器 ...'
+$installerDist = Join-Path $root 'dist_installer'
+Remove-Item -Recurse -Force $installerDist -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force (Join-Path $root 'build_installer') -ErrorAction SilentlyContinue
+& "$root\.venv\Scripts\python.exe" -m PyInstaller (Join-Path $root 'mio-taskhub-installer.spec') `
+    --noconfirm --clean --distpath $installerDist --workpath (Join-Path $root 'build_installer')
+if ($LASTEXITCODE -ne 0) { throw '安装器打包失败' }
+$setupExe = Join-Path $installerDist 'mio-taskhub-setup.exe'
+$uninstallExe = Join-Path $installerDist 'uninstall.exe'
+foreach ($p in @($setupExe, $uninstallExe)) {
+    if (-not (Test-Path $p)) { throw "缺少安装器产物：$p" }
+    Copy-Item -Force $p $distDir
+}
+Write-Host '  OK: mio-taskhub-setup.exe / uninstall.exe' -ForegroundColor Green
+
 # ---------- 5) 复制分发文件 ----------
 Write-Host '[5/6] 复制分发文件 ...'
 $distFiles = @(
@@ -109,11 +125,25 @@ if (Test-Path (Join-Path $root 'packaging\workbuddy')) {
 if (-not $Quick) {
     Write-Host '[6/6] 生成 zip ...'
 $zip = Join-Path $root 'dist\mio-taskhub-win64.zip'
-    Remove-Item -Force $zip -ErrorAction SilentlyContinue
-    Get-ChildItem -Path $distDir -Recurse | Where-Object { $_.Name -eq 'base_library.zip' } | ForEach-Object { $_.IsReadOnly = $false }
-    Compress-Archive -Path (Join-Path $distDir '*') -DestinationPath $zip -Force
-    $size = [math]::Round((Get-Item $zip).Length / 1MB, 1)
-    Write-Host "  zip: $zip ($size MB)" -ForegroundColor Green
+Remove-Item -Force $zip -ErrorAction SilentlyContinue
+# 用 scripts/make_zip.py 而非 Compress-Archive：
+#   ① base_library.zip 是只读的 → Compress-Archive 直接抛 UnauthorizedAccessError
+#   ② Compress-Archive 的输出布局不稳定（实测发布资产顶层带一层 mio-taskhub-v3/）
+#      而更新器按平铺校验 → 自动更新装不上
+#   ③ 成员顺序/时间戳不稳定 → 不可复现
+& "$root\.venv\Scripts\python.exe" (Join-Path $root 'scripts\make_zip.py') $distDir $zip
+if ($LASTEXITCODE -ne 0) { throw '生成 zip 失败' }
+$size = [math]::Round((Get-Item $zip).Length / 1MB, 1)
+Write-Host "  zip: $zip ($size MB)" -ForegroundColor Green
+
+# 独立安装包：安装器 exe + payload zip 放同一目录，双击 setup 即可安装
+$bundle = Join-Path $root 'dist\mio-taskhub-installer'
+Remove-Item -Recurse -Force $bundle -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $bundle | Out-Null
+Copy-Item -Force $setupExe $bundle
+Copy-Item -Force $zip $bundle
+Copy-Item -Force (Join-Path $root 'packaging\安装说明.txt') $bundle
+Write-Host "  安装包目录: $bundle" -ForegroundColor Green
 } else {
     Write-Host '[6/6] Quick 模式，跳过 zip ...'
 }

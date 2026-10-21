@@ -11,10 +11,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional, Tuple
 
-REQUIRED_ENTRIES = (
-    "mio-taskhub.exe",
-    os.path.join("_internal", "web", "dist", "index.html"),
-)
+from mio_taskhub.payload_layout import REQUIRED_ENTRIES
+
+#: 卸载程序文件名：自更新整体替换安装目录时必须把它带过去，
+#: 否则更新一次后「应用和功能」里的卸载入口就消失了。
+UNINSTALL_EXE_NAME = "uninstall.exe"
 
 
 @dataclass
@@ -144,17 +145,30 @@ def list_processes_under(root) -> list:
     def _norm(p: str) -> str:
         # realpath 展开 8.3 短名与符号链接（CI tmp 路径可能是 RUNNER~1 短形式），
         # 否则 normcase(dirname(exe)).startswith(root) 会因短/长名不一致漏判（T4.3）。
+        # 空串必须原样返回：裸 exe 名（无目录部分）经 realpath("") 会变成**当前
+        # 工作目录**，把系统进程误判成「占用安装目录的进程」（2026-10-21 实测）。
+        if not p:
+            return ""
         try:
             return os.path.normcase(os.path.realpath(p))
         except Exception:
             return os.path.normcase(p)
+
+    def _is_under(exe: str, root_s: str) -> bool:
+        """exe 是否位于 root 之下。裸 exe 名（无目录部分）一律判 False。"""
+        if not exe:
+            return False
+        parent = os.path.dirname(exe)
+        if not parent:
+            return False
+        return _norm(parent).startswith(root_s)
 
     root_s = _norm(str(root))
     out = []
     for info in psutil.process_iter(["pid", "exe"]):
         try:
             exe = info.info.get("exe") or ""
-            if exe and _norm(os.path.dirname(exe)).startswith(root_s):
+            if _is_under(exe, root_s):
                 out.append((int(info.info["pid"]), exe))
         except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError, TypeError):
             continue
@@ -223,6 +237,31 @@ def wait_healthy(target_version: str, after_ts: float, runtime_path=None,
 def _looks_complete(dir_path) -> bool:
     ok, _ = verify_staging(dir_path)
     return ok
+
+
+def _preserve_uninstaller(install: Path, staging: Path) -> bool:
+    """把卸载程序从旧安装目录带到 staging（新 payload 未自带时）。
+
+    自更新用「install→backup / staging→install」整体替换安装目录，
+    旧目录里的 uninstall.exe 会被一起换掉 —— 卸载入口就此消失。
+    这里在替换**之前**把它拷进 staging，保证更新后仍可卸载。
+
+    返回 True 表示已保留（或新 payload 本就自带）。
+    """
+    import shutil
+    dst = Path(staging) / UNINSTALL_EXE_NAME
+    if dst.exists():
+        return True
+    src = Path(install) / UNINSTALL_EXE_NAME
+    if not src.exists():
+        return False
+    try:
+        shutil.copy2(str(src), str(dst))
+    except OSError as e:
+        _apply_log("保留卸载程序失败：%s" % e)
+        return False
+    _apply_log("已保留卸载程序：%s" % UNINSTALL_EXE_NAME)
+    return True
 
 
 def recover_residual(install_dir, log: Callable[[str], None] = None) -> list:
@@ -345,23 +384,33 @@ def run_apply_update(argv) -> int:
         return 1
 
     # 3) 解压到 staging
+    #    用 payload_layout.extract_zip：自动剥离 zip 顶层的目录前缀。
+    #    历史上发布的 zip 顶层带一层 `mio-taskhub-v3/`，而 verify_staging 按
+    #    「根目录即内容」校验 → 校验必失败 → **自动更新永远装不上**（2026-10-21 实测）。
     import shutil
+    from mio_taskhub.payload_layout import extract_zip
     staging = target.with_name(target.name + ".staging-" + version)
     if staging.exists():
         shutil.rmtree(staging, ignore_errors=True)
     try:
-        with zipfile.ZipFile(zip_path) as zf:
-            zf.extractall(staging)
+        prefix = extract_zip(zip_path, staging)
     except Exception as e:  # noqa: BLE001
         _apply_log("解压失败：%s" % e)
         shutil.rmtree(staging, ignore_errors=True)
         return 1
+    if prefix:
+        _apply_log("已剥离 zip 顶层目录：%s" % prefix)
 
     ok, msg = verify_staging(staging)
     if not ok:
         _apply_log("staging 校验失败：%s" % msg)
         shutil.rmtree(staging, ignore_errors=True)
         return 1
+
+    # 3.5) 保留卸载程序：更新会整体替换安装目录，
+    #      若新 payload 未带 uninstall.exe，则从旧安装目录拷过去，
+    #      否则更新一次后「应用和功能」里的卸载入口就消失了。
+    _preserve_uninstaller(target, staging)
 
     # 4) 事务替换
     from_ver = str(read_runtime(runtime_json).get("version") or "unknown")

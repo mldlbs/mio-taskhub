@@ -1,0 +1,48 @@
+mio-taskhub 任务中心 · 安装包说明
+================================
+
+【一】怎么安装
+  1. 把本文件夹整个复制到目标机器（无需联网、无需装 Python）
+  2. 双击【mio-taskhub-setup.exe】打开安装向导
+  3. 选好安装目录（默认 C:\Users\你的用户名\AppData\Local\Programs\mio-taskhub）
+  4. 点【安装】，等进度条走完即可
+  5. 安装完成后，桌面和开始菜单会出现「mio-taskhub 任务中心」快捷方式
+
+【二】装完怎么用
+  1. 双击桌面上的【mio-taskhub 任务中心】→ 浏览器自动打开任务看板
+     地址：http://127.0.0.1:48620
+  2. 双击安装目录里的【setup-agent.bat】一键配置 AI 助手
+     （自动识别 opencode / claude code / codex / workbuddy）
+  3. 重启对应的 AI 助手，说一句「使用 mio-taskhub 领取任务」即可
+
+【三】怎么卸载
+  方式一（推荐）：Windows 设置 → 应用 → 找到「mio-taskhub 任务中心」→ 卸载
+  方式二：打开安装目录，双击【uninstall.exe】
+  · 卸载会移除程序文件、桌面/开始菜单快捷方式、「应用和功能」里的卸载项
+  · **你的任务数据（数据库/日志/备份）默认保留**在
+    C:\Users\你的用户名\.mio_taskhub\ —— 想彻底删干净请在卸载时勾选
+    「同时删除用户数据」
+
+【四】静默安装（给批量部署用）
+  mio-taskhub-setup.exe --silent
+  静默卸载：uninstall.exe --silent
+
+【五】常见问题
+  Q: 双击安装程序没反应？
+  A: 右键 → 以管理员身份运行试试；或看日志
+     C:\Users\你的用户名\.mio_taskhub\installer.log
+
+  Q: 安装时提示「仍有进程在使用程序」？
+  A: 说明 mio-taskhub 还在运行。关掉托盘图标（或结束任务管理器里的
+     mio-taskhub.exe）后重新运行安装程序。
+
+  Q: 装到一半断电了，目录里有半成品？
+  A: 直接重新运行安装程序，会自动清空旧目录重装。
+
+  Q: 需要联网吗？
+  A: 安装不需要联网。程序运行时检查更新才需要联网（可设
+     MIO_UPDATE_DISABLED=1 关闭）。
+
+  Q: 数据存在哪里？
+  A: C:\Users\你的用户名\.mio_taskhub\taskhub.db
+     换电脑前把这个文件复制走即可备份。

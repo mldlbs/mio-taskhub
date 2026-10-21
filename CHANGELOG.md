@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased
+
+> 独立安装与卸载程序：图形安装向导、正规卸载入口（Windows「应用和功能」）、快捷方式、确定性打包。
+> 版本号在发版提交（`chore(release)`）统一抬升并打 tag —— 本节保持 Unreleased。
+
+### Added — 安装 / 卸载程序
+- **`mio_taskhub/installer/` 新增安装与卸载子系统**：安装目录管理、「应用和功能」注册表项（HKCU 用户级，免管理员）、开始菜单/桌面快捷方式、进程清理、payload 解压校验。
+- **图形安装向导 / 卸载向导**（Tkinter）：`mio-taskhub-setup.exe` 双击即装，装完建快捷方式；`uninstall.exe` 双击即卸，可选「同时删除用户数据」（默认保留数据库/日志/备份）。
+- **静默模式**：`mio-taskhub-setup.exe --silent` / `uninstall.exe --silent`（CI、批量部署）。
+- **Windows「应用和功能」卸载入口**：`HKCU\...\Uninstall\mio-taskhub`，含 `UninstallString` 与 `QuietUninstallString`。
+- **`mio-taskhub-installer.spec`**：安装器/卸载器独立 spec（onefile，刻意不打 fastapi/sqlmodel/uvicorn 瘦身）。
+- **`scripts/make_zip.py`**：确定性 zip 打包（替代 `Compress-Archive`）。
+- **`mio_taskhub/release_assets.py`**：发布资产清单单一事实源；`release.ps1` 同步上传安装包。
+- **`packaging/安装说明.txt`**：面向终端用户的安装包说明。
+
+### Fixed — 自更新装不上（真实缺陷）
+- **自动更新永远失败**：实测已发布的 v0.6.1 资产 zip 顶层带一层 `mio-taskhub-v3/`，
+  而更新器 `verify_staging` 按「根目录即内容」校验 → 校验必失败 → 更新永远装不上。
+  新增 `mio_taskhub/payload_layout.py` 统一契约（安装器与更新器共用），
+  解压时自动剥离顶层前缀目录。
+- **打包用 `Compress-Archive` 会失败**：打包产物的 `_internal/base_library.zip` 是只读的 →
+  `CompressArchiveUnauthorizedAccessError`；且其输出布局与成员顺序不稳定 → 改用 `scripts/make_zip.py`。
+
+### Fixed — 卸载器相关
+- **自更新会带走卸载器**：更新整体替换安装目录 → 卸载入口消失。`update/apply.py` 的
+  `_preserve_uninstaller()` 在替换前把 `uninstall.exe` 拷进 staging。
+- **裸 exe 名被误判为占用者**：`os.path.realpath("")` 解析成当前工作目录，
+  把 Windows 的 `Registry` 等系统进程算成「占用安装目录」→ 永远删不掉。
+  `processes._is_under()` 与更新器同源实现均已修正。
+- **卸载器删不掉自己所在的目录**：Windows 锁住运行中的 exe 映像。
+  派发带重试的 .bat 自删除（`Popen` + `cwd` 指向目录外 + 批处理变量写 `%%i`）。
+
+### Tests
+- `tests/test_installer.py`（29 用例）：payload 布局契约、安装/卸载、注册表读写、
+  快捷方式创建删除、只读文件删除、进程路径匹配回归、自更新保留卸载器。
+
 ## v0.6.1 (2026-10-20)
 
 > 执行链可靠性收口（P1–P14）：幽灵 agent、提前回收、空转风暴、指标抖动、无界增长。
