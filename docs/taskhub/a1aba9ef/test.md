@@ -50,33 +50,49 @@
 
 ## 3. 用例清单
 
-| # | 用例 | 类型 | 断言要点 | 对应 AC |
-|---|---|---|---|---|
-| 1 | `test_empty_reviewer_rejected` | 集成 | 409 + `code=review.reviewer_required` | AC-1 |
-| 2 | `test_missing_reviewer_field_rejected` | 集成 | 409 + code 一致 | AC-2 |
-| 3 | `test_self_review_bypass_channel_removed` | 集成 | 409 + `code=review.self_approval` + `executor=opencode` | AC-3 |
-| 4 | `test_advance_to_done_requires_review_evidence` | 集成 | 422 + code + **TaskReview 数=0** | AC-4 |
-| 5 | `test_move_to_done_requires_review_evidence` | 集成 | 422 + code + TaskReview 数=0 | AC-5 |
-| 6 | `test_done_requires_review_doc_actually_written` | 集成 | 422 + code + TaskReview 数=0 | AC-6 |
-| 7 | `test_other_reviewer_approve_allowed` | 集成 | 200 → move done 200 + `stage=done` | AC-7 |
-| 8 | `test_pure_human_task_allowed` | 集成 | 200 → move done 200（无 run） | AC-8 |
-| 9 | `test_reject_and_comment_not_blocked[reject]` | 集成 | 200 | AC-9 |
-| 10 | `test_reject_and_comment_not_blocked[comment]` | 集成 | 200 | AC-9 |
-| 11 | `test_force_still_skips_gate` | 集成 | 200 + stage=done | AC-10 |
-| 12 | `test_blocked_submit_leaves_no_review_record` | 集成 | TaskReview 数=0 | AC-11 |
-| 13 | `test_review_guard_last_executor_none_for_no_run` | 单元 | `last_executor` → None | FR-4 |
-| 14 | `test_review_guard_is_self_approval` | 单元 | True/False/False 三分支 | FR-4 |
-| 15 | `test_move_done_from_failed_409_not_500` | 集成（既有） | 409 + detail 含 "done" | AC-12 |
-| 16 | `test_move_to_done_requires_review_result` | 集成（既有） | 422 + review_result 保持空 | — |
-| 17 | `test_self_review_bypass_channel_removed`（review_gates） | 集成 | 409 + reviews 列表为空 | AC-3 |
-| 18 | `test_empty_reviewer_rejected`（review_gates） | 集成 | 409 ×2 变体 | AC-1/2 |
-| 19 | `test_advance_to_done_requires_review_evidence`（stage） | 集成 | 422 + code | AC-4 |
-| 20 | `test_advance_to_done_with_review`（stage） | 集成 | approve 后 → 200 | AC-7 |
-| 21 | `test_move_to_done_requires_review_evidence`（stage_move） | 集成 | 422 + code | AC-5 |
-| 22 | `test_move_to_done_with_review_result`（stage_move） | 集成 | approve 后 → 200 | AC-7 |
-| 23 | `test_move_done_from_ready_via_review`（stage_move） | 集成 | approve 后 → 200 | AC-7 |
-| 24 | `test_move_done_from_implementing`（stage_move） | 集成 | approve 后 → 200 | AC-7 |
-| 25 | `test_move_done_from_completed_implementing`（stage_move） | 集成 | approve 后 → 200 | AC-7 |
+> 追溯列直接引用 requirement 的 FR-n 编号，供 `traceability` 交叉校验。
+
+| # | 用例 | 类型 | 断言要点 | FR | 对应 AC |
+|---|---|---|---|---|---|
+| 1 | `test_empty_reviewer_rejected` | 集成 | 409 + `code=review.reviewer_required` | FR-1 | AC-1 |
+| 2 | `test_missing_reviewer_field_rejected` | 集成 | 409 + code 一致 | FR-1 | AC-2 |
+| 3 | `test_self_review_bypass_channel_removed` | 集成 | 409 + `code=review.self_approval` + `executor=opencode` | FR-2 | AC-3 |
+| 4 | `test_advance_to_done_requires_review_evidence` | 集成 | 422 + code + **TaskReview 数=0** | FR-3 | AC-4 |
+| 5 | `test_move_to_done_requires_review_evidence` | 集成 | 422 + code + TaskReview 数=0 | FR-3 | AC-5 |
+| 6 | `test_done_requires_review_doc_actually_written` | 集成 | 422 + code + TaskReview 数=0 | FR-3 | AC-6 |
+| 7 | `test_other_reviewer_approve_allowed` | 集成 | 200 → move done 200 + `stage=done` | FR-3 | AC-7 |
+| 8 | `test_pure_human_task_allowed` | 集成 | 200 → move done 200（无 run） | FR-5 | AC-8 |
+| 9 | `test_reject_and_comment_not_blocked[reject]` | 集成 | 200 | FR-5 | AC-9 |
+| 10 | `test_reject_and_comment_not_blocked[comment]` | 集成 | 200 | FR-5 | AC-9 |
+| 11 | `test_force_still_skips_gate` | 集成 | 200 + stage=done | FR-5 | AC-10 |
+| 12 | `test_blocked_submit_leaves_no_review_record` | 集成 | TaskReview 数=0 | FR-4 | AC-11 |
+| 13 | `test_review_guard_last_executor_none_for_no_run` | 单元 | `last_executor` → None | FR-4, FR-5 | — |
+| 14 | `test_review_guard_is_self_approval` | 单元 | True/False/False 三分支 | FR-4 | — |
+| 15 | `test_move_done_from_failed_409_not_500` | 集成（既有） | 409 + detail 含 "done" | FR-6 | AC-12 |
+| 16 | `test_move_to_done_requires_review_result` | 集成（既有） | 422 + review_result 保持空 | FR-3 | — |
+| 17 | `test_self_review_bypass_channel_removed`（review_gates） | 集成 | 409 + reviews 列表为空 | FR-2 | AC-3 |
+| 18 | `test_empty_reviewer_rejected`（review_gates） | 集成 | 409 ×2 变体 | FR-1 | AC-1/2 |
+| 19 | `test_advance_to_done_requires_review_evidence`（stage） | 集成 | 422 + code | FR-3 | AC-4 |
+| 20 | `test_advance_to_done_with_review`（stage） | 集成 | approve 后 → 200 | FR-3 | AC-7 |
+| 21 | `test_move_to_done_requires_review_evidence`（stage_move） | 集成 | 422 + code | FR-3 | AC-5 |
+| 22 | `test_move_to_done_with_review_result`（stage_move） | 集成 | approve 后 → 200 | FR-3 | AC-7 |
+| 23 | `test_move_done_from_ready_via_review`（stage_move） | 集成 | approve 后 → 200 | FR-3 | AC-7 |
+| 24 | `test_move_done_from_implementing`（stage_move） | 集成 | approve 后 → 200 | FR-3 | AC-7 |
+| 25 | `test_move_done_from_completed_implementing`（stage_move） | 集成 | approve 后 → 200 | FR-3 | AC-7 |
+| 26 | `test_done_gate_still_accepts_review_text`（task_doc_paths） | 集成 | 422 + code + TaskReview=0 | FR-3 | — |
+| 27 | `test_done_gate_accepts_real_review_record`（task_doc_paths） | 集成 | approve 后 → 200 | FR-3 | — |
+| 28 | `test_move_to_done_closes_active_run`（terminal_closes_run） | 集成 | approve 后 → 200 + run 关闭 | FR-3 | — |
+
+**FR 覆盖对照**：
+
+| FR | 需求 | 覆盖用例 |
+|---|---|---|
+| FR-1 | 禁空 reviewer | #1, #2, #18 |
+| FR-2 | 删 self_review 通道 | #3, #17 |
+| FR-3 | 进 done 需真实评审证据 | #4, #5, #6, #7, #16, #19~#28 |
+| FR-4 | 判据单一事实源 | #12, #13, #14 |
+| FR-5 | fail-open 例外 | #8, #9, #10, #11, #13 |
+| FR-6 | 状态机判据优先 | #15 |
 
 ### 关键断言（不止状态码，还校验副作用）
 
