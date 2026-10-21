@@ -129,7 +129,7 @@ cd web && npm run build
 
 **结果：built in 3.81s**（273 modules transformed，0 error）。
 
-## 5. 回归修复说明（8 处）
+## 5. 回归修复说明（11 处）
 
 既有测试断言的是**本任务要消灭的旧行为**。逐条改写并注明原语义 ——
 这些不是「为了让测试变绿而改测试」，而是行为变更的显式记录：
@@ -145,6 +145,8 @@ cd web && npm run build
 | `test_stage_move.py` | `test_move_done_from_ready_via_review` | 加 `_approve()` |
 | `test_stage_move.py` | `test_move_done_from_implementing` | 加 `_approve()` |
 | `test_stage_move.py` | `test_move_done_from_completed_implementing` | 加 `_approve()` |
+| `test_task_doc_paths.py` | `test_done_gate_still_accepts_review_text` | 语义反转 → 422 evidence_missing；新增 `test_done_gate_accepts_real_review_record` |
+| `test_terminal_closes_run.py` | `test_move_to_done_closes_active_run` | move→done 前补真实 approve 记录 |
 
 **未改动的**：`test_move_done_from_failed_409_not_500`（期望 409）——
 通过把「无完成路径」判定前置到评审判据之前来满足，而非改测试期望。
