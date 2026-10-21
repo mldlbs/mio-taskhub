@@ -108,6 +108,16 @@ def _collect_threads() -> dict:
 
 
 def _collect_tasks() -> dict:
+    """终态口径：与 `api/board.py` 的 `/board/terminal-stats` **完全一致**。
+
+    P1-1（决策文档 product-decision-20261020.md §4）修正：此前本函数把
+    CANCELLED 计入 success_rate 分母（completed / total_terminal），而
+    `observability/metrics.py` 用的是 completed / (completed + failed)。
+    同一个「成功率」两个数（实测 0.0947 vs 0.8364），无法审计 → 口径失真。
+
+    统一为：**cancelled 是独立终态，不进成功率分母，单独用 cancel_rate 度量**。
+    权威定义源 = `/board/terminal-stats`。
+    """
     with Session(engine) as s:
         rate = s.exec(text(
             "SELECT "
@@ -117,9 +127,10 @@ def _collect_tasks() -> dict:
             "COUNT(*) FROM task WHERE state IN ('COMPLETED','FAILED','CANCELLED')"
         )).first()
         completed, failed, cancelled, total = rate if rate else (0, 0, 0, 0)
-        success_rate = round(completed / total, 4) if total else None
-        failure_rate = round(failed / total, 4) if total else None
-        cancel_rate = round(cancelled / total, 4) if total else None
+        attempted = (completed or 0) + (failed or 0)
+        success_rate = round((completed or 0) / attempted, 4) if attempted else None
+        failure_rate = round((failed or 0) / attempted, 4) if attempted else None
+        cancel_rate = round((cancelled or 0) / total, 4) if total else None
 
         by_state = {
             st: c for st, c in s.exec(
@@ -143,9 +154,17 @@ def _collect_tasks() -> dict:
             "SELECT AVG(julianday(completed_at)-julianday(created_at))*86400.0 "
             "FROM task WHERE state='COMPLETED' AND created_at IS NOT NULL AND completed_at IS NOT NULL"
         )).first()
+        # P1-1 数据完整性自检：有失败证据却被标成取消的脏数据条数
+        integrity = s.exec(text(
+            "SELECT "
+            "SUM(CASE WHEN state='CANCELLED' AND failed_at IS NOT NULL THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN state='CANCELLED' AND cancelled_at IS NULL THEN 1 ELSE 0 END) "
+            "FROM task"
+        )).first() or (0, 0)
 
     return {
         "total_terminal": total,
+        "attempted": attempted,
         "success_rate": success_rate,
         "failure_rate": failure_rate,
         "cancel_rate": cancel_rate,
@@ -157,6 +176,16 @@ def _collect_tasks() -> dict:
         "retries_max": retries[2] or 0,
         "retried_count": retries[3] or 0,
         "avg_completion_seconds": round(avg_c[0], 1) if avg_c and avg_c[0] is not None else None,
+        "data_integrity": {
+            "cancelled_with_failure_evidence": integrity[0] or 0,
+            "cancelled_missing_timestamp": integrity[1] or 0,
+            "clean": (integrity[0] or 0) == 0 and (integrity[1] or 0) == 0,
+        },
+        "definitions": {
+            "attempted": "COMPLETED + FAILED",
+            "success_rate": "COMPLETED / attempted（cancelled 不进分母）",
+            "cancel_rate": "CANCELLED / terminal_total",
+        },
     }
 
 

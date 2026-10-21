@@ -306,3 +306,88 @@ def stats_overview(db: Session = Depends(get_session)):
         # 交付质量观察指标（纯统计，不参与判定；任务 28f8fceb FR-4）
         "delivery_quality": _delivery_quality(db),
     }
+
+
+# ── P1-1：终态口径全量统计（failed / cancelled 严格分离）────────────────
+# 背景：决策文档 product-decision-20261020.md §4 P1-1 —— 「停止把失败清洗为取消，
+# API 暴露全量统计」。此前存在三条互相冲突的口径：
+#   ① metrics.py   success_rate 分母只含 COMPLETED+FAILED（cancelled 排除）
+#   ② report.py    success_rate 分母含 COMPLETED+FAILED+CANCELLED
+#   ③ board/overview  只给 by_state 原始计数，无成功率
+# 同一个「成功率」有三个数（0.8364 / 0.0947 / 无），无法审计。
+#
+# 本端点给**唯一权威口径**：
+#   - attempted = COMPLETED + FAILED（真正尝试过执行的）
+#   - success_rate = COMPLETED / attempted（cancelled 不进分母——取消是独立终态）
+#   - cancel_rate = CANCELLED / terminal_total（取消单独度量）
+#   - 额外暴露 cancelled_with_failure_evidence 计数：**有失败证据却被标为取消**的
+#     脏数据条数——这是 P1-1 修复前的典型症状，>0 即表示口径仍被污染。
+@router.get("/terminal-stats")
+def terminal_stats(db: Session = Depends(get_session)):
+    """终态全量统计：failed / cancelled 严格分离，成功率口径唯一且可审计。
+
+    与 /metrics、/observability/report 的关系：本端点是**口径定义源**，
+    那两处若口径不同属实现漂移，应向本端点对齐。
+    """
+    from sqlalchemy import text
+    stats = db.exec(text("""
+        SELECT
+            SUM(CASE WHEN state = 'COMPLETED' THEN 1 ELSE 0 END) AS completed,
+            SUM(CASE WHEN state = 'FAILED'    THEN 1 ELSE 0 END) AS failed,
+            SUM(CASE WHEN state = 'CANCELLED' THEN 1 ELSE 0 END) AS cancelled,
+            SUM(CASE WHEN state NOT IN ('COMPLETED','FAILED','CANCELLED') THEN 1 ELSE 0 END) AS active,
+            COUNT(*) AS total_tasks,
+            SUM(CASE WHEN state = 'CANCELLED' AND failed_at IS NOT NULL THEN 1 ELSE 0 END) AS cancelled_with_failure_evidence,
+            SUM(CASE WHEN state = 'CANCELLED' AND cancelled_at IS NULL THEN 1 ELSE 0 END) AS cancelled_missing_timestamp
+        FROM task
+    """)).first()
+
+    completed = stats[0] or 0
+    failed = stats[1] or 0
+    cancelled = stats[2] or 0
+    active = stats[3] or 0
+    total_tasks = stats[4] or 0
+    washed = stats[5] or 0
+    missing_ts = stats[6] or 0
+
+    terminal_total = completed + failed + cancelled
+    attempted = completed + failed
+    success_rate = round(completed / attempted, 4) if attempted else None
+    failure_rate = round(failed / attempted, 4) if attempted else None
+    cancel_rate = round(cancelled / terminal_total, 4) if terminal_total else None
+
+    # by_state 全量（零填充所有已知状态，便于外部核对每个状态，不受 DB 空表影响）
+    # 注意：DB 存的是 enum **名**（SQLAlchemy 用 Enum.name 落库），即 'COMPLETED'，
+    # 而 TaskState.value 是小写 'completed' —— 两者不同，这里按 DB 原生名零填充。
+    by_state = {st.name: 0 for st in TaskState}
+    for st, c in db.exec(
+        text("SELECT state, COUNT(*) FROM task GROUP BY state")
+    ).all():
+        by_state[st] = c
+
+    return {
+        "total_tasks": total_tasks,
+        "active": active,
+        "terminal_total": terminal_total,
+        "by_state": by_state,
+        "completed": completed,
+        "failed": failed,
+        "cancelled": cancelled,
+        "attempted": attempted,
+        "success_rate": success_rate,
+        "failure_rate": failure_rate,
+        "cancel_rate": cancel_rate,
+        "definitions": {
+            "attempted": "COMPLETED + FAILED（真正尝试过执行的任务）",
+            "success_rate": "COMPLETED / attempted（cancelled 不进分母）",
+            "failure_rate": "FAILED / attempted",
+            "cancel_rate": "CANCELLED / terminal_total（取消是独立终态，单独度量）",
+        },
+        "data_integrity": {
+            # >0 = 仍有「有失败证据却标成取消」的脏数据，口径仍被污染
+            "cancelled_with_failure_evidence": washed,
+            # >0 = 有取消任务缺 cancelled_at（绕过 apply_transition 硬写 state 的痕迹）
+            "cancelled_missing_timestamp": missing_ts,
+            "clean": washed == 0 and missing_ts == 0,
+        },
+    }

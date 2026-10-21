@@ -77,9 +77,17 @@ def run(apply: bool, undo: bool) -> int:
                         t.state = TaskState.QUEUED
                     db.add(t)
             else:
-                # 归档语义（修正）：既打标签，又移出可领取队列——转 CANCELLED。
+                # 归档语义：既打标签，又移出可领取队列——转 CANCELLED。
                 # claim 候选只认 QUEUED/READY，转 CANCELLED 才真正不再被消费；
                 # cancel 是状态变化非删除，--undo 可恢复。
+                #
+                # P1-1（决策文档 product-decision-20261020.md §4）：本脚本曾**绕过**
+                # `workflow.transitions.apply_transition` 直接写 state，导致：
+                #   ① 不写 TaskEvent → 审计链断裂，「谁在何时取消的」查不到；
+                #   ② 不设 cancelled_at → 取消时间戳缺失；
+                #   ③ **把已有失败证据（failed_at 非空）的任务也洗成 CANCELLED**
+                #      → 交付成功率口径失真（实测 1490 条，其中 1470 条 idea 评审）。
+                # 现在统一走 apply_transition：合法转移会写 TaskEvent + 时间戳。
                 if ARCHIVE_LABEL in labels and t.state == TaskState.CANCELLED:
                     # 已归档但 stage 未同步 → 补正（幂等）
                     if t.stage != TaskStage.CANCELLED:
@@ -92,10 +100,25 @@ def run(apply: bool, undo: bool) -> int:
                     labels.append(ARCHIVE_LABEL)
                 if apply:
                     t.labels = labels
-                    t.state = TaskState.CANCELLED
-                    # 一致性（同 cancel_task）：终态 cancelled 时 stage 也置 CANCELLED
-                    if t.stage != TaskStage.CANCELLED:
-                        t.stage = TaskStage.CANCELLED
+                    # 走状态机：合法转移 → 写 TaskEvent + cancelled_at + last_transition_at。
+                    # 转移被拒（如已是终态）时**不硬写 state**，只留标签 —— 避免再次
+                    # 制造「state 与事件不一致」的脏数据。
+                    try:
+                        from mio_taskhub.workflow.transitions import apply_transition
+                        from mio_taskhub.workflow.state_machine import State, Stage, ActorType
+                        _cur_stage = t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
+                        _stage_arg = Stage.BRAINSTORMING if _cur_stage == TaskStage.CANCELLED else Stage(_cur_stage.value)
+                        _, m1_event = apply_transition(
+                            t, State.CANCELLED, _stage_arg,
+                            ActorType.SYSTEM, "ops:archive_spinning_tasks",
+                            reason=f"空转任务归档[{ARCHIVE_LABEL}]",
+                        )
+                        if m1_event is not None:
+                            db.add(m1_event)
+                    except Exception as e:  # noqa: BLE001
+                        # 转移非法（已终态等）→ 不强改 state，只打标签 + 留痕
+                        print(f"  ! {t.id} 状态转移被拒（{e}）→ 仅打标签，不改 state")
+                        t.block_reason = f"归档标签已打，状态转移被拒：{e}"
                     db.add(t)
             changed += 1
             if changed <= 10:
