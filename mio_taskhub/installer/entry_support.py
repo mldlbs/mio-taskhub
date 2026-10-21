@@ -41,8 +41,16 @@ USAGE_UNINSTALL = """mio-taskhub 卸载程序
 
 
 def log_path(name: str) -> Path:
-    """安装器日志文件：%USERPROFILE%\\.mio_taskhub\\installer.log。"""
-    d = Path.home() / ".mio_taskhub"
+    """安装器日志文件：%USERPROFILE%\\.mio_taskhub\\installer.log。
+
+    可用环境变量 `MIO_INSTALLER_LOG_DIR` 改目录 —— 排障时用来绕开
+    「日志文件被占用/损坏 → 所有输出静默消失」的情况。
+    """
+    override = os.environ.get("MIO_INSTALLER_LOG_DIR")
+    if override:
+        d = Path(override)
+    else:
+        d = Path.home() / ".mio_taskhub"
     try:
         d.mkdir(parents=True, exist_ok=True)
     except OSError:

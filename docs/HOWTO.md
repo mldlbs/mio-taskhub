@@ -234,6 +234,20 @@ python scripts/check_installer_bundle.py
    对策：杀掉前重新读一次 `exe`，与目标路径比对，不符就跳过。
    这条守卫实测确实在触发（installer.log 里有 `skip pid=... pid 被复用`）。
 
+6. **【最隐蔽】psutil 杀成功后不要再 taskkill 同一个 pid** ——
+   `psutil.Process(pid).kill()` 紧接 `_taskkill_tree(pid)` 是错的：
+   进程已死 → **pid 被系统回收** → 下一个进程可能立刻复用 →
+   `taskkill /F /PID` 命中**被复用的新 pid** → 杀掉无辜进程。
+   实测被杀的是**启动卸载器的 shell** → 连带把卸载器自己带走 →
+   **卸载器在 `main()` 之前就死了**（连日志都没写）→ 「进程秒退、
+   目录还在、退出码 23」，且**偶发**（取决于 pid 是否被复用）。
+
+   对策：psutil 杀成功后**不再 taskkill**；杀完 `wait()` 确认退出；
+   只有 psutil 失败时才 taskkill 兜底，且兜底前再核对一次身份。
+
+   **症状识别**：日志里**连 `[entry]` 行都没有** = 死在 `main()` 之前
+   （bootloader 阶段），不是业务代码的问题。
+
 ### 自动更新与发版
 
 程序启动后会自动检查 GitHub Releases 是否有新版本；有新版本时托盘提示、面板顶部出现"立即更新"条，

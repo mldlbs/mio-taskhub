@@ -173,13 +173,31 @@ def purge_processes_under(root, timeout: float = 10.0) -> bool:
             # **只杀目标 pid 本身**，不在这里连带杀它的子进程 ——
             # 父进程在前已保证 supervisor 先死，它不会再把 worker 拉起来。
             # （之前先杀子进程，正好给了 supervisor 重启 worker 的窗口。）
+            killed = False
             try:
-                psutil.Process(pid).kill()
+                p = psutil.Process(pid)
+                p.kill()
+                # 等它真的死掉再往下走 —— 死了 pid 就被系统回收，
+                # 下一个进程可能立刻复用它。
+                try:
+                    p.wait(timeout=3)
+                except Exception:  # noqa: BLE001
+                    pass
+                killed = True
                 _journal("kill sent pid=%s" % pid)
             except Exception as e:  # noqa: BLE001
                 _journal("kill pid=%s failed: %r" % (pid, e))
-            # 兜底：只杀目标 pid 本身
-            _taskkill_tree(pid)
+
+            # **psutil 杀成功就不再 taskkill**：进程已经死了，pid 已释放，
+            # 这时再 `taskkill /F /PID <pid>` 极可能命中**被复用的新 pid**
+            # → 杀掉无辜进程（实测把用户的 shell 一起杀掉，
+            #   连带把卸载器自己也带走 → 进程秒退、日志都没有）。
+            # 只在 psutil 没杀掉时才用 taskkill 兜底。
+            if not killed:
+                if not _still_same_process(pid, exe):
+                    _journal("skip taskkill pid=%s (已退出)" % pid)
+                    continue
+                _taskkill_tree(pid)
         if time.monotonic() >= deadline:
             time.sleep(0.5)
             left2 = list_processes_under(root)

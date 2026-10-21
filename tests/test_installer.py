@@ -430,6 +430,38 @@ def test_find_payload_prefers_exe_dir_over_cwd(monkeypatch, tmp_path):
     assert pmod.find_payload() == near
 
 
+def test_purge_does_not_taskkill_after_psutil_kill():
+    """**回归**：psutil 杀成功之后**不能再 taskkill 同一个 pid**。
+
+    实测踩过（2026-10-21，最难查的一个）：原代码是
+    ```
+    psutil.Process(pid).kill()
+    _taskkill_tree(pid)      # ← 又 taskkill 一次同一个 pid
+    ```
+    进程已经死了 → **pid 被系统回收** → 下一个进程可能立刻复用它 →
+    `taskkill /F /PID <pid>` 命中**被复用的新 pid** → 杀掉无辜进程。
+
+    实测被杀的是**启动卸载器的 shell** → 连带把卸载器自己也带走 →
+    **卸载器在 main() 之前就死了**（连日志都没写），表现为
+    「进程秒退、目录还在、退出码 23」，且**偶发**（取决于 pid 是否被复用）。
+
+    对策：
+    1. psutil 杀成功后**不再 taskkill**
+    2. 杀完 `wait()` 确认进程真的退出
+    3. 只有 psutil 失败时才用 taskkill 兜底，且兜底前再核对一次身份
+    """
+    import inspect
+
+    from mio_taskhub.installer import processes as proc
+
+    src = inspect.getsource(proc.purge_processes_under)
+    # taskkill 必须被包在「psutil 没杀掉」的分支里
+    assert "if not killed:" in src, (
+        "taskkill 必须在 psutil 杀失败时才执行（否则会命中被复用的 pid）")
+    # 确认 kill 之后有 wait
+    assert ".wait(" in src, "kill 之后应 wait 确认进程真的退出"
+
+
 # ──────────────────── 进程清理的时序（回归） ────────────────────
 
 def test_purge_kills_parent_before_child():
