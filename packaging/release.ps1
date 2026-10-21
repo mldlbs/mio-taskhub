@@ -26,11 +26,15 @@ $AssetName = 'mio-taskhub-win64.zip'
 $tag       = "v$Version"
 
 # 资产清单以 mio_taskhub/release_assets.py 为准（唯一事实源）
-$installerDir = 'dist\mio-taskhub-installer'
-$installerAssets = @(
-    "$installerDir\mio-taskhub-setup.exe",
-    "$installerDir\mio-taskhub-win64.zip"
-)
+# 用 python 读，避免 ps1 里再抄一份清单（抄两份就会漂移）。
+$assetListJson = & "$root\.venv\Scripts\python.exe" -c @"
+import json, sys
+sys.path.insert(0, r'$root')
+from mio_taskhub.release_assets import all_release_assets
+print(json.dumps(list(all_release_assets())))
+"@
+if ($LASTEXITCODE -ne 0) { throw '读取发布资产清单失败' }
+$installerAssets = $assetListJson | ConvertFrom-Json
 
 $token = $env:GH_TOKEN
 if (-not $token) { $token = $env:GITHUB_TOKEN }

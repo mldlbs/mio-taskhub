@@ -19,9 +19,17 @@ INSTALLER_BUNDLE_DIR = "mio-taskhub-installer"
 #: 独立安装包里的安装器 exe（用户双击它）
 INSTALLER_EXE = "mio-taskhub-setup.exe"
 
+#: 独立安装包里的卸载器 exe
+#:
+#: **必须单独上传**：用户可能只想要「卸载程序」这一份文件
+#: （比如从「应用和功能」里点卸载、或者把安装目录里的 uninstall.exe
+#: 拷到别处用）。不单独发的话，用户拿不到独立可执行的卸载器。
+UNINSTALL_EXE = "uninstall.exe"
+
 #: 安装包目录内要上传的资产（相对 dist/）
 INSTALLER_BUNDLE_ASSETS = (
     "%s/%s" % (INSTALLER_BUNDLE_DIR, INSTALLER_EXE),
+    "%s/%s" % (INSTALLER_BUNDLE_DIR, UNINSTALL_EXE),
     "%s/%s" % (INSTALLER_BUNDLE_DIR, PAYLOAD_ASSET),
 )
 
