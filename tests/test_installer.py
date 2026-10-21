@@ -430,6 +430,107 @@ def test_find_payload_prefers_exe_dir_over_cwd(monkeypatch, tmp_path):
     assert pmod.find_payload() == near
 
 
+# ──────────────────── GUI 线程安全（回归） ────────────────────
+
+def test_gui_worker_thread_must_not_touch_tk_variables():
+    """**回归**：工作线程不能读 Tk 变量 / 调 root.after。
+
+    实测踩过（2026-10-21）：`_work()` 里直接 `self.var_payload.get()`，
+    从后台线程调 Tk 的变量存取会抛
+    `RuntimeError: main thread is not in main loop` → 安装**根本没开始**，
+    界面却卡在「正在安装…」，日志一片空白（异常处理器自己调
+    `root.after` 也抛同样的错 → 连错误都显示不出来）。
+
+    对策：
+    1. Tk 变量在**主线程**读成纯 Python 值，再传给工作线程
+    2. 工作线程 → 主线程的 UI 操作用**队列**交接（`_Base.post`），
+       不再跨线程调 `root.after`
+    """
+    import inspect
+
+    from mio_taskhub.installer import gui
+
+    for cls_name in ("InstallerApp", "UninstallerApp"):
+        cls = getattr(gui, cls_name, None)
+        if cls is None:
+            continue
+        work = cls._work
+        src = inspect.getsource(work)
+        # 工作线程里不能出现 Tk 变量读取
+        for bad in ("var_payload.get()", "var_dir.get()", "var_purge.get()",
+                    "var_shortcuts.get()"):
+            assert bad not in src, (
+                "%s._work() 里读了 Tk 变量 %s —— 必须在主线程读好再传进来"
+                % (cls_name, bad))
+        # 也不能直接调 root.after
+        assert "_ui_call(self.root" not in src, (
+            "%s._work() 用了 _ui_call（跨线程调 root.after）—— "
+            "请改用 self.post()" % cls_name)
+
+    # 队列机制存在
+    assert hasattr(gui._Base, "post")
+    assert hasattr(gui._Base, "_drain_queue")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows 专属")
+def test_gui_install_runs_under_real_mainloop(tmp_path):
+    """**回归**：GUI 安装在**真 mainloop** 下要能跑完并显示「安装完成」。
+
+    验证 GUI 必须用 `root.mainloop()`，用 `root.update()` 手动循环会报
+    `main thread is not in main loop`（那是测试脚本的锅，不是程序 bug）。
+    """
+    import os
+    import time
+
+    import tkinter as tk
+
+    from mio_taskhub.installer.gui import InstallerApp
+
+    try:
+        root = tk.Tk()
+    except Exception as e:  # noqa: BLE001
+        pytest.skip("无显示环境：%r" % e)
+
+    target = tmp_path / "install"
+    payload = _build_fake_payload(tmp_path)
+    try:
+        app = InstallerApp(root, payload_zip=str(payload))
+        app.var_dir.set(str(target))
+        app.var_shortcuts.set(False)
+        root.update()
+        root.after(200, app._start)
+
+        state = {}
+
+        def _check():
+            state["status"] = app.status.cget("text")
+            state["btn"] = app._btn_install._text
+            state["log"] = app.log._text.get("1.0", "end")
+            root.quit()
+
+        deadline = time.time() + 120
+
+        def _poll():
+            if time.time() > deadline or "安装完成" in app.status.cget("text"):
+                _check()
+                return
+            root.after(200, _poll)
+
+        root.after(400, _poll)
+        root.mainloop()
+    finally:
+        try:
+            root.destroy()
+        except Exception:  # noqa: BLE001
+            pass
+
+    assert state.get("status") == "安装完成", (
+        "GUI 安装未完成，status=%r log=%r" % (state.get("status"),
+                                             (state.get("log") or "")[:300]))
+    assert state.get("btn") == "完成"
+    assert (target / APP_EXE_NAME).exists()
+
+
 # ──────────────────── 更新器：历史形态 payload（回归） ────────────────────
 
 def test_updater_accepts_prefixed_payload(tmp_path):

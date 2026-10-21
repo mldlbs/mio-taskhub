@@ -19,6 +19,7 @@ Tkinter 两个绕不开的限制（不处理就会被用户看见）：
 from __future__ import annotations
 
 import os
+import queue
 import threading
 import tkinter as tk
 from tkinter import filedialog
@@ -377,7 +378,7 @@ def _label(parent, text, size=10, color=FG, weight="normal", bg=BG, **kw):
 
 
 def _ui_call(root, fn, *args):
-    """从后台线程安全地回到 UI 线程执行 fn。
+    """从后台线程安全地回到 UI 线程执行 fn（**兼容旧调用方式**）。
 
     `root.after()` 在主线程**不在 mainloop** 时会抛
     `RuntimeError: main thread is not in main loop`。那个异常发生在工作线程里，
@@ -385,6 +386,8 @@ def _ui_call(root, fn, *args):
 
     这里吞掉该异常并记日志：真实运行（mainloop 在跑）不受影响，
     异常场景下至少留下线索，而不是静默卡死。
+
+    **新代码请用 `_Base.post()`** —— 那是队列式交接，完全不碰 Tk 线程模型。
     """
     try:
         root.after(0, fn, *args)
@@ -404,6 +407,11 @@ class _Base:
         self.root = root
         self._closed = False
         self._jobs = []          # 自行排程的 after 回调（销毁时统一 cancel）
+        # 工作线程 → 主线程的**队列式交接**。
+        # 为什么不用 root.after()：那是从**工作线程**调 Tk 的线程模型，
+        # 主线程不在 mainloop 时直接抛 RuntimeError；而且 Tk 本身不保证
+        # 跨线程安全。队列 + 主线程轮询是唯一稳妥的做法。
+        self._ui_queue = queue.Queue()
         root.title(title)
         root.configure(bg=BG)
         root.resizable(False, False)
@@ -447,15 +455,47 @@ class _Base:
         self.status = _label(self.footer, "", 9, "#9aa5b1")
         self.status.pack(side="left")
 
+    def post(self, fn, *args) -> None:
+        """**工作线程专用**：把一个待执行的 UI 操作投进队列。
+
+        工作线程只调这个方法，**不碰任何 Tk 对象**（不读变量、
+        不调 root.after）。主线程在 `_pulse` 里把队列取出来执行。
+        """
+        self._ui_queue.put((fn, args))
+
+    def _drain_queue(self) -> None:
+        """主线程：把队列里的 UI 操作取出来执行。"""
+        while True:
+            try:
+                fn, args = self._ui_queue.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                fn(*args)
+            except Exception as e:  # noqa: BLE001
+                # 单个 UI 回调出错不能影响后续队列项
+                try:
+                    from .entry_support import log_path
+                    with open(log_path("installer.log"), "a", encoding="utf-8") as f:
+                        f.write("[ui-callback-failed] %r\n" % e)
+                except Exception:  # noqa: BLE001
+                    pass
+
     def _pulse(self):
         """周期性处理待处理事件（让 Windows 知道窗口还活着，不显示「未响应」）。
 
         `update_idletasks()` 只处理重绘类空闲事件，**不处理用户输入**；
         窗口长时间没有输入事件时 Windows 仍可能判定「未响应」。
         这里用 `update()`（含输入），并加 try 防止销毁期异常。
+
+        同时把工作线程投递的 UI 操作取出来执行（队列式交接）。
         """
         if self._closed:
             return
+        try:
+            self._drain_queue()
+        except Exception:  # noqa: BLE001
+            pass
         try:
             self.root.update()
         except Exception:  # noqa: BLE001 —— 窗口已销毁时忽略
@@ -658,7 +698,18 @@ class InstallerApp(_Base):
         if self._done:
             self._close_now()
             return
-        if not self.var_payload.get():
+        # **必须在主线程读 Tk 变量**：从工作线程调 `var.get()` 会抛
+        # `RuntimeError: main thread is not in main loop`（Tk 的变量存取
+        # 不是线程安全的）。所以先把值取出来，再把**纯 Python 值**传给
+        # 工作线程 —— 工作线程里一个 Tk 对象都不碰。
+        try:
+            payload_zip = self.var_payload.get()
+            install_dir = self.var_dir.get()
+            create_shortcuts = bool(self.var_shortcuts.get())
+        except Exception as e:  # noqa: BLE001
+            self.notice.show("err", "读取界面参数失败", repr(e))
+            return
+        if not payload_zip:
             self.notice.show("err", "还没有安装包",
                              "请先点「选择文件…」指定安装包")
             return
@@ -667,23 +718,29 @@ class InstallerApp(_Base):
         self._btn_install.set_text("安装中…")
         self.status.configure(text="正在安装，请勿关闭窗口")
         self.notice.show("info", "正在安装", "正在解压并写入程序文件…")
-        threading.Thread(target=self._work, daemon=True).start()
+        threading.Thread(target=self._work, args=(payload_zip, install_dir,
+                                                  create_shortcuts),
+                         daemon=True).start()
 
-    def _work(self):
+    def _work(self, payload_zip, install_dir, create_shortcuts):
+        """工作线程：**只碰纯 Python 值**，不碰任何 Tk 对象。
+
+        结果通过 `_ui_call` 回主线程刷新界面。
+        """
         try:
             res = install(
-                payload_zip=self.var_payload.get() or None,
-                install_dir=self.var_dir.get() or None,
-                create_shortcuts=bool(self.var_shortcuts.get()),
+                payload_zip=payload_zip or None,
+                install_dir=install_dir or None,
+                create_shortcuts=create_shortcuts,
             )
             for s in res.steps:
-                _ui_call(self.root, self.log.append,
-                                "[%s] %s%s" % ("OK" if s["ok"] else "!!", s["name"],
-                                                (" — " + s["detail"]) if s["detail"] else ""))
-            _ui_call(self.root, self._finish, res)
+                self.post(self.log.append,
+                          "[%s] %s%s" % ("OK" if s["ok"] else "!!", s["name"],
+                                          (" — " + s["detail"]) if s["detail"] else ""))
+            self.post(self._finish, res)
         except Exception as e:  # noqa: BLE001
-            _ui_call(self.root, self.log.append, "安装异常：%r" % e)
-            _ui_call(self.root, self._failed, str(e))
+            self.post(self.log.append, "安装异常：%r" % e)
+            self.post(self._failed, str(e))
 
     def _finish(self, res):
         if res.ok:
@@ -758,24 +815,35 @@ class UninstallerApp(_Base):
                               else "准备就绪（将保留用户数据）")
 
     def _start(self):
+        # **必须在主线程读 Tk 变量**：从工作线程调 `var.get()` 会抛
+        # `RuntimeError: main thread is not in main loop`（Tk 的变量存取
+        # 不是线程安全的）。先取成纯 Python 值再交给工作线程。
+        try:
+            install_dir = self.var_dir.get()
+            remove_data = bool(self.var_purge.get())
+        except Exception as e:  # noqa: BLE001
+            self.notice.show("err", "读取界面参数失败", repr(e))
+            return
         self._btn_uninstall.set_enabled(False)
         self._btn_uninstall.set_text("卸载中…")
         self.status.configure(text="正在卸载，请勿关闭窗口")
         self.notice.show("info", "正在卸载", "正在停止程序并移除文件…")
-        threading.Thread(target=self._work, daemon=True).start()
+        threading.Thread(target=self._work, args=(install_dir, remove_data),
+                         daemon=True).start()
 
-    def _work(self):
+    def _work(self, install_dir, remove_data):
+        """工作线程：**只碰纯 Python 值**，不碰任何 Tk 对象。"""
         try:
-            res = uninstall(install_dir=self.var_dir.get() or None,
-                            remove_data=bool(self.var_purge.get()))
+            res = uninstall(install_dir=install_dir or None,
+                            remove_data=remove_data)
             for s in res.steps:
-                _ui_call(self.root, self.log.append,
-                                "[%s] %s%s" % ("OK" if s["ok"] else "!!", s["name"],
-                                                (" — " + s["detail"]) if s["detail"] else ""))
-            _ui_call(self.root, self._finish, res)
+                self.post(self.log.append,
+                          "[%s] %s%s" % ("OK" if s["ok"] else "!!", s["name"],
+                                          (" — " + s["detail"]) if s["detail"] else ""))
+            self.post(self._finish, res)
         except Exception as e:  # noqa: BLE001
-            _ui_call(self.root, self.log.append, "卸载异常：%r" % e)
-            _ui_call(self.root, self._failed, str(e))
+            self.post(self.log.append, "卸载异常：%r" % e)
+            self.post(self._failed, str(e))
 
     def _finish(self, res):
         if res.ok:

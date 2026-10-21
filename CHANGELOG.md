@@ -63,6 +63,20 @@
 - **占位符被 Entry 盖住只剩尾巴**（显示成「ip」）：Entry 不透明，嵌在 Canvas 上
   会遮住占位符文字。空值时把 Entry 的 window item 设为 hidden。
 
+### Fixed — GUI 安装永远卡在「正在安装…」
+**工作线程碰了 Tk 对象**。`_work()` 里直接 `self.var_payload.get()`，
+从后台线程调 Tk 的变量存取会抛
+`RuntimeError: main thread is not in main loop` → **安装根本没开始**，
+界面却卡在「正在安装…」，日志一片空白（异常处理器自己调 `root.after`
+也抛同样的错 → 连错误都显示不出来，用户只看到界面不动）。
+
+修法：
+1. **主线程**把 Tk 变量读成纯 Python 值，再传给工作线程（工作线程不碰任何 Tk 对象）
+2. 工作线程 → 主线程的 UI 操作改用**队列交接**（`_Base.post()` /
+   `_Base._drain_queue()`，主线程在 `_pulse` 里取出来执行），不再跨线程调
+   `root.after`
+3. `_ui_call` 保留为兼容入口，但新代码一律用 `post()`
+
 ### Fixed — 静默卸载异常退出（rc=23，目录还在）
 三个独立缺陷叠在一起，2026-10-21 逐个定位：
 
@@ -89,10 +103,11 @@
 - 发布检查清单新增第 ⑧ 项「安装器产物一致」。
 
 ### Tests
-- `tests/test_installer.py`（33 用例）：payload 布局契约、安装/卸载、注册表读写、
+- `tests/test_installer.py`（35 用例）：payload 布局契约、安装/卸载、注册表读写、
   快捷方式创建删除、只读文件删除、进程路径匹配回归、payload 自动定位回归、
   自更新保留卸载器、**payload 卸载器不得是旧版**、**--dir 必须透传**、
-  **CLI 内部异常必须留痕**。全量 1502 passed / 0 failed。
+  **CLI 内部异常必须留痕**、**工作线程不得碰 Tk 变量**、
+  **GUI 安装在真 mainloop 下要跑完**。全量 1504 passed / 0 failed。
 
 ## v0.6.1 (2026-10-20)
 

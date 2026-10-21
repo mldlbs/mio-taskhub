@@ -173,6 +173,13 @@ python scripts/check_installer_bundle.py
 - **后台线程回 UI 线程用 `_ui_call()`** —— `root.after()` 在主线程不在 mainloop 时
   抛 `RuntimeError: main thread is not in main loop`，且该异常发生在工作线程里 →
   界面永远卡在「正在安装」。
+- **工作线程绝对不能碰 Tk 对象**（更隐蔽的坑）—— 从后台线程调 `var.get()`
+  同样抛 `RuntimeError: main thread is not in main loop`。
+  实测症状：安装**根本没开始**，界面却卡在「正在安装…」，日志一片空白
+  （异常处理器自己调 `root.after` 也抛同样的错 → 连错误都显示不出来）。
+  正确做法：**主线程**把 Tk 变量读成纯 Python 值再传给工作线程；
+  工作线程 → 主线程用**队列**交接（`_Base.post()` / `_Base._drain_queue()`），
+  完全不碰 Tk 的线程模型。
 - **窗口销毁要清 after 队列** —— Tk 的 after 队列在窗口销毁后仍持有已删除的
   Tcl 命令名，残留回调报 `invalid command name ... (after script)`。
   `_close_now()` 里 `after_cancel` 掉自己排程的回调。
@@ -184,6 +191,8 @@ python scripts/check_installer_bundle.py
   完整路径走悬停提示。
 - **验证 GUI 必须用真正的 `mainloop()`** —— 用 `root.update()` 手动循环会报
   `main thread is not in main loop`（测试脚本的锅，不是程序 bug）。
+  但注意：**真 mainloop 下 `root.after` 是可用的** —— 所以「手动 update 循环
+  报错」推不出「生产也有问题」，要分清是脚本的锅还是程序的锅。
 - **兜底行不能放在 `place()` 布局的容器里** —— 卡片内容区用 `place()` 定位，
   在里面 `pack()` 的控件**不会显示**。兜底行要放在卡片**外面**的独立槽位。
 - **不要用 `pack(before=...)` 定位** —— `winfo_children()[-1]` 可能是被
