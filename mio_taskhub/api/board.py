@@ -306,3 +306,75 @@ def stats_overview(db: Session = Depends(get_session)):
         # 交付质量观察指标（纯统计，不参与判定；任务 28f8fceb FR-4）
         "delivery_quality": _delivery_quality(db),
     }
+
+
+@router.get("/diff-gate-stats")
+def diff_gate_stats(db: Session = Depends(get_session)):
+    """窄门禁的灰度观察指标（2026-10-21 冻结项的配套观测，任务 d468e633）。
+
+    用途：支撑决策 §1 验收第 4 条「能指着一例：它拦下了一次我本会放过的假完成」
+    与 §5 复审条件「窄门禁频繁误伤合法完成 → 回退为仅标注」。
+
+    **纯只读统计，不参与任何流程判定**（与 `_delivery_quality` 同性质）。
+    指标定义见 `docs/taskhub/diff-gate-grayscale-log.md`：
+      M1 零改动提交被拦次数（rejections > 0 的 run 数）
+      M2 其中「本会放过的假完成」—— 需人工回看，此处只给待回看清单
+      M3 合法完成被误拒次数 —— 由人工判定，统计侧给「被拒后放行」作为疑似误拒信号
+      M5 判定原因分布 —— 「大量 collect_failed」说明采集有问题而非判据有问题
+    """
+    from mio_taskhub.diff_gate import gate_mode
+
+    runs = db.exec(select(Run)).all()
+    by_reason: dict = {}
+    blocked_runs = []
+    suspected_false_positive = []
+    warned_runs = 0
+    skipped_runs = 0
+    unjudged = 0
+
+    for r in runs:
+        summary = getattr(r, "diff_summary", None)
+        if not summary:
+            unjudged += 1
+            continue
+        reason = summary.get("reason") or "unknown"
+        by_reason[reason] = by_reason.get(reason, 0) + 1
+        rej = int(getattr(r, "rejections", 0) or 0)
+        if rej > 0:
+            blocked_runs.append({
+                "run_id": r.id, "task_id": r.task_id,
+                "agent_name": r.agent_name,
+                "rejections": rej,
+                "state": r.state.value if not isinstance(r.state, str) else r.state,
+                "exit_code": r.exit_code,
+                "finished_at": _to_utc(r.finished_at).isoformat() if r.finished_at else None,
+                "annotation": next(
+                    (a for a in (getattr(r, "annotations", None) or [])
+                     if a.get("level") == "block"), None),
+            })
+        if reason == "empty_diff_warn":
+            warned_runs += 1
+        elif reason.startswith(("gate_off", "no_", "task_", "collect_", "concurrent_")):
+            skipped_runs += 1
+        # 疑似误拒信号：被拒过、但后来同一个 run 又成功完成（rejections>0 且 exit_code==0）
+        if rej > 0 and r.exit_code == 0:
+            suspected_false_positive.append({
+                "run_id": r.id, "task_id": r.task_id, "rejections": rej,
+            })
+
+    return {
+        "mode": gate_mode(),
+        "scanned_runs": len(runs),
+        "judged_runs": len(runs) - unjudged,
+        "unjudged_runs": unjudged,
+        "by_reason": by_reason,
+        "blocked_run_count": len(blocked_runs),
+        "blocked_runs": blocked_runs[:50],
+        "warned_run_count": warned_runs,
+        "skipped_run_count": skipped_runs,
+        "suspected_false_positive_count": len(suspected_false_positive),
+        "suspected_false_positive": suspected_false_positive[:50],
+        "note": ("M2「本会放过的假完成」与 M3「合法完成被误拒」需人工回看判断，"
+                 "统计侧只能给疑似清单；mode 为 warn 时不会产生拦截记录，"
+                 "blocked_run_count 为 0 属正常。"),
+    }
