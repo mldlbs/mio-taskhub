@@ -222,6 +222,18 @@ python scripts/check_installer_bundle.py
    对策：只杀目标 pid 本身（`/F` 不带 `/T`），子孙进程由
    `psutil.children(recursive=True)` 单独枚举、**子先父后**地杀。
 
+4. **杀进程的顺序：父在前，子在后** —— hub 是 supervisor→worker 双进程，
+   supervisor 会在 worker 意外退出时**重新 spawn** 它（退避重试）。
+   先杀 worker 正好给了它重启的窗口 → 新 worker 又把安装目录钉住 →
+   目录永远删不掉。对策：按**祖先链深度**排序，父进程先杀；
+   且**不要连带杀子进程**（父先死就不会有重启）。
+
+5. **杀之前重新核对进程身份** —— `psutil.Process(pid)` 只缓存 pid，
+   目标若在两次调用之间退出，pid 可能被系统**复用**给别的进程 →
+   `taskkill /PID` 就会杀掉无辜进程（实测把用户的 shell 一起杀掉）。
+   对策：杀掉前重新读一次 `exe`，与目标路径比对，不符就跳过。
+   这条守卫实测确实在触发（installer.log 里有 `skip pid=... pid 被复用`）。
+
 ### 自动更新与发版
 
 程序启动后会自动检查 GitHub Releases 是否有新版本；有新版本时托盘提示、面板顶部出现"立即更新"条，

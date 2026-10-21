@@ -132,24 +132,22 @@ def _taskkill_tree(pid: int) -> None:
         pass
 
 
-def _child_pids(pid: int) -> list:
-    """列出 pid 的**子孙** pid（不含自己）。取不到就返回空表。"""
-    out = []
-    try:
-        import psutil
-        p = psutil.Process(pid)
-        for c in p.children(recursive=True):
-            try:
-                out.append(c.pid)
-            except Exception:  # noqa: BLE001
-                continue
-    except Exception:  # noqa: BLE001
-        pass
-    return out
-
-
 def purge_processes_under(root, timeout: float = 10.0) -> bool:
-    """强杀 root 目录下的所有进程直至清空；超时仍有残留返回 False。"""
+    """强杀 root 目录下的所有进程直至清空；超时仍有残留返回 False。
+
+    **两个必须做对的点**（实测踩过）：
+
+    1. **先杀 supervisor，再杀 worker** —— hub 是 supervisor→worker 双进程，
+       supervisor 会在 worker 意外退出时**把它重新拉起来**（退避重试）。
+       先杀 worker → supervisor 立刻 spawn 新 worker → 新 worker 又把安装
+       目录钉住 → 目录永远删不掉。
+       所以：按「父进程在前」排序，先杀父后杀子。
+
+    2. **杀之前重新核对进程身份** —— psutil 的 `Process(pid)` 只缓存了 pid，
+       目标若在两次调用之间退出，pid 可能被系统**复用**给别的进程 →
+       `taskkill /PID` 就会杀掉无辜进程（实测把用户的 shell 一起杀掉）。
+       杀掉前重新读一次 `exe`，与目标路径比对，不符就跳过。
+    """
     me = os.getpid()
     deadline = time.monotonic() + timeout
     try:
@@ -163,18 +161,18 @@ def purge_processes_under(root, timeout: float = 10.0) -> bool:
                  % (root, left, me, getattr(sys, "frozen", False), sys.executable))
         if not left:
             return True
-        for pid, _exe in left:
+        # 父进程在前：先杀 supervisor，再杀 worker（见 docstring 坑 1）
+        ordered = sorted(left, key=lambda item: _depth_of(item[0]))
+        for pid, exe in ordered:
             if pid == me:
                 continue
-            # 先记下子孙 pid 并**单独杀**（子先父后）——
-            # 不靠 taskkill /T（那会连启动者一起杀掉，见 _taskkill_tree 注释）。
-            kids = _child_pids(pid)
-            for kpid in kids:
-                try:
-                    psutil.Process(kpid).kill()
-                    _journal("kill child pid=%s (of %s)" % (kpid, pid))
-                except Exception as e:  # noqa: BLE001
-                    _journal("kill child pid=%s failed: %r" % (kpid, e))
+            # 杀掉前**重新核对身份**（见 docstring 坑 2）：pid 可能已被复用
+            if not _still_same_process(pid, exe):
+                _journal("skip pid=%s (进程已退出或 pid 被复用)" % pid)
+                continue
+            # **只杀目标 pid 本身**，不在这里连带杀它的子进程 ——
+            # 父进程在前已保证 supervisor 先死，它不会再把 worker 拉起来。
+            # （之前先杀子进程，正好给了 supervisor 重启 worker 的窗口。）
             try:
                 psutil.Process(pid).kill()
                 _journal("kill sent pid=%s" % pid)
@@ -188,6 +186,41 @@ def purge_processes_under(root, timeout: float = 10.0) -> bool:
             _journal("purge timeout, left=%s" % left2)
             return not left2
         time.sleep(0.3)
+
+
+def _depth_of(pid: int) -> int:
+    """进程的祖先链深度（根 = 0）。取不到就当最深。"""
+    depth = 0
+    try:
+        import psutil
+        p = psutil.Process(pid)
+        while p.ppid() and depth < 32:
+            p = p.parent()
+            if p is None:
+                break
+            depth += 1
+    except Exception:  # noqa: BLE001
+        return 99
+    return depth
+
+
+def _still_same_process(pid: int, expected_exe) -> bool:
+    """pid 现在是否还是「原来那个进程」（防止 pid 复用导致误杀）。
+
+    expected_exe 为 None 时只检查进程是否还活着。
+    """
+    try:
+        import psutil
+        p = psutil.Process(pid)
+        if not p.is_running():
+            return False
+        if expected_exe:
+            cur = p.exe() or ""
+            if not _norm(cur) == _norm(expected_exe):
+                return False
+        return True
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def hub_running() -> bool:

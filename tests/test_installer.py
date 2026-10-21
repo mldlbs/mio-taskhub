@@ -430,6 +430,109 @@ def test_find_payload_prefers_exe_dir_over_cwd(monkeypatch, tmp_path):
     assert pmod.find_payload() == near
 
 
+# ──────────────────── 进程清理的时序（回归） ────────────────────
+
+def test_purge_kills_parent_before_child():
+    """**回归**：必须**先杀 supervisor 再杀 worker**。
+
+    实测踩过（2026-10-21）：hub 是 supervisor→worker 双进程，supervisor
+    在 worker 意外退出时会**重新 spawn** 它。先杀 worker 正好给了它重启的
+    窗口 → 新 worker 又把安装目录钉住 → 目录永远删不掉。
+
+    所以要按祖先链深度排序，父在前。
+    """
+    from mio_taskhub.installer import processes as proc
+
+    # 构造「父 → 子」的进程链：伪造 psutil
+    class _FakeProc:
+        def __init__(self, pid, ppid):
+            self.pid = pid
+            self.ppid_ = ppid
+
+        def ppid(self):
+            return self.ppid_
+
+        def parent(self):
+            if self.ppid_ <= 1:
+                return None
+            return _FakeProc(self.ppid_, 1)
+
+        def is_running(self):
+            return True
+
+        def exe(self):
+            return ""
+
+    class _FakePsutil:
+        @staticmethod
+        def Process(pid):
+            # 700 是 supervisor（父）， 701 是 worker（子）
+            return _FakeProc(pid, 1 if pid == 700 else 700)
+
+    orig = sys.modules.get("psutil")
+    sys.modules["psutil"] = _FakePsutil
+    try:
+        assert proc._depth_of(700) < proc._depth_of(701), \
+            "父进程（supervisor）的深度必须小于子进程（worker）"
+        # 排序后父在前
+        left = [(701, "w.exe"), (700, "s.exe")]
+        ordered = sorted(left, key=lambda item: proc._depth_of(item[0]))
+        assert ordered[0][0] == 700, "排序后必须先杀 supervisor"
+        assert ordered[1][0] == 701
+    finally:
+        if orig is not None:
+            sys.modules["psutil"] = orig
+        else:
+            sys.modules.pop("psutil", None)
+
+
+def test_purge_rechecks_process_identity_before_kill():
+    """**回归**：杀之前要重新核对进程身份，防止 pid 复用误杀。
+
+    `psutil.Process(pid)` 只缓存 pid，目标若在两次调用之间退出，
+    pid 可能被系统**复用**给别的进程 → `taskkill /PID` 杀掉无辜进程
+    （实测把用户的 shell 一起杀掉 → 卸载器秒退且无日志）。
+    """
+    from mio_taskhub.installer import processes as proc
+
+    class _FakeProc:
+        def __init__(self, pid, exe):
+            self.pid = pid
+            self._exe = exe
+
+        def is_running(self):
+            return True
+
+        def exe(self):
+            return self._exe
+
+    class _FakePsutil:
+        exe_of = {}
+
+        @staticmethod
+        def Process(pid):
+            return _FakeProc(pid, _FakePsutil.exe_of.get(pid, ""))
+
+    orig = sys.modules.get("psutil")
+    sys.modules["psutil"] = _FakePsutil
+    try:
+        target = r"E:\some\dir\mio-taskhub.exe"
+        # pid 还在、exe 一致 → 允许杀
+        _FakePsutil.exe_of[900] = target
+        assert proc._still_same_process(900, target) is True
+        # pid 被复用给别的 exe → 拒绝杀
+        _FakePsutil.exe_of[900] = r"C:\Windows\System32\cmd.exe"
+        assert proc._still_same_process(900, target) is False
+        # exe 为 None → 只看存活
+        _FakePsutil.exe_of[901] = target
+        assert proc._still_same_process(901, None) is True
+    finally:
+        if orig is not None:
+            sys.modules["psutil"] = orig
+        else:
+            sys.modules.pop("psutil", None)
+
+
 # ──────────────────── GUI 线程安全（回归） ────────────────────
 
 def test_gui_worker_thread_must_not_touch_tk_variables():
