@@ -89,3 +89,34 @@
   2. 按失败用例定位到批次（A/B/C），只回退该批次。
   3. 若判据本身设计有误（如误伤面过大），改判据后重跑 TC 集，**不改**「只在明确假完成上拦截」这一总原则。
 - **失败排查顺序**：先查 `run.diff_summary.reason`（判定原因码）→ 再查 `Event`/`HistoryEvent` 是否有记录（可见性）→ 最后查前端渲染分支。
+
+## 真实场景验证（总体验收判据）
+
+需求要求「存在至少一例真实场景，能证明『声明成功但零改动』被拦下」。
+用**真实仓库**（`E:/work/code/agent-dev/mio-taskhub`）当 workspace 实测：
+
+| 步骤 | 结果 |
+|---|---|
+| 建任务（workspace = 真实仓库）→ `create_run` 拍前快照 | 前快照已采集，`head=4e1aec801c2e`，porcelain 0 行 |
+| 不做任何改动，提交 `success=true` | **HTTP 422**，`code=run.empty_diff`，message「拒绝提交：声明 success=true，但本次 run 期间工作区零改动（0 文件 / 0 行）」，`rejections=1/2` |
+| 拦截后查库 | `Event` 1 条（`type=run.result_rejected`、`entity=task`）；`HistoryEvent` 1 条（`type=rejected`）；`run.annotations` 1 条（`code=run.empty_diff`、`level=block`） |
+| run 状态 | `state=claimed`（未变）、`exit_code=None`（未写）、`rejections=1` |
+| 实际创建文件后再提交 | **HTTP 200**（放行） |
+
+结论：**零改动被拦、有改动放行、三链路证据齐全、拦截不改 run 状态** —— 全部在真实仓库上验证通过。
+
+## 迁移验证
+
+`scripts/verify_diff_gate_migration.py`（生产库副本 + 删列模拟未迁移）：
+
+```
+=== 迁移前 ===   存量任务数: 1933
+=== 第一次迁移 ===
+  新列已创建 ✅
+  存量任务豁免值: 1933 条，其中未豁免 0 条
+  存量任务全部豁免 ✅（保持迁移前行为不变）
+=== 第二次迁移（幂等） ===   数据不变、无报错 ✅
+=== 迁移后新建任务默认不受门禁约束 ===   diff_gate_exempt=0 ✅
+```
+
+生产库本身**尚未迁移**（新列不存在），迁移在 hub 启动时才执行。
