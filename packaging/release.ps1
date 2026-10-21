@@ -98,7 +98,11 @@ Write-Host "  sha256=$hash size=$size"
 
 if ($DryRun) {
   Write-Host "[dry-run] tag=$tag prerelease=$([bool]$Prerelease)"
-  Write-Host "[dry-run] would POST $api/releases then upload: $AssetName, latest.json"
+  # 资产名从单一事实源取（不硬编码，避免与实际上传清单不一致）；
+  # 去重 —— payload zip 既是顶层资产、也在安装包目录里。
+  $allNames = @($AssetName) + @($installerAssets | ForEach-Object { Split-Path -Leaf $_ }) + @('latest.json')
+  $uploadNames = $allNames | Select-Object -Unique
+  Write-Host "[dry-run] would POST $api/releases then upload: $($uploadNames -join ', ')"
   Write-Host "[dry-run] latest.json:"
   Get-Content $jsonPath
   return

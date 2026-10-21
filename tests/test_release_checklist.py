@@ -45,6 +45,22 @@ def test_release_assets_include_uninstaller():
     assert release_assets.PAYLOAD_ASSET in assets
 
 
+def test_release_asset_upload_names_are_unique():
+    """**回归**：上传用的文件名不能撞车。
+
+    实测踩过：安装包目录里也有一份 `mio-taskhub-win64.zip`（和顶层那份
+    **是同一个文件**，build.ps1 拷过去的）。上传用 `Split-Path -Leaf`，
+    同名资产在同一个 Release 里传两次会被 GitHub 拒（already_exists）。
+    对策：payload zip 只作为**顶层**资产上传一次。
+    """
+    sys.path.insert(0, str(REPO))
+    from mio_taskhub import release_assets
+
+    names = [Path(a).name for a in release_assets.all_release_assets()]
+    dupes = {n for n in names if names.count(n) > 1}
+    assert not dupes, "发布资产文件名撞车：%s" % dupes
+
+
 def test_release_ps1_reads_asset_list_from_single_source():
     """**回归**：release.ps1 不许再手抄一份资产清单。
 
