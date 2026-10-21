@@ -33,8 +33,11 @@ def verify_payload(root) -> tuple:
 def find_payload(explicit=None, search_dirs=None) -> Path:
     """定位 payload zip。
 
-    优先级：显式路径 → 安装器同级目录 → 常见下载目录 → 临时目录。
+    优先级：显式路径 → **安装器同级目录** → 常见下载目录 → 临时目录。
     找不到抛 FileNotFoundError。
+
+    「安装器同级目录」是**真实分发的形态**（setup.exe 与 zip 放在一起），
+    必须排在最前面 —— 否则打包后的静默安装会找不到包（2026-10-21 实测）。
     """
     if explicit:
         p = Path(explicit)
@@ -44,17 +47,36 @@ def find_payload(explicit=None, search_dirs=None) -> Path:
 
     names = (PAYLOAD_ZIP_NAME, "mio-taskhub.zip")
     dirs = [Path(d) for d in (search_dirs or [])]
-    dirs.append(Path(tempfile.gettempdir()))
+    # 1) 安装器自身所在目录（打包分发时 zip 与 setup.exe 同目录）
+    dirs.append(_exe_dir())
+    # 2) 当前工作目录
+    dirs.append(Path.cwd())
+    # 3) 常见下载目录
     for env in ("USERPROFILE", "HOME"):
         home = os.environ.get(env)
         if home:
             dirs.append(Path(home) / "Downloads")
             dirs.append(Path(home) / "Desktop")
+    # 4) 临时目录
+    dirs.append(Path(tempfile.gettempdir()))
 
+    seen = set()
     for d in dirs:
+        key = str(d).lower()
+        if key in seen:
+            continue
+        seen.add(key)
         for n in names:
             p = d / n
             if p.is_file():
                 return p
     raise FileNotFoundError(
         "未找到安装包 %s（已搜索：%s）" % (" / ".join(names), "、".join(str(d) for d in dirs)))
+
+
+def _exe_dir() -> Path:
+    """当前可执行文件所在目录（打包态 = exe 目录；源码态 = 仓库根）。"""
+    import sys
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent.parent

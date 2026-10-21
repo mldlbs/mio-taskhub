@@ -326,6 +326,38 @@ def test_installer_payload_module_uses_shared_contract():
     assert payload_mod.verify_payload is not None
 
 
+def test_find_payload_searches_exe_dir(monkeypatch, tmp_path):
+    """回归：打包分发时 zip 与 setup.exe **同目录** → 必须能找到。
+
+    2026-10-21 实测缺陷：搜索路径不含 exe 自身目录 → 打包后的静默安装
+    在真实分发形态下报「未找到安装包」。
+    """
+    from mio_taskhub.installer import payload as pmod
+
+    pkg = tmp_path / "mio-taskhub-win64.zip"
+    pkg.write_bytes(b"PK\x05\x06" + b"\x00" * 18)
+
+    monkeypatch.setattr(pmod, "_exe_dir", lambda: tmp_path)
+    found = pmod.find_payload()
+    assert found == pkg
+
+
+def test_find_payload_prefers_exe_dir_over_cwd(monkeypatch, tmp_path):
+    """exe 同目录的包优先于当前工作目录的包。"""
+    from mio_taskhub.installer import payload as pmod
+
+    exe_dir = tmp_path / "bundle"
+    exe_dir.mkdir()
+    near = exe_dir / "mio-taskhub-win64.zip"
+    near.write_bytes(b"PK\x05\x06" + b"\x00" * 18)
+    far = tmp_path / "mio-taskhub-win64.zip"
+    far.write_bytes(b"PK\x05\x06" + b"\x00" * 18)
+
+    monkeypatch.setattr(pmod, "_exe_dir", lambda: exe_dir)
+    monkeypatch.chdir(tmp_path)
+    assert pmod.find_payload() == near
+
+
 # ──────────────────── 更新器：历史形态 payload（回归） ────────────────────
 
 def test_updater_accepts_prefixed_payload(tmp_path):

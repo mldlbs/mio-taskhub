@@ -122,7 +122,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1
 | `shortcuts.py` | 开始菜单 / 桌面 .lnk 快捷方式（COM，不依赖 pywin32） |
 | `processes.py` | 卸载前清理占用安装目录的进程 |
 | `payload.py` | payload 定位 / 解压 / 校验（契约见 `mio_taskhub/payload_layout.py`） |
-| `gui.py` | Tkinter 安装向导 + 卸载向导 |
+| `gui.py` | Tkinter 安装向导 + 卸载向导（自绘控件，深色主题） |
 | `cli.py` | 无界面命令行入口（CI / 批量部署） |
 | `entry_support.py` | 无黑框 exe 的 stdio 重绑（`sys.stdout` 为 None 的兜底） |
 
@@ -149,6 +149,37 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1
 - **payload 布局契约只有一份** —— `mio_taskhub/payload_layout.py`。
   历史发布的 zip 顶层带一层 `mio-taskhub-v3/`，而更新器按「根目录即内容」校验
   → **自动更新装不上**（2026-10-21 实测）。现在解压统一自动剥离顶层前缀。
+- **payload 搜索路径必须含「exe 自身所在目录」** —— 真实分发形态是
+  setup.exe 与 zip 同目录。原先没排这一项 → 打包后的静默安装报「未找到安装包」
+  （2026-10-21 实测）。`payload._exe_dir()` 已排到最前。
+
+**改 GUI 时务必注意的坑**（Tkinter 天生爱坑）：
+
+- **不要用 ttk 默认控件** —— 原生 Checkbox / Entry 在深色底上露出浅色系统色，
+  看着像拼贴。`gui.py` 里输入框 / 按钮 / 复选框都是 `tk.Canvas` 自绘。
+- **`Canvas.delete("all")` 会把 `create_window` 嵌的 Entry 一起删掉** →
+  输入框变 1×1 隐藏、路径框看着是空的。只删图形元素：`delete("rounded")` + 打 tag。
+- **Canvas 里放子控件要用 `grid` 固定列宽** —— `pack(expand=True)` 会让输入框
+  吃掉整行，把旁边的按钮压成 1×1（看不见）。
+- **显示文本要用独立 StringVar** —— Entry 若直接绑真实路径变量，往里 insert
+  文本会**回写污染真实路径**。`gui._Field` 用 `_display_var` 显示、
+  `_var` 保存真值。
+- **不要用 `messagebox`** —— 模态框在部分 Win10 上标题栏会闪「(未响应)」。
+  改用界面内自绘的提示条 `_Notice`。
+- **后台线程回 UI 线程用 `_ui_call()`** —— `root.after()` 在主线程不在 mainloop 时
+  抛 `RuntimeError: main thread is not in main loop`，且该异常发生在工作线程里 →
+  界面永远卡在「正在安装」。
+- **窗口销毁要清 after 队列** —— Tk 的 after 队列在窗口销毁后仍持有已删除的
+  Tcl 命令名，残留回调报 `invalid command name ... (after script)`。
+  `_close_now()` 里 `after_cancel` 掉自己排程的回调。
+- **「安装包」那行默认不显示** —— 真实分发时包就在 setup.exe 旁边，自动找到，
+  用户什么都不用做。让人去「选安装包」是多余且让人困惑的一步。
+  只有自动定位失败才显示该行作为兜底。
+- **长路径要友好显示** —— 完整路径太长会截断成 `C:\Users\admin\AppData\L...`。
+  `_Field._friendly_name()` 只保留末两段（`…\Programs\mio-taskhub`），
+  完整路径走悬停提示。
+- **验证 GUI 必须用真正的 `mainloop()`** —— 用 `root.update()` 手动循环会报
+  `main thread is not in main loop`（测试脚本的锅，不是程序 bug）。
 
 ### 自动更新与发版
 

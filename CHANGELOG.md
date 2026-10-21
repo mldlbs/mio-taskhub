@@ -32,9 +32,35 @@
 - **卸载器删不掉自己所在的目录**：Windows 锁住运行中的 exe 映像。
   派发带重试的 .bat 自删除（`Popen` + `cwd` 指向目录外 + 批处理变量写 `%%i`）。
 
+### Changed — 安装器界面重做（2026-10-21）
+- **深色卡片化布局 + 荧光绿主色**（对齐 Web UI 的 `#cdfa3f`），替换原先的 ttk 默认控件拼贴。
+- **输入框 / 按钮 / 复选框改为 `tk.Canvas` 自绘**：原生 Checkbox 与 Entry 在深色底上
+  露出浅色系统色，看着像没做完。
+- **「安装包」行默认不显示**：真实分发时 setup.exe 与 zip 同目录 → 自动找到，
+  用户什么都不用做。只有自动定位失败才显示该行作为兜底。
+- **路径友好显示**：只保留末两段（`…\Programs\mio-taskhub`），完整路径走悬停提示。
+- **去掉中间那块空的黑色日志面板**：改为安装时才展开。
+- **用界面内提示条替代 `messagebox`**：模态框在部分 Win10 上标题栏会闪「(未响应)」。
+- 文案面向小白：「无需安装 Python」「在桌面和「开始」菜单中创建快捷方式（可选）」「保持默认即可」。
+
+### Fixed — 打包后静默安装找不到安装包
+- **payload 搜索路径不含「exe 自身所在目录」** —— 真实分发形态是 setup.exe 与 zip
+  同目录，原先没排这一项 → 打包后的 `--silent` 安装报「未找到安装包」（实测）。
+  `payload._exe_dir()` 已排到最前，并补两条回归用例。
+
+### Fixed — GUI 健壮性
+- `Canvas.delete("all")` 会把 `create_window` 嵌的 Entry 一起删掉 → 输入框变 1×1
+  隐藏、路径框看着是空的。改为按 tag 只删图形元素。
+- Canvas 里子控件用 `pack(expand=True)` 会把旁边按钮压成 1×1（看不见）→ 改用 grid 固定列宽。
+- 显示文本改用独立 StringVar，避免回写污染真实路径变量。
+- 后台线程回 UI 线程加 `_ui_call()` 兜底：主线程不在 mainloop 时 `root.after()` 抛
+  `RuntimeError` 且发生在工作线程 → 界面会永远卡在「正在安装」。
+- 窗口销毁时清理 after 队列，消掉 `invalid command name ... (after script)` 残留。
+
 ### Tests
-- `tests/test_installer.py`（29 用例）：payload 布局契约、安装/卸载、注册表读写、
-  快捷方式创建删除、只读文件删除、进程路径匹配回归、自更新保留卸载器。
+- `tests/test_installer.py`（30 用例）：payload 布局契约、安装/卸载、注册表读写、
+  快捷方式创建删除、只读文件删除、进程路径匹配回归、payload 自动定位回归、
+  自更新保留卸载器。全量 1499 passed / 0 failed。
 
 ## v0.6.1 (2026-10-20)
 
