@@ -20,6 +20,12 @@ def _claim_one(title):
 
 def test_move_to_done_closes_active_run():
     tid, rid = _claim_one("move-done")
+    # P1-2：进 done 前需真实评审证据（他人 approve 记录）
+    rv = client.post(f"/api/v1/tasks/{tid}/reviews", json={
+        "decision": "approve", "reviewer": "human-reviewer",
+        "summary": "已核对变更范围与测试结果，无阻断问题",
+    })
+    assert rv.status_code == 200, rv.text
     # 移到 done（合法路径：ready→...→done）
     r = client.post(f"/api/v1/tasks/{tid}/stage/move",
                     json={"target_stage": "done", "review_result": "approved"})

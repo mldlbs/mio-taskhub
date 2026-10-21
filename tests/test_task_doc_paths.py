@@ -263,8 +263,30 @@ def test_done_gate_accepts_review_document(tmp_path):
 
 
 def test_done_gate_still_accepts_review_text(tmp_path):
-    """向后兼容：仍可用 review_result 文本满足门槛。"""
+    """P1-2：review_result 纯文本**不再**单独满足 done 门槛。
+
+    原语义（2026-10-10 P0-2）：纯文本可满足门槛。
+    P1-2 收窄：纯文本是执行者自己写的一句话，不构成「独立验收」证据 ——
+    且不产生任何 TaskReview 记录，approved 在 DB 里无痕。
+    现需真实 approve 记录（他人）或实际落盘的 review 文档。
+    """
     tid = _mk(_ws(tmp_path), stage='review')
+
+    r = client.post(f'/api/v1/tasks/{tid}/stage',
+                    json={'target_stage': 'done', 'review_result': 'approved'})
+    assert r.status_code == 422, r.text
+    assert r.json()['detail']['code'] == 'review.evidence_missing'
+    assert client.get(f'/api/v1/tasks/{tid}/reviews').json() == []
+
+
+def test_done_gate_accepts_real_review_record(tmp_path):
+    """P1-2：他人 approve 记录可满足 done 门槛。"""
+    tid = _mk(_ws(tmp_path), stage='review')
+    rv = client.post(f'/api/v1/tasks/{tid}/reviews', json={
+        'decision': 'approve', 'reviewer': 'human-reviewer',
+        'summary': '已核对变更范围与测试结果，无阻断问题',
+    })
+    assert rv.status_code == 200, rv.text
 
     r = client.post(f'/api/v1/tasks/{tid}/stage',
                     json={'target_stage': 'done', 'review_result': 'approved'})
