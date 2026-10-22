@@ -108,12 +108,14 @@ def _check_single_file(bundled_setup: Path, live_uninstall) -> list:
         return problems
 
     offset, plen = marker
+    # 解到**专属临时目录**并在 finally 里整目录 rmtree ——
+    # `extract_embedded_payload` 默认 mkdtemp，只删文件的话
+    # %TEMP% 里会留下一个空目录（实测每跑一次 checklist 多一个）。
+    import shutil
+    import tempfile
+    tmpdir = tempfile.mkdtemp(prefix="mio_bundle_check_")
     try:
-        extracted = embedded.extract_embedded_payload(bundled_setup)
-    except Exception as e:  # noqa: BLE001
-        problems.append("解出内嵌 payload 失败：%r" % e)
-        return problems
-    try:
+        extracted = embedded.extract_embedded_payload(bundled_setup, tmpdir)
         if extracted.stat().st_size != plen:
             problems.append("内嵌 payload 长度不符（标记 %d，实际 %d）"
                             % (plen, extracted.stat().st_size))
@@ -132,10 +134,7 @@ def _check_single_file(bundled_setup: Path, live_uninstall) -> list:
     except zipfile.BadZipFile as e:
         problems.append("内嵌 payload 不是合法 zip：%r" % e)
     finally:
-        try:
-            extracted.unlink()
-        except OSError:
-            pass
+        shutil.rmtree(tmpdir, ignore_errors=True)
     return problems
 
 

@@ -121,8 +121,8 @@ def read_embedded_marker(exe_path):
 def extract_embedded_payload(exe_path, dest_dir=None) -> Path:
     """把 exe 里附加的 payload 取出成一个 zip 文件，返回其路径。
 
-    优先取到 `dest_dir`（默认临时目录）；取完**不删**（调用方决定生命周期），
-    但用完要自己清（安装流程结束时会删临时目录）。
+    `dest_dir` 省略时会建一个临时目录（**调用方负责清理整个目录**，
+    只删里面的 zip 会留下空壳目录）。传了 `dest_dir` 就解到那里。
     """
     exe = Path(exe_path)
     marker = read_embedded_marker(exe)
@@ -147,6 +147,17 @@ def extract_embedded_payload(exe_path, dest_dir=None) -> Path:
     if remaining != 0:
         raise IOError("内嵌安装包不完整（少了 %d 字节）" % remaining)
     return out
+
+
+def extract_embedded_payload_to_temp(exe_path):
+    """解出内嵌 payload 到临时目录，返回 (zip路径, 临时目录)。
+
+    **返回目录是为了让调用方能整目录清理** —— 只删 zip 会留下空壳目录
+    （实测每跑一次校验就多一个 `mio_embedded_*` 残留在 %TEMP%）。
+    """
+    import tempfile
+    d = tempfile.mkdtemp(prefix="mio_embedded_")
+    return extract_embedded_payload(exe_path, d), d
 
 
 def has_embedded_payload(exe_path) -> bool:
