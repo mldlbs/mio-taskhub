@@ -54,6 +54,46 @@ class UninstallResult:
 
 # ────────────────────────── 安装 ──────────────────────────
 
+#: 解出内嵌安装包时用的临时目录（安装结束后清理）
+_EMBEDDED_DIRS = []
+
+
+def _extract_embedded():
+    """从**当前 exe 自身**解出内嵌的 payload zip。
+
+    单文件安装包形态：`mio-taskhub-setup.exe` 尾部带着 payload zip。
+    返回解出的 zip 路径；当前 exe 没内嵌时返回 None。
+    """
+    try:
+        import sys
+        from . import embedded
+
+        exe = sys.executable if getattr(sys, "frozen", False) else None
+        if not exe:
+            return None
+        marker = embedded.read_embedded_marker(exe)
+        if not marker:
+            return None
+        import tempfile
+        d = tempfile.mkdtemp(prefix="mio_embedded_")
+        _EMBEDDED_DIRS.append(d)
+        return embedded.extract_embedded_payload(exe, d)
+    except Exception as e:  # noqa: BLE001
+        _log_step("解出内嵌安装包", False, repr(e))
+        return None
+
+
+def _cleanup_embedded():
+    """清理解出内嵌安装包时用的临时目录。"""
+    from .paths import force_rmtree
+    while _EMBEDDED_DIRS:
+        d = _EMBEDDED_DIRS.pop()
+        try:
+            force_rmtree(d)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def _log_step(name: str, ok: bool, detail: str = "") -> None:
     """把每一步结果写进安装日志（%USERPROFILE%\\.mio_taskhub\\installer.log）。
 
@@ -71,6 +111,17 @@ def _log_step(name: str, ok: bool, detail: str = "") -> None:
 def install(payload_zip=None, install_dir=None, create_shortcuts=True,
             register=True, uninstall_exe=None, progress=None) -> InstallResult:
     """执行安装。progress(step_name) 用于 UI 回调。"""
+    try:
+        return _install_impl(payload_zip, install_dir, create_shortcuts,
+                              register, uninstall_exe, progress)
+    finally:
+        # 无论成功失败，都要清理解出的内嵌安装包临时目录
+        _cleanup_embedded()
+
+
+def _install_impl(payload_zip=None, install_dir=None, create_shortcuts=True,
+                  register=True, uninstall_exe=None, progress=None) -> InstallResult:
+    """install() 的真正实现（外层 install() 负责 finally 清理）。"""
     res = InstallResult()
 
     def _notify(msg):
@@ -83,14 +134,27 @@ def install(payload_zip=None, install_dir=None, create_shortcuts=True,
     install_dir = Path(install_dir or default_install_dir())
     res.install_dir = str(install_dir)
 
+    # **优先用内嵌的安装包**（单文件安装包形态）：
+    # setup.exe 自身尾部就带着 payload zip → 不需要用户另外下载一个文件。
+    # 没有内嵌时才退回「找同目录 / 搜索路径」。
+    embedded_dir = None
     try:
         zip_path = payload_mod.find_payload(payload_zip)
-    except FileNotFoundError as e:
-        res.message = str(e)
-        res.step("定位安装包", False, str(e))
-        return res
-    res.step("定位安装包", True, str(zip_path))
-    _notify("已找到安装包：%s" % zip_path.name)
+    except FileNotFoundError:
+        zip_path = _extract_embedded()
+        if zip_path is None:
+            res.message = ("未找到安装包。请把 setup.exe 与 %s 放在同一个文件夹，"
+                           "或重新下载完整的安装包。"
+                           % payload_mod.PAYLOAD_ZIP_NAME
+                           if hasattr(payload_mod, "PAYLOAD_ZIP_NAME")
+                           else "未找到安装包。")
+            res.step("定位安装包", False, res.message)
+            return res
+        res.step("定位安装包", True, "内嵌安装包（%s）" % zip_path.name)
+        _notify("已解出内嵌安装包")
+    else:
+        res.step("定位安装包", True, str(zip_path))
+        _notify("已找到安装包：%s" % zip_path.name)
 
     # 旧进程必须先停：运行中的 exe 会钉住安装目录，导致删除/覆盖失败。
     if install_dir.exists():

@@ -48,6 +48,33 @@
   同目录，原先没排这一项 → 打包后的 `--silent` 安装报「未找到安装包」（实测）。
   `payload._exe_dir()` 已排到最前，并补两条回归用例。
 
+### Added — 单文件安装包（安装器与程序本体合并）
+用户反馈「打包能把安装程序和软件包合并吗？没必要分两个包」——
+真实安装器（NSIS / Inno Setup）都是**单文件** `setup.exe`，用户只下一个
+文件、双击、装完就走。原来的形态要下两个文件再放同一目录，明显反人类。
+
+实现（self-extracting）：
+- 新增 `mio_taskhub/installer/embedded.py` —— 把 payload zip **追加**到
+  `mio-taskhub-setup.exe` 末尾，再写一个 **16 字节尾部标记**
+  （magic `MIOSTUP1` + 偏移 + 长度）。读的时候 seek 到 `size-16` 就能定位，
+  不用扫描整个文件（PE 头里没有「附加数据」的字段，只能靠自己的标记）。
+- 新增 `scripts/make_setup.py` —— 合并 + 校验（解出来必须是合法 zip 且含
+  `mio-taskhub.exe`）。
+- `payload.find_payload()` 查找顺序改为：显式路径 → **内嵌** → 同级目录 →
+  常见下载目录 → 临时目录。内嵌排最前，因为单文件才是主流分发形态。
+- `install()` 拆成 `install()`（try/finally 负责清理）+ `_install_impl()`，
+  保证**成功和失败都会清掉**解出的临时目录，不留垃圾。
+- `check_installer_bundle.py` 增加单文件校验：内嵌标记存在、内嵌的
+  `uninstall.exe` 与当前产物同哈希。
+- `build.ps1` 步骤 6 改为：合并 payload → 单文件 setup.exe + 独立 uninstall.exe
+  + 安装说明（**不再**拷一份 zip 进安装包目录）。
+
+分发资产随之调整：安装包目录里**不再**放 payload zip（它已经合并进 exe），
+但 payload zip 仍作为**顶层资产**发布 —— 客户端自动更新要用。
+
+验证：**只放 setup.exe 一个文件**（无 zip、无卸载器）→ 静默安装 rc=0 →
+hub 起得来（healthz 200）→ 卸载 rc=0、目录删干净、临时目录零残留。
+
 ### Fixed — GUI 健壮性
 - `Canvas.delete("all")` 会把 `create_window` 嵌的 Entry 一起删掉 → 输入框变 1×1
   隐藏、路径框看着是空的。改为按 tag 只删图形元素。

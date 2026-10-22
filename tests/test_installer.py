@@ -573,6 +573,95 @@ def test_browse_buttons_are_icon_only():
         or "icon" in inspect.signature(gui._Button.__init__).parameters
 
 
+# ──────────────────── 单文件安装包（内嵌 payload） ────────────────────
+
+def test_embedded_payload_roundtrip(tmp_path):
+    """**回归**：payload 合并进 exe 后能原样解出来。
+
+    用户反馈「打包能把安装程序和软件包合并吗？没必要分两个包」——
+    真实安装器（NSIS/Inno）都是单文件 setup.exe。
+    """
+    from mio_taskhub.installer import embedded
+
+    exe = tmp_path / "setup.exe"
+    exe.write_bytes(b"FAKE-EXE-CONTENT" * 100)
+    payload = tmp_path / "payload.zip"
+    with zipfile.ZipFile(payload, "w") as zf:
+        zf.writestr("mio-taskhub.exe", b"x" * 1000)
+        zf.writestr("_internal/web/dist/index.html", b"y" * 50)
+
+    embedded.append_payload(exe, payload)
+
+    marker = embedded.read_embedded_marker(exe)
+    assert marker, "读不到内嵌标记"
+    offset, plen = marker
+    assert plen == payload.stat().st_size
+
+    out = embedded.extract_embedded_payload(exe, tmp_path / "out")
+    with zipfile.ZipFile(out) as zf:
+        assert "mio-taskhub.exe" in zf.namelist()
+        assert zf.read("mio-taskhub.exe") == b"x" * 1000
+
+    # exe 前半段没被动过（Windows 仍认这是合法 PE）
+    assert exe.read_bytes()[:22] == (b"FAKE-EXE-CONTENT" * 100)[:22]
+
+
+def test_embedded_payload_no_marker_is_detected(tmp_path):
+    """没有内嵌 payload 时要能识别出来（不能把普通 exe 误判成安装包）。"""
+    from mio_taskhub.installer import embedded
+
+    plain = tmp_path / "plain.exe"
+    plain.write_bytes(b"not an installer" * 50)
+    assert embedded.read_embedded_marker(plain) is None
+    assert embedded.has_embedded_payload(plain) is False
+
+
+def test_embedded_payload_reappend_does_not_grow(tmp_path):
+    """**回归**：重复合并**不能**让 exe 越滚越大（必须先剥掉旧的）。"""
+    from mio_taskhub.installer import embedded
+
+    exe = tmp_path / "setup.exe"
+    exe.write_bytes(b"BASE")
+    p1 = tmp_path / "p1.zip"
+    p1.write_bytes(b"Z" * 5000)
+    p2 = tmp_path / "p2.zip"
+    p2.write_bytes(b"Y" * 3000)
+
+    embedded.append_payload(exe, p1)
+    size1 = exe.stat().st_size
+    embedded.append_payload(exe, p2)
+    size2 = exe.stat().st_size
+
+    # 第二次合并后只应是 BASE + p2（不是 BASE + p1 + p2）
+    assert size2 < size1, "重复合并导致 exe 变大（旧的没剥掉）"
+    assert size2 == 4 + 3000 + embedded.MARKER_LEN
+    out = embedded.extract_embedded_payload(exe, tmp_path / "o")
+    assert out.read_bytes() == b"Y" * 3000
+
+
+def test_make_setup_script_merges_and_verifies(tmp_path):
+    """合并脚本要能真的产出可用的单文件安装包。"""
+    import subprocess
+    import sys
+
+    repo = Path(__file__).resolve().parents[1]
+    setup = tmp_path / "setup.exe"
+    setup.write_bytes(b"FAKE-PE" * 200)
+    payload = tmp_path / "payload.zip"
+    with zipfile.ZipFile(payload, "w") as zf:
+        zf.writestr("mio-taskhub.exe", b"x" * 100)
+        zf.writestr("_internal/web/dist/index.html", b"y" * 10)
+
+    out = tmp_path / "merged.exe"
+    r = subprocess.run(
+        [sys.executable, str(repo / "scripts" / "make_setup.py"),
+         "--setup", str(setup), "--payload", str(payload),
+         "--out", str(out), "--verify"],
+        capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert out.exists() and out.stat().st_size > setup.stat().st_size
+
+
 # ──────────────────── 进程清理的时序（回归） ────────────────────
 
 def test_purge_kills_parent_before_child():

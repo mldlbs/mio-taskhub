@@ -71,24 +71,71 @@ def check() -> list:
             problems.append("payload zip 里没有 %s" % UNINSTALL_EXE)
 
     if BUNDLE.exists():
-        for name, live in ((SETUP_EXE, live_setup),
-                           (UNINSTALL_EXE, live_uninstall)):
-            in_bundle = BUNDLE / name
-            if not in_bundle.exists():
-                problems.append("独立安装包目录缺少 %s" % name)
-            elif live.exists() and _sha(in_bundle) != _sha(live):
-                problems.append(
-                    "独立安装包目录里的 %s 与当前产物不一致 —— "
-                    "重建后要重新组装 dist/mio-taskhub-installer/" % name)
-        in_bundle_zip = BUNDLE / PAYLOAD_ZIP.name
-        if not in_bundle_zip.exists():
-            problems.append("独立安装包目录缺少 payload zip")
-        elif in_bundle_zip.exists() and PAYLOAD_ZIP.exists():
-            if _sha(in_bundle_zip) != _sha(PAYLOAD_ZIP):
-                problems.append(
-                    "独立安装包目录里的 payload zip 与 dist/ 下的不一致 —— "
-                    "重建后要重新组装 dist/mio-taskhub-installer/")
+        in_bundle_uninstall = BUNDLE / UNINSTALL_EXE
+        if not in_bundle_uninstall.exists():
+            problems.append("独立安装包目录缺少 %s" % UNINSTALL_EXE)
+        elif live_uninstall.exists() and \
+                _sha(in_bundle_uninstall) != _sha(live_uninstall):
+            problems.append(
+                "独立安装包目录里的 %s 与当前产物不一致 —— "
+                "重建后要重新组装 dist/mio-taskhub-installer/" % UNINSTALL_EXE)
 
+    # ── 单文件安装包校验（payload 已合并进 setup.exe）──
+    bundled_setup = BUNDLE / SETUP_EXE
+    if not BUNDLE.exists():
+        problems.append("缺少独立安装包目录：%s" % BUNDLE)
+    elif not bundled_setup.exists():
+        problems.append("独立安装包目录缺少 %s" % SETUP_EXE)
+    else:
+        problems.extend(_check_single_file(bundled_setup, live_uninstall))
+
+    return problems
+
+
+def _check_single_file(bundled_setup: Path, live_uninstall) -> list:
+    """校验单文件安装包：内嵌标记 + 内嵌内容与源产物一致。"""
+    problems = []
+    try:
+        from mio_taskhub.installer import embedded
+    except Exception as e:  # noqa: BLE001
+        return ["无法导入 installer.embedded：%r" % e]
+
+    marker = embedded.read_embedded_marker(bundled_setup)
+    if not marker:
+        problems.append(
+            "单文件安装包 %s **没有内嵌 payload** —— "
+            "应运行 scripts/make_setup.py 合并" % bundled_setup.name)
+        return problems
+
+    offset, plen = marker
+    try:
+        extracted = embedded.extract_embedded_payload(bundled_setup)
+    except Exception as e:  # noqa: BLE001
+        problems.append("解出内嵌 payload 失败：%r" % e)
+        return problems
+    try:
+        if extracted.stat().st_size != plen:
+            problems.append("内嵌 payload 长度不符（标记 %d，实际 %d）"
+                            % (plen, extracted.stat().st_size))
+        with zipfile.ZipFile(extracted) as zf:
+            names = set(zf.namelist())
+            if "mio-taskhub.exe" not in names:
+                problems.append("内嵌 payload 缺少 mio-taskhub.exe")
+            if UNINSTALL_EXE in names and live_uninstall and \
+                    live_uninstall.exists():
+                in_zip = _sha_bytes(zf.read(UNINSTALL_EXE))
+                on_disk = _sha(live_uninstall)
+                if in_zip != on_disk:
+                    problems.append(
+                        "内嵌 payload 里的 %s 与当前产物不一致（%s ≠ %s）"
+                        % (UNINSTALL_EXE, in_zip[:12], on_disk[:12]))
+    except zipfile.BadZipFile as e:
+        problems.append("内嵌 payload 不是合法 zip：%r" % e)
+    finally:
+        try:
+            extracted.unlink()
+        except OSError:
+            pass
     return problems
 
 

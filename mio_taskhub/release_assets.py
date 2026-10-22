@@ -28,10 +28,11 @@ UNINSTALL_EXE = "uninstall.exe"
 
 #: 安装包目录内要上传的资产（相对 dist/）
 #:
-#: **注意：payload zip 不在这里** —— 它已经作为顶层资产上传过一次
-#: （`dist/mio-taskhub-win64.zip`），而安装包目录里那份是**同一个文件**
-#: （build.ps1 拷过去的）。同一个 Release 里同名资产上传两次会被 GitHub
-#: 拒（already_exists），所以只上传一次。
+#: **单文件安装包**：`mio-taskhub-setup.exe` 已经把 payload zip 合并进去了
+#: （self-extracting），用户只下一个文件就能装 → **不需要**再单独发一份
+#: payload zip 给安装器用。
+#:
+#: 但 payload zip 仍要作为**顶层资产**上传 —— 客户端自动更新用它。
 INSTALLER_BUNDLE_ASSETS = (
     "%s/%s" % (INSTALLER_BUNDLE_DIR, INSTALLER_EXE),
     "%s/%s" % (INSTALLER_BUNDLE_DIR, UNINSTALL_EXE),

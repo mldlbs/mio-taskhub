@@ -2,8 +2,8 @@ mio-taskhub 任务中心 · 安装包说明
 ================================
 
 【一】怎么安装
-  1. 把本文件夹整个复制到目标机器（无需联网、无需装 Python）
-     ※ 务必保持 setup.exe 和 mio-taskhub-win64.zip 在**同一个文件夹**里
+  1. 把【mio-taskhub-setup.exe】复制到目标机器（无需联网、无需装 Python）
+     ※ 这是**单文件**安装包，程序本体已经打包在里面了
   2. 双击【mio-taskhub-setup.exe】打开安装向导
   3. 选好安装目录（默认 C:\Users\你的用户名\AppData\Local\Programs\mio-taskhub）
   4. 点【安装】，等进度条走完即可

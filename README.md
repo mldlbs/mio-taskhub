@@ -7,11 +7,11 @@
 | 维度 | 现状 |
 |------|------|
 | 版本 | v0.6.1 |
-| 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 76 模块 / 26,929 行 |
+| 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 76 模块 / 27,026 行 |
 | 对外能力 | **163 个 REST 端点** · **47 个 MCP 工具** · WebSocket 实时广播 · React Web UI |
 | 任务文档 | **22 类文档 kind** · **7 件套文档链** · **9 类生命周期状态机** · 质量 lint + 状态门控 + 修订指令 |
 | 前端 | React 18 + Vite 5 · 48 文件 / 11,762 行 · 10 个视图 |
-| 测试 | **1350 个用例**（55 文件 / 8,480 行）· GitHub Actions（windows-latest / py3.12） |
+| 测试 | **1354 个用例**（55 文件 / 8,480 行）· GitHub Actions（windows-latest / py3.12） |
 | 部署 | pip 源码 · Docker 多阶段镜像 · Windows 单 EXE 绿色版（免 Python）· Windows 安装包（图形安装 + 正规卸载） |
 
 ---
@@ -27,9 +27,8 @@
 
 > **Windows 安装包（推荐给非技术用户）**
 
-- **下载最新版**：[`mio-taskhub-setup.exe`](https://github.com/mldlbs/mio-taskhub/releases/latest/download/mio-taskhub-setup.exe) **和** [`mio-taskhub-win64.zip`](https://github.com/mldlbs/mio-taskhub/releases/latest/download/mio-taskhub-win64.zip)
-- ⚠️ **两个文件必须下载到同一个文件夹** —— 安装器会自动找同目录下的 zip
-  （只下载 setup.exe 的话会提示「未找到安装包」）
+- **下载最新版**：[`mio-taskhub-setup.exe`](https://github.com/mldlbs/mio-taskhub/releases/latest/download/mio-taskhub-setup.exe)
+  （**单文件**，约 67 MB —— 安装包本体已合并进 exe，不需要再下载别的文件）
 - 使用：双击 `mio-taskhub-setup.exe` → 图形安装向导 → 装到 `%LOCALAPPDATA%\Programs\mio-taskhub`
 - 装完桌面和开始菜单有快捷方式；卸载走 Windows「应用和功能」或安装目录里的 `uninstall.exe`
 - 用户数据（数据库/日志/备份）**卸载时默认保留**在 `%USERPROFILE%\.mio_taskhub`
@@ -195,12 +194,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1
 ```powershell
 # dist/mio-taskhub-installer/ 目录里：
 #   mio-taskhub-setup.exe        ← 双击这个（图形安装向导）
+#                                     **单文件**：payload 已合并进去
 #   uninstall.exe                ← 独立的卸载程序（也可单独下载）
-#   mio-taskhub-win64.zip        ← 安装包本体（setup 自动找到它）
+#   安装说明.txt
 ```
 
-> **下载时**：setup.exe 和 win64.zip 要下到**同一个文件夹**。
-> 单独下载 setup.exe 的话，安装器找不到安装包（会提示「未找到安装包」）。
+> **单文件安装包**：`mio-taskhub-setup.exe` 尾部带着程序本体
+> （self-extracting），用户只下一个文件就能装 —— 跟 NSIS / Inno 的安装器一样。
 
 | 能力 | 说明 |
 |------|------|

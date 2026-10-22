@@ -136,13 +136,18 @@ if ($LASTEXITCODE -ne 0) { throw '生成 zip 失败' }
 $size = [math]::Round((Get-Item $zip).Length / 1MB, 1)
 Write-Host "  zip: $zip ($size MB)" -ForegroundColor Green
 
-# 独立安装包：安装器 exe + payload zip 放同一目录，双击 setup 即可安装
+# 独立安装包：**单文件** setup.exe（payload 已合并进去）
+# 用户只下一个文件、双击、装完就走 —— 跟 NSIS/Inno 的安装器一样。
 $bundle = Join-Path $root 'dist\mio-taskhub-installer'
 Remove-Item -Recurse -Force $bundle -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $bundle | Out-Null
-Copy-Item -Force $setupExe $bundle
+# 把 payload zip 追加到 setup.exe 尾部 → 单文件安装包
+& "$root\.venv\Scripts\python.exe" (Join-Path $root 'scripts\make_setup.py') `
+    --setup $setupExe --payload $zip `
+    --out (Join-Path $bundle 'mio-taskhub-setup.exe') --verify
+if ($LASTEXITCODE -ne 0) { throw '合并单文件安装包失败' }
+# 独立的卸载器（用户可以单独拿；也供「应用和功能」使用）
 Copy-Item -Force $uninstallExe $bundle
-Copy-Item -Force $zip $bundle
 Copy-Item -Force (Join-Path $root 'packaging\安装说明.txt') $bundle
 Write-Host "  安装包目录: $bundle" -ForegroundColor Green
 

@@ -45,19 +45,24 @@ def find_payload(explicit=None, search_dirs=None) -> Path:
             return p
         raise FileNotFoundError("找不到 payload：%s" % explicit)
 
+    # 2) 内嵌在当前 exe 尾部（单文件安装包形态）
+    embedded_zip = _embedded_zip()
+    if embedded_zip is not None:
+        return embedded_zip
+
     names = (PAYLOAD_ZIP_NAME, "mio-taskhub.zip")
     dirs = [Path(d) for d in (search_dirs or [])]
-    # 1) 安装器自身所在目录（打包分发时 zip 与 setup.exe 同目录）
+    # 3) 安装器自身所在目录（两文件分发形态的遗留）
     dirs.append(_exe_dir())
-    # 2) 当前工作目录
+    # 4) 当前工作目录
     dirs.append(Path.cwd())
-    # 3) 常见下载目录
+    # 5) 常见下载目录
     for env in ("USERPROFILE", "HOME"):
         home = os.environ.get(env)
         if home:
             dirs.append(Path(home) / "Downloads")
             dirs.append(Path(home) / "Desktop")
-    # 4) 临时目录
+    # 6) 临时目录
     dirs.append(Path(tempfile.gettempdir()))
 
     seen = set()
@@ -72,6 +77,33 @@ def find_payload(explicit=None, search_dirs=None) -> Path:
                 return p
     raise FileNotFoundError(
         "未找到安装包 %s（已搜索：%s）" % (" / ".join(names), "、".join(str(d) for d in dirs)))
+
+
+def _embedded_zip():
+    """若当前 exe 内嵌了 payload，解出来返回其路径；否则 None。
+
+    解到临时目录。**解出来的目录会登记到 `install._EMBEDDED_DIRS`**，
+    安装流程结束时统一清理（否则临时目录会越积越多）。
+    """
+    import sys
+    if not getattr(sys, "frozen", False):
+        return None
+    try:
+        from . import embedded
+        exe = sys.executable
+        if not embedded.read_embedded_marker(exe):
+            return None
+        import tempfile
+        d = tempfile.mkdtemp(prefix="mio_embedded_")
+        # 登记到安装模块的清理列表（避免循环 import：延迟到调用时）
+        try:
+            from .install import _EMBEDDED_DIRS
+            _EMBEDDED_DIRS.append(d)
+        except Exception:  # noqa: BLE001
+            pass
+        return embedded.extract_embedded_payload(exe, d)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _exe_dir() -> Path:
