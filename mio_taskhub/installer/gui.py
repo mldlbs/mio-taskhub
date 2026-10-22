@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import queue
+import sys
 import threading
 import tkinter as tk
 from tkinter import filedialog
@@ -43,6 +44,98 @@ ACCENT = "#cdfa3f"      # 主色（荧光绿）
 ACCENT_INK = "#0b0e11"  # 主色上的文字
 ACCENT_SOFT = "#232c17"  # 主色弱化底
 LINE = "#263041"        # 分隔线
+
+
+# ── 图标资源 ────────────────────────────────────────────────────────────
+
+def _resource_path(*parts) -> str:
+    """定位随包资源（兼容 PyInstaller onefile 的 _MEIPASS）。"""
+    base = getattr(sys, "_MEIPASS", None)
+    if base is None:
+        base = os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))))
+    return os.path.join(base, *parts)
+
+
+def load_photo(name: str, size: int):
+    """加载项目 logo 为 Tk PhotoImage（失败返回 None）。
+
+    **打包后路径会变**：onefile 模式下资源解到 `sys._MEIPASS`，
+    源码模式下是仓库根目录。所以两个位置都要找。
+
+    只用 **Tk 原生**（不引 PIL）—— 安装器刻意不打包 PIL（体积），
+    而 Tk 8.6+ 原生支持 PNG（实测 8.6.12 可用）。
+    注意：**Tk 读不了 .ico**（实测报 "couldn't recognize data in image
+    file"）→ 只能用 PNG。
+    """
+    png = _resource_path("web", "public", "icon.png")
+    if os.path.isfile(png):
+        try:
+            img = tk.PhotoImage(file=png)
+            return _shrink(img, size)
+        except Exception:  # noqa: BLE001
+            pass
+    return None
+
+
+def _shrink(img, size: int):
+    """把 PhotoImage 缩到接近 size（Tk 只支持整数倍缩放）。
+
+    源图 256×256，缩到 44 需要 5.8 倍 —— 非整数倍。
+    做法：先按 2 的幂缩到 <= size 的最大 2 的幂（32），
+    再用 `zoom` 放大 2 倍到 64，最后**居中裁剪**到目标尺寸。
+    没有 PIL 就只能这样；32→44 的过渡在小尺寸下看不出来。
+    """
+    target = max(8, int(size))
+    w, h = img.width(), img.height()
+    if w <= target:
+        return img
+    # 2 的幂缩小
+    factor = 1
+    while factor * 2 <= target and w // (factor * 2) >= target:
+        factor *= 2
+    if factor > 1:
+        img = img.subsample(factor, factor)
+    w, h = img.width(), img.height()
+    if w <= target:
+        return img
+    # 放大到 >= target 再居中裁剪
+    zoom = 1
+    while w * zoom < target:
+        zoom += 1
+    if zoom > 1:
+        img = img.zoom(zoom, zoom)
+        w, h = img.width(), img.height()
+    # 居中裁剪（PhotoImage 支持 copy from区域）
+    x0 = max(0, (w - target) // 2)
+    y0 = max(0, (h - target) // 2)
+    if (x0, y0, target, target) != (0, 0, w, h):
+        out = tk.PhotoImage(width=target, height=target)
+        out.tk.call(out, "copy", img, "-from", x0, y0, x0 + target, y0 + target,
+                    "-to", 0, 0)
+        return out
+    return img
+
+
+def load_app_icon(root):
+    """设置窗口标题栏图标（用项目 logo 的 PNG）。
+
+    Tk 读不了 .ico，但 `wm iconphoto` 接受 PNG → 正好用项目 logo。
+    失败就算了 —— 标题栏图标是加分项，不该因为它失败就让安装器起不来。
+    """
+    img = load_photo("icon.png", 32)
+    if img is None:
+        return None
+    try:
+        root.iconphoto(True, img)
+        _ICON_KEEPALIVE.append(img)
+        return img
+    except Exception:  # noqa: BLE001
+        return None
+
+
+#: PhotoImage 必须保留引用，否则 tk 会回收它（图标变空白）
+_ICON_KEEPALIVE = []
 DANGER = "#f85149"
 DANGER_SOFT = "#3a1f1f"
 OK = "#3fb950"
@@ -64,12 +157,20 @@ def _rounded_points(x1, y1, x2, y2, r):
 
 
 class _Button(tk.Canvas):
-    """自绘按钮：深色底 / 描边 / 主色实心，避免 ttk 默认观感。"""
+    """自绘按钮：深色底 / 描边 / 主色实心，避免 ttk 默认观感。
+
+    `icon="folder"` 时**只画图标、不画文字**（浏览文件夹用）——
+    文字按钮在 620 宽的窗口里显得啰嗦，图标更紧凑也更直观。
+    """
+
+    #: 内置图标（用 Canvas 图元画，不依赖外部图片资源）
+    _ICONS = ("folder", "file", "chevron")
 
     def __init__(self, master, text, command=None, kind="ghost",
-                 width=112, height=38, parent_bg=BG, **kw):
+                 width=112, height=38, parent_bg=BG, icon=None, **kw):
         self._kind = kind
         self._text = text
+        self._icon = icon
         self._command = command
         self._enabled = True
         self._hover = False
@@ -80,14 +181,68 @@ class _Button(tk.Canvas):
         self.bind("<Leave>", self._on_leave)
         self.bind("<Button-1>", self._on_press)
         self.bind("<ButtonRelease-1>", self._on_release)
+        self._tooltip = None
+        self._tooltip_text = ""
 
-    def _on_enter(self, _e):
+    def _show_tip(self, event):
+        """图标按钮的悬停提示（只有文字时没有图标可看，得靠提示说明）。"""
+        if not self._tooltip_text or self._tooltip is not None:
+            return
+        try:
+            tip = tk.Toplevel(self)
+            tip.wm_overrideredirect(True)
+            tip.configure(bg="#0a0d12")
+            tk.Label(tip, text=self._tooltip_text, bg="#0a0d12", fg="#c9d1d9",
+                     font=_font(9), padx=8, pady=4, bd=0,
+                     highlightthickness=1, highlightbackground=LINE).pack()
+            tip.update_idletasks()
+            x = self.winfo_rootx() + self.winfo_width() // 2
+            y = self.winfo_rooty() + self.winfo_height() + 4
+            tip.geometry("+%d+%d" % (x - tip.winfo_width() // 2, y))
+            self._tooltip = tip
+        except Exception:  # noqa: BLE001
+            self._tooltip = None
+
+    def _hide_tip(self, _e=None):
+        if self._tooltip is not None:
+            try:
+                self._tooltip.destroy()
+            except Exception:  # noqa: BLE001
+                pass
+            self._tooltip = None
+
+    def _draw_icon(self, cx: float, cy: float, fg: str) -> None:
+        """在 (cx, cy) 画内置图标。"""
+        if self._icon == "folder":
+            # 文件夹：后层矩形 + 前层带斜角的口袋
+            s = 8
+            x0, y0 = cx - s, cy - s * 0.72
+            x1, y1 = cx + s, cy + s * 0.72
+            tab = 5
+            self.create_polygon(
+                x0, y0 + 2, x0 + 3, y0 + 2, x0 + 5.5, y0 - 1.5,
+                x0 + tab + 3, y0 - 1.5, x0 + tab + 6, y0 + 2,
+                x1, y0 + 2, x1, y1, x0, y1,
+                fill=fg, outline="")
+        elif self._icon == "file":
+            s = 8
+            x0, y0 = cx - s * 0.7, cy - s
+            x1, y1 = cx + s * 0.7, cy + s
+            self.create_polygon(x0, y0, x0 + s * 0.9, y0, x1, y0 + s * 0.45,
+                                x1, y1, x0, y1, fill=fg, outline="")
+        else:
+            return
+
+    def _on_enter(self, e):
         self._hover = self._enabled
         self._draw()
+        if self._icon:
+            self._show_tip(e)
 
     def _on_leave(self, _e):
         self._hover = False
         self._draw()
+        self._hide_tip()
 
     def _on_press(self, _e):
         if self._enabled:
@@ -134,8 +289,15 @@ class _Button(tk.Canvas):
             bg = ACCENT_SOFT if self._kind == "primary" else CARD_HI
         self.create_polygon(_rounded_points(2, 2, w - 3, h - 3, 6),
                             fill=bg, outline=border, width=1, smooth=True)
-        self.create_text(w / 2, h / 2, text=self._text, fill=fg,
-                         font=_font(10, "bold" if self._kind == "primary" else "normal"))
+        if self._icon:
+            # **只画图标**（浏览按钮）：文字去掉，图标居中
+            self._draw_icon(w / 2, h / 2, fg)
+            if self._text:
+                # 文字作为**悬停提示**，不占版面
+                self._tooltip_text = self._text
+        else:
+            self.create_text(w / 2, h / 2, text=self._text, fill=fg,
+                             font=_font(10, "bold" if self._kind == "primary" else "normal"))
 
 
 class _Field(tk.Canvas):
@@ -471,8 +633,17 @@ class _Base:
         head.pack(fill="x")
         badge = tk.Canvas(head, width=44, height=44, highlightthickness=0, bd=0, bg=BG)
         badge.pack(side="left", padx=(0, 14))
-        badge.create_oval(2, 2, 42, 42, fill=ACCENT, outline="")
-        badge.create_text(22, 23, text="M", fill=ACCENT_INK, font=_font(20, "bold"))
+        # **用项目 logo**（web/public/icon.png），不用临时画的「M」圆标 ——
+        # 品牌一致性：安装器 / 托盘 / 快捷方式 / 任务栏都是同一个图标。
+        logo = load_photo("icon.png", 44)
+        if logo is not None:
+            badge.create_image(22, 22, image=logo)
+            _ICON_KEEPALIVE.append(logo)
+        else:
+            # 兜底：资源缺失时仍要有个像样的标记
+            badge.create_oval(2, 2, 42, 42, fill=ACCENT, outline="")
+            badge.create_text(22, 23, text="M", fill=ACCENT_INK,
+                              font=_font(20, "bold"))
         titles = tk.Frame(head, bg=BG)
         titles.pack(side="left", anchor="w")
         _label(titles, APP_DISPLAY_NAME, 15, FG, "bold").pack(anchor="w")
@@ -496,6 +667,85 @@ class _Base:
         # Tk 默认按内容自动算尺寸，日志面板一展开窗口就变大。
         # 这里直接指定客户区大小，并让 shell 撑满 → 内容被约束在固定框里。
         self._lock_size()
+        # 窗口居中（用户不用自己拖）
+        self._center()
+        # 标题栏用项目 logo（品牌一致性）
+        load_app_icon(root)
+
+    def _center(self) -> None:
+        """把窗口放到**屏幕正中**。
+
+        注意用**工作区**（work area，去掉任务栏）而不是整个屏幕 ——
+        用整屏算会偏下。多显示器时取**鼠标所在**的那块屏（用户最可能
+        在那块屏上操作）。
+
+        实现要点：
+        - `winfo screen` 的参数是**窗口**（不是坐标）→ 用 `winfo screen .`
+          只能拿到主屏。要拿鼠标所在屏，用 Windows API
+          `MonitorFromPoint`。
+        - 任务栏高度：用 `SystemParametersInfo(SPI_GETWORKAREA)` 拿当前
+          显示器的工作区（含多屏偏移）。
+        """
+        try:
+            self.root.update_idletasks()
+            w = self.root.winfo_width()
+            h = self.root.winfo_height()
+            if w <= 1 or h <= 1:
+                w, h = self.WINDOW_W, self.WINDOW_H
+
+            work = self._work_area()
+            if work:
+                sx, sy, sw, sh = work
+            else:
+                sw = self.root.winfo_screenwidth()
+                sh = self.root.winfo_screenheight()
+                sx = self.root.winfo_screenx()
+                sy = self.root.winfo_screeny()
+            # `geometry` 的 ±x±y 指的是**客户区左上角**在屏幕上的位置，
+            # 而 `winfo_rootx/rooty` 给的是**整个窗口**（含标题栏+边框）的位置。
+            # 直接用客户区尺寸居中会偏下（差一个标题栏+下边框）。
+            # 这里把边框/标题栏的差值补上。
+            border_x = self.root.winfo_rootx() - self.root.winfo_x()
+            border_y = self.root.winfo_rooty() - self.root.winfo_y()
+            x = sx + (sw - w) // 2 - border_x
+            y = sy + (sh - h) // 2 - border_y
+            self.root.geometry("%dx%d+%d+%d" % (w, h, x, y))
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _work_area(self):
+        """返回鼠标所在显示器的工作区 (x, y, w, h)；拿不到返回 None。"""
+        try:
+            import ctypes
+
+            user32 = ctypes.windll.user32
+            MONITOR_DEFAULTTONEAREST = 2
+
+            class RECT(ctypes.Structure):
+                _fields_ = [("l", ctypes.c_long), ("t", ctypes.c_long),
+                            ("r", ctypes.c_long), ("b", ctypes.c_long)]
+
+            class MONITORINFO(ctypes.Structure):
+                _fields_ = [("cbSize", ctypes.c_ulong),
+                            ("rcMonitor", RECT),
+                            ("rcWork", RECT),
+                            ("dwFlags", ctypes.c_ulong)]
+
+            class POINT(ctypes.Structure):
+                _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+            pt = POINT(self.root.winfo_pointerx(), self.root.winfo_pointery())
+            hmon = user32.MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST)
+            if not hmon:
+                return None
+            mi = MONITORINFO()
+            mi.cbSize = ctypes.sizeof(MONITORINFO)
+            if not user32.GetMonitorInfoW(hmon, ctypes.byref(mi)):
+                return None
+            rc = mi.rcWork
+            return (rc.l, rc.t, rc.r - rc.l, rc.b - rc.t)
+        except Exception:  # noqa: BLE001
+            return None
 
     def _lock_size(self) -> None:
         """把窗口钉死在 WINDOW_W × WINDOW_H。
@@ -653,9 +903,9 @@ class InstallerApp(_Base):
                                      placeholder="请选择安装包文件（mio-taskhub-win64.zip）",
                                      parent_bg=BG, display_basename=True)
         self._field_payload.grid(row=0, column=0, sticky="ew")
-        _Button(row1, "选择文件…", self._browse_payload, kind="secondary", width=88,
-                height=36, parent_bg=BG).grid(row=0, column=1, sticky="e",
-                                              padx=(10, 0))
+        _Button(row1, "选择安装包文件", self._browse_payload, kind="secondary",
+                width=40, height=36, parent_bg=BG, icon="file").grid(
+                    row=0, column=1, sticky="e", padx=(10, 0))
         self._payload_slot.pack_forget()
 
         card, body = self._card(self.body)
@@ -670,9 +920,9 @@ class InstallerApp(_Base):
         self._field_dir = _Field(row2, self.var_dir, placeholder="请选择安装目录",
                                  parent_bg=CARD, display_basename=True)
         self._field_dir.grid(row=0, column=0, sticky="ew")
-        _Button(row2, "选择文件夹…", self._browse_dir, kind="secondary", width=88,
-                height=36, parent_bg=CARD).grid(row=0, column=1, sticky="e",
-                                                padx=(10, 0))
+        _Button(row2, "选择安装目录", self._browse_dir, kind="secondary",
+                width=40, height=36, parent_bg=CARD, icon="folder").grid(
+                    row=0, column=1, sticky="e", padx=(10, 0))
 
         _Check(body, "在桌面和「开始」菜单中创建快捷方式（可选）", self.var_shortcuts,
                parent_bg=CARD).pack(anchor="w", pady=(18, 0))

@@ -509,6 +509,70 @@ def test_gui_window_size_is_fixed():
             pass
 
 
+def test_gui_window_is_centered_and_uses_project_logo():
+    """**回归**：窗口要在**屏幕正中**，且用**项目 logo**（不是画的「M」圆标）。
+
+    实测踩过的坑（2026-10-21）：
+    - `winfo screen` 的参数是**窗口**不是坐标 → `winfo screen x y` 报
+      "wrong # args" → 居中逻辑被 except 吞掉，窗口停在默认位置。
+      正解：用 Windows API `MonitorFromPoint` + `GetMonitorInfoW`。
+    - `geometry` 的 ±x±y 指的是**客户区**左上角，而 `winfo_rootx/rooty`
+      是**整个窗口**（含标题栏+边框）→ 不补偿就会偏下。
+    - Tk **读不了 .ico**（报 "couldn't recognize data in image file"），
+      标题栏图标只能用 PNG。
+    """
+    import tkinter as tk
+
+    from mio_taskhub.installer import gui
+
+    try:
+        root = tk.Tk()
+    except Exception as e:  # noqa: BLE001
+        pytest.skip("无显示环境：%r" % e)
+
+    try:
+        app = gui.InstallerApp(root)
+        root.update()
+        root.update_idletasks()
+        w, h = root.winfo_width(), root.winfo_height()
+        work = app._work_area()
+        assert work, "取不到工作区（_work_area 抛异常了）"
+        sx, sy, sw, sh = work
+        exp_x = sx + (sw - w) // 2
+        # 期望 y 用**工作区**（去掉任务栏）算
+        exp_y = sy + (sh - h) // 2
+        got_x, got_y = root.winfo_rootx(), root.winfo_rooty()
+        assert abs(got_x - exp_x) <= 3, (
+            "窗口水平没居中：%d，期望 %d" % (got_x, exp_x))
+        assert abs(got_y - exp_y) <= 40, (
+            "窗口垂直没居中：%d，期望 %d" % (got_y, exp_y))
+        # 标题栏图标（项目 logo 的 PNG）
+        assert gui._ICON_KEEPALIVE, "项目 logo 没被加载"
+    finally:
+        try:
+            root.destroy()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def test_browse_buttons_are_icon_only():
+    """**回归**：浏览按钮只画图标，文字走悬停提示。
+
+    用户反馈「选择文件夹按钮用图标」—— 620 宽的窗口里文字按钮太啰嗦。
+    """
+    import inspect
+
+    from mio_taskhub.installer import gui
+
+    src = inspect.getsource(gui)
+    # 两个浏览按钮都要传 icon=
+    assert 'icon="folder"' in src, "浏览目录按钮应使用文件夹图标"
+    assert 'icon="file"' in src, "浏览安装包按钮应使用文件图标"
+    # 按钮类要支持 icon 参数
+    assert "icon=None" in inspect.signature(gui._Button.__init__).__str__() \
+        or "icon" in inspect.signature(gui._Button.__init__).parameters
+
+
 # ──────────────────── 进程清理的时序（回归） ────────────────────
 
 def test_purge_kills_parent_before_child():

@@ -52,8 +52,12 @@ def _analysis(script, name):
     a = Analysis(
         [script],
         pathex=[SPECPATH, os.path.join(SPECPATH, "packaging")],
+        # 安装器要显示**项目 logo**（标题栏图标 + 品牌头）→ 必须把
+        # web/public/icon.png 打进包里（源码态从仓库根目录读，
+        # 打包态从 sys._MEIPASS 读）。
         binaries=[],
-        datas=[],
+        datas=[(os.path.join(SPECPATH, "web", "public", "icon.png"),
+                "web/public")],
         hiddenimports=hiddenimports,
         hookspath=[],
         hooksconfig={},
