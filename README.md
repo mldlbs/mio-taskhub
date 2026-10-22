@@ -11,7 +11,7 @@
 | 对外能力 | **163 个 REST 端点** · **47 个 MCP 工具** · WebSocket 实时广播 · React Web UI |
 | 任务文档 | **22 类文档 kind** · **7 件套文档链** · **9 类生命周期状态机** · 质量 lint + 状态门控 + 修订指令 |
 | 前端 | React 18 + Vite 5 · 48 文件 / 11,762 行 · 10 个视图 |
-| 测试 | **1354 个用例**（55 文件 / 8,480 行）· GitHub Actions（windows-latest / py3.12） |
+| 测试 | **1355 个用例**（55 文件 / 8,480 行）· GitHub Actions（windows-latest / py3.12） |
 | 部署 | pip 源码 · Docker 多阶段镜像 · Windows 单 EXE 绿色版（免 Python）· Windows 安装包（图形安装 + 正规卸载） |
 
 ---

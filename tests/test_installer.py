@@ -661,6 +661,43 @@ def test_make_setup_script_merges_and_verifies(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
     assert out.exists() and out.stat().st_size > setup.stat().st_size
 
+    # **必须清临时目录**：make_setup.py --verify 会解出内嵌 payload 做校验，
+    # 那个临时目录不能留在 %TEMP% 里（实测跑一次就多一个）。
+    import tempfile
+    leftovers = [d for d in os.listdir(tempfile.gettempdir())
+                 if d.startswith("mio_verify_") or d.startswith("mio_embedded_")]
+    assert not leftovers, "合并脚本留下了临时目录：%s" % leftovers
+
+
+def test_installer_tests_leave_no_residue(tmp_path):
+    """**回归**：安装器相关测试**不许在用户机器上留残留**。
+
+    实测踩过（2026-10-21）：跑一遍 `tests/test_installer.py` 之后，
+    用户的 HKCU 里多了一个指向临时目录的「应用和功能」卸载条目，
+    %TEMP% 里多了一个空的 `mio_embedded_*` 目录。
+
+    根因：
+    1. GUI 安装测试走的是 `install()` 默认参数（register=True）
+       → 真的往 HKCU 写注册表项
+    2. `make_setup.py --verify` 解出内嵌 payload 做校验，临时目录没删
+
+    对策：测试自己清理 + 这条断言兜底。
+    """
+    import tempfile
+
+    from mio_taskhub.installer import registry
+
+    # 注册表：不该有指向临时目录的卸载项
+    entry = registry.read_entry()
+    if entry:
+        loc = str(entry.get("InstallLocation") or "")
+        assert "tmp" not in loc.lower() and "temp" not in loc.lower(), (
+            "测试留下了指向临时目录的注册表项：%s" % loc)
+    # 临时目录：不该有内嵌 payload 的残留
+    leftovers = [d for d in os.listdir(tempfile.gettempdir())
+                 if d.startswith("mio_embedded_") or d.startswith("mio_verify_")]
+    assert not leftovers, "测试留下了临时目录：%s" % leftovers
+
 
 # ──────────────────── 进程清理的时序（回归） ────────────────────
 
@@ -856,6 +893,15 @@ def test_gui_install_runs_under_real_mainloop(tmp_path):
     finally:
         try:
             root.destroy()
+        except Exception:  # noqa: BLE001
+            pass
+        # **必须清注册表**：GUI 走的是 install() 的默认参数
+        # （register=True）→ 会真的往 HKCU 写「应用和功能」条目。
+        # 不清的话，跑一次测试就往用户机器上留一个指向临时目录的
+        # 卸载入口（实测会残留）。
+        try:
+            from mio_taskhub.installer import registry
+            registry.remove_entry()
         except Exception:  # noqa: BLE001
             pass
 

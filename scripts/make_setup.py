@@ -79,8 +79,12 @@ def main(argv=None) -> int:
             print("[FAIL] 合并后读不到内嵌标记", file=sys.stderr)
             return 1
         offset, plen = marker
-        extracted = embedded.extract_embedded_payload(out)
+        # 解到**测试专属的临时目录** —— extract_embedded_payload 默认会
+        # mkdtemp 留一个空壳在 %TEMP%（实测跑一次测试就多一个目录）。
+        import tempfile
+        tmpdir = tempfile.mkdtemp(prefix="mio_verify_")
         try:
+            extracted = embedded.extract_embedded_payload(out, tmpdir)
             with zipfile.ZipFile(extracted) as zf:
                 if "mio-taskhub.exe" not in zf.namelist():
                     print("[FAIL] 解出的内嵌包内容不对", file=sys.stderr)
@@ -89,10 +93,7 @@ def main(argv=None) -> int:
                 print("[FAIL] 内嵌长度不符", file=sys.stderr)
                 return 1
         finally:
-            try:
-                os.unlink(extracted)
-            except OSError:
-                pass
+            shutil.rmtree(tmpdir, ignore_errors=True)
         print("     校验通过: offset=%d size=%d" % (offset, plen))
     return 0
 
