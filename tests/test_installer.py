@@ -462,6 +462,53 @@ def test_purge_does_not_taskkill_after_psutil_kill():
     assert ".wait(" in src, "kill 之后应 wait 确认进程真的退出"
 
 
+def test_gui_window_size_is_fixed():
+    """**回归**：窗口尺寸必须**固定**，且日志面板展开后不变。
+
+    实测踩过（2026-10-21）：Tk 默认按内容自动算尺寸 → 日志面板一展开
+    窗口就「自己变大」，用户看到按钮位置跳动、显得不专业。
+
+    对策：
+    1. `WINDOW_W/H` 显式指定，`minsize == maxsize`（用户也拖不动）
+    2. 日志区**固定高度** + 内部滚动条（不随行数增长）
+    3. 展开日志时回调 `_lock_size()` 重新钉死
+    """
+    import tkinter as tk
+
+    from mio_taskhub.installer import gui
+
+    try:
+        root = tk.Tk()
+    except Exception as e:  # noqa: BLE001
+        pytest.skip("无显示环境：%r" % e)
+
+    try:
+        app = gui.InstallerApp(root)
+        root.update()
+        root.update_idletasks()
+        w1, h1 = root.winfo_width(), root.winfo_height()
+        assert (w1, h1) == (gui._Base.WINDOW_W, gui._Base.WINDOW_H), (
+            "窗口尺寸应为 %dx%d，实际 %dx%d"
+            % (gui._Base.WINDOW_W, gui._Base.WINDOW_H, w1, h1))
+        # 用户拖不动
+        assert root.resizable() == (0, 0)
+        assert root.minsize() == root.maxsize() == (gui._Base.WINDOW_W,
+                                                   gui._Base.WINDOW_H)
+        # 展开日志 + 灌 20 行 → 尺寸不变
+        for i in range(20):
+            app.log.append("[OK] 步骤 %d — 某某某某某某某某某某某某某某某某" % i)
+        root.update()
+        root.update_idletasks()
+        w2, h2 = root.winfo_width(), root.winfo_height()
+        assert (w2, h2) == (w1, h1), (
+            "日志展开后窗口尺寸变了：%dx%d → %dx%d" % (w1, h1, w2, h2))
+    finally:
+        try:
+            root.destroy()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 # ──────────────────── 进程清理的时序（回归） ────────────────────
 
 def test_purge_kills_parent_before_child():

@@ -348,7 +348,13 @@ class _Notice(tk.Frame):
 
 
 class _LogPane(tk.Frame):
-    """日志区：**默认不占位**（不装时看不到），安装时才展开。"""
+    """日志区：**默认不占位**（不装时看不到），安装时才展开。
+
+    高度**固定**（不随行数增长）—— 否则日志一行行输出会把窗口越撑越大。
+    超出部分用滚动条看。
+    """
+
+    LOG_H = 130
 
     def __init__(self, master, parent_bg=BG, **kw):
         super().__init__(master, bg=parent_bg, **kw)
@@ -356,14 +362,30 @@ class _LogPane(tk.Frame):
                              insertbackground=FG, relief="flat", bd=0,
                              font=(MONO, 9), wrap="word", padx=10, pady=8,
                              highlightthickness=0)
-        self._text.pack(fill="both", expand=True)
+        # 固定高度 + 内部滚动条：日志再多也不改变窗口尺寸。
+        sb = tk.Scrollbar(self, orient="vertical", command=self._text.yview,
+                           bg=BG2, troughcolor=BG, activebackground=LINE,
+                           relief="flat", bd=0, width=10)
+        self._text.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        self._text.pack(side="left", fill="both", expand=True)
         self._text.configure(state="disabled")
         self.visible = False
 
     def show(self):
         if not self.visible:
-            self.pack(fill="both", expand=True, pady=(12, 0))
+            # **固定高度** → 展开时窗口尺寸不变
+            self.pack(fill="x", expand=False, pady=(12, 0))
+            self.configure(height=self.LOG_H)
+            self.pack_propagate(False)
             self.visible = True
+            # 日志区展开会让 Tk 想把窗口撑大 → 重新钉死尺寸。
+            owner = getattr(self, "_owner", None)
+            if owner is not None:
+                try:
+                    owner._lock_size()
+                except Exception:  # noqa: BLE001
+                    pass
 
     def append(self, text: str):
         self.show()
@@ -403,6 +425,18 @@ def _ui_call(root, fn, *args):
 class _Base:
     """安装/卸载向导的公共外壳：品牌头 + 内容区 + 底部操作条。"""
 
+    #: 窗口固定尺寸（客户区，不含标题栏/边框）
+    #:
+    #: **固定而不是「随内容伸缩」**：日志面板展开时会给窗口加一块高度，
+    #: 若不锁死尺寸，用户会看到窗口「自己变大了」—— 显得不专业，
+    #: 而且展开前后的按钮位置会跳。
+    #:
+    #: 宽度 620：路径框能显示更多内容（原来 466 太窄）。
+    #: 高度 430：装完/卸载时日志面板占 150px，仍有余量；
+    #: 再高就会出现明显的大片空白（显得头重脚轻）。
+    WINDOW_W = 620
+    WINDOW_H = 430
+
     def __init__(self, root, title, subtitle):
         self.root = root
         self._closed = False
@@ -414,7 +448,10 @@ class _Base:
         self._ui_queue = queue.Queue()
         root.title(title)
         root.configure(bg=BG)
+        # 固定尺寸：用户不能拖拽改变，日志展开时窗口也不变。
         root.resizable(False, False)
+        root.minsize(self.WINDOW_W, self.WINDOW_H)
+        root.maxsize(self.WINDOW_W, self.WINDOW_H)
         # 拦截窗口关闭：走 _close_now 把 _closed 置位。
         # 否则 root.destroy() 之后，Python 侧排队的 after 回调仍会执行，
         # 报 "invalid command name ... (after script)"。
@@ -454,6 +491,30 @@ class _Base:
         self.footer.pack(fill="x", pady=(18, 0))
         self.status = _label(self.footer, "", 9, "#9aa5b1")
         self.status.pack(side="left")
+
+        # **显式锁定窗口尺寸**（放在所有控件建完之后）：
+        # Tk 默认按内容自动算尺寸，日志面板一展开窗口就变大。
+        # 这里直接指定客户区大小，并让 shell 撑满 → 内容被约束在固定框里。
+        self._lock_size()
+
+    def _lock_size(self) -> None:
+        """把窗口钉死在 WINDOW_W × WINDOW_H。
+
+        - `geometry` 指定客户区尺寸（Windows 上还要加上标题栏/边框）
+        - `update_idletasks()` 先算一次布局，再重设一次 —— 否则
+          Tk 会用「内容算出来的尺寸」覆盖我们指定的值。
+        - 之后 minsize=maxsize，用户也拖不动。
+        """
+        try:
+            self.root.update_idletasks()
+            self.root.geometry("%dx%d" % (self.WINDOW_W, self.WINDOW_H))
+            self.root.update_idletasks()
+            # 再钉一次：布局完成后 Tk 可能又按内容改过尺寸
+            self.root.geometry("%dx%d" % (self.WINDOW_W, self.WINDOW_H))
+            self.root.minsize(self.WINDOW_W, self.WINDOW_H)
+            self.root.maxsize(self.WINDOW_W, self.WINDOW_H)
+        except Exception:  # noqa: BLE001
+            pass
 
     def post(self, fn, *args) -> None:
         """**工作线程专用**：把一个待执行的 UI 操作投进队列。
@@ -622,6 +683,7 @@ class InstallerApp(_Base):
 
         # 日志（安装时才展开，不占初始版面）
         self.log = _LogPane(self.body)
+        self.log._owner = self      # 展开时能回调 _lock_size() 钉死窗口尺寸
         self.log.pack_forget()
 
         # 底部
@@ -794,6 +856,7 @@ class UninstallerApp(_Base):
         self.var_purge.trace_add("write", self._on_purge_change)
 
         self.log = _LogPane(self.body)
+        self.log._owner = self      # 展开时能回调 _lock_size() 钉死窗口尺寸
         self.log.pack_forget()
 
         btns = tk.Frame(self.footer, bg=BG)
