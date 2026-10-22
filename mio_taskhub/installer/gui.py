@@ -608,6 +608,17 @@ class _Base:
         # 主线程不在 mainloop 时直接抛 RuntimeError；而且 Tk 本身不保证
         # 跨线程安全。队列 + 主线程轮询是唯一稳妥的做法。
         self._ui_queue = queue.Queue()
+        # **先藏起来**：Tk 创建 toplevel 时会立刻把它映射出来（位置由
+        # Windows 决定，通常在左上角），之后我们再挪到屏幕中央 →
+        # 用户看到「先在左上角闪一下，再跳到中间」。
+        # 解法是 withdraw() → 算好位置 → deiconify()，全程不显示。
+        #
+        # 注意：**必须在建任何控件之前** withdraw —— 一旦控件建好并
+        # update_idletasks()，窗口就可能已经被映射了。
+        try:
+            root.withdraw()
+        except Exception:  # noqa: BLE001
+            pass
         root.title(title)
         root.configure(bg=BG)
         # 固定尺寸：用户不能拖拽改变，日志展开时窗口也不变。
@@ -667,24 +678,53 @@ class _Base:
         # Tk 默认按内容自动算尺寸，日志面板一展开窗口就变大。
         # 这里直接指定客户区大小，并让 shell 撑满 → 内容被约束在固定框里。
         self._lock_size()
-        # 窗口居中（用户不用自己拖）
+        # 窗口居中（用户不用自己拖）—— 窗口此时还**隐藏着**，
+        # 位置算好后一次性显示出来（见 _show）。
         self._center()
         # 标题栏用项目 logo（品牌一致性）
         load_app_icon(root)
+        # **最后才显示**：前面所有布局/定位都在隐藏状态下完成，
+        # 用户看到的第一帧就是「已经在屏幕正中」的窗口，
+        # 不会先在左上角闪一下再跳过来。
+        self._show()
+
+    def _show(self) -> None:
+        """显示窗口（此前一直隐藏着）。
+
+        `deiconify` 之后要再 `update_idletasks` 一次 —— Tk 需要处理
+        「从隐藏到显示」的事件（重新计算窗口位置/层级）。
+        """
+        try:
+            self.root.deiconify()
+            self.root.update_idletasks()
+            # 有时 deiconify 后 Windows 会把窗口挪回默认位置 → 再钉一次
+            self._center()
+            self.root.update_idletasks()
+            self.root.lift()
+        except Exception:  # noqa: BLE001
+            pass
 
     def _center(self) -> None:
-        """把窗口放到**屏幕正中**。
+        """把窗口放到**屏幕正中**，且**打开时就在中间**（不闪）。
 
         注意用**工作区**（work area，去掉任务栏）而不是整个屏幕 ——
         用整屏算会偏下。多显示器时取**鼠标所在**的那块屏（用户最可能
         在那块屏上操作）。
 
-        实现要点：
-        - `winfo screen` 的参数是**窗口**（不是坐标）→ 用 `winfo screen .`
-          只能拿到主屏。要拿鼠标所在屏，用 Windows API
-          `MonitorFromPoint`。
-        - 任务栏高度：用 `SystemParametersInfo(SPI_GETWORKAREA)` 拿当前
-          显示器的工作区（含多屏偏移）。
+        **坐标语义（实测确认，注释别写反）**：
+        - `geometry("WxH+x+y")` 的 `+x+y` = **整个窗口**（含标题栏+边框）
+          左上角在屏幕上的位置 = `GetWindowRect.l/t`。
+        - `winfo_x/rootx` = **客户区**左上角 = `ClientToScreen(0,0)`。
+        - 所以要让**客户区**居中：整个窗口左上角 = 客户区目标位置 - 偏移，
+          偏移 = (左边框, 标题栏+上边框)。
+
+        **边框偏移要用 Win32 测，不能用 Tk 的 `winfo_rootx - winfo_x`**：
+        窗口还**隐藏着**时 Tk 的 `winfo_x` 返回 0（不是真实位置），
+        算出来的偏移是 320 这种垃圾值。改用
+        `ClientToScreen(0,0)` 减 `GetWindowRect.l/t`（隐藏/显示都准）。
+
+        隐藏状态下设 `geometry` 是**生效的** —— 实测 deiconify 后
+        窗口就落在那儿，所以「先藏后放」能彻底避免左上角闪一下。
         """
         try:
             self.root.update_idletasks()
@@ -701,17 +741,55 @@ class _Base:
                 sh = self.root.winfo_screenheight()
                 sx = self.root.winfo_screenx()
                 sy = self.root.winfo_screeny()
-            # `geometry` 的 ±x±y 指的是**客户区左上角**在屏幕上的位置，
-            # 而 `winfo_rootx/rooty` 给的是**整个窗口**（含标题栏+边框）的位置。
-            # 直接用客户区尺寸居中会偏下（差一个标题栏+下边框）。
-            # 这里把边框/标题栏的差值补上。
-            border_x = self.root.winfo_rootx() - self.root.winfo_x()
-            border_y = self.root.winfo_rooty() - self.root.winfo_y()
-            x = sx + (sw - w) // 2 - border_x
-            y = sy + (sh - h) // 2 - border_y
+
+            # 客户区左上角相对整个窗口的偏移（隐藏状态下 Tk 读数不可信 → Win32）
+            off_x, off_y = self._frame_borders()
+            # 先算客户区该在哪儿，再退回整个窗口的左上角
+            client_x = sx + (sw - w) // 2
+            client_y = sy + (sh - h) // 2
+            x = client_x - off_x
+            y = client_y - off_y
             self.root.geometry("%dx%d+%d+%d" % (w, h, x, y))
         except Exception:  # noqa: BLE001
             pass
+
+    def _frame_borders(self):
+        """返回 (off_x, off_y)：客户区左上角相对**整个窗口**左上角的偏移。
+
+        `off_x` = 左边框宽度；`off_y` = 标题栏 + 上边框高度。
+        拿不到就退回到 Tk 的读数（窗口已映射时才准）。
+        """
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            user32 = ctypes.windll.user32
+
+            class RECT(ctypes.Structure):
+                _fields_ = [("l", ctypes.c_long), ("t", ctypes.c_long),
+                            ("r", ctypes.c_long), ("b", ctypes.c_long)]
+
+            class POINT(ctypes.Structure):
+                _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+            hwnd = user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
+            wr = RECT()
+            user32.GetWindowRect(hwnd, ctypes.byref(wr))
+            pt = POINT(0, 0)
+            # ClientToScreen 的原点是客户区左上角 → 直接给出客户区屏幕位置
+            user32.ClientToScreen(hwnd, ctypes.byref(pt))
+            off_x = pt.x - wr.l
+            off_y = pt.y - wr.t
+            if off_x >= 0 and off_y >= 0:
+                return off_x, off_y
+        except Exception:  # noqa: BLE001
+            pass
+        # 退路：Tk 读数（仅当窗口已映射才准）
+        try:
+            return (self.root.winfo_x() - self.root.winfo_rootx(),
+                    self.root.winfo_y() - self.root.winfo_rooty())
+        except Exception:  # noqa: BLE001
+            return 0, 0
 
     def _work_area(self):
         """返回鼠标所在显示器的工作区 (x, y, w, h)；拿不到返回 None。"""
@@ -972,19 +1050,32 @@ class InstallerApp(_Base):
         self.status.configure(text="检测到已安装版本，可重新安装或卸载")
 
     def _start_uninstall(self):
-        """从安装器窗口直接卸载（走独立的卸载向导窗口）。"""
+        """从安装器窗口直接卸载（弹出独立的卸载向导窗口）。
+
+        **用 `wait_window` 而不是 `mainloop`** —— 嵌套事件循环在 Tk 里
+        容易出怪问题（`after` 回调的归属会乱）。`wait_window` 是 Tk
+        官方的模态对话框写法。
+
+        `transient` 要在窗口**显示之前**设 —— 否则 Toplevel 先闪一下
+        再变成子窗口。
+
+        Toplevel 的 withdraw/deiconify 同样生效（实测：弹出位置也在
+        屏幕正中）。
+        """
         try:
-            root = tk.Toplevel(self.root)
+            top = tk.Toplevel(self.root)
+            # 必须在 UninstallerApp 构造（会 deiconify）之前设
+            top.transient(self.root)
         except Exception:  # noqa: BLE001
-            root = None
-        if root is None:
+            top = None
+        if top is None:
             # 退路：直接静默卸载
             self.notice.show("info", "正在卸载", "正在停止程序并移除文件…")
             threading.Thread(target=self._uninstall_work, daemon=True).start()
             return
         try:
-            UninstallerApp(root)
-            root.mainloop()
+            UninstallerApp(top)
+            self.root.wait_window(top)
         except Exception as e:  # noqa: BLE001
             self.notice.show("err", "打开卸载窗口失败", repr(e))
 

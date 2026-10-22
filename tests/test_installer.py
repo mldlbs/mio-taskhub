@@ -579,8 +579,6 @@ def test_gui_window_is_centered_and_uses_project_logo():
     - `winfo screen` 的参数是**窗口**不是坐标 → `winfo screen x y` 报
       "wrong # args" → 居中逻辑被 except 吞掉，窗口停在默认位置。
       正解：用 Windows API `MonitorFromPoint` + `GetMonitorInfoW`。
-    - `geometry` 的 ±x±y 指的是**客户区**左上角，而 `winfo_rootx/rooty`
-      是**整个窗口**（含标题栏+边框）→ 不补偿就会偏下。
     - Tk **读不了 .ico**（报 "couldn't recognize data in image file"），
       标题栏图标只能用 PNG。
     """
@@ -607,10 +605,102 @@ def test_gui_window_is_centered_and_uses_project_logo():
         got_x, got_y = root.winfo_rootx(), root.winfo_rooty()
         assert abs(got_x - exp_x) <= 3, (
             "窗口水平没居中：%d，期望 %d" % (got_x, exp_x))
-        assert abs(got_y - exp_y) <= 40, (
+        assert abs(got_y - exp_y) <= 3, (
             "窗口垂直没居中：%d，期望 %d" % (got_y, exp_y))
         # 标题栏图标（项目 logo 的 PNG）
         assert gui._ICON_KEEPALIVE, "项目 logo 没被加载"
+    finally:
+        try:
+            root.destroy()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def test_gui_window_opens_directly_in_center_without_flicker():
+    """**回归**：窗口**打开时就在屏幕正中**，不能「先在左上角闪一下再跳过来」。
+
+    用户反馈：「为啥窗口打开不能直接到中心位置，先在左上角打开，
+    再闪到屏幕中心？」
+
+    **根因**：Tk 创建 toplevel 时会**立刻把它映射出来**（位置由 Windows
+    决定，通常在左上角），之后我们才调 `geometry` 挪到中间 → 用户看到
+    「先在左上角闪一下」。
+
+    **解法**：`withdraw()` → 建控件 + 算位置 → `deiconify()`，
+    全程窗口不显示。
+
+    **验证方式**：hook `<Map>` 事件（窗口被真正映射到屏幕时触发），
+    断言**第一次映射时位置就已经在中心**。
+
+    顺带固化两个坐标语义（实测确认，别写反）：
+    - `geometry` 的 `+x+y` = **整个窗口**左上角（GetWindowRect.l/t）
+    - `winfo_x/rootx` = **客户区**左上角（ClientToScreen(0,0)）
+    """
+    import tkinter as tk
+
+    from mio_taskhub.installer import gui
+
+    try:
+        root = tk.Tk()
+    except Exception as e:  # noqa: BLE001
+        pytest.skip("无显示环境：%r" % e)
+
+    seen = []
+
+    def _on_map(_e=None):
+        seen.append((root.winfo_rootx(), root.winfo_rooty()))
+
+    root.bind("<Map>", _on_map)
+    try:
+        app = gui.InstallerApp(root)
+        root.update()
+        root.update_idletasks()
+
+        work = app._work_area()
+        assert work, "取不到工作区"
+        sx, sy, sw, sh = work
+        w, h = root.winfo_width(), root.winfo_height()
+        exp_x = sx + (sw - w) // 2
+        exp_y = sy + (sh - h) // 2
+
+        assert seen, "没捕获到 <Map> 事件 —— 窗口可能从没被真正显示过"
+        first_x, first_y = seen[0]
+        assert abs(first_x - exp_x) <= 3 and abs(first_y - exp_y) <= 3, (
+            "窗口首次显示时不在中心（会先在左上角闪一下）："
+            "首次 (%d,%d)，期望 (%d,%d)" % (first_x, first_y, exp_x, exp_y))
+    finally:
+        try:
+            root.destroy()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def test_frame_borders_measured_by_win32_while_hidden():
+    """**回归**：隐藏状态下测边框偏移必须用 Win32，不能用 Tk 的读数。
+
+    Tk 的 `winfo_x` 在窗口**从未映射**时返回 0（不是真实位置）→
+    `winfo_rootx - winfo_x` 算出来是 320 这种垃圾值 → 居中会偏出去。
+
+    正解：`ClientToScreen(0,0)`（客户区屏幕位置）减
+    `GetWindowRect.l/t`（整个窗口位置）→ 隐藏/显示都准。
+    """
+    import tkinter as tk
+
+    from mio_taskhub.installer import gui
+
+    try:
+        root = tk.Tk()
+    except Exception as e:  # noqa: BLE001
+        pytest.skip("无显示环境：%r" % e)
+
+    try:
+        app = gui.InstallerApp(root)
+        root.update()
+        off_x, off_y = app._frame_borders()
+        # 左边框 8px 左右、标题栏 30px 左右 —— 合理范围即可，
+        # 关键是**不能是几百**（那说明读到了隐藏状态的假值）
+        assert 0 <= off_x <= 20, "左边框偏移异常：%s" % off_x
+        assert 0 <= off_y <= 60, "标题栏偏移异常：%s" % off_y
     finally:
         try:
             root.destroy()

@@ -218,6 +218,24 @@ python scripts/check_installer_bundle.py
   靠 pack 顺序确定位置。
 - **Entry 是不透明的，嵌在 Canvas 上会盖住占位符** —— 空值时把 Entry 的
   window item `state="hidden"`，否则占位符只剩尾巴（显示成「ip」）。
+- **窗口要先 withdraw 再 deiconify，否则会「先在左上角闪一下」** ——
+  Tk 创建 toplevel 时会**立刻把它映射出来**（位置由 Windows 决定，通常在
+  左上角），之后才调 `geometry` 挪到中间 → 用户看到「先在左上角打开，
+  再闪到屏幕中心」。
+  正确做法：`_Base.__init__` 里**建任何控件之前** `root.withdraw()` →
+  建控件 + 算位置 → `_show()` 里 `deiconify()`。隐藏状态下设 `geometry`
+  是**生效的**（实测 deiconify 后就落在那儿）。
+- **窗口坐标语义（实测确认，注释别写反）**：
+  - `geometry("WxH+x+y")` 的 `+x+y` = **整个窗口**（含标题栏+边框）左上角
+    = `GetWindowRect.l/t`
+  - `winfo_x/rootx` = **客户区**左上角 = `ClientToScreen(0,0)`
+  - 要让**客户区**居中：整个窗口左上角 = 客户区目标位置 - (左边框, 标题栏高)
+- **隐藏状态下不能用 Tk 的读数测边框** —— 窗口从未映射时 `winfo_x` 返回 0
+  （不是真实位置）→ `winfo_rootx - winfo_x` 算出来是 320 这种垃圾值。
+  用 Win32：`ClientToScreen(0,0)` 减 `GetWindowRect.l/t`（隐藏/显示都准）。
+- **弹子窗口用 `wait_window` 而不是 `mainloop`** —— 嵌套事件循环会让
+  `after` 回调的归属变乱。`transient` 要在子窗口**显示之前**设，
+  否则先闪一下再变成子窗口。
 
 ### 打包 / 分发产物的三个坑（2026-10-21 实战）
 
