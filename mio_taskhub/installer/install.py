@@ -235,9 +235,12 @@ def _install_impl(payload_zip=None, install_dir=None, create_shortcuts=True,
 def _ensure_uninstaller(install_dir, uninstall_exe=None) -> None:
     """把卸载程序放进安装目录。
 
-    优先用 payload 自带的 `uninstall.exe`（构建时随包分发，最干净）。
-    没有时退而求其次：复制安装器自身（`mio-taskhub-setup.exe`）——
-    但**必须让被改名后的副本默认走卸载流程**，否则用户双击「卸载」
+    **优先用 payload 自带的 `uninstall.exe`**（10 MB 的纯卸载器）：
+    安装目录要保持小 —— 合并版 setup.exe 有 66 MB，塞进来会让
+    安装目录白白大一倍。
+
+    payload 里没有时（如更新器替换目录），退而求其次复制**安装器自身**
+    —— 但**必须让被改名后的副本默认走卸载流程**，否则用户双击「卸载」
     反而会触发一次安装。改名感知逻辑在 `packaging/setup_entry.py`。
     """
     target = Path(install_dir) / UNINSTALL_EXE_NAME
@@ -297,7 +300,12 @@ def read_manifest(install_dir) -> dict:
 
 
 def detect_install_dir() -> Path:
-    """推断当前安装目录：优先注册表 → 默认目录 → 卸载器自身所在目录。"""
+    """推断当前安装目录：优先注册表 → 默认目录 → 卸载器自身所在目录。
+
+    **只认「真的是安装目录」**：最后那个「自身所在目录」兜底只在
+    **目录里确实有本程序**（有 `mio-taskhub.exe` 或 `install.json`）时才算数。
+    否则返回默认目录 —— 绝不把「用户碰巧把 exe 放在哪」当成安装目录。
+    """
     entry = registry.read_entry()
     loc = str(entry.get("InstallLocation") or "").strip()
     if loc and Path(loc).exists():
@@ -306,8 +314,34 @@ def detect_install_dir() -> Path:
     if (default / APP_EXE_NAME).exists():
         return default
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
+        here = Path(sys.executable).resolve().parent
+        if looks_like_install_dir(here):
+            return here
     return default
+
+
+def looks_like_install_dir(path) -> bool:
+    """该目录**看起来**像是一个 mio-taskhub 安装目录吗？
+
+    判据（任一即可）：有主程序 `mio-taskhub.exe`、有安装清单 `install.json`、
+    有卸载器 `uninstall.exe`。
+
+    **为什么必须有这个判断**：`uninstall()` 会 `rmtree` 目标目录。
+    如果「卸载器自身所在目录」无条件被当成安装目录，那么用户把
+    `mio-taskhub-setup.exe` 下载到 D:\\Downloads 后双击 `--uninstall`，
+    程序会把**整个 Downloads 文件夹删掉**（实测路径：
+    `detect_install_dir()` → 冻结态回退到 `sys.executable` 所在目录）。
+
+    判据刻意**不含 `uninstall.exe`**：用户可能只是从官网单独下载了
+    一个卸载器放在 Downloads 里 —— 那不代表 Downloads 就是安装目录。
+    """
+    path = Path(path)
+    if not path.is_dir():
+        return False
+    for name in (APP_EXE_NAME, "install.json"):
+        if (path / name).exists():
+            return True
+    return False
 
 
 def _is_self_inside(install_dir) -> bool:
@@ -389,6 +423,20 @@ def uninstall(install_dir=None, remove_data=False, remove_shortcuts=True,
                 progress(msg)
             except Exception:  # noqa: BLE001
                 pass
+
+    # **安全闸门**：只允许卸载「看起来真是安装目录」的路径。
+    # 卸载会 rmtree 整个目录 —— 判据错了就是把用户的数据文件夹删了。
+    # 典型踩法：用户把 setup.exe 放在 D:\Downloads，双击 --uninstall，
+    # 冻结态回退到 exe 所在目录 → 整个 Downloads 被删。
+    if install_dir.exists() and not looks_like_install_dir(install_dir):
+        res.step("校验安装目录", False, str(install_dir))
+        res.message = (
+            "这看起来不是一个 mio-taskhub 安装目录（里面没有 mio-taskhub.exe）：\n"
+            "  %s\n"
+            "为安全起见没有删除任何文件。若确实要卸载，请手动选择正确的"
+            "安装目录（默认是 %%LOCALAPPDATA%%\\Programs\\mio-taskhub）。" % install_dir)
+        return res
+    res.step("校验安装目录", True, str(install_dir))
 
     # 1) 停进程（否则文件句柄钉住目录，删不掉）
     if not purge_processes_under(install_dir, timeout=10.0):

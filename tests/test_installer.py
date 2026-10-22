@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import zipfile
 from pathlib import Path
 
@@ -159,6 +160,68 @@ def test_uninstall_is_idempotent(tmp_path):
                                 remove_data=False, remove_shortcuts=False,
                                 remove_registry=False)
     assert res.ok is True
+
+
+def test_uninstall_refuses_to_delete_non_install_dir(tmp_path):
+    """**回归**：卸载**不许**删掉「不是安装目录」的文件夹。
+
+    实测踩过的坑（很严重）：`detect_install_dir()` 在冻结态会回退到
+    「卸载器自身所在目录」。用户把 `mio-taskhub-setup.exe` 下载到
+    `D:\\Downloads` 后双击 `--uninstall` → 程序把**整个 Downloads
+    文件夹删掉**（用户的数据、别的下载文件全没了）。
+
+    对策：两道闸门
+    ① `looks_like_install_dir()` —— 目录里必须有 `mio-taskhub.exe`
+       或 `install.json` 才认；
+    ② `uninstall()` 里再校验一次，不满足就**什么都不删**直接返回。
+    """
+    # 造一个「不是安装目录」的目录，里面放用户文件
+    fake = tmp_path / "Downloads"
+    fake.mkdir()
+    keep = fake / "我的重要文件.txt"
+    keep.write_text("别删我", encoding="utf-8")
+
+    assert install_mod.looks_like_install_dir(fake) is False
+
+    res = install_mod.uninstall(install_dir=fake, remove_data=False,
+                                remove_shortcuts=False, remove_registry=False)
+    assert res.ok is False, "不该对非安装目录报成功"
+    assert fake.exists(), "非安装目录被删了！"
+    assert keep.exists(), "用户的文件被删了！"
+    assert any(s["name"] == "校验安装目录" and not s["ok"] for s in res.steps)
+
+
+def test_looks_like_install_dir_accepts_real_install_dir(tmp_path):
+    """装了之后的目录必须被认成安装目录（否则安全闸门会挡住正常卸载）。"""
+    payload = _build_fake_payload(tmp_path)
+    target = tmp_path / "install"
+    res = install_mod.install(payload_zip=payload, install_dir=target,
+                              create_shortcuts=False, register=False)
+    assert res.ok
+    assert install_mod.looks_like_install_dir(target) is True
+    # 卸载器（uninstall.exe）单独存在**不算**安装目录 ——
+    # 用户从官网单独下载卸载器放在 Downloads 里，那不是安装目录。
+    only_uninst = tmp_path / "only-uninstaller"
+    only_uninst.mkdir()
+    (only_uninst / "uninstall.exe").write_bytes(b"x")
+    assert install_mod.looks_like_install_dir(only_uninst) is False
+
+
+def test_single_file_bundle_has_no_standalone_uninstaller():
+    """**回归**：安装包目录必须是**单文件**（只有 setup.exe）。
+
+    卸载器已经合并进 setup.exe（payload 里有 uninstall.exe，payload 又
+    被合并进 setup.exe）—— 再单独放一份只是副本，白占 10 MB，
+    还让用户纠结「装的时候用哪个」。
+    """
+    repo = Path(__file__).resolve().parent.parent
+    bundle = repo / "dist" / "mio-taskhub-installer"
+    if not bundle.exists():
+        pytest.skip("未构建安装包目录")
+    names = sorted(p.name for p in bundle.iterdir() if p.is_file())
+    assert "uninstall.exe" not in names, (
+        "安装包目录里不该有独立的 uninstall.exe（已合并进 setup.exe）")
+    assert "mio-taskhub-setup.exe" in names
 
 
 def test_is_installed(tmp_path):
@@ -571,6 +634,81 @@ def test_browse_buttons_are_icon_only():
     # 按钮类要支持 icon 参数
     assert "icon=None" in inspect.signature(gui._Button.__init__).__str__() \
         or "icon" in inspect.signature(gui._Button.__init__).parameters
+
+
+def test_installer_window_offers_uninstall_when_already_installed(tmp_path,
+                                                                 monkeypatch):
+    """**回归**：已装过时，安装器窗口要出现「卸载」按钮。
+
+    **单文件安装包**：`mio-taskhub-setup.exe` 既是安装器也是卸载器。
+    用户重新双击这一个文件时，应该能直接卸载，而不是让他去找别的 exe。
+    """
+    import tkinter as tk
+
+    from mio_taskhub.installer import gui, install as install_mod
+
+    try:
+        root = tk.Tk()
+    except Exception as e:  # noqa: BLE001
+        pytest.skip("无显示环境：%r" % e)
+
+    try:
+        # 造一个「已安装」的目录
+        fake_install = tmp_path / "installed"
+        fake_install.mkdir()
+        (fake_install / "mio-taskhub.exe").write_bytes(b"x")
+        monkeypatch.setattr(gui, "detect_install_dir", lambda: fake_install)
+
+        app = gui.InstallerApp(root)
+        root.update()
+        root.update_idletasks()
+        # _detect_existing 是 after(140) 排的 —— 跑够时间让它触发
+        for _ in range(12):
+            root.update()
+            time.sleep(0.05)
+
+        assert app._btn_uninstall.winfo_ismapped(), (
+            "已安装时安装器窗口应显示「卸载」按钮")
+        assert app.var_dir.get() == str(fake_install), (
+            "应把安装目录指向已安装的那份")
+    finally:
+        try:
+            root.destroy()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def test_installer_window_has_no_uninstall_button_when_fresh(tmp_path,
+                                                             monkeypatch):
+    """**回归**：没装过时**不该**显示「卸载」按钮（避免误点）。"""
+    import tkinter as tk
+
+    from mio_taskhub.installer import gui
+
+    try:
+        root = tk.Tk()
+    except Exception as e:  # noqa: BLE001
+        pytest.skip("无显示环境：%r" % e)
+
+    try:
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        monkeypatch.setattr(gui, "detect_install_dir", lambda: empty)
+
+        app = gui.InstallerApp(root)
+        root.update()
+        root.update_idletasks()
+        for _ in range(12):
+            root.update()
+            time.sleep(0.05)
+
+        assert not app._btn_uninstall.winfo_ismapped(), (
+            "未安装时不该显示「卸载」按钮")
+    finally:
+        try:
+            root.destroy()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 # ──────────────────── 单文件安装包（内嵌 payload） ────────────────────
