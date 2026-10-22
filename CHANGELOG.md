@@ -15,6 +15,13 @@
 - **`mio_taskhub/release_assets.py`**：发布资产清单单一事实源；`release.ps1` 同步上传安装包。
 - **`packaging/安装说明.txt`**：面向终端用户的安装包说明。
 
+### Changed — 快捷方式改名「Taskhub」
+- **桌面 + 开始菜单的快捷方式名改为 `Taskhub`**（原来是「mio-taskhub 任务中心」）。
+- 新增常量 `SHORTCUT_NAME`（`installer/paths.py`），与 `APP_DISPLAY_NAME`
+  **分开**：前者是 .lnk 文件名和悬停提示，后者是「应用和功能」里的显示名
+  和安装器窗口标题。两者可以不一样。
+- 卸载时删除快捷方式走的是同一套函数 → 自动跟着改名，不会漏删。
+
 ### Changed — 安装包合并为单文件
 - **分发目录只剩 `mio-taskhub-setup.exe` 一个 exe**：程序本体（payload）已合并进它尾部，
   payload 里又含 `uninstall.exe` → 卸载器也在里面。**装和卸用同一个文件**

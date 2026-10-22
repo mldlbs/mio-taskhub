@@ -28,6 +28,7 @@ from tkinter import filedialog
 from .install import detect_install_dir, install, uninstall
 from .paths import (
     APP_DISPLAY_NAME,
+    SHORTCUT_NAME,
     app_version,
     data_dir,
     default_install_dir,
@@ -1199,7 +1200,7 @@ class InstallerApp(_Base):
         if res.ok:
             self.status.configure(text="安装完成")
             self.notice.show("ok", "安装完成",
-                             "双击桌面或开始菜单的「%s」启动" % APP_DISPLAY_NAME)
+                             "双击桌面或开始菜单的「%s」启动" % SHORTCUT_NAME)
             self._btn_install.set_text("完成")
             self._btn_install.set_enabled(True)
             self._close_later(1400)

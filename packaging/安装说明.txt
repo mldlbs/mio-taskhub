@@ -7,10 +7,10 @@ mio-taskhub 任务中心 · 安装包说明
   2. 双击【mio-taskhub-setup.exe】打开安装向导
   3. 选好安装目录（默认 C:\Users\你的用户名\AppData\Local\Programs\mio-taskhub）
   4. 点【安装】，等进度条走完即可
-  5. 安装完成后，桌面和开始菜单会出现「mio-taskhub 任务中心」快捷方式
+  5. 安装完成后，桌面和开始菜单会出现「Taskhub」快捷方式
 
 【二】装完怎么用
-  1. 双击桌面上的【mio-taskhub 任务中心】→ 浏览器自动打开任务看板
+  1. 双击桌面上的【Taskhub】→ 浏览器自动打开任务看板
      地址：http://127.0.0.1:48620
   2. 双击安装目录里的【setup-agent.bat】一键配置 AI 助手
      （自动识别 opencode / claude code / codex / workbuddy）

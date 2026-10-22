@@ -19,6 +19,7 @@ from . import registry, shortcuts
 from .paths import (
     APP_DISPLAY_NAME,
     APP_EXE_NAME,
+    SHORTCUT_NAME,
     UNINSTALL_EXE_NAME,
     app_version,
     data_dir,
@@ -263,13 +264,14 @@ def _ensure_uninstaller(install_dir, uninstall_exe=None) -> None:
 def _create_links(install_dir, res: InstallResult) -> None:
     target = shortcuts.app_target(install_dir)
     sm = shortcuts.start_menu_link(install_dir)
+    # description = 快捷方式的**悬停提示**，跟快捷方式名一致（Taskhub）
     ok_sm = shortcuts.create_shortcut(
-        sm, target, working_dir=install_dir, description=APP_DISPLAY_NAME)
+        sm, target, working_dir=install_dir, description=SHORTCUT_NAME)
     res.step("创建开始菜单快捷方式", ok_sm, str(sm))
 
     dk = shortcuts.desktop_link(install_dir)
     ok_dk = shortcuts.create_shortcut(
-        dk, target, working_dir=install_dir, description=APP_DISPLAY_NAME)
+        dk, target, working_dir=install_dir, description=SHORTCUT_NAME)
     res.step("创建桌面快捷方式", ok_dk, str(dk))
 
 

@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .paths import APP_DISPLAY_NAME, APP_EXE_NAME
+from .paths import APP_DISPLAY_NAME, APP_EXE_NAME, SHORTCUT_NAME
 
 
 def _powershell() -> str:
@@ -78,12 +78,12 @@ def remove_shortcut(link_path) -> bool:
 
 def start_menu_link(install_dir, name=None) -> Path:
     from .paths import start_menu_dir
-    return start_menu_dir() / ("%s.lnk" % (name or APP_DISPLAY_NAME))
+    return start_menu_dir() / ("%s.lnk" % (name or SHORTCUT_NAME))
 
 
 def desktop_link(install_dir, name=None) -> Path:
     from .paths import desktop_dir
-    return desktop_dir() / ("%s.lnk" % (name or APP_DISPLAY_NAME))
+    return desktop_dir() / ("%s.lnk" % (name or SHORTCUT_NAME))
 
 
 def app_target(install_dir) -> Path:

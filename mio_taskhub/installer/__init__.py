@@ -21,6 +21,7 @@ from .paths import (  # noqa: F401 —— 对外统一出口
     PAYLOAD_ZIP_NAME,
     REQUIRED_PAYLOAD_ENTRIES,
     SETUP_EXE_NAME,
+    SHORTCUT_NAME,
     UNINSTALL_EXE_NAME,
     UNINSTALL_REG_KEY,
     app_version,
@@ -37,7 +38,8 @@ from .paths import (  # noqa: F401 —— 对外统一出口
 __all__ = [
     "APP_DISPLAY_NAME", "APP_EXE_NAME", "APP_NAME", "APP_PUBLISHER",
     "DATA_DIR_NAME", "INSTALL_DIR_NAME", "PAYLOAD_ZIP_NAME",
-    "REQUIRED_PAYLOAD_ENTRIES", "SETUP_EXE_NAME", "UNINSTALL_EXE_NAME",
+    "REQUIRED_PAYLOAD_ENTRIES", "SETUP_EXE_NAME", "SHORTCUT_NAME",
+    "UNINSTALL_EXE_NAME",
     "UNINSTALL_REG_KEY", "app_version", "data_dir", "default_install_dir",
     "desktop_dir", "force_remove_file", "force_rmtree",
     "install_manifest_path", "is_windows", "start_menu_dir",

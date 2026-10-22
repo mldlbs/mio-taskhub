@@ -403,6 +403,34 @@ def test_create_and_remove_shortcut(tmp_path):
     assert not link.exists()
 
 
+def test_shortcut_name_is_taskhub(tmp_path):
+    """**回归**：快捷方式名是「Taskhub」。
+
+    用户反馈「快捷方式名 Taskhub」。
+    与 `APP_DISPLAY_NAME`（「mio-taskhub 任务中心」）**分开** ——
+    后者是「应用和功能」里的显示名和安装器窗口标题，前者只是
+    桌面/开始菜单上的 .lnk 文件名。
+    """
+    from mio_taskhub.installer.paths import (
+        APP_DISPLAY_NAME,
+        SHORTCUT_NAME,
+        desktop_dir,
+        start_menu_dir,
+    )
+
+    assert SHORTCUT_NAME == "Taskhub"
+    # 两者确实是不同的东西（不是同一个常量）
+    assert SHORTCUT_NAME != APP_DISPLAY_NAME
+
+    # 桌面 / 开始菜单的 .lnk 路径用 Taskhub 命名
+    sm = shortcuts.start_menu_link(tmp_path)
+    dk = shortcuts.desktop_link(tmp_path)
+    assert sm.name == "Taskhub.lnk", sm.name
+    assert dk.name == "Taskhub.lnk", dk.name
+    assert sm.parent == start_menu_dir()
+    assert dk.parent == desktop_dir()
+
+
 # ──────────────────── 自更新保留卸载程序 ────────────────────
 
 def test_preserve_uninstaller_copies_from_old_install(tmp_path):

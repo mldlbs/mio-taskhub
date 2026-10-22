@@ -14,6 +14,11 @@ from pathlib import Path
 
 APP_NAME = "mio-taskhub"
 APP_DISPLAY_NAME = "mio-taskhub 任务中心"
+#: **快捷方式名**（桌面 + 开始菜单的 .lnk 文件名）
+#:
+#: 与 `APP_DISPLAY_NAME` 分开：前者是快捷方式上显示的文字，后者是
+#: 「应用和功能」里的显示名 / 安装器窗口标题。两者可以不一样。
+SHORTCUT_NAME = "Taskhub"
 APP_PUBLISHER = "mldlbs"
 APP_EXE_NAME = "mio-taskhub.exe"
 UNINSTALL_EXE_NAME = "uninstall.exe"
