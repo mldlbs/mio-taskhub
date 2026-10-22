@@ -101,9 +101,15 @@ $setupExe = Join-Path $installerDist 'mio-taskhub-setup.exe'
 $uninstallExe = Join-Path $installerDist 'uninstall.exe'
 foreach ($p in @($setupExe, $uninstallExe)) {
     if (-not (Test-Path $p)) { throw "缺少安装器产物：$p" }
-    Copy-Item -Force $p $distDir
 }
-Write-Host '  OK: mio-taskhub-setup.exe / uninstall.exe' -ForegroundColor Green
+# **只把 uninstall.exe 放进 payload（程序本体）**。
+# 不放 setup.exe —— 它是「安装器」，属于分发包那一层，不属于程序本体：
+#   ① 合并后的 setup.exe 有 66 MB，放进 payload 会让绿色版 zip 白涨 10 MB；
+#   ② 放进 payload 的那份是**未合并版**（尾部没有 payload），双击必然
+#      报「找不到安装包」—— 是个坏入口，不如没有；
+#   ③ 自动更新是「整体替换安装目录」，不需要目录里有安装器。
+Copy-Item -Force $uninstallExe $distDir
+Write-Host '  OK: uninstall.exe（payload 内的纯卸载器）' -ForegroundColor Green
 
 # ---------- 5) 复制分发文件 ----------
 Write-Host '[5/6] 复制分发文件 ...'
@@ -138,6 +144,10 @@ Write-Host "  zip: $zip ($size MB)" -ForegroundColor Green
 
 # 独立安装包：**单文件** setup.exe（payload 已合并进去）
 # 用户只下一个文件、双击、装完就走 —— 跟 NSIS/Inno 的安装器一样。
+#
+# **目录里只有这一个 exe**：payload（含 uninstall.exe）已经合并进去了，
+# 不再单独发一份 uninstall.exe —— 那只是同一份内容的副本，白占 10 MB
+# 还要让用户纠结「装的时候用哪个」。
 $bundle = Join-Path $root 'dist\mio-taskhub-installer'
 Remove-Item -Recurse -Force $bundle -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $bundle | Out-Null
@@ -146,10 +156,8 @@ New-Item -ItemType Directory -Force -Path $bundle | Out-Null
     --setup $setupExe --payload $zip `
     --out (Join-Path $bundle 'mio-taskhub-setup.exe') --verify
 if ($LASTEXITCODE -ne 0) { throw '合并单文件安装包失败' }
-# 独立的卸载器（用户可以单独拿；也供「应用和功能」使用）
-Copy-Item -Force $uninstallExe $bundle
 Copy-Item -Force (Join-Path $root 'packaging\安装说明.txt') $bundle
-Write-Host "  安装包目录: $bundle" -ForegroundColor Green
+Write-Host "  安装包目录: $bundle（单文件）" -ForegroundColor Green
 
 # 一致性校验：安装器 exe ↔ payload zip 里的 uninstall.exe ↔ 独立安装包目录
 # 必须同源。实测踩过：重建了 uninstall.exe 却没重打 zip → 用户装到的是

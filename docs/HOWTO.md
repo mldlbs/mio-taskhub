@@ -87,7 +87,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1
 # 产物:
 #   dist/mio-taskhub-v3/              绿色版目录
 #   dist/mio-taskhub-win64.zip        绿色版 zip（自动更新用）
-#   dist/mio-taskhub-installer/       独立安装包（setup.exe + uninstall.exe + zip + 安装说明）
+#   dist/mio-taskhub-installer/       独立安装包（**单文件**：setup.exe + 安装说明）
 #   dist_installer/                   单独的安装器 / 卸载器 exe
 #
 # 手工只重建了单个产物时，必须重跑一致性校验：
@@ -104,17 +104,26 @@ python scripts/check_installer_bundle.py
 - `uninstall.exe`：卸载程序（图形向导 / `--silent` 静默卸载）
 - `使用说明.txt`：给最终用户的图文说明
 
+> **payload（绿色版 zip）里只有 `uninstall.exe`，没有 `mio-taskhub-setup.exe`** ——
+> 安装器属于「分发包」那一层，不属于程序本体。放进 payload 的那份是
+> **未合并版**（尾部没有 payload），双击必然报「找不到安装包」—— 是个坏入口。
+
 小白使用流程：① 双击 mio-taskhub.exe → ② 双击 setup-agent.bat →
 ③ 重启 agent 说"使用 mio-taskhub 领取任务"。全程免 Python、免联网。
 
-### 安装器 / 卸载器（独立安装包）
+### 安装器 / 卸载器（独立安装包 · 单文件）
 
-不想让用户手动解压、或希望能在 Windows「应用和功能」里卸载时，用安装包：
+不想让用户手动解压、或希望能在 Windows「应用和功能」里卸载时，用安装包。
+
+**分发目录里只有 `mio-taskhub-setup.exe` 一个 exe** —— 程序本体（payload）
+已经合并进它尾部（self-extracting），payload 里又含 `uninstall.exe`，
+所以卸载器也在里面。
 
 | 资产 | 路径 | 说明 |
 |------|------|------|
 | 安装器 | `dist/mio-taskhub-installer/mio-taskhub-setup.exe` | 双击 → 图形安装向导；`--silent` 静默安装 |
-| 卸载器 | 随 payload 分发到安装目录的 `uninstall.exe` | 图形卸载向导；`--silent` 静默卸载 |
+| 卸载器 | 同一个文件加 `--uninstall` | 图形卸载向导；`--uninstall --silent` 静默卸载 |
+| 卸载器（装完） | 安装目录里的 `uninstall.exe` | 随 payload 落盘，供「应用和功能」调用（10 MB 纯卸载器） |
 
 实现落在 `mio_taskhub/installer/`：
 
@@ -156,6 +165,15 @@ python scripts/check_installer_bundle.py
 - **payload 搜索路径必须含「exe 自身所在目录」** —— 真实分发形态是
   setup.exe 与 zip 同目录。原先没排这一项 → 打包后的静默安装报「未找到安装包」
   （2026-10-21 实测）。`payload._exe_dir()` 已排到最前。
+- **卸载绝不能删「不是安装目录」的文件夹** —— `detect_install_dir()` 在冻结态
+  会回退到「卸载器自身所在目录」。用户把 setup.exe 下到 `D:\Downloads` 后双击
+  `--uninstall` → 整个 Downloads 被 rmtree（用户数据全没了）。
+  两道闸门：`looks_like_install_dir()`（目录里必须有 `mio-taskhub.exe` 或
+  `install.json`）+ `uninstall()` 里再校验一次，不满足就**什么都不删**。
+  判据刻意**不含 `uninstall.exe`** —— 用户单独下载的卸载器放在哪都行。
+- **payload 里不要放 `mio-taskhub-setup.exe`** —— 放进 payload 的那份是
+  **未合并版**（尾部没有 payload），用户双击必然报「找不到安装包」。
+  安装器属于分发包那一层，不属于程序本体。
 
 **改 GUI 时务必注意的坑**（Tkinter 天生爱坑）：
 

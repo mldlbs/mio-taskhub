@@ -21,21 +21,24 @@ INSTALLER_EXE = "mio-taskhub-setup.exe"
 
 #: 独立安装包里的卸载器 exe
 #:
-#: **必须单独上传**：用户可能只想要「卸载程序」这一份文件
-#: （比如从「应用和功能」里点卸载、或者把安装目录里的 uninstall.exe
-#: 拷到别处用）。不单独发的话，用户拿不到独立可执行的卸载器。
+#: **不再单独分发**：payload zip 里已经含 `uninstall.exe`，而 payload 又被
+#: 合并进了 `mio-taskhub-setup.exe` —— 也就是说**卸载器已经在安装包里了**
+#: （装完落在安装目录里）。再单独发一份只是同一份内容的副本：
+#: 白占 10 MB，还要让用户纠结「装的时候用哪个」。
+#:
+#: 需要「只有卸载器」的用户：从安装目录拿，或用
+#: `mio-taskhub-setup.exe --uninstall`（同一个文件也能卸）。
 UNINSTALL_EXE = "uninstall.exe"
 
 #: 安装包目录内要上传的资产（相对 dist/）
 #:
 #: **单文件安装包**：`mio-taskhub-setup.exe` 已经把 payload zip 合并进去了
 #: （self-extracting），用户只下一个文件就能装 → **不需要**再单独发一份
-#: payload zip 给安装器用。
+#: payload zip 给安装器用，也不需要单独的卸载器。
 #:
 #: 但 payload zip 仍要作为**顶层资产**上传 —— 客户端自动更新用它。
 INSTALLER_BUNDLE_ASSETS = (
     "%s/%s" % (INSTALLER_BUNDLE_DIR, INSTALLER_EXE),
-    "%s/%s" % (INSTALLER_BUNDLE_DIR, UNINSTALL_EXE),
 )
 
 #: latest.json 里 assets[].format 的取值

@@ -882,6 +882,7 @@ class InstallerApp(_Base):
         self._done = False
         self._build()
         self.root.after(80, self._auto_find_payload)
+        self.root.after(140, self._detect_existing)
 
     def _build(self):
         # 「安装包」这一行**默认不显示**。
@@ -942,11 +943,60 @@ class InstallerApp(_Base):
         self._btn_install = _Button(btns, "开始安装", self._start, kind="primary",
                                     width=126, height=42, parent_bg=BG)
         self._btn_install.pack(side="right")
+        # 「卸载」按钮**默认不显示** —— 只有检测到已安装版本时才出现
+        # （单文件安装包：装和卸用同一个 exe）。
+        self._btn_uninstall = _Button(btns, "卸载", self._start_uninstall,
+                                      kind="danger", width=86, height=42,
+                                      parent_bg=BG)
         self._btn_exit = _Button(btns, "退出", self._close_now, kind="ghost",
                                  width=86, height=42, parent_bg=BG)
         self._btn_exit.pack(side="right", padx=(0, 10))
 
         self.status.configure(text="准备就绪")
+
+    def _detect_existing(self):
+        """已装过？→ 顶部提示 + 底部多一个「卸载」按钮。
+
+        **单文件安装包**的一个好处：`mio-taskhub-setup.exe` 既是安装器
+        也是卸载器。用户在「应用和功能」里找不到卸载项、或想换个目录重装，
+        重新双击这一个文件就能处理 —— 不需要另外找卸载器。
+        """
+        try:
+            d = detect_install_dir()
+            if not (d / "mio-taskhub.exe").exists():
+                return
+        except Exception:  # noqa: BLE001
+            return
+        self._btn_uninstall.pack(side="right", padx=(0, 10))
+        self.var_dir.set(str(d))
+        self.status.configure(text="检测到已安装版本，可重新安装或卸载")
+
+    def _start_uninstall(self):
+        """从安装器窗口直接卸载（走独立的卸载向导窗口）。"""
+        try:
+            root = tk.Toplevel(self.root)
+        except Exception:  # noqa: BLE001
+            root = None
+        if root is None:
+            # 退路：直接静默卸载
+            self.notice.show("info", "正在卸载", "正在停止程序并移除文件…")
+            threading.Thread(target=self._uninstall_work, daemon=True).start()
+            return
+        try:
+            UninstallerApp(root)
+            root.mainloop()
+        except Exception as e:  # noqa: BLE001
+            self.notice.show("err", "打开卸载窗口失败", repr(e))
+
+    def _uninstall_work(self):
+        try:
+            res = uninstall(install_dir=self.var_dir.get() or None,
+                            remove_data=False)
+            self.post(self.notice.show,
+                      "ok" if res.ok else "err",
+                      "卸载完成" if res.ok else "卸载失败", res.message)
+        except Exception as e:  # noqa: BLE001
+            self.post(self.notice.show, "err", "卸载异常", repr(e))
 
     def _browse_payload(self):
         p = filedialog.askopenfilename(

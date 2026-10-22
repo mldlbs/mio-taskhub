@@ -26,6 +26,10 @@ USAGE_SETUP = """mio-taskhub 安装程序
   mio-taskhub-setup.exe --status        查看安装状态
   mio-taskhub-setup.exe --help          显示本帮助
 
+说明：
+  这是**单文件**安装包 —— 程序本体已经合并进本 exe。
+  装和卸用同一个文件：加 --uninstall 即为卸载。
+
 安装目录默认：%LOCALAPPDATA%\\Programs\\mio-taskhub
 用户数据（数据库/日志/备份）默认保留在：%USERPROFILE%\\.mio_taskhub
 """

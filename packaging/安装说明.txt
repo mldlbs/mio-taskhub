@@ -3,7 +3,7 @@ mio-taskhub 任务中心 · 安装包说明
 
 【一】怎么安装
   1. 把【mio-taskhub-setup.exe】复制到目标机器（无需联网、无需装 Python）
-     ※ 这是**单文件**安装包，程序本体已经打包在里面了
+     ※ 这是**单文件**安装包，程序本体和卸载器都已经打包在里面了
   2. 双击【mio-taskhub-setup.exe】打开安装向导
   3. 选好安装目录（默认 C:\Users\你的用户名\AppData\Local\Programs\mio-taskhub）
   4. 点【安装】，等进度条走完即可
@@ -19,6 +19,7 @@ mio-taskhub 任务中心 · 安装包说明
 【三】怎么卸载
   方式一（推荐）：Windows 设置 → 应用 → 找到「mio-taskhub 任务中心」→ 卸载
   方式二：打开安装目录，双击【uninstall.exe】
+  方式三：对【mio-taskhub-setup.exe】加参数 --uninstall（同一个文件也能卸）
   · 卸载会移除程序文件、桌面/开始菜单快捷方式、「应用和功能」里的卸载项
   · **你的任务数据（数据库/日志/备份）默认保留**在
     C:\Users\你的用户名\.mio_taskhub\ —— 想彻底删干净请在卸载时勾选
@@ -26,7 +27,7 @@ mio-taskhub 任务中心 · 安装包说明
 
 【四】静默安装（给批量部署用）
   mio-taskhub-setup.exe --silent
-  静默卸载：uninstall.exe --silent
+  静默卸载：mio-taskhub-setup.exe --uninstall --silent
 
 【五】常见问题
   Q: 双击安装程序没反应？

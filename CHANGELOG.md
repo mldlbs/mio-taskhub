@@ -15,6 +15,23 @@
 - **`mio_taskhub/release_assets.py`**：发布资产清单单一事实源；`release.ps1` 同步上传安装包。
 - **`packaging/安装说明.txt`**：面向终端用户的安装包说明。
 
+### Changed — 安装包合并为单文件
+- **分发目录只剩 `mio-taskhub-setup.exe` 一个 exe**：程序本体（payload）已合并进它尾部，
+  payload 里又含 `uninstall.exe` → 卸载器也在里面。**装和卸用同一个文件**
+  （`--uninstall` 即为卸载）。不再单独发一份 `uninstall.exe`（那是同一份内容的副本）。
+- **payload 里不再放 `mio-taskhub-setup.exe`**：放进 payload 的那份是**未合并版**
+  （尾部没有 payload），用户双击必然报「找不到安装包」—— 是个坏入口，不如没有。
+- **安装器窗口检测到已安装版本时多一个「卸载」按钮**：单文件安装包下，
+  重新双击这一个文件就能重装或卸载。
+
+### Fixed — 卸载可能删掉用户的整个文件夹（严重）
+- **`detect_install_dir()` 在冻结态会回退到「卸载器自身所在目录」**。用户把
+  `mio-taskhub-setup.exe` 下到 `D:\Downloads` 后双击 `--uninstall` →
+  程序把**整个 Downloads 文件夹 rmtree 掉**（用户的数据、别的下载文件全没了）。
+- 对策两道闸门：① `looks_like_install_dir()` —— 目录里必须有 `mio-taskhub.exe`
+  或 `install.json` 才认；② `uninstall()` 里再校验一次，不满足就**什么都不删**
+  直接返回并说明原因。
+
 ### Fixed — 自更新装不上（真实缺陷）
 - **自动更新永远失败**：实测已发布的 v0.6.1 资产 zip 顶层带一层 `mio-taskhub-v3/`，
   而更新器 `verify_staging` 按「根目录即内容」校验 → 校验必失败 → 更新永远装不上。

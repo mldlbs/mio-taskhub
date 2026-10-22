@@ -71,14 +71,22 @@ def check() -> list:
             problems.append("payload zip 里没有 %s" % UNINSTALL_EXE)
 
     if BUNDLE.exists():
+        # **单文件安装包**：目录里只该有 setup.exe（payload 已合并进去）。
+        # 曾经这里还放着一份独立的 uninstall.exe —— 那是 payload 里同一份
+        # 内容的副本，白占 10 MB，还让用户纠结「装的时候用哪个」。
         in_bundle_uninstall = BUNDLE / UNINSTALL_EXE
-        if not in_bundle_uninstall.exists():
-            problems.append("独立安装包目录缺少 %s" % UNINSTALL_EXE)
-        elif live_uninstall.exists() and \
-                _sha(in_bundle_uninstall) != _sha(live_uninstall):
+        if in_bundle_uninstall.exists():
             problems.append(
-                "独立安装包目录里的 %s 与当前产物不一致 —— "
-                "重建后要重新组装 dist/mio-taskhub-installer/" % UNINSTALL_EXE)
+                "独立安装包目录里还有一份 %s —— 现在是**单文件**安装包，"
+                "卸载器已合并进 %s（装完落在安装目录里），"
+                "不需要单独放一份（请重跑 packaging/build.ps1）"
+                % (UNINSTALL_EXE, SETUP_EXE))
+        extra = sorted(p.name for p in BUNDLE.iterdir()
+                       if p.is_file() and p.name not in (SETUP_EXE, "安装说明.txt"))
+        if extra:
+            problems.append(
+                "独立安装包目录里有预期外的文件：%s（应该是单文件：%s）"
+                % (extra, SETUP_EXE))
 
     # ── 单文件安装包校验（payload 已合并进 setup.exe）──
     bundled_setup = BUNDLE / SETUP_EXE

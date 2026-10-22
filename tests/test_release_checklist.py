@@ -28,21 +28,30 @@ def test_installer_bundle_check_is_green():
 
 
 def test_release_assets_include_uninstaller():
-    """**回归**：发布资产必须包含独立的 uninstall.exe。
+    """**回归**：发布资产必须能拿到卸载器。
 
-    用户可能只想要「卸载程序」这一份文件（从「应用和功能」点卸载、
-    或把安装目录里的 uninstall.exe 拷走用）。不单独发就拿不到。
+    形态变了：现在是**单文件**安装包 —— 卸载器已经合并进
+    `mio-taskhub-setup.exe`（payload 里有 uninstall.exe，payload 又被
+    合并进 setup.exe），所以**不再单独发**一份 uninstall.exe。
+
+    但「用户能拿到可执行的卸载器」这件事必须仍然成立：
+    - 安装目录里有 `uninstall.exe`（装完就有）
+    - `mio-taskhub-setup.exe --uninstall` 也能卸（同一个文件）
     """
     sys.path.insert(0, str(REPO))
     from mio_taskhub import release_assets
 
     assets = release_assets.all_release_assets()
-    # 清单里存的是相对 dist/ 的完整路径
-    assert any(a.endswith(release_assets.UNINSTALL_EXE)
-               for a in release_assets.INSTALLER_BUNDLE_ASSETS)
-    assert any(a.endswith(release_assets.UNINSTALL_EXE) for a in assets)
+    # 单文件安装包：目录里只有 setup.exe
+    assert release_assets.INSTALLER_BUNDLE_ASSETS == (
+        "%s/%s" % (release_assets.INSTALLER_BUNDLE_DIR,
+                   release_assets.INSTALLER_EXE),)
     # 绿色版 zip 也必须在（自动更新要用）
     assert release_assets.PAYLOAD_ASSET in assets
+    # 资产清单里不能有 uninstall.exe —— 它是 payload 内部的文件，
+    # 单独发出去会让人以为「要下两个文件才能装」。
+    assert not any(a.endswith(release_assets.UNINSTALL_EXE) for a in assets), (
+        "卸载器已合并进安装包，不该再单独作为发布资产")
 
 
 def test_release_asset_upload_names_are_unique():
