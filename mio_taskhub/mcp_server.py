@@ -421,6 +421,7 @@ async def taskhub_create_task(
     doc_paths: Optional[dict] = Field(default=None, description="文档路径映射（kind -> 路径）。kind 取 spec/plan/requirement/test/architecture/api/readme/changelog"),
     spec_path: Optional[str] = Field(default=None, description="设计文档路径（等价于 doc_paths['spec']）"),
     plan_path: Optional[str] = Field(default=None, description="实现计划路径（等价于 doc_paths['plan']）"),
+    complexity: Optional[str] = Field(default=None, description="复杂度声明 S/M/L；仅作提示，不自动拆分"),
 ) -> str:
     body = {k: v for k, v in {
         "title": title, "description": description, "target_agent_type": target_agent_type,
@@ -429,8 +430,27 @@ async def taskhub_create_task(
         "due_at": due_at, "labels": labels, "project": project, "workspace": workspace,
         "files": files, "deliverables": deliverables, "stage": stage,
         "doc_paths": doc_paths, "spec_path": spec_path, "plan_path": plan_path,
+        "complexity": complexity,
     }.items() if v is not None}
     return _fmt(await _request("POST", "/tasks", body=body))
+
+
+@_tool(name="taskhub_decompose_preview", title="拆分预览与校验", method="POST", path="/tasks/{task_id}/decompose/preview", read_only=True, destructive=False, desc="对顶层任务执行拆分校验（只读）：覆盖 plan item、DAG、验收、契约、边界、复杂度与文档要求。返回 errors/warnings/apply_token；不创建子任务。")
+async def taskhub_decompose_preview(
+    task_id: str = Field(description="父任务唯一标识", min_length=1),
+    payload: dict = Field(description="拆分请求体：parent_summary/plan_items/children/contracts 等"),
+) -> str:
+    return _fmt(await _request("POST", f"/tasks/{task_id}/decompose/preview",
+                               body=payload))
+
+
+@_tool(name="taskhub_decompose_apply", title="应用拆分", method="POST", path="/tasks/{task_id}/decompose/apply", read_only=False, destructive=False, desc="复校验后原子创建子任务并回写父任务 decomposition。请求体与 preview 相同，可带 apply_token。")
+async def taskhub_decompose_apply(
+    task_id: str = Field(description="父任务唯一标识", min_length=1),
+    payload: dict = Field(description="拆分请求体；建议带 preview 返回的 apply_token"),
+) -> str:
+    return _fmt(await _request("POST", f"/tasks/{task_id}/decompose/apply",
+                               body=payload))
 
 
 @_tool(name="taskhub_update_task", title="更新任务细节", method="PATCH", path="/tasks/{task_id}", read_only=False, destructive=False, desc="更新任务细节字段。仅传需要修改的字段。")

@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import Column, JSON, UniqueConstraint
+from sqlalchemy import Column, JSON, Text, UniqueConstraint
 from sqlmodel import SQLModel, Field
 from mio_taskhub.utils import _now
 
@@ -166,6 +166,17 @@ class Task(SQLModel, table=True):
     diff_gate_exempt: bool = False
     review_result: str = ""
     idea_id: str = Field(default="", index=True)   # 拆解来源 idea
+    # P2a 任务层级（doc: task-decomposition-phase2-spec.md）
+    # parent_id 为空 = 顶层任务；只允许一层（子任务不能再有子任务）。
+    # role: leaf=普通任务（存量默认）、child=可领取的子任务、main=主任务（普通 worker 不可领）。
+    parent_id: Optional[str] = Field(default=None, index=True)
+    role: str = Field(default="leaf")
+    # P2b 拆分校验（doc: task-decomposition-phase2-spec.md）
+    # complexity 只是声明与提示，NULL = 未分类；不自动改写。
+    complexity: Optional[str] = None
+    # context_package / decomposition 均为 JSON 文本，读接口统一反序列化。
+    context_package: Optional[str] = Field(default=None, sa_column=Column(Text))
+    decomposition: Optional[str] = Field(default=None, sa_column=Column(Text))
     # M1: 生命周期时间戳 + 计数器
     claimed_at: Optional[datetime] = None
     running_started_at: Optional[datetime] = None

@@ -15,6 +15,8 @@ def run_migrations(target_engine=None):
         if "task" in tables:
             _migrate_task(conn)
             _migrate_task_diff_gate(conn)
+            _migrate_task_hierarchy(conn)
+            _migrate_task_decomposition(conn)
         if "run" in tables:
             _migrate_run_diff_gate(conn)
         if "idea" in tables:
@@ -207,6 +209,40 @@ def _migrate_task_diff_gate(conn):
         "ALTER TABLE task ADD COLUMN diff_gate_exempt BOOLEAN NOT NULL DEFAULT 0"))
     conn.execute(text(
         "UPDATE task SET diff_gate_exempt = 1 WHERE diff_gate_exempt = 0"))
+
+
+def _migrate_task_hierarchy(conn):
+    """P2a 任务层级列：parent_id / role + parent 索引。
+
+    兼容性硬约束：存量任务必须继续按普通可领取任务处理。
+    - role 默认 'leaf'，SQLite ADD COLUMN 会把历史行填成 'leaf'；
+    - parent_id 默认 NULL（顶层任务）；
+    - 重复执行幂等：按列存在性判断，索引用 IF NOT EXISTS。
+    """
+    cols = {c["name"] for c in inspect(conn).get_columns("task")}
+    if "parent_id" not in cols:
+        conn.execute(text("ALTER TABLE task ADD COLUMN parent_id VARCHAR"))
+    if "role" not in cols:
+        conn.execute(text(
+            "ALTER TABLE task ADD COLUMN role VARCHAR NOT NULL DEFAULT 'leaf'"))
+        conn.execute(text("UPDATE task SET role = 'leaf' WHERE role IS NULL"))
+    conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_task_parent_id ON task(parent_id)"))
+
+
+def _migrate_task_decomposition(conn):
+    """P2b 拆分列：complexity / context_package / decomposition。
+
+    存量任务三列均为 NULL（未分类、无上下文包、未拆分），行为不变。
+    重复执行幂等：按列存在性判断。
+    """
+    cols = {c["name"] for c in inspect(conn).get_columns("task")}
+    if "complexity" not in cols:
+        conn.execute(text("ALTER TABLE task ADD COLUMN complexity VARCHAR"))
+    if "context_package" not in cols:
+        conn.execute(text("ALTER TABLE task ADD COLUMN context_package TEXT"))
+    if "decomposition" not in cols:
+        conn.execute(text("ALTER TABLE task ADD COLUMN decomposition TEXT"))
 
 
 def _migrate_run_diff_gate(conn):

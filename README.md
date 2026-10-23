@@ -7,8 +7,8 @@
 | 维度 | 现状 |
 |------|------|
 | 版本 | v0.6.1 |
-| 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 76 模块 / 27,400 行 |
-| 对外能力 | **163 个 REST 端点** · **47 个 MCP 工具** · WebSocket 实时广播 · React Web UI |
+| 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 76 模块 / 27,617 行 |
+| 对外能力 | **164 个 REST 端点** · **49 个 MCP 工具** · WebSocket 实时广播 · React Web UI |
 | 任务文档 | **22 类文档 kind** · **7 件套文档链** · **9 类生命周期状态机** · 质量 lint + 状态门控 + 修订指令 |
 | 前端 | React 18 + Vite 5 · 48 文件 / 11,762 行 · 10 个视图 |
 | 测试 | **1363 个用例**（55 文件 / 8,480 行）· GitHub Actions（windows-latest / py3.12） |

@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 from mio_taskhub.db import engine
 from mio_taskhub.api.claim import claim_for as _claim_for
 from mio_taskhub.models import Agent, AgentStatus, Run, RunState, Task, TaskStage, TaskState
+from mio_taskhub.hierarchy import claimable_task_clause
 from mio_taskhub.workflow.state_machine import is_terminal
 from mio_taskhub.dependency import dependency_satisfied, task_deps
 from mio_taskhub.events import emit_event, broadcast_for_event
@@ -393,6 +394,8 @@ def _assign_to_idle_agents():
                 Task.stage == TaskStage.READY,
                 # 派单让位：排除主动领取型任务
                 Task.grab_mode == False,  # noqa: E712
+                # P2a：主任务不是执行单元，后台派单也不得尝试。
+                claimable_task_clause(),
             )
             .order_by(Task.priority.desc(), Task.created_at.asc())
         ).all()

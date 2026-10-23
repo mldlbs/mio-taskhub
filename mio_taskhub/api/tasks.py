@@ -1,7 +1,9 @@
 import uuid
+import json
 from datetime import datetime, timezone
 from mio_taskhub.api.claim import claim_for, should_fallback
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
 
 from mio_taskhub.db import get_session
@@ -15,6 +17,10 @@ from mio_taskhub.dependency import normalize_depends, task_deps
 from mio_taskhub.events import emit_event
 from mio_taskhub.api.task_helpers import parse_dt, parse_enum, check_cycle, validate_depends
 from mio_taskhub.planner import detect_cycle
+from mio_taskhub.hierarchy import (
+    ROLE_CHILD, ROLE_LEAF, ROLE_MAIN, hierarchy_enabled, normalize_role,
+    validate_child_parent, validate_enabled,
+)
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -22,11 +28,55 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 def create_task(body: dict, db: Session = Depends(get_session)):
     due_at = parse_dt(body.get("due_at"), "due_at")
     run_at = parse_dt(body.get("run_at"), "run_at")
-    stage_val = body.get("stage", "brainstorming")
+    parent_id = (body.get("parent_id") or "").strip() or None
+    requested_role = (body.get("role") or "").strip().lower() or None
+    complexity = str(body.get("complexity") or "").strip().upper() or None
+    if complexity and complexity not in ("S", "M", "L"):
+        raise HTTPException(400, "complexity must be S/M/L or omitted")
+    if validate_enabled() and (parent_id or requested_role in (ROLE_CHILD, ROLE_MAIN)):
+        raise HTTPException(400, detail={
+            "code": "decompose.child_create_forbidden",
+            "message": "child tasks can only be created by decompose/apply",
+            "refs": [],
+        })
+    # 子任务必须 ready：未显式给 stage 时，带 parent_id 的建单默认 ready。
+    stage_val = body.get("stage") or ("ready" if parent_id else "brainstorming")
     try:
         stage = TaskStage(stage_val)
     except ValueError:
         raise HTTPException(400, f"invalid stage: {stage_val}")
+
+    # P2a 任务层级：parent_id 只能指向一个存在的顶层任务；子任务必须 ready。
+    # P2b 起上面的 validate_enabled 分支已拒绝直接建子任务，这里仅保留 P2a 引导路径。
+    parent = None
+    if parent_id:
+        if not hierarchy_enabled():
+            raise HTTPException(
+                400, "hierarchy disabled (set MIO_DECOMPOSE_STAGE=hierarchy)")
+        if requested_role not in (None, ROLE_CHILD):
+            raise HTTPException(400, "child role must be 'child'")
+        if stage != TaskStage.READY:
+            raise HTTPException(422, "child stage must be ready")
+        try:
+            parent = validate_child_parent(db, parent_id)
+        except ValueError as exc:
+            code = str(exc)
+            status = 404 if code == "parent_not_found" else 409 if code == "parent_terminal" else 422
+            raise HTTPException(status, f"invalid parent: {code}")
+        active = db.exec(
+            select(Run).where(
+                Run.task_id == parent_id,
+                Run.state.in_([RunState.CLAIMED, RunState.RUNNING]),
+            )
+        ).first()
+        if active:
+            raise HTTPException(409, "invalid parent: parent_busy")
+        role = ROLE_CHILD
+    else:
+        if requested_role not in (None, ROLE_LEAF):
+            raise HTTPException(
+                400, "role=main can only be created by decomposition")
+        role = ROLE_LEAF
     # kind -> path 映射；spec_path / plan_path 仍可传，会并入 doc_paths
     doc_paths = merge_doc_paths({}, body.get("doc_paths"))
     _spec = (body.get("spec_path") or "").strip()
@@ -65,12 +115,19 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         # （requirement/spec/api 需 approved 才能进 design，plan 需 approved 才能进 planning）。
         # 显式传 True 可豁免（如仅做代码改动、不走文档链的任务），但该值会被审计看到。
         doc_gate_exempt=bool(body.get("doc_gate_exempt", False)),
+        parent_id=parent_id,
+        role=role,
+        complexity=complexity,
     )
     validate_depends(t, db)
     check_cycle(t, db)
     db.add(t)
+    if parent is not None:
+        parent.role = ROLE_MAIN
+        db.add(parent)
     event = emit_event(db, type="task_created", entity="task", entity_id=t.id,
-                       payload={"title": t.title, "stage": t.stage.value})
+                       payload={"title": t.title, "stage": t.stage.value,
+                                "parent_id": parent_id, "role": role})
     db.commit()
     db.refresh(t)
     return {
@@ -80,6 +137,9 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         "fallback_after": t.fallback_after,
         "grab_mode": bool(t.grab_mode),
         "doc_gate_exempt": bool(t.doc_gate_exempt),
+        "parent_id": t.parent_id,
+        "role": normalize_role(t),
+        "complexity": t.complexity,
     }
 
 @router.get("", response_model=list)
@@ -111,10 +171,45 @@ def list_tasks(state: str = None, agent_type: str = None, stage: str = None,
          "grab_mode": bool(r.grab_mode),
          "doc_gate_exempt": bool(getattr(r, "doc_gate_exempt", False)),
          "depends_on": task_deps(r), "idea_id": r.idea_id,
+         "parent_id": r.parent_id, "role": normalize_role(r),
+         "complexity": r.complexity,
          "est_duration_min": r.est_duration_min,
          "project": r.project, "workspace": r.workspace}
         for r in rows
     ]
+
+def _json_value(value):
+    if not value:
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError):
+        return value
+
+
+def _children_payload(task_id: str, db: Session) -> dict:
+    """父子关系查询（P2a）：子任务列表 + 进度，只读。"""
+    rows = db.exec(
+        select(Task).where(Task.parent_id == task_id).order_by(Task.created_at.asc())
+    ).all()
+    children = []
+    done = 0
+    for r in rows:
+        stage = r.stage.value if not isinstance(r.stage, str) else r.stage
+        if stage == TaskStage.DONE.value:
+            done += 1
+        children.append({
+            "id": r.id, "title": r.title, "state": r.state.value,
+            "stage": stage, "role": normalize_role(r),
+        })
+    return {
+        "children": children,
+        "children_total": len(children),
+        "children_done": done,
+    }
+
 
 def _task_detail(t: Task, db: Session) -> dict:
     subtasks = db.exec(select(Subtask).where(Subtask.task_id == t.id).order_by(Subtask.order)).all()
@@ -161,6 +256,11 @@ def _task_detail(t: Task, db: Session) -> dict:
     return {
         "id": t.id, "title": t.title, "description": t.description, "state": t.state.value,
         "priority": t.priority, "target_agent_type": t.target_agent_type,
+        "parent_id": t.parent_id, "role": normalize_role(t),
+        "complexity": t.complexity,
+        "decomposition": _json_value(t.decomposition),
+        "context_package": _json_value(t.context_package),
+        **_children_payload(t.id, db),
         "schedule_type": t.schedule_type, "run_at": _fmt(t.run_at),
         "cron_expr": t.cron_expr, "est_duration_min": t.est_duration_min,
         "depends_on": task_deps(t), "max_retries": t.max_retries, "attempt": t.attempt,
@@ -215,6 +315,15 @@ def get_task(task_id: str, db: Session = Depends(get_session)):
     if not t:
         raise HTTPException(404, "task not found")
     return _task_detail(t, db)
+
+
+@router.get("/{task_id}/children")
+def list_children(task_id: str, db: Session = Depends(get_session)):
+    """列出子任务（P2a）：不存在父任务 -> 404；无子任务 -> 空列表。"""
+    if db.get(Task, task_id) is None:
+        raise HTTPException(404, "task not found")
+    return {"parent_id": task_id, **_children_payload(task_id, db)}
+
 
 @router.patch("/{task_id}")
 def update_task(task_id: str, body: dict, db: Session = Depends(get_session)):
@@ -341,6 +450,22 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
             t = db.get(Task, task_id)
             if not t:
                 return Response(status_code=404, content=f"task {task_id} not found")
+            if normalize_role(t) == ROLE_MAIN:
+                children = db.exec(select(Task).where(Task.parent_id == t.id)).all()
+                incomplete = [c.id for c in children
+                              if c.state != TaskState.COMPLETED
+                              and getattr(c.stage, "value", c.stage) != "done"]
+                if incomplete:
+                    return JSONResponse(status_code=409, content={"detail": {
+                        "code": "decompose.children_incomplete",
+                        "message": "children are not all completed",
+                        "refs": incomplete,
+                    }})
+                return JSONResponse(status_code=409, content={"detail": {
+                    "code": "decompose.children_incomplete",
+                    "message": "task is main; not claimable by a worker",
+                    "refs": [],
+                }})
             if t.state != TaskState.QUEUED:
                 return Response(status_code=409, content=f"task {task_id} 不可领取（当前状态 {t.state.value}）")
         return Response(status_code=204)

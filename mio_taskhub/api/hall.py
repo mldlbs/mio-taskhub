@@ -17,6 +17,7 @@ from sqlmodel import Session, select
 
 from mio_taskhub.db import get_session
 from mio_taskhub.models import Task, TaskStage, TaskState
+from mio_taskhub.hierarchy import claimable_task_clause
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -42,6 +43,7 @@ def list_hall(
         Task.grab_mode == True,  # noqa: E712 —— SQLAlchemy 需用 == True 而非 is True
         Task.state == TaskState.QUEUED,
         Task.stage == TaskStage.READY,
+        claimable_task_clause(),
     )
     # 过滤条件均为可选：空值表示不过滤。逗号分隔多值按 OR 语义。
     if target_agent_type:

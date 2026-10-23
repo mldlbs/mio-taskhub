@@ -5,6 +5,7 @@ from sqlalchemy import case, Integer, func
 from sqlalchemy import update as sa_update
 from mio_taskhub.models import Task, TaskState, TaskStage, Agent, AgentStatus
 from mio_taskhub.api.runs import find_existing_run, create_run
+from mio_taskhub.hierarchy import claimable_task_clause, is_main
 from mio_taskhub.utils import _now
 
 
@@ -71,8 +72,15 @@ def pick_candidate_task(db, agent_type, task_id, project_scope: Optional[str] = 
         task = db.get(Task, task_id)
         if not task or task.state != TaskState.QUEUED:
             return None
+        # P2a：主任务不是执行单元，即使点名也不能被普通 worker 领走。
+        if is_main(task):
+            return None
         return task
-    q = select(Task).where(Task.state == TaskState.QUEUED, Task.stage == TaskStage.READY)
+    q = select(Task).where(
+        Task.state == TaskState.QUEUED,
+        Task.stage == TaskStage.READY,
+        claimable_task_clause(),
+    )
     if project_scope:
         scopes = [p.strip() for p in project_scope.split(",") if p.strip()]
         if scopes:
@@ -121,7 +129,12 @@ def atomic_claim(db, agent, candidate):
     """条件更新抢占：仅当 state 仍为 queued 才算抢到。"""
     res = db.exec(
         sa_update(Task)
-        .where(Task.id == candidate.id, Task.state == TaskState.QUEUED)
+        .where(
+            Task.id == candidate.id,
+            Task.state == TaskState.QUEUED,
+            # P2a：CAS 与候选过滤同源，防止选到后被改成 main 仍被抢走。
+            claimable_task_clause(),
+        )
         .values(state=TaskState.CLAIMED)
     )
     if res.rowcount != 1:

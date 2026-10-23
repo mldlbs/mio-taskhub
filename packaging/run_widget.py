@@ -52,6 +52,42 @@ def _single_instance():
         return None
 
 
+def _work_area_for_edge():
+    """返回鼠标所在显示器的工作区 (x, y, w, h)；拿不到返回 None。"""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        MONITOR_DEFAULTTONEAREST = 2
+
+        class RECT(ctypes.Structure):
+            _fields_ = [("l", ctypes.c_long), ("t", ctypes.c_long),
+                        ("r", ctypes.c_long), ("b", ctypes.c_long)]
+
+        class MONITORINFO(ctypes.Structure):
+            _fields_ = [("cbSize", ctypes.c_ulong),
+                        ("rcMonitor", RECT), ("rcWork", RECT),
+                        ("dwFlags", ctypes.c_ulong)]
+
+        class POINT(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+        pt = POINT(user32.GetSystemMetrics(0) // 2, user32.GetSystemMetrics(1) // 2)
+        # 取屏幕中心作为参考点（避免鼠标在边缘时取到次屏）
+        hmon = user32.MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST)
+        if not hmon:
+            return None
+        mi = MONITORINFO()
+        mi.cbSize = ctypes.sizeof(MONITORINFO)
+        if not user32.GetMonitorInfoW(hmon, ctypes.byref(mi)):
+            return None
+        rc = mi.rcWork
+        return (rc.l, rc.t, rc.r - rc.l, rc.b - rc.t)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _resize_edge_window():
     """启动后强制将 Edge 窗口调整为 1920×1080 并置顶。"""
     time.sleep(2)
@@ -99,18 +135,29 @@ def _open_browser(url: str):
             break
 
     if edge_exe:
+        # 计算屏幕中心位置（用鼠标所在屏的工作区，含多屏）
+        work_area = _work_area_for_edge()
+        if work_area:
+            cx, cy, cw, ch = work_area[0] + work_area[2] // 2, work_area[1] + work_area[3] // 2, 1920, 1080
+            x = cx - cw // 2
+            y = cy - ch // 2
+        else:
+            x, y = 0, 0
         subprocess.Popen(
             [
                 edge_exe,
                 f"--app={url}",
                 "--new-window",
+                f"--window-position={x},{y}",
+                f"--window-size=1920,1080",
                 "--disable-features=msEdgeTranslate",
                 "--no-first-run",
                 "--disable-gpu",
             ],
-            creationflags=0x08000000,  # CREATE_NO_WINDOW
+            creationflags=0x08000000 | 0x00000008,  # CREATE_NO_WINDOW + SW_HIDE (隐藏启动，之后再显示)
         )
-        # 异步调整窗口大小
+        # 异步调整窗口大小：先隐藏启动（避免左上角闪一下），
+        # 找到窗口后再定位到屏幕中心并显示
         threading.Thread(target=_resize_edge_window, daemon=True).start()
     else:
         os.startfile(url)

@@ -9,6 +9,7 @@ from mio_taskhub.workflow.state_machine import (
 from mio_taskhub.dependency import task_deps, dependency_satisfied
 from mio_taskhub.composite import composite_status, COMPOSITE_LABEL
 from mio_taskhub.heartbeat import DEFAULT_TIMEOUT_SECONDS
+from mio_taskhub.hierarchy import claimable_task_clause
 from mio_taskhub.utils import _now
 
 router = APIRouter(prefix="/board", tags=["board"])
@@ -35,7 +36,12 @@ def _count_by_stage(tasks):
 
 def _ready_queue(db, now):
     rows = db.exec(
-        select(Task).where(Task.state == TaskState.QUEUED, Task.stage == TaskStage.READY)
+        select(Task).where(
+            Task.state == TaskState.QUEUED,
+            Task.stage == TaskStage.READY,
+            # P2a：主任务不是可领取单元，不出现在待领取队列。
+            claimable_task_clause(),
+        )
         .order_by(Task.priority.desc(), Task.created_at.asc())
     ).all()
     queue = []
