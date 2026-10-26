@@ -60,6 +60,83 @@ def _panel_geometry():
     return x, y, ww, wh
 
 
+def _visible_rect(hwnd):
+    """窗口可见边框 (x, y, w, h)，优先 DWM 扩展边框（排除不可见 resize 边框）。"""
+    class _R(ctypes.Structure):
+        _fields_ = [("l", ctypes.c_long), ("t", ctypes.c_long),
+                    ("r", ctypes.c_long), ("b", ctypes.c_long)]
+
+    er = _R()
+    ok = False
+    try:
+        ok = ctypes.windll.dwmapi.DwmGetWindowAttribute(
+            wintypes.HWND(hwnd), 9, ctypes.byref(er), ctypes.sizeof(er)) == 0
+    except Exception:
+        ok = False
+    if ok and er.r > er.l and er.b > er.t:
+        return (er.l, er.t, er.r - er.l, er.b - er.t)
+    wr = _R()
+    ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(wr))
+    return (wr.l, wr.t, wr.r - wr.l, wr.b - wr.t)
+
+
+def _place_window(hwnd, x, y, w, h):
+    """把窗口的**可见边框**精确放到 (x, y, w, h)。
+
+    Win10/11 的窗口在 GetWindowRect 里含一圈**不可见的 resize 边框**（约 7–8px/边），
+    直接 SetWindowPos 到目标坐标会整体偏移/偏大。用 DwmGetWindowAttribute(
+    DWMWA_EXTENDED_FRAME_BOUNDS) 取可见边框，反推补偿后再摆窗口，实现像素级对齐。
+    """
+    user32 = ctypes.windll.user32
+    SWP_NOZORDER = 0x0004
+    SWP_SHOWWINDOW = 0x0040
+
+    class _R(ctypes.Structure):
+        _fields_ = [("l", ctypes.c_long), ("t", ctypes.c_long),
+                    ("r", ctypes.c_long), ("b", ctypes.c_long)]
+
+    try:
+        wr = _R()
+        user32.GetWindowRect(hwnd, ctypes.byref(wr))
+        er = _R()
+        ok = False
+        try:
+            DWMWA_EXTENDED_FRAME_BOUNDS = 9
+            ok = ctypes.windll.dwmapi.DwmGetWindowAttribute(
+                wintypes.HWND(hwnd), DWMWA_EXTENDED_FRAME_BOUNDS,
+                ctypes.byref(er), ctypes.sizeof(er)) == 0
+        except Exception:
+            ok = False
+        if ok and er.r > er.l and er.b > er.t:
+            bl = er.l - wr.l        # 左边不可见边框（通常 7~8px）
+            bt = er.t - wr.t
+            br = wr.r - er.r
+            bb = wr.b - er.b
+            user32.SetWindowPos(hwnd, 0, x - bl, y - bt,
+                                w + bl + br, h + bt + bb,
+                                SWP_NOZORDER | SWP_SHOWWINDOW)
+        else:
+            user32.SetWindowPos(hwnd, 0, x, y, w, h, SWP_NOZORDER | SWP_SHOWWINDOW)
+        user32.ShowWindow(hwnd, 5)  # SW_SHOW
+        return True
+    except Exception:
+        return False
+
+
+def _settle_window(hwnd):
+    """把窗口反复摆到 `_panel_geometry()` 目标，直到可见边框命中（Edge 显示后会自行挪窗）。"""
+    x, y, ww, wh = _panel_geometry()
+    v = None
+    for _ in range(10):
+        _place_window(hwnd, x, y, ww, wh)
+        time.sleep(0.2)
+        v = _visible_rect(hwnd)
+        if (v and abs(v[0] - x) <= 4 and abs(v[1] - y) <= 4
+                and abs(v[2] - ww) <= 4 and abs(v[3] - wh) <= 4):
+            return True, v
+    return False, v
+
+
 def _msgbox(title, text):
     try:
         ctypes.windll.user32.MessageBoxW(0, text, title, 0x10)
@@ -244,6 +321,9 @@ def _start_tray(url: str, exit_controller):
         if existing:
             _log(f"tray: reusing existing window hwnd={existing}")
             user32 = ctypes.windll.user32
+            # 复用时也要重新摆位：旧窗口可能是上次残留（位置/大小不对）
+            ok, v = _settle_window(existing)
+            _log(f"tray: re-placed existing window ok={ok} actual={v}")
             user32.SetForegroundWindow(existing)
             user32.ShowWindow(existing, 9)  # SW_RESTORE
             return
@@ -297,12 +377,9 @@ def _start_tray(url: str, exit_controller):
                             hwnd = found[0]
                             break
                     if hwnd:
-                        SWP_NOZORDER = 0x0004
-                        SWP_SHOWWINDOW = 0x0040
-                        # 确保位置和大小正确，然后显示
-                        user32.SetWindowPos(hwnd, 0, x, y, ww, wh, SWP_NOZORDER | SWP_SHOWWINDOW)
-                        user32.ShowWindow(hwnd, 5)  # SW_SHOW
-                        _log(f"tray: placed window {ww}x{wh} at ({x},{y})")
+                        # 校验-纠正：Edge 显示后可能自行挪窗/缩边，反复摆直到可见边框命中目标
+                        ok, last = _settle_window(hwnd)
+                        _log(f"tray: placed window {ww}x{wh} at ({x},{y}) ok={ok} actual={last}")
                     else:
                         _log("tray: could not find Edge window")
 
