@@ -13,7 +13,7 @@ Set-Location $root
 Write-Host ''
 Write-Host '[0/6] 杀掉所有 mio-taskhub 进程 ...'
 Get-WmiObject Win32_Process | Where-Object {
-    $_.Name -eq 'mio-taskhub.exe'
+    $_.Name -eq 'TaskHub.exe'
 } | ForEach-Object {
     Write-Host "  killing PID $($_.ProcessId): $($_.ProcessName)"
     Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
@@ -76,7 +76,7 @@ $checks = @(
     @{ Path = "$internalDir\PIL\_imaging*.pyd";  Label = '_imaging native' },
     @{ Path = "$internalDir\web\dist\index.html"; Label = 'web/dist/index.html' },
     @{ Path = "$internalDir\web\dist\assets";    Label = 'web/dist/assets' },
-    @{ Path = "$distDir\mio-taskhub.exe";        Label = 'mio-taskhub.exe' }
+    @{ Path = "$distDir\mio-taskhub.exe";        Label = 'TaskHub.exe' }
 )
 $failed = $false
 foreach ($c in $checks) {
@@ -171,7 +171,7 @@ if ($LASTEXITCODE -ne 0) { throw '安装器分发产物不一致' }
 # ---------- 启动 hub 模式 ----------
 Write-Host ''
 Write-Host '启动 hub 模式 ...'
-Start-Process -FilePath (Join-Path $distDir 'mio-taskhub.exe') -ArgumentList 'hub'
+Start-Process -FilePath (Join-Path $distDir 'TaskHub.exe') -ArgumentList 'hub'
 Start-Sleep -Seconds 4
 
 # 验证

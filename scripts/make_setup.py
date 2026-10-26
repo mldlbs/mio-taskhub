@@ -53,7 +53,7 @@ def main(argv=None) -> int:
     try:
         with zipfile.ZipFile(payload) as zf:
             names = set(zf.namelist())
-            if "mio-taskhub.exe" not in names:
+            if "TaskHub.exe" not in names:
                 print("[FAIL] payload 缺少 mio-taskhub.exe", file=sys.stderr)
                 return 1
     except zipfile.BadZipFile as e:
@@ -86,7 +86,7 @@ def main(argv=None) -> int:
         try:
             extracted = embedded.extract_embedded_payload(out, tmpdir)
             with zipfile.ZipFile(extracted) as zf:
-                if "mio-taskhub.exe" not in zf.namelist():
+                if "TaskHub.exe" not in zf.namelist():
                     print("[FAIL] 解出的内嵌包内容不对", file=sys.stderr)
                     return 1
             if extracted.stat().st_size != plen:

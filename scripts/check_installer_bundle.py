@@ -129,7 +129,7 @@ def _check_single_file(bundled_setup: Path, live_uninstall) -> list:
                             % (plen, extracted.stat().st_size))
         with zipfile.ZipFile(extracted) as zf:
             names = set(zf.namelist())
-            if "mio-taskhub.exe" not in names:
+            if "TaskHub.exe" not in names:
                 problems.append("内嵌 payload 缺少 mio-taskhub.exe")
             if UNINSTALL_EXE in names and live_uninstall and \
                     live_uninstall.exists():

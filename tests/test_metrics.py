@@ -216,6 +216,29 @@ def test_primary_rate_zero_excluded_when_no_monitoring_noise():
     assert _gauge(text, "taskhub_task_monitoring_success_rate") == 0.0
 
 
+def test_primary_rate_excludes_archived_spinning_and_repair():
+    """housekeeping 归档（archived:spinning）与 CANCELLED→FAILED 批量修复
+    （repaired:p1-1-cancelled-to-failed）不是交付失败，主口径必须与 active 同口径排除。
+
+    task b2a2ea02：2026-10-19 的修复把 1470 条已归档空转任务改成 FAILED，
+    主口径只过滤 insight-* 时 failure_rate 被钉在 0.9045 触发 critical。
+    """
+    _seed_terminal("real-1", "COMPLETED")
+    _seed_terminal("real-f-1", "FAILED")
+    _seed_terminal("spin-1", "FAILED", labels=["auto", "archived:spinning"])
+    _seed_terminal("repair-1", "FAILED",
+                   labels=["repaired:p1-1-cancelled-to-failed"])
+    _seed_terminal("spin-repair-1", "FAILED",
+                   labels=["archived:spinning",
+                           "repaired:p1-1-cancelled-to-failed"])
+    text = client.get("/metrics").text
+    # 真实交付 1 成 1 败；3 条归档/修复工件不进主口径
+    assert _gauge(text, "taskhub_task_success_rate") == 0.5
+    assert _gauge(text, "taskhub_task_failure_rate") == 0.5
+    assert _gauge(text, "taskhub_task_attempted_total") == 2
+    assert _gauge(text, "taskhub_task_attempted_total_active") == 2
+
+
 def test_primary_rate_null_labels_not_excluded():
     """labels 为 NULL 的任务属正常任务，不得被监控过滤误排除。"""
     with Session(engine) as s:

@@ -79,6 +79,17 @@ def _codes(response):
     return set()
 
 
+def _write_spec(tmp_path):
+    doc = tmp_path / "docs" / "spec.md"
+    doc.parent.mkdir(parents=True, exist_ok=True)
+    doc.write_text(
+        "# Spec\n\nFULL_ONLY\n\n## 2.3 Target\n\nSECTION_ONLY\n\n"
+        "## 9 Other\n\nOTHER_ONLY\n",
+        encoding="utf-8",
+    )
+    return doc
+
+
 def test_preview_valid_and_apply_creates_children(monkeypatch):
     """T29：合法 apply 原子创建子任务、回写父任务、依赖映射正确。"""
     _enable(monkeypatch)
@@ -329,3 +340,68 @@ def test_stage_off_returns_404(monkeypatch):
                        json=_payload()).status_code == 404
     assert client.post(f"/api/v1/tasks/{pid}/decompose/apply",
                        json=_payload()).status_code == 404
+
+
+def test_context_soft_budget_warns(monkeypatch, tmp_path):
+    """T28: soft budget warns, apply still succeeds."""
+    _enable(monkeypatch, "context")
+    monkeypatch.setenv("MIO_SUBTASK_CONTEXT_SOFT", "10")
+    monkeypatch.setenv("MIO_SUBTASK_CONTEXT_HARD", "100000")
+    _write_spec(tmp_path)
+    pid = _mk_parent(workspace=str(tmp_path))
+    child = _child("C1", "P1")
+    child["documents"] = [{"kind": "spec", "path": "docs/spec.md",
+                           "sections": ["2.3"]}]
+    payload = _payload(children=[child, _child("C2", "P2")])
+    body = client.post(f"/api/v1/tasks/{pid}/decompose/preview", json=payload).json()
+    assert body["ok"] is True
+    assert body["context_estimates"]["C1"]["over_soft"] is True
+    assert "decompose.context_soft_budget" in {w["code"] for w in body["warnings"]}
+    applied = client.post(f"/api/v1/tasks/{pid}/decompose/apply", json=payload)
+    assert applied.status_code == 200, applied.text
+
+
+def test_context_hard_cap_blocks_apply(monkeypatch, tmp_path):
+    """T28: hard cap blocks apply with 422."""
+    _enable(monkeypatch, "context")
+    monkeypatch.setenv("MIO_SUBTASK_CONTEXT_SOFT", "1")
+    monkeypatch.setenv("MIO_SUBTASK_CONTEXT_HARD", "10")
+    _write_spec(tmp_path)
+    pid = _mk_parent(workspace=str(tmp_path))
+    child = _child("C1", "P1")
+    child["documents"] = [{"kind": "spec", "path": "docs/spec.md",
+                           "sections": ["2.3"]}]
+    payload = _payload(children=[child, _child("C2", "P2")])
+    body = client.post(f"/api/v1/tasks/{pid}/decompose/preview", json=payload).json()
+    assert body["ok"] is False
+    assert "decompose.context_hard_cap" in {e["code"] for e in body["errors"]}
+    applied = client.post(f"/api/v1/tasks/{pid}/decompose/apply", json=payload)
+    assert applied.status_code == 422
+    assert "decompose.context_hard_cap" in _codes(applied)
+
+
+def test_claim_returns_package_sections_only(monkeypatch, tmp_path):
+    """T31: child claim inlines only context_package sections."""
+    _enable(monkeypatch, "context")
+    _write_spec(tmp_path)
+    pid = _mk_parent(workspace=str(tmp_path))
+    child = _child("C1", "P1")
+    child["documents"] = [{"kind": "spec", "path": "docs/spec.md",
+                           "sections": ["2.3"]}]
+    payload = _payload(children=[child, _child("C2", "P2")])
+    applied = client.post(f"/api/v1/tasks/{pid}/decompose/apply", json=payload)
+    assert applied.status_code == 200, applied.text
+    child_id = applied.json()["ref_map"]["C1"]
+
+    claimed = client.post("/api/v1/tasks/claim",
+                          params={"agent": "p2c-worker", "task_id": child_id})
+    assert claimed.status_code == 200, claimed.text
+    body = claimed.json()
+    assert body["package_only"] is True
+    assert body["context_package"]["parent"]["id"] == pid
+    assert body["context_package"]["estimate"]["tokens"] > 0
+    doc = body["documents"]["spec"]
+    assert doc["sections"] == ["2.3"]
+    assert "SECTION_ONLY" in doc["content"]
+    assert "FULL_ONLY" not in doc["content"]
+    assert "OTHER_ONLY" not in doc["content"]

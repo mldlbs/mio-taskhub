@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """payload（程序压缩包）布局契约 —— **安装器与更新器共用的唯一事实源**。
 
-契约：payload zip **根目录**下直接是 `mio-taskhub.exe` 与 `_internal/...`。
+契约：payload zip **根目录**下直接是 `TaskHub.exe` 与 `_internal/...`。
 
 历史上发布过的 zip 顶层带一层目录（`mio-taskhub-v3/`），而更新器的
 `verify_staging` 按「根目录即内容」校验 → 校验失败 → **自动更新装不上**。
@@ -18,7 +18,7 @@ from pathlib import Path
 
 #: payload 必须包含的关键项（相对 payload 根目录）
 REQUIRED_ENTRIES = (
-    "mio-taskhub.exe",
+    "TaskHub.exe",
     os.path.join("_internal", "web", "dist", "index.html"),
 )
 
@@ -32,7 +32,7 @@ def _has_root_entries(names) -> bool:
         if n.endswith("/"):
             continue
         head = n.split("/", 1)[0]
-        if head in ("mio-taskhub.exe", "_internal"):
+        if head in ("TaskHub.exe", "_internal"):
             return True
     return False
 

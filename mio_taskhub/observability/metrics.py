@@ -269,10 +269,17 @@ def render_metrics() -> str:
             # 把它们计入分母会让指标度量自己派出的任务——数学上不可能靠再派
             # 任务把失败率压下去（实测 30d：混算 0.8198，剔除后真实交付 0.9730）。
             # 主口径排除它们，critical 告警才能反映真实交付质量（task e83cc9e2）。
+            # 3) 同理排除 housekeeping 自动归档（archived:spinning）与
+            #    CANCELLED→FAILED 批量修复（repaired:p1-1-cancelled-to-failed）：
+            #    2026-10-19 的修复把 1470 条已归档的空转评审任务改成 FAILED，
+            #    主口径只过滤 insight-* 时失败率被钉在 0.9045（task b2a2ea02）。
+            #    与 active 口径（下方 _active 查询）保持同一排除集合。
             monitor_filter = (
                 "AND (labels IS NULL "
                 "OR (labels NOT LIKE '%insight-auto%' "
-                "AND labels NOT LIKE '%insight-followup%'))"
+                "AND labels NOT LIKE '%insight-followup%' "
+                "AND labels NOT LIKE '%archived:spinning%' "
+                "AND labels NOT LIKE '%repaired:p1-1%'))"
             )
             rate_rows = s.exec(text(f"""
                 SELECT
@@ -343,6 +350,7 @@ def render_metrics() -> str:
                   AND julianday('now') - julianday(COALESCE(last_transition_at, created_at)) <= {win}
                   AND COALESCE(labels, '[]') NOT LIKE '%insight-auto%'
                   AND COALESCE(labels, '[]') NOT LIKE '%archived:spinning%'
+                  AND COALESCE(labels, '[]') NOT LIKE '%repaired:p1-1%'
             """)).first()
             a_completed = (active_rows[0] if active_rows else 0) or 0
             a_failed = (active_rows[1] if active_rows else 0) or 0

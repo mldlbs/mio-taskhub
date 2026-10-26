@@ -15,6 +15,7 @@
 - `MIO_READ_GATE_KINDS` 可改要求项，默认 `spec,api,requirement`。
 """
 import hashlib
+import json
 import logging
 import os
 import re
@@ -218,31 +219,85 @@ def _lessons_for(task: Any) -> Dict[str, Any]:
         return empty_lessons()
 
 
-def build_claim_context(task: Any) -> Dict[str, Any]:
+def _json_obj(value: Any) -> Optional[Dict[str, Any]]:
+    if isinstance(value, dict):
+        return value
+    if not value:
+        return None
+    try:
+        data = json.loads(value)
+    except (TypeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _package_doc_preview(task: Any, package: Dict[str, Any]) -> Dict[str, Any]:
+    """P2c：只内联 context_package 指定章节，不返回父任务文档全文。"""
+    from mio_taskhub.decomposition import read_context_sections
+    docs: Dict[str, Any] = {}
+    for idx, entry in enumerate(package.get("documents") or []):
+        if not isinstance(entry, dict):
+            continue
+        kind = str(entry.get("kind") or f"doc{idx + 1}")
+        key = kind
+        if key in docs:
+            key = f"{kind}#{idx + 1}"
+        selected, path, error = read_context_sections(task, entry)
+        content = selected or ""
+        docs[key] = {
+            "path": str(entry.get("path") or ""),
+            "sections": list(entry.get("sections") or []),
+            "version": file_fingerprint(path),
+            "content": content[:INLINE_CAP],
+            "truncated": len(content) > INLINE_CAP,
+            "error": error or None,
+        }
+    return docs
+
+
+def build_claim_context(task: Any, package_only: Optional[bool] = None) -> Dict[str, Any]:
     """claim 成功时内联返回文档上下文（预览 + 必读项 + FR + 同项目参考）。
 
     **内联 ≠ 已读**：不产生 evidence；agent 仍须 read_document(run_id=...) 才能过 submit 门控。
 
-    `lessons` 是**软信息**（2026-10-10，任务 28f8fceb）：来自同 workspace 近期已完成
-    任务的测试方式 / 文件布局 / 已知坑。它不参与任何门控，取不到也只是空结构。
+    P2c：任务有 context_package 且阶段到达 context 时，claim 只内联包内指定章节，
+    不再把父任务文档全文塞进响应。
     """
+    from mio_taskhub.hierarchy import STAGE_CONTEXT, stage_at_least
+
+    package = _json_obj(getattr(task, "context_package", None))
+    if package_only is None:
+        package_only = bool(package) and stage_at_least(STAGE_CONTEXT)
+
     required = required_read_kinds(task)
     docs: Dict[str, Any] = {}
     required_fr: List[str] = []
     for kind in required:
-        path = resolve_doc_path(task, kind)
-        text, truncated, _ = read_doc_text(task, kind, cap=INLINE_CAP)
-        docs[kind] = {
-            "path": doc_path_of(task, kind),
-            "status": doc_status(task, kind),
-            "version": file_fingerprint(path),
-            "content": text,
-            "truncated": truncated,
-        }
         if kind == "requirement":
             full, _, _ = read_doc_text(task, kind, cap=None)
             required_fr = extract_fr_ids(full)
-    return {
+
+    if package_only and package:
+        docs = _package_doc_preview(task, package)
+        from mio_taskhub.decomposition import estimate_tokens
+        stored = package.get("estimate") if isinstance(package.get("estimate"), dict) else {}
+        recalculated = estimate_tokens(
+            package, workspace=str(getattr(task, "workspace", "") or ""))
+        estimate_drift = bool(stored) and stored.get("tokens") != recalculated.get("tokens")
+    else:
+        estimate_drift = None
+        for kind in required:
+            path = resolve_doc_path(task, kind)
+            text, truncated, _ = read_doc_text(task, kind, cap=INLINE_CAP)
+            docs[kind] = {
+                "path": doc_path_of(task, kind),
+                "status": doc_status(task, kind),
+                "version": file_fingerprint(path),
+                "content": text,
+                "truncated": truncated,
+            }
+
+    result = {
         "branch": "task-%s" % getattr(task, "id", ""),
         "required_reads": required,
         "required_fr": required_fr,
@@ -254,3 +309,9 @@ def build_claim_context(task: Any) -> Dict[str, Any]:
                  "taskhub_read_document(task_id, kind, run_id=<本 run>) 产生 "
                  "ReadEvidence，否则 taskhub_submit_result 会被拦截。"),
     }
+    if package:
+        result["context_package"] = package
+        result["package_only"] = bool(package_only)
+        if estimate_drift is not None:
+            result["estimate_drift"] = estimate_drift
+    return result

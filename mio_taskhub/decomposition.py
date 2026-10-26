@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -24,13 +26,18 @@ from sqlmodel import select
 from mio_taskhub.dependency import normalize_depends
 from mio_taskhub.doc_paths import doc_path_of, existing_doc_kinds
 from mio_taskhub.events import emit_event
-from mio_taskhub.hierarchy import ROLE_CHILD, ROLE_MAIN, normalize_role
+from mio_taskhub.hierarchy import (
+    ROLE_CHILD, ROLE_MAIN, STAGE_CONTEXT, normalize_role, stage_at_least,
+)
 from mio_taskhub.models import Task, TaskStage
 from mio_taskhub.planner import detect_cycle
 
 COMPLEXITIES = ("S", "M", "L")
 DEFAULT_MAX_CHILDREN = 8
 STAGE_DONE = "done"
+CONTEXT_METHOD = "chars/2.5 + 1500 + 2000"
+_HEADING_RE = re.compile(r"^(#{2,3})\s+(.+?)\s*$", re.MULTILINE)
+_NUM_RE = re.compile(r"^(\d+(?:\.\d+)*)")
 
 
 class DecomposeError(Exception):
@@ -55,6 +62,160 @@ def _env_int(name: str, default: int) -> int:
         return int(os.environ.get(name, default))
     except (TypeError, ValueError):
         return default
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        value = float(os.environ.get(name, default))
+        return value if value > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+def context_config() -> dict:
+    """P2c 上下文预算配置；每次调用读取 env，便于单测与热调。"""
+    soft = _env_int("MIO_SUBTASK_CONTEXT_SOFT", 8000)
+    hard = _env_int("MIO_SUBTASK_CONTEXT_HARD", 16000)
+    window = _env_int("MIO_CONTEXT_WINDOW", 0)
+    if window > 0:
+        hard = min(hard, int(window * 0.5))
+    return {
+        "soft": soft,
+        "hard": hard,
+        "chars_per_token": _env_float("MIO_CONTEXT_CHARS_PER_TOKEN", 2.5),
+        "tool_overhead": _env_int("MIO_CONTEXT_TOOL_OVERHEAD", 1500),
+        "output_reserve": _env_int("MIO_CONTEXT_OUTPUT_RESERVE", 2000),
+        "window": window,
+    }
+
+
+def _read_text(path: Path) -> Optional[str]:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def _section_text(text: str, sections: list[str]) -> Optional[str]:
+    """按 H2/H3 编号或标题前缀截取章节；无 sections 返回全文。"""
+    wanted = [str(s).strip() for s in sections if str(s).strip()]
+    if not wanted:
+        return text
+    marks = [(m.start(), m.group(2).strip()) for m in _HEADING_RE.finditer(text)]
+    chunks: list[str] = []
+    for want in wanted:
+        matched = False
+        for idx, (start, title) in enumerate(marks):
+            num = _NUM_RE.match(title)
+            if want == title or title.startswith(want) or (num and want == num.group(1)):
+                end = marks[idx + 1][0] if idx + 1 < len(marks) else len(text)
+                chunks.append(text[start:end])
+                matched = True
+                break
+        if not matched:
+            return None
+    return "\n".join(chunks)
+
+
+def _resolve_package_path(parent: Task, entry: dict) -> Optional[Path]:
+    raw = str(entry.get("path") or "").strip()
+    if not raw:
+        kind = str(entry.get("kind") or "").strip()
+        raw = doc_path_of(parent, kind) if kind else ""
+    if not raw:
+        return None
+    p = Path(raw)
+    if not p.is_absolute():
+        workspace = str(getattr(parent, "workspace", "") or "").strip()
+        if not workspace:
+            return None
+        p = Path(workspace) / p
+    try:
+        return p.resolve()
+    except OSError:
+        return None
+
+
+def read_context_sections(parent: Task, entry: dict) -> tuple[Optional[str], Optional[Path], str]:
+    """读取 context_package.documents[] 指定章节；返回 (text, path, error_code)。"""
+    path = _resolve_package_path(parent, entry)
+    text = _read_text(path) if path is not None and path.is_file() else None
+    if text is None:
+        return None, path, "context_estimate_missing"
+    selected = _section_text(text, _text_list(entry.get("sections")))
+    if selected is None:
+        return None, path, "section_not_found"
+    return selected, path, ""
+
+
+def _package_documents(parent: Task, child: dict, result: Optional[ValidationResult] = None) -> list[dict]:
+    """规范化 context_package.documents，并计算每个文档的字符数。"""
+    ref = child.get("ref")
+    out: list[dict] = []
+    for raw in _as_list(child.get("documents")):
+        if isinstance(raw, str):
+            entry: dict = {"kind": raw}
+        elif isinstance(raw, dict):
+            entry = dict(raw)
+        else:
+            if result is not None:
+                result.error("schema_invalid", "document must be an object", [ref])
+            continue
+        sections = _text_list(entry.get("sections"))
+        selected, _path, error_code = read_context_sections(parent, entry)
+        if selected is None:
+            if result is not None:
+                message = (f"document section not found: {sections}"
+                           if error_code == "section_not_found"
+                           else f"cannot read document: {entry.get('path') or entry.get('kind')}")
+                result.error(error_code, message, [ref])
+            out.append({**entry, "sections": sections, "chars": 0})
+            continue
+        out.append({**entry, "sections": sections, "chars": len(selected)})
+    return out
+
+
+def _file_chars(package: dict, workspace: str = "") -> int:
+    total = 0
+    for raw in _text_list(package.get("files")):
+        p = Path(raw)
+        if not p.is_absolute():
+            if not workspace:
+                continue
+            p = Path(workspace) / p
+        try:
+            if p.is_file():
+                total += len(p.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            continue
+    return total
+
+
+def estimate_tokens(package: dict, parent_docs: Any = None,
+                    config: Optional[dict] = None, workspace: str = "") -> dict:
+    """估算上下文 tokens；文档用预计算 chars，文件按存在内容计。
+
+    兼容 spec 的 (package, parent_docs, cfg) 调用形态：parent_docs 仅作占位，
+    实际文档字符数由 context_package.documents[].chars 提供。
+    """
+    if config is None and isinstance(parent_docs, dict) and "chars_per_token" in parent_docs:
+        config = parent_docs
+    cfg = config or context_config()
+    doc_chars = sum(int(d.get("chars") or 0) for d in _as_list(package.get("documents"))
+                    if isinstance(d, dict))
+    summary_chars = len(str((package.get("parent") or {}).get("summary") or ""))
+    chars = doc_chars + summary_chars + _file_chars(package, workspace)
+    base = math.ceil(chars / cfg["chars_per_token"])
+    tokens = base + cfg["tool_overhead"] + cfg["output_reserve"]
+    return {
+        "tokens": tokens,
+        "estimated": True,
+        "method": CONTEXT_METHOD,
+        "soft": cfg["soft"],
+        "hard": cfg["hard"],
+        "over_soft": tokens > cfg["soft"],
+        "over_hard": tokens > cfg["hard"],
+    }
 
 
 def _stage_str(task: Task) -> str:
@@ -364,6 +525,30 @@ def _check_complexity(parent: Task, payload: dict, children: list[dict],
     return declared or ""
 
 
+def _check_budget(parent: Task, children: list[dict], payload: dict,
+                  declared: str, result: ValidationResult) -> None:
+    """P2c：估算每个子任务上下文包；软阈值 warning，硬上限 error。"""
+    if not stage_at_least(STAGE_CONTEXT):
+        return
+    for child in children:
+        ref = str(child.get("ref") or "")
+        package = _child_context(parent, child, payload, declared, result)
+        est = package.get("estimate") or {}
+        result.context_estimates[ref] = est
+        if est.get("over_soft"):
+            result.warning(
+                "context_soft_budget",
+                f"{ref} 估算 {est.get('tokens')} tokens，超过软预算 {est.get('soft')}",
+                [ref],
+            )
+        if est.get("over_hard"):
+            result.error(
+                "context_hard_cap",
+                f"{ref} 估算 {est.get('tokens')} tokens，超过硬上限 {est.get('hard')}",
+                [ref],
+            )
+
+
 def _check_docs(parent: Task, declared: str, result: ValidationResult) -> None:
     plan_state = _doc_state(parent, "plan")
     if declared == "L":
@@ -485,6 +670,8 @@ def validate_decomposition(payload: dict, parent: Task) -> ValidationResult:
 
     declared = _check_complexity(parent, payload, [c for c in children if isinstance(c, dict)],
                                  result)
+    _check_budget(parent, [c for c in children if isinstance(c, dict)], payload,
+                  declared, result)
     _check_docs(parent, declared, result)
     return result
 
@@ -494,8 +681,9 @@ def _child_acceptance(value: Any) -> str:
 
 
 def _child_context(parent: Task, child: dict, payload: dict,
-                   declared: str) -> dict:
-    return {
+                   declared: str, result: Optional[ValidationResult] = None) -> dict:
+    docs = _package_documents(parent, child, result)
+    package = {
         "version": 1,
         "parent": {"id": parent.id, "title": parent.title,
                    "summary": str(payload.get("parent_summary") or "")},
@@ -504,10 +692,20 @@ def _child_context(parent: Task, child: dict, payload: dict,
         "deliverables": _text_list(child.get("deliverables")),
         "files": _text_list(child.get("files")),
         "verification": child.get("verification") or "",
-        "documents": child.get("documents") or [],
+        "documents": docs,
         "contracts": child.get("contracts") or {},
         "complexity": child.get("complexity") or declared or None,
     }
+    contracts = package["contracts"]
+    if isinstance(contracts, dict) and "revalidation" not in contracts:
+        contracts = dict(contracts)
+        contracts["revalidation"] = {
+            "on_upstream_change": ["rerun_verification", "notify_consumers"]
+        }
+        package["contracts"] = contracts
+    workspace = str(getattr(parent, "workspace", "") or "")
+    package["estimate"] = estimate_tokens(package, workspace=workspace)
+    return package
 
 
 def apply_decomposition(db, parent: Task, payload: dict, result: ValidationResult,

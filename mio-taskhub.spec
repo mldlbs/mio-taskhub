@@ -67,7 +67,7 @@ exe_hub = EXE(
     pyz_hub,
     a_hub.scripts,
     exclude_binaries=True,
-    name="mio-taskhub",
+    name="TaskHub",
     console=False,
     disable_windowed_traceback=True,
     icon=os.path.join(SPECPATH, "web", "public", "icon.ico"),

@@ -20,7 +20,7 @@ APP_DISPLAY_NAME = "mio-taskhub 任务中心"
 #: 「应用和功能」里的显示名 / 安装器窗口标题。两者可以不一样。
 SHORTCUT_NAME = "Taskhub"
 APP_PUBLISHER = "mldlbs"
-APP_EXE_NAME = "mio-taskhub.exe"
+APP_EXE_NAME = "TaskHub.exe"
 UNINSTALL_EXE_NAME = "uninstall.exe"
 SETUP_EXE_NAME = "mio-taskhub-setup.exe"
 PAYLOAD_ZIP_NAME = "mio-taskhub-win64.zip"
