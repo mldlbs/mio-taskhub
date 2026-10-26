@@ -26,6 +26,40 @@ if sys.stdout is None or sys.stderr is None:
         sys.stderr = _f
 
 
+def _work_area():
+    """主显示器**工作区** (x, y, w, h)，已排除任务栏；失败返回 None。
+
+    面板定位/尺寸必须用工作区而非全屏（GetSystemMetrics）——否则 1080 高的窗口会
+    压到任务栏下面，看起来"大小不对、位置偏低"。
+    """
+    try:
+        rect = wintypes.RECT()
+        SPI_GETWORKAREA = 0x0030
+        if ctypes.windll.user32.SystemParametersInfoW(SPI_GETWORKAREA, 0, ctypes.byref(rect), 0):
+            w = rect.right - rect.left
+            h = rect.bottom - rect.top
+            if w > 0 and h > 0:
+                return (rect.left, rect.top, w, h)
+    except Exception:
+        pass
+    return None
+
+
+def _panel_geometry():
+    """面板的目标 (x, y, w, h)：工作区 92% 居中，限幅 900x600 ~ 1600x1000。"""
+    wa = _work_area()
+    if wa:
+        wx, wy, ww0, wh0 = wa
+    else:
+        wx, wy = 0, 0
+        ww0, wh0 = ctypes.windll.user32.GetSystemMetrics(0), ctypes.windll.user32.GetSystemMetrics(1)
+    ww = min(1600, max(900, int(ww0 * 0.92)))
+    wh = min(1000, max(600, int(wh0 * 0.92)))
+    x = wx + max(0, (ww0 - ww) // 2)
+    y = wy + max(0, (wh0 - wh) // 2)
+    return x, y, ww, wh
+
+
 def _msgbox(title, text):
     try:
         ctypes.windll.user32.MessageBoxW(0, text, title, 0x10)
@@ -227,11 +261,7 @@ def _start_tray(url: str, exit_controller):
         _log(f"tray: edge_exe={edge_exe}")
         try:
             if edge_exe:
-                sw = ctypes.windll.user32.GetSystemMetrics(0)
-                sh = ctypes.windll.user32.GetSystemMetrics(1)
-                ww, wh = 1920, 1080
-                x = max(0, (sw - ww) // 2)
-                y = max(0, (sh - wh) // 2)
+                x, y, ww, wh = _panel_geometry()
                 # 用 SW_HIDE 启动 Edge，窗口创建时不可见，调好位置再显示
                 cmd = [edge_exe, f"--app={url}", "--new-window",
                        f"--window-position={x},{y}", f"--window-size={ww},{wh}",
@@ -284,11 +314,31 @@ def _start_tray(url: str, exit_controller):
             _log(f"tray: Edge launch failed: {e!r}")
             webbrowser.open(url)
 
+    def _close_panel():
+        """关闭已打开的面板（Edge --app 窗口）。退出/重开前调用，避免窗口残留。"""
+        hwnd = _find_edge_window()
+        if hwnd:
+            try:
+                ctypes.windll.user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
+                _log("tray: panel closed (WM_CLOSE)")
+            except Exception as e:  # noqa: BLE001
+                _log(f"tray: panel WM_CLOSE failed: {e!r}")
+        pid = _open_pid[0]
+        if pid:
+            try:
+                subprocess.run(["taskkill", "/PID", str(pid), "/F", "/T"],
+                               capture_output=True, timeout=5)
+            except Exception:
+                pass
+            _open_pid[0] = None
+
     def _quit(_icon=None, _item=None):
         try:
             _icon.stop()
         except Exception:
             pass
+        # P1：退出时**关闭面板**（此前只停托盘 + 停服务，Edge 窗口残留）
+        _close_panel()
         # 退出收敛单入口：置位命名事件 → worker drain ≤3s → 超时强杀（FR-4）
         if exit_controller is not None:
             exit_controller.request()
@@ -341,6 +391,21 @@ def _start_tray(url: str, exit_controller):
         t = threading.Thread(target=icon.run, daemon=True)
         t.start()
         _log("tray started")
+
+        def _auto_open_when_ready():
+            # P1：hub 首次启动自动打开面板（此前 main() 从不调 _open_panel → 要手动点托盘）。
+            # 等 worker 真正就绪（/healthz）再开，避免白屏。
+            for _ in range(100):  # 最多 ~30s
+                if _probe_service(url):
+                    break
+                time.sleep(0.3)
+            else:
+                _log("tray: hub not ready in 30s, skip auto-open")
+                return
+            _open_panel()
+
+        threading.Thread(target=_auto_open_when_ready, daemon=True,
+                         name="auto-open-panel").start()
 
         def _notify_loop():
             import time as _t
