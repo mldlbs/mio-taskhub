@@ -117,7 +117,7 @@ def _place_window(hwnd, x, y, w, h):
                                 SWP_NOZORDER | SWP_SHOWWINDOW)
         else:
             user32.SetWindowPos(hwnd, 0, x, y, w, h, SWP_NOZORDER | SWP_SHOWWINDOW)
-        user32.ShowWindow(hwnd, 5)  # SW_SHOW
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE（5=SW_SHOW 不会恢复最小化窗口）
         return True
     except Exception:
         return False
@@ -379,6 +379,9 @@ def _start_tray(url: str, exit_controller):
                     if hwnd:
                         # 校验-纠正：Edge 显示后可能自行挪窗/缩边，反复摆直到可见边框命中目标
                         ok, last = _settle_window(hwnd)
+                        # SW_HIDE 启动的窗口可能仍是 minimized 状态，显式 SW_RESTORE + 前置
+                        user32.ShowWindow(hwnd, 9)
+                        user32.SetForegroundWindow(hwnd)
                         _log(f"tray: placed window {ww}x{wh} at ({x},{y}) ok={ok} actual={last}")
                     else:
                         _log("tray: could not find Edge window")
