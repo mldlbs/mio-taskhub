@@ -89,36 +89,38 @@ def _work_area_for_edge():
 
 
 def _resize_edge_window():
-    """启动后强制将 Edge 窗口调整为 1920×1080 并置顶。"""
-    time.sleep(2)
-    hwnd = ctypes.windll.user32.FindWindowW(None, WINDOW_TITLE)
-    if not hwnd:
-        # Edge --app 模式标题可能不完全匹配，遍历查找
+    """启动后强制将 Edge 窗口调整为 1920×1080 并置顶（快速轮询，不再 2 秒延迟）。"""
+    for _ in range(30):  # 最多轮询 3 秒（每 100ms）
+        hwnd = ctypes.windll.user32.FindWindowW(None, WINDOW_TITLE)
+        if hwnd:
+            break
+        # 遍历查找（匹配标题含 MIO + HUB 的 Edge --app 窗口）
         EnumWindows = ctypes.windll.user32.EnumWindows
         GetWindowTextW = ctypes.windll.user32.GetWindowTextW
         GetWindowTextLengthW = ctypes.windll.user32.GetWindowTextLengthW
         found = []
 
-        def _cb(hwnd, _lparam):
-            length = GetWindowTextLengthW(hwnd)
+        def _cb(hwnd_local, _lparam):
+            length = GetWindowTextLengthW(hwnd_local)
             if length <= 0:
                 return True
             buf = ctypes.create_unicode_buffer(length + 1)
-            GetWindowTextW(hwnd, buf, length + 1)
+            GetWindowTextW(hwnd_local, buf, length + 1)
             if "MIO" in buf.value and "HUB" in buf.value:
-                found.append(hwnd)
+                found.append(hwnd_local)
             return True
 
         WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
         EnumWindows(WNDENUMPROC(_cb), 0)
         if found:
             hwnd = found[0]
-
+            break
+        time.sleep(0.1)
     if hwnd:
         SWP_NOZORDER = 0x0004
         SWP_SHOWWINDOW = 0x0040
-        ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, 1920, 1080, SWP_NOZORDER | SWP_SHOWWINDOW)
-        ctypes.windll.user32.ShowWindow(hwnd, 3)  # SW_MAXIMIZE
+        ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, 1920, 1080, SWP_NOZORDER)
+        ctypes.windll.user32.ShowWindow(hwnd, 1)  # SW_SHOWNORMAL（不强制最大化，保持 1920×1080 原尺寸）
 
 
 def _open_browser(url: str):
