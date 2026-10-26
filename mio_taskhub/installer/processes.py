@@ -249,7 +249,7 @@ def hub_running() -> bool:
         return False
     for info in psutil.process_iter(["name"]):
         try:
-            if (info.info.get("name") or "").lower() in ("mio-taskhub.exe",):
+            if (info.info.get("name") or "").lower() in ("TaskHub.exe",):
                 return True
         except Exception:  # noqa: BLE001
             continue

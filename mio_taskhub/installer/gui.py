@@ -1042,7 +1042,7 @@ class InstallerApp(_Base):
         """
         try:
             d = detect_install_dir()
-            if not (d / "mio-taskhub.exe").exists():
+            if not (d / "TaskHub.exe").exists():
                 return
         except Exception:  # noqa: BLE001
             return

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """payload（绿色版 zip）的定位、解压与校验。
 
-payload 契约：zip **根目录**下直接是 `mio-taskhub.exe` 与 `_internal/...`。
+payload 契约：zip **根目录**下直接是 `TaskHub.exe` 与 `_internal/...`。
 若 zip 顶层带一层目录（历史产物 `mio-taskhub-v3/`），解压时**自动剥离**该前缀，
 使安装目录布局与更新器的 `verify_staging` 期望一致。
 """

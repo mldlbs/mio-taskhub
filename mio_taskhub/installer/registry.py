@@ -47,7 +47,7 @@ def write_entry(install_dir, uninstall_exe=None, version=None,
         "UninstallString": '"%s" %s' % (uninstall_exe, quiet_uninstall) if quiet_uninstall
                            else '"%s"' % uninstall_exe,
         "QuietUninstallString": '"%s" /S' % uninstall_exe,
-        "DisplayIcon": str(icon or (install_dir / "mio-taskhub.exe")),
+        "DisplayIcon": str(icon or (install_dir / "TaskHub.exe")),
         "InstallDate": _today(),
         "NoModify": 1,
         "NoRepair": 1,

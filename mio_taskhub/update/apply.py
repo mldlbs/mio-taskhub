@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """更新事务：同卷 rename + 可恢复替换，失败回滚。
 
-放到独立进程执行（mio-taskhub.exe --apply-update ...），因此不持有 hub 的文件句柄。
+放到独立进程执行（TaskHub.exe --apply-update ...），因此不持有 hub 的文件句柄。
 """
 import os
 import sys
@@ -315,7 +315,7 @@ def _apply_log(msg: str) -> None:
 def _spawn_hub(target) -> int:
     """以 hub 模式启动新版本；返回 PID（detached）。"""
     import subprocess
-    exe = str(Path(target) / "mio-taskhub.exe")
+    exe = str(Path(target) / "TaskHub.exe")
     creation = 0
     if sys.platform == "win32":
         creation = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP

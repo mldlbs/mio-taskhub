@@ -451,7 +451,7 @@ def _reclaim_port(port):
             )
             name = info.stdout.strip()
             # 只清理 mio-taskhub 相关进程，绝不接管无关程序
-            if name.lower() in ("python", "mio-taskhub", "mio-taskhub.exe"):
+            if name.lower() in ("python", "mio-taskhub", "TaskHub.exe"):
                 _log(f"reclaim port {port}: kill pid={pid} name={name}", role="supervisor")
                 try:
                     _sp.run(["taskkill", "/pid", str(pid), "/f"], capture_output=True, timeout=10)

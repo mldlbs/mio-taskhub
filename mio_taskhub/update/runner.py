@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """生产 apply_runner：以独立进程触发 --apply-update，并请求 hub 优雅退出。
 
-架构：hub 进程 → 本 runner 先把 updater **拷到临时 spool 目录**再 spawn（mio-taskhub.exe
+架构：hub 进程 → 本 runner 先把 updater **拷到临时 spool 目录**再 spawn（TaskHub.exe
 apply-update …）→ 请求 hub 优雅退出 → updater 等 hub PID 退出 → 替换 → 重启 → 健康确认。
 本 runner 的返回值仅表示"已成功触发"，**不代表更新成功**（成功以 updater 的 sentinel 健康确认为准，
 见 apply.run_apply_update 与 ~/.mio_taskhub/update/apply.log）。
@@ -71,7 +71,7 @@ def _prepare_spool(install: Path) -> Optional[Path]:
         spool = root / ("%d-%d" % (os.getpid(), int(time.time() * 1000)))
         spool.mkdir()
         copied = False
-        for item in ("mio-taskhub.exe", "_internal"):
+        for item in ("TaskHub.exe", "_internal"):
             src = install / item
             if src.is_file():
                 shutil.copy2(src, spool / item)
@@ -79,7 +79,7 @@ def _prepare_spool(install: Path) -> Optional[Path]:
             elif src.is_dir():
                 shutil.copytree(src, spool / item)
                 copied = True
-        if not copied or not (spool / "mio-taskhub.exe").exists():
+        if not copied or not (spool / "TaskHub.exe").exists():
             shutil.rmtree(spool, ignore_errors=True)
             return None
         return spool
@@ -90,12 +90,12 @@ def _prepare_spool(install: Path) -> Optional[Path]:
 def default_apply_runner(install, zip_path, manifest, hub_pid) -> int:
     """spawn 独立 updater（从 spool 运行）；返回 0=已触发，1=无法触发。"""
     install = Path(install)
-    if not (install / "mio-taskhub.exe").exists():
+    if not (install / "TaskHub.exe").exists():
         return 1
     spool = _prepare_spool(install)
     if spool is None:
         return 1
-    exe = spool / "mio-taskhub.exe"
+    exe = spool / "TaskHub.exe"
     asset = manifest.asset_for("windows", "x64")
     sentinel = os.environ.get("MIO_UPDATE_STATE_PATH") or str(default_runtime_path())
     args = [

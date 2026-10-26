@@ -305,7 +305,7 @@ def detect_install_dir() -> Path:
     """推断当前安装目录：优先注册表 → 默认目录 → 卸载器自身所在目录。
 
     **只认「真的是安装目录」**：最后那个「自身所在目录」兜底只在
-    **目录里确实有本程序**（有 `mio-taskhub.exe` 或 `install.json`）时才算数。
+    **目录里确实有本程序**（有 `TaskHub.exe` 或 `install.json`）时才算数。
     否则返回默认目录 —— 绝不把「用户碰巧把 exe 放在哪」当成安装目录。
     """
     entry = registry.read_entry()
@@ -325,7 +325,7 @@ def detect_install_dir() -> Path:
 def looks_like_install_dir(path) -> bool:
     """该目录**看起来**像是一个 mio-taskhub 安装目录吗？
 
-    判据（任一即可）：有主程序 `mio-taskhub.exe`、有安装清单 `install.json`、
+    判据（任一即可）：有主程序 `TaskHub.exe`、有安装清单 `install.json`、
     有卸载器 `uninstall.exe`。
 
     **为什么必须有这个判断**：`uninstall()` 会 `rmtree` 目标目录。
@@ -433,7 +433,7 @@ def uninstall(install_dir=None, remove_data=False, remove_shortcuts=True,
     if install_dir.exists() and not looks_like_install_dir(install_dir):
         res.step("校验安装目录", False, str(install_dir))
         res.message = (
-            "这看起来不是一个 mio-taskhub 安装目录（里面没有 mio-taskhub.exe）：\n"
+            "这看起来不是一个 mio-taskhub 安装目录（里面没有 TaskHub.exe）：\n"
             "  %s\n"
             "为安全起见没有删除任何文件。若确实要卸载，请手动选择正确的"
             "安装目录（默认是 %%LOCALAPPDATA%%\\Programs\\mio-taskhub）。" % install_dir)
