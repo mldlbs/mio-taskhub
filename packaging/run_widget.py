@@ -156,10 +156,11 @@ def _open_browser(url: str):
                 "--no-first-run",
                 "--disable-gpu",
             ],
-            creationflags=0x08000000 | 0x00000008,  # CREATE_NO_WINDOW + SW_HIDE (隐藏启动，之后再显示)
+            # 不用隐藏启动（避免产生多余隐藏窗口）；让 Edge 直接在指定位置打开
+            creationflags=0,
         )
-        # 异步调整窗口大小：先隐藏启动（避免左上角闪一下），
-        # 找到窗口后再定位到屏幕中心并显示
+        # 异步调整窗口：快速轮询（每 100ms，最多 3 秒），找到窗口后调整到 1920×1080
+        # Edge 已传入 --window-position，通常直接在目标位置打开，无需再移动
         threading.Thread(target=_resize_edge_window, daemon=True).start()
     else:
         os.startfile(url)
