@@ -136,3 +136,19 @@ export const agColor = (agent) => {
   const [fg, bg] = AG_PALETTE[h % AG_PALETTE.length]
   return { fg, bg }
 }
+
+// ── 统计口径：历史噪声 ─────────────────────────────────────────────────────
+// idea 评审子系统在 2026-10-19 出现「建任务 → 无人领取超时 → 重试打满失败 → 下轮重建」
+// 风暴（4 小时 1459 条，reviewer agent 从未上线）。该子系统已于 2026-10-21 冻结
+// （product-decision-20261020.md §3），此后不再产生此类任务。
+//
+// 这批任务不代表当前可靠性，因此从看板/统计口径中排除；**数据保留**，
+// 列表与详情仍可查。冻结日之后的评审任务照常计入，避免把未来的真实失败藏起来。
+export const FROZEN_NOISE_BEFORE = '2026-10-21'
+
+export function isFrozenReviewNoise(t) {
+  if (!t || t.state !== 'failed') return false
+  if (t.task_kind !== 'idea_review') return false
+  if (!t.created_at) return false
+  return String(t.created_at) < FROZEN_NOISE_BEFORE
+}

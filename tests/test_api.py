@@ -43,6 +43,17 @@ def test_list_tasks_includes_project_fields():
     assert hit["project"] == "proj-x"
     assert hit["workspace"] == "/w/x"
 
+
+def test_list_tasks_includes_stats_fields():
+    """统计口径需要 task_kind / created_at：
+    前端据此排除已冻结子系统的历史噪声，缺字段会让过滤静默失效。"""
+    client.post("/api/v1/tasks", json={"title": "Stats fields"})
+    d = client.get("/api/v1/tasks").json()
+    hit = next((t for t in d if t["title"] == "Stats fields"), None)
+    assert hit is not None
+    assert hit["task_kind"] == "normal"
+    assert hit["created_at"]
+
 def test_claim_task_creates_run():
     client.post("/api/v1/tasks", json={"title": "Claim me", "stage": "ready"})
     client.post("/api/v1/agents/register", json={"name": "agent1", "agent_type": "test"})

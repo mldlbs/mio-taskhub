@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { LANES, STAGES, fmtDur, parseUtc } from '../constants'
+import { LANES, STAGES, fmtDur, parseUtc, isFrozenReviewNoise } from '../constants'
 import TaskCard from './TaskCard'
 
 const SCENES = [
@@ -46,22 +46,27 @@ export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, fo
     : scene === 'today' ? tasks.filter(t => isToday(t.due_at) || t.stage === 'ready' || t.stage === 'implementing')
     : tasks.filter(isOverdue)
 
+  // 统计口径：排除已冻结的 idea 评审风暴历史噪声（数据仍在，列表可查）。
+  const noise = filtered.filter(isFrozenReviewNoise)
+  const visible = noise.length ? filtered.filter(t => !isFrozenReviewNoise(t)) : filtered
+
   const byLane = Object.fromEntries(lanes.map(l => [
     l.id,
-    [...filtered.filter(t => (t[groupField] || '') === l.id)].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0)),
+    [...visible.filter(t => (t[groupField] || '') === l.id)].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0)),
   ]))
 
   const laneTotal = (id) => byLane[id].reduce((s, t) => s + (t.est_duration_min || 0), 0)
-  const totalTasks = filtered.length
-  const totalDur = filtered.reduce((s, t) => s + (t.est_duration_min || 0), 0)
+  const totalTasks = visible.length
+  const totalDur = visible.reduce((s, t) => s + (t.est_duration_min || 0), 0)
+  const noiseDur = noise.reduce((s, t) => s + (t.est_duration_min || 0), 0)
   const doneLane = groupBy === 'stage' ? 'done' : 'completed'
   const doneCount = (byLane[doneLane] || []).length
   const progress = totalTasks ? Math.round((doneCount / totalTasks) * 100) : 0
 
   const sceneCounts = {
-    today: tasks.filter(t => isToday(t.due_at) || t.stage === 'ready' || t.stage === 'implementing').length,
-    overdue: tasks.filter(isOverdue).length,
-    all: tasks.length,
+    today: tasks.filter(t => !isFrozenReviewNoise(t)).filter(t => isToday(t.due_at) || t.stage === 'ready' || t.stage === 'implementing').length,
+    overdue: tasks.filter(t => !isFrozenReviewNoise(t)).filter(isOverdue).length,
+    all: tasks.length - tasks.filter(isFrozenReviewNoise).length,
   }
 
   const clearDrag = () => { setDragging(null); setOverPos(null) }
@@ -89,6 +94,12 @@ export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, fo
         <span className="board-stats__total">{totalTasks} 任务</span>
         <span className="board-stats__dur">· {fmtDur(totalDur)}</span>
         <span className="board-stats__progress">完成 {doneCount}/{totalTasks} ({progress}%)</span>
+        {noise.length > 0 && (
+          <span className="board-stats__noise"
+                title="idea 评审子系统 2026-10-19 的重建风暴（已冻结），从统计口径排除；数据仍可在列表/详情查看">
+            已排除历史噪声 {noise.length} 条 · {fmtDur(noiseDur)}
+          </span>
+        )}
         <span className="board-stats__bar" aria-hidden="true">
           <span className="board-stats__fill" style={{ width: `${progress}%` }} />
         </span>

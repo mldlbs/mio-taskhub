@@ -422,6 +422,12 @@ input, textarea, select { font-family: inherit; }
 }
 .board-stats__total { font-weight: 600; color: var(--text); }
 .board-stats__progress { color: var(--ok); font-weight: 500; }
+.board-stats__noise {
+  color: var(--ink-faint);
+  font-size: 12px;
+  border-left: 1px solid var(--line);
+  padding-left: 8px;
+}
 .board-stats__bar {
   flex: 1;
   min-width: 120px;
