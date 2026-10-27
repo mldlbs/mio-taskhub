@@ -76,7 +76,7 @@ $checks = @(
     @{ Path = "$internalDir\PIL\_imaging*.pyd";  Label = '_imaging native' },
     @{ Path = "$internalDir\web\dist\index.html"; Label = 'web/dist/index.html' },
     @{ Path = "$internalDir\web\dist\assets";    Label = 'web/dist/assets' },
-    @{ Path = "$distDir\mio-taskhub.exe";        Label = 'TaskHub.exe' }
+    @{ Path = "$distDir\TaskHub.exe";            Label = 'TaskHub.exe' }
 )
 $failed = $false
 foreach ($c in $checks) {
