@@ -311,6 +311,24 @@ def submit_result(run_id: str, body: dict, agent: str = None,
     db.commit()
     db.refresh(run)
     db.refresh(task)
+    # TH-01（FR-5/FR-6）：提交结果异步写回 runtime。放在 commit 之后、构造响应
+    # 之前：写回失败既不回滚已完成的任务，也不改变响应结构（幂等由 outbox key 保证）。
+    try:
+        from mio_taskhub.mio_bridge import enqueue_outcome
+        if success:
+            outcome = "success"
+        elif task is not None and _is_system_timeout_failure(db, task):
+            outcome = "aborted"
+        else:
+            outcome = "failure"
+        verification = ""
+        ds = getattr(run, "diff_summary", None)
+        if isinstance(ds, dict):
+            verification = "diff_changed=%s reason=%s" % (
+                ds.get("changed"), ds.get("reason"))
+        enqueue_outcome(db, task, run, outcome, run.result or "", verification)
+    except Exception:  # noqa: BLE001 — 写回是增强路径，绝不影响提交结果
+        logger.warning("outcome enqueue failed (submit unaffected)", exc_info=True)
     if task_state == "retrying":
         return {"id": run.id, "state": run.state.value, "result": run.result,
                 "task_state": task_state, "retry_at": task.retry_at.isoformat(),

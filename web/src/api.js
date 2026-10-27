@@ -218,6 +218,13 @@ export const api = {
   mioFerment: () => req('GET', '/mio/ferment'),
   mioFermentSync: (id) => req('POST', `/mio/ferment/${id}/sync`),
   mioFermentRun: (limit = 5) => req('POST', `/mio/creativity/ferment?limit=${limit}`),
+  // TH-01：历史决策闭环（待确认经验 / 决策反查 / 写回投递）
+  mioExperiencePending: (project = '', limit = 20) =>
+    req('GET', `/mio/experience/pending?project=${encodeURIComponent(project)}&limit=${limit}`),
+  mioExperienceConfirm: (id, by = 'taskhub:human') =>
+    req('POST', `/mio/experience/${encodeURIComponent(id)}/confirm`, { by }),
+  mioRouteDecision: (runId) => req('GET', `/mio/route-decisions/${encodeURIComponent(runId)}`),
+  mioOutbox: (params = {}) => req('GET', '/mio/outbox?' + new URLSearchParams(params).toString()),
   mioMaterialPanel: (days = 7, limit = 200) => req('GET', `/mio/material-panel?days=${days}&limit=${limit}`),
   valueDiscoveryRun: (date, internalIssues, label) => req('POST', '/mio/value-discovery', { date, internal_issues: internalIssues, label }),
   valueDiscoveryList: () => req('GET', '/mio/value-discovery'),

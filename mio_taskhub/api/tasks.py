@@ -321,6 +321,22 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
         t_existing = db.get(Task, existing.task_id)
         if t_existing is not None:
             resp.update(build_claim_context(t_existing))
+        # TH-01（FR-3）：幂等领取复用已有决策记录，不重复调用 route。
+        try:
+            from mio_taskhub.mio_bridge import (get_route_decision,
+                                                route_decision_view)
+            row = get_route_decision(db, existing.id)
+            view = route_decision_view(row)
+            resp["route"] = None if view is None else {
+                "decision_id": view["decision_id"],
+                "count": view["route_count"],
+                "top_experience_id": view["top_experience_id"],
+                "agent_health_best": view["agent_health_best"],
+                "degraded_reason": view["degraded_reason"],
+                "suggestion": None,
+            }
+        except Exception:  # noqa: BLE001 — 决策记录缺失不影响幂等领取
+            resp["route"] = None
         return resp
     if not agent_type:
         ag = db.get(Agent, agent)
@@ -352,4 +368,11 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
     resp = {"id": run.id, "task_id": run.task_id, "state": run.state.value,
             "agent_name": run.agent_name, "attempt": run.attempt}
     resp.update(build_claim_context(task))
+    # TH-01（FR-2/FR-3）：route 在选完候选之后调用，不参与排序；
+    # 任何异常都降级为 null，绝不影响领取结果。
+    try:
+        from mio_taskhub.mio_bridge import record_route_decision
+        resp["route"] = record_route_decision(db, task, run)
+    except Exception:  # noqa: BLE001
+        resp["route"] = None
     return resp
