@@ -2,6 +2,7 @@ import os
 import sys
 import pytest
 
+from mio_taskhub.installer.paths import APP_EXE_NAME
 from mio_taskhub.update.apply import (
     execute_replace, verify_staging, _rename_retry, ReplaceResult, REQUIRED_ENTRIES,
 )
@@ -9,14 +10,14 @@ from mio_taskhub.update.apply import (
 
 def _mk_install(root):
     root.mkdir(parents=True, exist_ok=True)
-    (root / "mio-taskhub.exe").write_text("old-exe", encoding="utf-8")
+    (root / APP_EXE_NAME).write_text("old-exe", encoding="utf-8")
     (root / "_internal" / "web" / "dist").mkdir(parents=True)
     (root / "_internal" / "web" / "dist" / "index.html").write_text("old", encoding="utf-8")
 
 
 def _mk_staging(root):
     root.mkdir(parents=True, exist_ok=True)
-    (root / "mio-taskhub.exe").write_text("new-exe", encoding="utf-8")
+    (root / APP_EXE_NAME).write_text("new-exe", encoding="utf-8")
     (root / "_internal" / "web" / "dist").mkdir(parents=True)
     (root / "_internal" / "web" / "dist" / "index.html").write_text("new", encoding="utf-8")
 
@@ -31,7 +32,7 @@ def test_verify_staging_ok(tmp_path):
 def test_verify_staging_missing_entry(tmp_path):
     s = tmp_path / "staging"
     s.mkdir()
-    (s / "mio-taskhub.exe").write_text("x", encoding="utf-8")
+    (s / APP_EXE_NAME).write_text("x", encoding="utf-8")
     ok, msg = verify_staging(s)
     assert not ok and "web" in msg
 
@@ -44,8 +45,8 @@ def test_execute_replace_happy(tmp_path):
     backup = tmp_path / "app.bak-0.3.0"
     res = execute_replace(install, staging, backup)
     assert res.ok is True
-    assert (install / "mio-taskhub.exe").read_text(encoding="utf-8") == "new-exe"
-    assert backup.exists() and (backup / "mio-taskhub.exe").read_text(encoding="utf-8") == "old-exe"
+    assert (install / APP_EXE_NAME).read_text(encoding="utf-8") == "new-exe"
+    assert backup.exists() and (backup / APP_EXE_NAME).read_text(encoding="utf-8") == "old-exe"
     assert not staging.exists()
 
 
@@ -60,7 +61,7 @@ def test_execute_replace_replaces_only_same_version_backup(tmp_path):
     res = execute_replace(install, staging, backup)
     assert res.ok is True
     assert not (backup / "junk.txt").exists()
-    assert (backup / "mio-taskhub.exe").exists()
+    assert (backup / APP_EXE_NAME).exists()
 
 
 def test_execute_replace_prunes_old_backups(tmp_path):
@@ -99,7 +100,7 @@ def test_execute_replace_rolls_back_when_staging_rename_fails(tmp_path, monkeypa
     monkeypatch.setattr("mio_taskhub.update.apply.time.sleep", lambda *_: None)
     res = execute_replace(install, staging, backup, retry_timeout=0.2)
     assert res.ok is False
-    assert (install / "mio-taskhub.exe").read_text(encoding="utf-8") == "old-exe"
+    assert (install / APP_EXE_NAME).read_text(encoding="utf-8") == "old-exe"
 
 
 def test_execute_replace_honors_retry_timeout(tmp_path, monkeypatch):
@@ -121,7 +122,7 @@ def test_execute_replace_honors_retry_timeout(tmp_path, monkeypatch):
     monkeypatch.setattr(ap.time, "sleep", lambda *_: sleeps.__setitem__("n", sleeps["n"] + 1))
     res = execute_replace(install, staging, backup, retry_timeout=0.2)
     assert res.ok is False and sleeps["n"] > 0
-    assert (install / "mio-taskhub.exe").read_text(encoding="utf-8") == "old-exe"
+    assert (install / APP_EXE_NAME).read_text(encoding="utf-8") == "old-exe"
 
 
 def test_rename_retry_eventually_succeeds(tmp_path):
@@ -259,7 +260,7 @@ def test_purge_does_not_kill_unrelated_paths(tmp_path):
 def test_recover_residual_cleans_staging(tmp_path):
     install = tmp_path / "app"
     install.mkdir()
-    (install / "mio-taskhub.exe").write_text("cur", encoding="utf-8")
+    (install / APP_EXE_NAME).write_text("cur", encoding="utf-8")
     (install / "_internal" / "web" / "dist").mkdir(parents=True)
     (install / "_internal" / "web" / "dist" / "index.html").write_text("x", encoding="utf-8")
     staging = tmp_path / "app.staging-0.4.0"
@@ -307,7 +308,7 @@ def test_run_apply_update_full_flow(tmp_path, monkeypatch):
     import zipfile, hashlib
     staging_src = tmp_path / "src"
     (staging_src / "_internal" / "web" / "dist").mkdir(parents=True)
-    (staging_src / "mio-taskhub.exe").write_text("new", encoding="utf-8")
+    (staging_src / APP_EXE_NAME).write_text("new", encoding="utf-8")
     (staging_src / "_internal" / "web" / "dist" / "index.html").write_text("new", encoding="utf-8")
     z = tmp_path / "pkg.zip"
     with zipfile.ZipFile(z, "w") as zf:
@@ -319,7 +320,7 @@ def test_run_apply_update_full_flow(tmp_path, monkeypatch):
     # 现有 install（旧版本）
     install = tmp_path / "app"
     (install / "_internal" / "web" / "dist").mkdir(parents=True)
-    (install / "mio-taskhub.exe").write_text("old", encoding="utf-8")
+    (install / APP_EXE_NAME).write_text("old", encoding="utf-8")
     (install / "_internal" / "web" / "dist" / "index.html").write_text("old", encoding="utf-8")
 
     # 模拟：新进程"启动成功"写 sentinel；不真的 spawn
@@ -340,7 +341,7 @@ def test_run_apply_update_full_flow(tmp_path, monkeypatch):
         "--runtime-json", str(tmp_path / "runtime.json"),
     ])
     assert rc == 0
-    assert (install / "mio-taskhub.exe").read_text(encoding="utf-8") == "new"
+    assert (install / APP_EXE_NAME).read_text(encoding="utf-8") == "new"
     # 备份被删除（健康确认后）
     assert not list(tmp_path.glob("app.bak-*"))
 
@@ -349,12 +350,12 @@ def test_recover_residual_restores_install_from_backup(tmp_path):
     install = tmp_path / "app"
     backup = tmp_path / "app.bak-0.3.0"
     backup.mkdir()
-    (backup / "mio-taskhub.exe").write_text("old", encoding="utf-8")
+    (backup / APP_EXE_NAME).write_text("old", encoding="utf-8")
     (backup / "_internal" / "web" / "dist").mkdir(parents=True)
     (backup / "_internal" / "web" / "dist" / "index.html").write_text("old", encoding="utf-8")
     # install 缺失（半途失败）
     actions = recover_residual(install)
-    assert install.exists() and (install / "mio-taskhub.exe").read_text(encoding="utf-8") == "old"
+    assert install.exists() and (install / APP_EXE_NAME).read_text(encoding="utf-8") == "old"
     assert any("restore" in a for a in actions)
 
 
@@ -364,7 +365,7 @@ def test_run_apply_update_rolls_back_when_unhealthy(tmp_path, monkeypatch):
     import zipfile, hashlib
     staging_src = tmp_path / "src2"
     (staging_src / "_internal" / "web" / "dist").mkdir(parents=True)
-    (staging_src / "mio-taskhub.exe").write_text("new", encoding="utf-8")
+    (staging_src / APP_EXE_NAME).write_text("new", encoding="utf-8")
     (staging_src / "_internal" / "web" / "dist" / "index.html").write_text("new", encoding="utf-8")
     z = tmp_path / "pkg2.zip"
     with zipfile.ZipFile(z, "w") as zf:
@@ -375,7 +376,7 @@ def test_run_apply_update_rolls_back_when_unhealthy(tmp_path, monkeypatch):
 
     install = tmp_path / "app2"
     (install / "_internal" / "web" / "dist").mkdir(parents=True)
-    (install / "mio-taskhub.exe").write_text("old", encoding="utf-8")
+    (install / APP_EXE_NAME).write_text("old", encoding="utf-8")
     (install / "_internal" / "web" / "dist" / "index.html").write_text("old", encoding="utf-8")
 
     import mio_taskhub.update.apply as ap
@@ -392,4 +393,4 @@ def test_run_apply_update_rolls_back_when_unhealthy(tmp_path, monkeypatch):
     ])
     assert rc == 1
     # 已回滚：install 恢复旧内容
-    assert (install / "mio-taskhub.exe").read_text(encoding="utf-8") == "old"
+    assert (install / APP_EXE_NAME).read_text(encoding="utf-8") == "old"

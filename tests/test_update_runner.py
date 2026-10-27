@@ -4,6 +4,7 @@ import sys
 import pytest
 
 from mio_taskhub.update.manifest import manifest_from_dict
+from mio_taskhub.installer.paths import APP_EXE_NAME
 from mio_taskhub.update import runner
 
 MANIFEST = {
@@ -26,7 +27,7 @@ def test_runner_returns_1_when_exe_missing(tmp_path):
 def test_runner_spawns_and_requests_exit(tmp_path, monkeypatch):
     install = tmp_path / "app"
     install.mkdir()
-    (install / "mio-taskhub.exe").write_text("stub", encoding="utf-8")
+    (install / APP_EXE_NAME).write_text("stub", encoding="utf-8")
     z = tmp_path / "p.zip"
     z.write_bytes(b"x")
     m = manifest_from_dict(MANIFEST)
@@ -50,7 +51,7 @@ def test_runner_spawns_and_requests_exit(tmp_path, monkeypatch):
 
     assert rc == 0
     args = spawned["args"]
-    assert args[0].endswith("mio-taskhub.exe")
+    assert args[0].endswith(APP_EXE_NAME)
     assert args[1] == "apply-update"
     assert "--sha256" in args and args[args.index("--sha256") + 1] == "a" * 64
     assert "--version" in args and args[args.index("--version") + 1] == "0.4.0"
@@ -62,7 +63,7 @@ def test_runner_spawns_and_requests_exit(tmp_path, monkeypatch):
     from pathlib import Path
     spawn_dir = Path(args[0]).parent
     assert spawn_dir != install, "updater 不得从 install 目录内 spawn"
-    assert (spawn_dir / "mio-taskhub.exe").exists()
+    assert (spawn_dir / APP_EXE_NAME).exists()
     assert spawned["kw"].get("cwd") == str(spawn_dir)
     if sys.platform == "win32":
         # 回归（2026-10-06「下载完安装不了」）：updater 必须 CREATE_BREAKAWAY_JOB 脱离
@@ -74,14 +75,14 @@ def test_runner_spawns_and_requests_exit(tmp_path, monkeypatch):
 def test_prepare_spool_copies_required_entries(tmp_path, monkeypatch):
     install = tmp_path / "app"
     (install / "_internal" / "web" / "dist").mkdir(parents=True)
-    (install / "mio-taskhub.exe").write_text("exe", encoding="utf-8")
+    (install / APP_EXE_NAME).write_text("exe", encoding="utf-8")
     (install / "_internal" / "web" / "dist" / "index.html").write_text("<html/>", encoding="utf-8")
     (install / "使用说明.txt").write_text("junk", encoding="utf-8")
     monkeypatch.setattr(runner, "_spool_root", lambda: tmp_path / "spool")
 
     spool = runner._prepare_spool(install)
     assert spool is not None
-    assert (spool / "mio-taskhub.exe").read_text(encoding="utf-8") == "exe"
+    assert (spool / APP_EXE_NAME).read_text(encoding="utf-8") == "exe"
     assert (spool / "_internal" / "web" / "dist" / "index.html").exists()
     assert not (spool / "使用说明.txt").exists(), "spool 只需 exe + _internal"
 

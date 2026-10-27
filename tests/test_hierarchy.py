@@ -76,13 +76,17 @@ def test_migration_idempotent_and_backfills_legacy_leaf():
         with eng.connect() as conn:
             cols = {c["name"] for c in inspect(conn).get_columns("task")}
             assert {"parent_id", "role", "complexity",
-                    "context_package", "decomposition"} <= cols
+                    "context_package", "decomposition",
+                    "gate_tier", "gate_tier_reason", "deviations",
+                    "completion_run_id"} <= cols
             row = conn.execute(text(
-                "SELECT parent_id, role, complexity, context_package, decomposition "
+                "SELECT parent_id, role, complexity, context_package, decomposition, "
+                "gate_tier, gate_tier_reason, completion_run_id "
                 "FROM task WHERE id='old1'")).fetchone()
             assert row[0] is None
             assert row[1] == "leaf"
             assert row[2] is None and row[3] is None and row[4] is None
+            assert row[5] == "light" and row[6] == "" and row[7] == ""
             idx = {r[1] for r in conn.execute(text("PRAGMA index_list('task')"))}
             assert "ix_task_parent_id" in idx
     finally:

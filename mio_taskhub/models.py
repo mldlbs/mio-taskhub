@@ -177,6 +177,14 @@ class Task(SQLModel, table=True):
     # context_package / decomposition 均为 JSON 文本，读接口统一反序列化。
     context_package: Optional[str] = Field(default=None, sa_column=Column(Text))
     decomposition: Optional[str] = Field(default=None, sa_column=Column(Text))
+    # Phase 1 完成门禁（doc: completion-gate-phase1-spec.md）
+    gate_tier: str = "light"
+    gate_tier_reason: str = ""
+    deviations: list = Field(default_factory=list, sa_column=Column(JSON))
+    human_confirmed_at: Optional[datetime] = None
+    human_confirmed_by: str = ""
+    human_confirm_note: str = ""
+    completion_run_id: str = ""
     # M1: 生命周期时间戳 + 计数器
     claimed_at: Optional[datetime] = None
     running_started_at: Optional[datetime] = None
@@ -293,6 +301,7 @@ class Run(SQLModel, table=True):
     diff_summary: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     # 标注列表：每项 {code, level, message, at}；level ∈ {block, warn}
     annotations: list = Field(default_factory=list, sa_column=Column(JSON))
+    evidence: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     # 本 run 累计被拒次数（窄门禁拒绝不消耗 attempt，达上限才判本次执行失败）
     rejections: int = 0
 

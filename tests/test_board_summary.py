@@ -1,11 +1,20 @@
 from fastapi.testclient import TestClient
 from mio_taskhub.main import app
-from mio_taskhub.models import TaskState
+from mio_taskhub.db import engine
+from mio_taskhub.models import Task, TaskStage, TaskState
+from sqlmodel import Session
 
 client = TestClient(app)
 
 
 def _mk(title, stage="ready", priority=0, **kw):
+    if stage in ("done", "cancelled"):
+        with Session(engine) as s:
+            t = Task(title=title, stage=TaskStage(stage), priority=priority, **kw)
+            s.add(t)
+            s.commit()
+            s.refresh(t)
+            return {"id": t.id}
     body = {"title": title, "stage": stage, "priority": priority}
     body.update(kw)
     return client.post("/api/v1/tasks", json=body).json()

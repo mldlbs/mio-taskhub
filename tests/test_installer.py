@@ -47,7 +47,7 @@ def _make_zip(path: Path, entries: dict) -> Path:
 def _payload_entries(prefix: str = "") -> dict:
     p = (prefix + "/") if prefix else ""
     return {
-        p + "mio-taskhub.exe": b"fake-exe",
+        p + APP_EXE_NAME: b"fake-exe",
         p + "_internal/web/dist/index.html": b"<html></html>",
         p + "使用说明.txt": "说明".encode("utf-8"),
     }
@@ -774,7 +774,7 @@ def test_installer_window_offers_uninstall_when_already_installed(tmp_path,
         # 造一个「已安装」的目录
         fake_install = tmp_path / "installed"
         fake_install.mkdir()
-        (fake_install / "mio-taskhub.exe").write_bytes(b"x")
+        (fake_install / APP_EXE_NAME).write_bytes(b"x")
         monkeypatch.setattr(gui, "detect_install_dir", lambda: fake_install)
 
         app = gui.InstallerApp(root)
@@ -843,7 +843,7 @@ def test_embedded_payload_roundtrip(tmp_path):
     exe.write_bytes(b"FAKE-EXE-CONTENT" * 100)
     payload = tmp_path / "payload.zip"
     with zipfile.ZipFile(payload, "w") as zf:
-        zf.writestr("mio-taskhub.exe", b"x" * 1000)
+        zf.writestr(APP_EXE_NAME, b"x" * 1000)
         zf.writestr("_internal/web/dist/index.html", b"y" * 50)
 
     embedded.append_payload(exe, payload)
@@ -855,8 +855,8 @@ def test_embedded_payload_roundtrip(tmp_path):
 
     out = embedded.extract_embedded_payload(exe, tmp_path / "out")
     with zipfile.ZipFile(out) as zf:
-        assert "mio-taskhub.exe" in zf.namelist()
-        assert zf.read("mio-taskhub.exe") == b"x" * 1000
+        assert APP_EXE_NAME in zf.namelist()
+        assert zf.read(APP_EXE_NAME) == b"x" * 1000
 
     # exe 前半段没被动过（Windows 仍认这是合法 PE）
     assert exe.read_bytes()[:22] == (b"FAKE-EXE-CONTENT" * 100)[:22]
@@ -905,7 +905,7 @@ def test_make_setup_script_merges_and_verifies(tmp_path):
     setup.write_bytes(b"FAKE-PE" * 200)
     payload = tmp_path / "payload.zip"
     with zipfile.ZipFile(payload, "w") as zf:
-        zf.writestr("mio-taskhub.exe", b"x" * 100)
+        zf.writestr(APP_EXE_NAME, b"x" * 100)
         zf.writestr("_internal/web/dist/index.html", b"y" * 10)
 
     out = tmp_path / "merged.exe"

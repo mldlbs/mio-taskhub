@@ -196,7 +196,7 @@ def test_stage_design_accepts_doc_paths_and_syncs_legacy(tmp_path):
 def test_stage_design_blocked_by_lifecycle_gate(tmp_path):
     """P0-1 回归：spec 已落盘但未 approved → 进 design 被生命周期门控拦下。"""
     ws = _ws(tmp_path, 's.md')
-    tid = _mk(ws, stage='brainstorming')
+    tid = _mk(ws, stage='brainstorming', gate_tier='high')
     _discussion(tid)
     r = client.post(f'/api/v1/tasks/{tid}/stage',
                     json={'target_stage': 'design', 'doc_paths': {'spec': 's.md'}})
@@ -272,13 +272,12 @@ def test_done_gate_still_accepts_review_text(tmp_path):
     assert r.json()['review_result'] == 'approved'
 
 
-def test_done_gate_requires_review_text_or_document(tmp_path):
-    """文本与审查文档都没有 → 仍 422。"""
+def test_done_gate_no_longer_requires_review_text_or_document(tmp_path):
+    """Phase 1：done 不再要求 review_result；完成证据由 completion_gate 管。"""
     tid = _mk(_ws(tmp_path), stage='review')
 
     r = client.post(f'/api/v1/tasks/{tid}/stage', json={'target_stage': 'done'})
-    assert r.status_code == 422
-    assert 'review' in r.json()['detail']
+    assert r.status_code == 200, r.text
 
 
 # ── /raw 原始文件（文档内嵌图片） ───────────────────────────────────────────
@@ -371,8 +370,9 @@ def test_stage_requirements_static_path_not_shadowed():
     assert client.get('/api/v1/tasks/no-such-task').status_code == 404
 
 
-def test_gate_error_messages_preserved(tmp_path):
-    """表驱动重构后错误文案保持不变（含旧字段名，兼容既有调用方）。"""
+def test_gate_error_messages_preserved(tmp_path, monkeypatch):
+    """表驱动重构后错误文案保持不变（含旧字段名，兼容既有调用方）�?"""
+    monkeypatch.setenv("MIO_COMPLETION_GATE", "block")
     ws = _ws(tmp_path, 's.md')
     tid = _mk(ws, stage='brainstorming')
     _discussion(tid)
@@ -399,7 +399,7 @@ def test_gate_error_messages_preserved(tmp_path):
                        json={'target_stage': 'review', 'force': True}).status_code == 200
     r = client.post(f'/api/v1/tasks/{tid}/stage', json={'target_stage': 'done'})
     assert r.status_code == 422
-    assert 'review_result' in r.json()['detail'] and 'review document' in r.json()['detail']
+    assert r.json()['detail']['code'] == 'gate.completion_missing'
 
 
 # ── 文档写入端点 PUT /tasks/{id}/doc ────────────────────────────────────────
@@ -490,7 +490,7 @@ def test_write_doc_spec_syncs_legacy_field(tmp_path):
 def test_write_then_advance_design_without_workspace_doc(tmp_path):
     """写入的文档自动落位 draft 生命周期；未 approved 不能进 design，需先审或 force。"""
     ws = _ws(tmp_path)
-    tid = _mk(ws, stage='brainstorming')
+    tid = _mk(ws, stage='brainstorming', gate_tier='high')
     _discussion(tid)
 
     r = _put_doc(tid, 'spec', content='# spec')

@@ -335,6 +335,13 @@ def submit_result(run_id: str, body: dict, agent: str = None,
     # 放在 ReadEvidence 之后 —— 读证门控纯查库、更便宜且更基础，先报读证问题。
     if success and task is not None:
         _apply_diff_gate(db, task, run, body)
+    # Phase 1：统一完成门禁（warn 只记录，block 才拒绝）
+    if success and task is not None:
+        from mio_taskhub.completion_gate import GateError, check_submit
+        try:
+            check_submit(db, task, run, body)
+        except GateError as exc:
+            raise HTTPException(exc.status, detail=exc.as_detail())
     run.result = body.get("result", "")
     run.exit_code = body.get("exit_code", 0 if success else 1)
     run.finished_at = _now()

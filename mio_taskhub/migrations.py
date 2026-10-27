@@ -17,8 +17,10 @@ def run_migrations(target_engine=None):
             _migrate_task_diff_gate(conn)
             _migrate_task_hierarchy(conn)
             _migrate_task_decomposition(conn)
+            _migrate_task_completion_gate(conn)
         if "run" in tables:
             _migrate_run_diff_gate(conn)
+            _migrate_run_evidence(conn)
         if "idea" in tables:
             _migrate_idea(conn)
             _migrate_idea_assumption_link(conn)
@@ -243,6 +245,39 @@ def _migrate_task_decomposition(conn):
         conn.execute(text("ALTER TABLE task ADD COLUMN context_package TEXT"))
     if "decomposition" not in cols:
         conn.execute(text("ALTER TABLE task ADD COLUMN decomposition TEXT"))
+
+
+def _migrate_task_completion_gate(conn):
+    """Phase 1 完成门禁列：tier / 偏离 / 人工确认 / completion_run_id。"""
+    cols = {c["name"] for c in inspect(conn).get_columns("task")}
+    if "gate_tier" not in cols:
+        conn.execute(text(
+            "ALTER TABLE task ADD COLUMN gate_tier VARCHAR(16) NOT NULL DEFAULT 'light'"))
+        conn.execute(text("UPDATE task SET gate_tier = 'light' WHERE gate_tier IS NULL"))
+    if "gate_tier_reason" not in cols:
+        conn.execute(text(
+            "ALTER TABLE task ADD COLUMN gate_tier_reason VARCHAR(64) NOT NULL DEFAULT ''"))
+    if "deviations" not in cols:
+        conn.execute(text("ALTER TABLE task ADD COLUMN deviations JSON"))
+        conn.execute(text("UPDATE task SET deviations = '[]' WHERE deviations IS NULL"))
+    if "human_confirmed_at" not in cols:
+        conn.execute(text("ALTER TABLE task ADD COLUMN human_confirmed_at DATETIME"))
+    if "human_confirmed_by" not in cols:
+        conn.execute(text(
+            "ALTER TABLE task ADD COLUMN human_confirmed_by VARCHAR(64) NOT NULL DEFAULT ''"))
+    if "human_confirm_note" not in cols:
+        conn.execute(text(
+            "ALTER TABLE task ADD COLUMN human_confirm_note VARCHAR(500) NOT NULL DEFAULT ''"))
+    if "completion_run_id" not in cols:
+        conn.execute(text(
+            "ALTER TABLE task ADD COLUMN completion_run_id VARCHAR(64) NOT NULL DEFAULT ''"))
+
+
+def _migrate_run_evidence(conn):
+    """Phase 1：Run.evidence JSON。存量 run 为 NULL（无证据）。"""
+    cols = {c["name"] for c in inspect(conn).get_columns("run")}
+    if "evidence" not in cols:
+        conn.execute(text("ALTER TABLE run ADD COLUMN evidence JSON"))
 
 
 def _migrate_run_diff_gate(conn):

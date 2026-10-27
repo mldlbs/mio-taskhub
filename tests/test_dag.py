@@ -11,6 +11,14 @@ client = TestClient(app)
 
 
 def _mk(title, stage="ready", deps=None, **kw):
+    if stage in ("done", "cancelled"):
+        with Session(engine) as s:
+            t = Task(title=title, stage=TaskStage(stage),
+                     depends_on=list(deps or []), **kw)
+            s.add(t)
+            s.commit()
+            s.refresh(t)
+            return {"id": t.id}
     body = {"title": title, "stage": stage}
     if deps is not None:
         body["depends_on"] = deps

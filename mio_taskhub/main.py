@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 import secrets
 from fastapi.responses import JSONResponse
 from mio_taskhub.db import get_session, init_db
-from mio_taskhub.api import tasks, task_stages, task_graph, task_subtasks, templates, agents, runs, plans, board, ideas, idea_templates, idea_scoring, adr, discussions, events, nightrun, memory, scheduled_jobs, task_documents, reviews, ideas_breakdown, ideas_discussion, cockpit, draft, observability, update, mio_runtime, material_panel, value_discovery, scheduler_control, config as app_config, hall, decompose
+from mio_taskhub.api import tasks, task_stages, task_graph, task_subtasks, templates, agents, runs, plans, board, ideas, idea_templates, idea_scoring, adr, discussions, events, nightrun, memory, scheduled_jobs, task_documents, reviews, ideas_breakdown, ideas_discussion, cockpit, draft, observability, update, mio_runtime, material_panel, value_discovery, scheduler_control, config as app_config, hall, decompose, deviations
 from mio_taskhub.api.insights import router as insights_router
 from mio_taskhub.api.board import board_summary as _board_summary
 from mio_taskhub.observability.logging_config import setup_logging
@@ -224,6 +224,7 @@ app.include_router(task_subtasks.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(hall.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(tasks.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(decompose.router, prefix="/api/v1", tags=["tasks"])
+app.include_router(deviations.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(task_documents.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(agents.router, prefix="/api/v1", tags=["agents"])
 app.include_router(runs.router, prefix="/api/v1", tags=["runs"])

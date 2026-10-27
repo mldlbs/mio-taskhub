@@ -1,5 +1,6 @@
 import uuid
 import json
+import os
 from datetime import datetime, timezone
 from mio_taskhub.api.claim import claim_for, should_fallback
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -45,6 +46,11 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         stage = TaskStage(stage_val)
     except ValueError:
         raise HTTPException(400, f"invalid stage: {stage_val}")
+    if stage in (TaskStage.DONE, TaskStage.CANCELLED):
+        raise HTTPException(400, detail={
+            "code": "gate.invalid_initial_stage",
+            "message": "task cannot be created directly in done/cancelled",
+        })
 
     # P2a 任务层级：parent_id 只能指向一个存在的顶层任务；子任务必须 ready。
     # P2b 起上面的 validate_enabled 分支已拒绝直接建子任务，这里仅保留 P2a 引导路径。
@@ -119,6 +125,24 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         role=role,
         complexity=complexity,
     )
+    from mio_taskhub.completion_gate import TIER_ORDER, infer_tier
+    inferred, infer_reason = infer_tier(t)
+    requested_tier = str(body.get("gate_tier") or "").strip().lower() or None
+    if requested_tier:
+        if requested_tier not in TIER_ORDER:
+            raise HTTPException(400, "gate_tier must be light/standard/high")
+        if TIER_ORDER[requested_tier] < TIER_ORDER[inferred]:
+            if not str(body.get("gate_tier_reason") or "").strip():
+                raise HTTPException(400, detail={
+                    "code": "gate.tier_downgrade_reason_required",
+                    "message": "explicit tier downgrade requires gate_tier_reason",
+                })
+            t.gate_tier, t.gate_tier_reason = requested_tier, str(body["gate_tier_reason"]).strip()
+        else:
+            t.gate_tier, t.gate_tier_reason = requested_tier, (
+                str(body.get("gate_tier_reason") or "").strip() or "explicit")
+    else:
+        t.gate_tier, t.gate_tier_reason = inferred, infer_reason
     validate_depends(t, db)
     check_cycle(t, db)
     db.add(t)
@@ -140,6 +164,8 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         "parent_id": t.parent_id,
         "role": normalize_role(t),
         "complexity": t.complexity,
+        "gate_tier": t.gate_tier,
+        "gate_tier_reason": t.gate_tier_reason,
     }
 
 @router.get("", response_model=list)
@@ -173,6 +199,8 @@ def list_tasks(state: str = None, agent_type: str = None, stage: str = None,
          "depends_on": task_deps(r), "idea_id": r.idea_id,
          "parent_id": r.parent_id, "role": normalize_role(r),
          "complexity": r.complexity,
+         "gate_tier": getattr(r, "gate_tier", "light"),
+         "completion_run_id": getattr(r, "completion_run_id", ""),
          "est_duration_min": r.est_duration_min,
          "project": r.project, "workspace": r.workspace}
         for r in rows
@@ -260,6 +288,15 @@ def _task_detail(t: Task, db: Session) -> dict:
         "complexity": t.complexity,
         "decomposition": _json_value(t.decomposition),
         "context_package": _json_value(t.context_package),
+        "gate_tier": t.gate_tier,
+        "gate_tier_reason": t.gate_tier_reason,
+        "deviations": list(t.deviations or []),
+        "human_confirmed_at": _fmt(t.human_confirmed_at),
+        "human_confirmed_by": t.human_confirmed_by,
+        "human_confirm_note": t.human_confirm_note,
+        "completion_run_id": t.completion_run_id,
+        "completion_state": ("legacy_done" if (t.stage == TaskStage.DONE and not t.completion_run_id)
+                             else ("completed" if t.completion_run_id else "pending")),
         **_children_payload(t.id, db),
         "schedule_type": t.schedule_type, "run_at": _fmt(t.run_at),
         "cron_expr": t.cron_expr, "est_duration_min": t.est_duration_min,
@@ -330,6 +367,7 @@ def update_task(task_id: str, body: dict, db: Session = Depends(get_session)):
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404, "task not found")
+    old_tier = t.gate_tier
     editable = ["title", "description", "priority", "est_duration_min", "max_retries",
                 "acceptance_criteria", "due_at", "labels", "project", "workspace",
                 "files", "deliverables",
@@ -353,6 +391,30 @@ def update_task(task_id: str, body: dict, db: Session = Depends(get_session)):
                 check_cycle(t, db)
             else:
                 setattr(t, k, v)
+    # Phase 1：显式降级必须给 reason；files/labels 变化只升不降。
+    if "gate_tier" in body:
+        from mio_taskhub.completion_gate import TIER_ORDER
+        new_tier = str(body.get("gate_tier") or "").strip().lower()
+        if new_tier not in TIER_ORDER:
+            raise HTTPException(400, "gate_tier must be light/standard/high")
+        if TIER_ORDER[new_tier] < TIER_ORDER.get((t.gate_tier or "light").lower(), 0):
+            reason = str(body.get("gate_tier_reason") or "").strip()
+            if not reason:
+                raise HTTPException(400, detail={
+                    "code": "gate.tier_downgrade_reason_required",
+                    "message": "explicit tier downgrade requires gate_tier_reason",
+                })
+            t.gate_tier, t.gate_tier_reason = new_tier, reason
+            emit_event(db, type="task_gate_tier_changed", entity="task", entity_id=t.id,
+                       payload={"from": old_tier, "to": new_tier,
+                                "reason": reason})
+        else:
+            t.gate_tier = new_tier
+            if body.get("gate_tier_reason"):
+                t.gate_tier_reason = str(body["gate_tier_reason"]).strip()
+    if "files" in body or "labels" in body:
+        from mio_taskhub.completion_gate import upgrade_tier
+        upgrade_tier(t)
     # 文档路径：doc_paths 为主，spec_path/plan_path 是兼容入口；显式传空 = 清除该类型
     dp_incoming = {}
     if isinstance(body.get("doc_paths"), dict):
@@ -428,6 +490,19 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
                task_id: str = Query(None), project: str = Query(None), workspace: str = Query(None),
                files: str = Query(None), project_scope: str = Query(None),
                db: Session = Depends(get_session)):
+    if task_id:
+        t_probe = db.get(Task, task_id)
+        if t_probe is not None and normalize_role(t_probe) != ROLE_MAIN:
+            from mio_taskhub.completion_gate import build_readiness, claim_gate_mode
+            if claim_gate_mode() == "block":
+                readiness = build_readiness(db, t_probe)
+                if not readiness["ready"]:
+                    return JSONResponse(status_code=409, content={"detail": {
+                        "code": "gate.doc_missing",
+                        "message": "task is not ready for claim",
+                        "missing": readiness["missing"],
+                        "readiness": readiness,
+                    }})
     existing = db.exec(
         select(Run).where(Run.agent_name == agent, Run.state.in_([RunState.CLAIMED, RunState.RUNNING]))
     ).first()
@@ -509,3 +584,35 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
     except Exception:  # noqa: BLE001
         resp["route"] = None
     return resp
+
+
+@router.post("/{task_id}/confirm")
+def confirm_high_risk(task_id: str, body: dict, db: Session = Depends(get_session)):
+    """Phase 1：高风险人工确认（自由字符串，Phase 2 再接身份）。"""
+    t = db.get(Task, task_id)
+    if not t:
+        raise HTTPException(404, "task not found")
+    confirmed_by = str((body or {}).get("confirmed_by") or "").strip()
+    if not confirmed_by:
+        raise HTTPException(422, "confirmed_by is required")
+    latest = db.exec(
+        select(Run).where(Run.task_id == task_id).order_by(Run.started_at.desc())
+    ).first()
+    if latest is not None and confirmed_by == (latest.agent_name or "") \
+            and os.environ.get("MIO_ALLOW_SELF_CONFIRM") != "1":
+        raise HTTPException(409, detail={
+            "code": "gate.self_confirmation",
+            "message": "confirmer must not be the executor",
+        })
+    t.human_confirmed_at = _now()
+    t.human_confirmed_by = confirmed_by[:64]
+    t.human_confirm_note = str((body or {}).get("note") or "").strip()[:500]
+    emit_event(db, type="task_human_confirmed", entity="task", entity_id=t.id,
+               payload={"confirmed_by": t.human_confirmed_by,
+                        "scope": (body or {}).get("scope") or "high_risk"})
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    return {"id": t.id, "human_confirmed_at": t.human_confirmed_at.isoformat(),
+            "human_confirmed_by": t.human_confirmed_by,
+            "human_confirm_note": t.human_confirm_note}

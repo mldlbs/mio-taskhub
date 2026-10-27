@@ -213,9 +213,11 @@ async def taskhub_submit_result(
     success: bool = Field(default=True, description="是否成功"),
     result: str = Field(default="", description="结果描述 / 产出摘要", max_length=4000),
     exit_code: Optional[int] = Field(default=None, description="退出码（默认 0 成功 / 1 失败）"),
+    evidence: Optional[dict] = Field(default=None, description="完成证据：verification.commands/tests/artifacts"),
 ) -> str:
     body = {"success": success, "result": result}
     if exit_code is not None: body["exit_code"] = exit_code
+    if evidence is not None: body["evidence"] = evidence
     return _fmt(await _request("POST", f"/runs/{run_id}/result",
                                params={"agent": agent}, body=body))
 
@@ -551,6 +553,7 @@ async def taskhub_advance_stage(
     review_result: Optional[str] = Field(default=None, description="审查结论（进 done 必填）"),
     doc_paths: Optional[dict] = Field(default=None, description="文档路径映射（kind -> 路径），可与 spec_path/plan_path 混用"),
     force: bool = Field(default=False, description="跳过文档生命周期门控（契约/文档未达 required 状态也强行推进），会留痕"),
+    evidence: Optional[dict] = Field(default=None, description="完成证据（进 done 时使用）"),
 ) -> str:
     body = {"target_stage": target_stage}
     if spec_path is not None: body["spec_path"] = spec_path
@@ -558,6 +561,7 @@ async def taskhub_advance_stage(
     if review_result is not None: body["review_result"] = review_result
     if doc_paths is not None: body["doc_paths"] = doc_paths
     if force: body["force"] = True
+    if evidence is not None: body["evidence"] = evidence
     return _fmt(await _request("POST", f"/tasks/{task_id}/stage", body=body))
 
 
@@ -793,6 +797,53 @@ async def taskhub_batch_triage(
 ) -> str:
     body = {"idea_ids": idea_ids, "action": action, "actor": actor}
     return _fmt(await _request("POST", "/ideas/batch-triage", body=body))
+
+
+@_tool(name="taskhub_log_deviation", title="记录偏离", method="POST", path="/tasks/{task_id}/deviations", read_only=False, destructive=False, desc="记录实现与规格的偏离；high/critical 默认 open，需决策后才能完成。")
+async def taskhub_log_deviation(
+    task_id: str = Field(description="任务唯一标识", min_length=1),
+    description: str = Field(description="偏离描述", min_length=1),
+    severity: str = Field(default="medium", description="low|medium|high|critical"),
+    spec_ref: Optional[str] = Field(default=None, description="规格引用"),
+    attempted_fix: Optional[str] = Field(default=None, description="已尝试的修复"),
+    proposed_fix: Optional[str] = Field(default=None, description="建议修复"),
+    requires_user_decision: bool = Field(default=False, description="是否需要用户决策"),
+) -> str:
+    body = {"description": description, "severity": severity,
+            "requires_user_decision": requires_user_decision}
+    if spec_ref is not None: body["spec_ref"] = spec_ref
+    if attempted_fix is not None: body["attempted_fix"] = attempted_fix
+    if proposed_fix is not None: body["proposed_fix"] = proposed_fix
+    return _fmt(await _request("POST", f"/tasks/{task_id}/deviations", body=body))
+
+
+@_tool(name="taskhub_resolve_deviation", title="解决偏离", method="POST", path="/tasks/{task_id}/deviations/{dev_id}/resolve", read_only=False, destructive=False, desc="解决偏离：accepted 需 decision_ref + decided_by；rejected/fixed 需 resolution。")
+async def taskhub_resolve_deviation(
+    task_id: str = Field(description="任务唯一标识", min_length=1),
+    dev_id: str = Field(description="偏离 id，如 D-1", min_length=1),
+    status: str = Field(description="accepted|rejected|fixed"),
+    resolution: Optional[str] = Field(default=None, description="解决说明"),
+    decision_ref: Optional[str] = Field(default=None, description="决策引用，如 discussion:abc"),
+    decided_by: Optional[str] = Field(default=None, description="决策人"),
+) -> str:
+    body = {"status": status}
+    if resolution is not None: body["resolution"] = resolution
+    if decision_ref is not None: body["decision_ref"] = decision_ref
+    if decided_by is not None: body["decided_by"] = decided_by
+    return _fmt(await _request("POST", f"/tasks/{task_id}/deviations/{dev_id}/resolve",
+                               body=body))
+
+
+@_tool(name="taskhub_confirm_high_risk", title="高风险确认", method="POST", path="/tasks/{task_id}/confirm", read_only=False, destructive=False, desc="记录高风险任务的人工确认；确认人不能等于最近执行 agent。")
+async def taskhub_confirm_high_risk(
+    task_id: str = Field(description="任务唯一标识", min_length=1),
+    confirmed_by: str = Field(description="确认人", min_length=1),
+    note: Optional[str] = Field(default=None, description="确认备注"),
+    scope: str = Field(default="high_risk", description="确认范围"),
+) -> str:
+    body = {"confirmed_by": confirmed_by, "scope": scope}
+    if note is not None: body["note"] = note
+    return _fmt(await _request("POST", f"/tasks/{task_id}/confirm", body=body))
 
 
 def main():

@@ -75,6 +75,8 @@ def pick_candidate_task(db, agent_type, task_id, project_scope: Optional[str] = 
         # P2a：主任务不是执行单元，即使点名也不能被普通 worker 领走。
         if is_main(task):
             return None
+        if not _claim_ready(db, task):
+            return None
         return task
     q = select(Task).where(
         Task.state == TaskState.QUEUED,
@@ -87,7 +89,7 @@ def pick_candidate_task(db, agent_type, task_id, project_scope: Optional[str] = 
             q = q.where(Task.project.in_(scopes))
     relevance = build_relevance(agent_type)
     rows = db.exec(q.order_by(relevance, Task.priority.desc(), Task.created_at.asc())).all()
-    return first_ready_row(rows)
+    return first_ready_row(rows, db)
 
 
 def build_relevance(agent_type):
@@ -113,14 +115,27 @@ def build_relevance(agent_type):
     return case((Task.target_agent_type.is_(None), 0), else_=1)
 
 
-def first_ready_row(rows):
-    """取首个未到 run_at 时间的一次性任务。"""
+def _claim_ready(db, task) -> bool:
+    """Phase 1：block 模式下跳过 readiness 不满足的任务。"""
+    try:
+        from mio_taskhub.completion_gate import build_readiness, claim_gate_mode
+        if claim_gate_mode() != "block":
+            return True
+        return bool(build_readiness(db, task).get("ready"))
+    except Exception:
+        return True
+
+
+def first_ready_row(rows, db=None):
+    """取首个未到 run_at 时间的一次性任务，并跳过未就绪任务。"""
     now = _now()
     for t in rows:
         if t.schedule_type == "once" and t.run_at:
             run_at = t.run_at if t.run_at.tzinfo else t.run_at.replace(tzinfo=timezone.utc)
             if run_at > now:
                 continue
+        if db is not None and not _claim_ready(db, t):
+            continue
         return t
     return None
 

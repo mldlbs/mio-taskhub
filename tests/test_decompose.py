@@ -405,3 +405,13 @@ def test_claim_returns_package_sections_only(monkeypatch, tmp_path):
     assert "SECTION_ONLY" in doc["content"]
     assert "FULL_ONLY" not in doc["content"]
     assert "OTHER_ONLY" not in doc["content"]
+
+def test_parent_integration_children_incomplete(monkeypatch):
+    """P2d/T32: parent done blocked while children incomplete."""
+    _enable(monkeypatch, "integrate")
+    monkeypatch.setenv("MIO_COMPLETION_GATE", "block")
+    pid = _mk_parent()
+    assert client.post(f"/api/v1/tasks/{pid}/decompose/apply", json=_payload()).status_code == 200
+    r = client.post(f"/api/v1/tasks/{pid}/stage/move", json={"target_stage": "done"})
+    assert r.status_code == 409
+    assert r.json()["detail"]["code"] == "decompose.children_incomplete"

@@ -41,10 +41,11 @@ def test_advance_to_planning_with_plan():
     assert r.status_code == 200
     assert r.json()["stage"] == "planning"
 
-def test_advance_to_done_requires_review_result():
+def test_advance_to_done_without_review_result_allowed():
     tid = _mk(stage="review")
     r = client.post(f"/api/v1/tasks/{tid}/stage", json={"target_stage": "done"})
-    assert r.status_code == 422
+    assert r.status_code == 200
+    assert r.json()["stage"] == "done"
 
 def test_advance_to_done_with_review():
     tid = _mk(stage="review")

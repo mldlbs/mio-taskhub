@@ -141,6 +141,19 @@ def _check_lifecycle_gate(t: Task, dst: TaskStage, force: bool = False):
         return []
     if getattr(t, "doc_gate_exempt", False):
         return []
+    tier = str(getattr(t, "gate_tier", "light") or "light").lower()
+    tier_reason = str(getattr(t, "gate_tier_reason", "") or "")
+    # Phase 1：light 跳过生命周期；standard 只要求已登记且文件存在，不要求 approved。
+    if tier_reason and tier == "light":
+        return []
+    if tier_reason and tier == "standard":
+        missing = [k for k in gate if doc_path_of(t, k) and not _doc_written(t, k)]
+        if missing and not force:
+            raise HTTPException(422, detail={
+                "message": "standard tier requires registered documents to exist",
+                "gate": [{"kind": k, "reason": "registered_but_file_missing"} for k in missing],
+            })
+        return []
     statuses = dict(getattr(t, "doc_statuses", None) or {})
     tracked = bool(statuses)                 # 已进入文档生命周期（显式设过任一状态）
     blocked = []
@@ -232,10 +245,10 @@ def _apply_stage_requirements(t: Task, dst: TaskStage, body: dict, strict: bool 
             if any_doc:
                 # 只给了文档时留一条指向它的提示，避免文本字段为空
                 text = f"见审查文档 {doc_path_of(t, kinds[0])}"
+            elif getattr(dst, "value", dst) == "done":
+                # Phase 1：done 不再要求 review_result；完成证据由 completion_gate 校验。
+                return
             else:
-                # 2026-10-10 审计 P0-2：原先此处 strict=False（拖拽路径）会自动填
-                # 「（拖拽完成）」——用一条看起来像审查结论的假记录解锁 done 门控，
-                # 事后无法从数据上区分「真审查」与「拖拽自动填」。现两条路径一致拒绝。
                 raise HTTPException(422, req["error"])
         setattr(t, field, text)
         return
@@ -244,6 +257,24 @@ def _apply_stage_requirements(t: Task, dst: TaskStage, body: dict, strict: bool 
     missing = [k for k in kinds if not doc_path_of(t, k)]
     if missing and strict:
         raise HTTPException(422, req["error"])
+
+
+def _check_child_stage(t: Task, dst: TaskStage):
+    """P2d：子任务不承担 design/planning，只走 ready→implementing→review→done。"""
+    if getattr(t, "parent_id", None) and dst in (TaskStage.DESIGN, TaskStage.PLANNING):
+        raise HTTPException(422, detail={
+            "code": "decompose.child_stage_forbidden",
+            "message": "child task cannot enter design/planning",
+        })
+
+
+def _check_done_gate(t: Task, db: Session):
+    """Phase 1：done 统一完成校验（warn 只返回问题，block 抛错）。"""
+    from mio_taskhub.completion_gate import GateError, check_done
+    try:
+        return check_done(db, t)
+    except GateError as exc:
+        raise HTTPException(exc.status, detail=exc.as_detail())
 
 
 def _transition_to_stage(task, to_state, stage, actor_type, actor_id, reason, m1_events):
@@ -404,12 +435,15 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
     src = t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
     if not TaskStage.can_advance(src, dst):
         raise HTTPException(400, f"cannot advance from {src.value} to {dst.value}")
+    _check_child_stage(t, dst)
     if _stage_requirement(dst).get("requires_discussion"):
         discussions = db.exec(select(Discussion).where(Discussion.task_id == task_id)).all()
         if not discussions:
             raise HTTPException(422, f"{dst.value} stage requires at least one discussion record")
     _apply_stage_requirements(t, dst, body)
     forced_gate = _check_lifecycle_gate(t, dst, force=bool((body or {}).get("force")))
+    if dst == TaskStage.DONE:
+        _check_done_gate(t, db)
     m1_events = []
     try:
         cur_s = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
@@ -461,6 +495,7 @@ def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
     src = t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
     if src in (TaskStage.DONE, TaskStage.CANCELLED):
         raise HTTPException(400, f"cannot move terminal stage {src.value}")
+    _check_child_stage(t, dst)
     _apply_stage_requirements(t, dst, body, strict=False)
     if src == dst:
         db.add(t)
@@ -470,6 +505,8 @@ def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
                 "plan_path": t.plan_path, "review_result": t.review_result,
                 "state": t.state.value}
     forced_gate = _check_lifecycle_gate(t, dst, force=bool((body or {}).get("force")))
+    if dst == TaskStage.DONE:
+        _check_done_gate(t, db)
     m1_events = []
     cur_s = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
     cur_m1 = _orm_to_status_state(cur_s)

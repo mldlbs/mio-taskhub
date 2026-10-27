@@ -36,6 +36,11 @@ def _create_tasks_from_items(db, items, idea_id):
             stage = TaskStage(stage_val)
         except ValueError:
             raise HTTPException(400, f"invalid stage: {stage_val}")
+        if stage in (TaskStage.DONE, TaskStage.CANCELLED):
+            raise HTTPException(400, detail={
+                "code": "gate.invalid_initial_stage",
+                "message": "task cannot be created directly in done/cancelled",
+            })
         t = Task(
             title=title,
             description=it.get("description", ""),
@@ -48,6 +53,8 @@ def _create_tasks_from_items(db, items, idea_id):
             idea_id=idea_id,
             stage=stage,
         )
+        from mio_taskhub.completion_gate import infer_tier
+        t.gate_tier, t.gate_tier_reason = infer_tier(t)
         db.add(t)
         created.append(t)
     return created

@@ -1,11 +1,22 @@
 # tests/test_stage_move.py
 from fastapi.testclient import TestClient
 from mio_taskhub.main import app
+from mio_taskhub.db import engine
+from mio_taskhub.models import Task, TaskStage
+from sqlmodel import Session
 
 client = TestClient(app)
 
 
 def _mk(title, stage="brainstorming", **kw):
+    if stage in ("done", "cancelled"):
+        # Phase 1：API 禁止直接创建终态任务，测试夹具直接落库。
+        with Session(engine) as s:
+            t = Task(title=title, stage=TaskStage(stage))
+            s.add(t)
+            s.commit()
+            s.refresh(t)
+            return {"id": t.id}
     body = {"title": title, "stage": stage}
     body.update(kw)
     return client.post("/api/v1/tasks", json=body).json()
@@ -25,18 +36,12 @@ def test_move_backwards():
     assert r.json()["stage"] == "brainstorming"
 
 
-def test_move_to_done_requires_review_result():
-    """2026-10-10 审计 P0-2：拖拽路径不再自动补「（拖拽完成）」。
-
-    原行为：move（strict=False）在无任何审查证据时把 review_result 填成「（拖拽完成）」
-    并放行进 done —— 用一条看起来像审查结论的假记录解锁门控，事后无法从数据上区分真假。
-    现两条路径一致：无审查证据即 422。
-    """
+def test_move_to_done_without_review_result_allowed():
+    """Phase 1：done 不再要求 review_result；完成证据由 completion_gate 管。"""
     t = _mk("move3", stage="review")
     r = client.post(f"/api/v1/tasks/{t['id']}/stage/move", json={"target_stage": "done"})
-    assert r.status_code == 422
-    assert r.json()["detail"] == "done stage requires review_result or a review document"
-    # 不得留下假审查记录
+    assert r.status_code == 200
+    assert r.json()["stage"] == "done"
     assert client.get(f"/api/v1/tasks/{t['id']}").json()["review_result"] == ""
 
 

@@ -117,8 +117,16 @@ def doc_status(task: Any, kind: str) -> Optional[dict]:
 # ── required / evidence ────────────────────────────────────────────────────
 
 def required_read_kinds(task: Any) -> List[str]:
-    """门控要求的 kind ∩ 任务已登记的 kind（按 gate_kinds 顺序）。"""
-    return [k for k in gate_kinds() if doc_path_of(task, k)]
+    """按 gate_tier 计算要求的 kind（仅已登记项；env 显式覆盖优先）。"""
+    if (os.environ.get("MIO_READ_GATE_KINDS") or "").strip():
+        return [k for k in gate_kinds() if doc_path_of(task, k)]
+    # 兼容直接构造、未经过 tier 推断的存量/测试任务（gate_tier_reason 为空）。
+    if not str(getattr(task, "gate_tier_reason", "") or ""):
+        return [k for k in gate_kinds() if doc_path_of(task, k)]
+    from mio_taskhub.completion_gate import TIER_KINDS
+    tier = str(getattr(task, "gate_tier", "light") or "light").lower()
+    kinds = TIER_KINDS.get(tier, TIER_KINDS["light"])
+    return [k for k in kinds if doc_path_of(task, k)]
 
 
 def latest_evidence(db: Session, run_id: str, kind: str) -> Optional[ReadEvidence]:
@@ -163,17 +171,22 @@ def record_read(db: Session, task: Any, kind: str, run_id: str,
 
 
 def check_read_gate(db: Session, task: Any, run_id: str) -> Dict[str, Any]:
-    """校验本次 run 是否满足 required reads（存在 + 版本一致）。
+    """校验本次 run 是否满足 required reads（存证 + 版本一致）。
 
-    文件缺失的 kind 不纳入强制（无法阅读，放行）。
+    已登记但文件缺失：`MIO_READ_GATE_MISSING` 默认 block 记为 missing；warn 放行。
     """
     required = required_read_kinds(task)
+    missing_mode = (os.environ.get("MIO_READ_GATE_MISSING") or "block").strip().lower()
     ok: List[str] = []
     missing: List[str] = []
     stale: List[str] = []
+    missing_files: List[str] = []
     for kind in required:
         fp = file_fingerprint(resolve_doc_path(task, kind))
-        if not fp:                       # 文件缺失 → 不强制
+        if not fp:
+            missing_files.append(kind)
+            if missing_mode not in _OFF and missing_mode != "warn":
+                missing.append(kind)
             continue
         ev = latest_evidence(db, run_id, kind)
         if ev is None:
@@ -188,6 +201,7 @@ def check_read_gate(db: Session, task: Any, run_id: str) -> Dict[str, Any]:
         "required_reads": required,
         "read_ok": ok,
         "missing": missing,
+        "missing_files": missing_files,
         "stale": stale,
         "enforced": bool(required) and gate_enabled(),
         "passed": not missing and not stale,
@@ -309,6 +323,17 @@ def build_claim_context(task: Any, package_only: Optional[bool] = None) -> Dict[
                  "taskhub_read_document(task_id, kind, run_id=<本 run>) 产生 "
                  "ReadEvidence，否则 taskhub_submit_result 会被拦截。"),
     }
+    try:
+        from mio_taskhub.completion_gate import build_readiness
+        result.update({
+            "gate_tier": str(getattr(task, "gate_tier", "light") or "light"),
+            "gate_tier_reason": str(getattr(task, "gate_tier_reason", "") or ""),
+            "acceptance_criteria": str(getattr(task, "acceptance_criteria", "") or ""),
+            "deliverables": list(getattr(task, "deliverables", None) or []),
+            "readiness": build_readiness(None, task),
+        })
+    except Exception:
+        logger.warning("claim readiness 计算失败，降级为只读字段", exc_info=True)
     if package:
         result["context_package"] = package
         result["package_only"] = bool(package_only)
