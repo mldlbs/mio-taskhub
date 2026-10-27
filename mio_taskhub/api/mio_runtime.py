@@ -240,3 +240,58 @@ def mio_ferment_sync(hyp_id: str, db: Session = Depends(get_session)):
     return {"created": True, "already": False,
             "idea": {"id": idea.id, "title": idea.title,
                      "status": _status_val(idea.status)}}
+
+# ── TH-01：历史决策闭环（FR-4 ~ FR-8）─────────────────────────────────────
+# 决策记录只读反查、结果投递状态、待确认经验与人工确认。
+
+class ConfirmBody(BaseModel):
+    by: str | None = None
+    note: str | None = None
+
+
+@router.get("/experience/pending")
+def mio_experience_pending(project: str = Query(""),
+                           limit: int = Query(20, ge=1, le=100)):
+    """待人工确认的 auto-claim 经验（只读）。runtime 不可用时降级为空列表。"""
+    from mio_taskhub.mio_bridge import list_pending
+    return list_pending(project=project, limit=limit)
+
+
+@router.post("/experience/{record_id}/confirm")
+def mio_experience_confirm(record_id: str, body: ConfirmBody = None):
+    """人工确认一条 pending 经验。
+
+    只对 outcomeImproved=true 的 success 来源开放：失败来源返回 409，
+    因为 confirm 的语义是「这条经验值得复用」，不是把失败改写成成功。
+    """
+    from mio_taskhub.mio_bridge import ConfirmError, confirm_experience
+    body = body or ConfirmBody()
+    try:
+        return confirm_experience(record_id, by=body.by or "taskhub",
+                                  note=body.note or "")
+    except ConfirmError as exc:
+        raise HTTPException(exc.status_code,
+                            detail={"code": exc.code, "message": exc.message})
+
+
+@router.get("/route-decisions/{run_id}")
+def mio_route_decision(run_id: str, db: Session = Depends(get_session)):
+    """按 run 反查 claim 时的路由决策记录（FR-4 追溯）。"""
+    from mio_taskhub.mio_bridge import get_route_decision, route_decision_view
+    row = get_route_decision(db, run_id)
+    if row is None:
+        raise HTTPException(404, detail={"code": "route_decision.not_found",
+                                         "message": "no route decision for this run"})
+    return route_decision_view(row)
+
+
+@router.get("/outbox")
+def mio_outbox(status: str = Query(""), run_id: str = Query(""),
+               limit: int = Query(50, ge=1, le=200),
+               include_payload: bool = Query(False),
+               db: Session = Depends(get_session)):
+    """结果写回投递状态（FR-7/FR-8 可观测性）。payload 默认不返回。"""
+    from mio_taskhub.mio_bridge import list_outbox, outbox_view
+    rows = list_outbox(db, status=status, run_id=run_id, limit=limit)
+    return {"count": len(rows),
+            "items": [outbox_view(r, include_payload=include_payload) for r in rows]}

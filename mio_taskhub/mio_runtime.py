@@ -43,6 +43,10 @@ CLI_WHITELIST = ("status", "digest", "traces", "recall", "observe", "policy")
 CLI_SUBCOMMANDS = {
     ("creativity", "status"), ("creativity", "list"), ("creativity", "ferment"),
     ("insight", "status"), ("insight", "list"),
+    # TH-01（FR-2）：历史路由建议与结果写回；两项均为低风险业务调用，
+    # 写回显式带 --yes，且由 outbox 异步触发（不占用 claim/submit 主路径）。
+    ("task", "route"), ("task", "record-outcome"),
+    ("experience", "list"), ("experience", "confirm"),
 }
 
 
@@ -519,10 +523,126 @@ def policy_check(action: str, project: Optional[str] = None,
         return base
 
 
+# ── TH-01：历史决策闭环（FR-1 / FR-2 / FR-8）──────────────────────────────
+# 三个约束写死在这里，避免调用方重新发明：
+#   1. route 必须带 --persist-query，否则 queries.jsonl 不写、后续 outcome 无法
+#      auto-claim（闭环退化为只读）。
+#   2. route 必须带 --agent-id，且与写回时的 agent 一致；CLI 默认把 agent 记成
+#      'cli'，与真实 worker 不一致会导致 auto-claim 永不命中。
+#   3. 任何失败（未安装 / 超时 / 非 JSON / 字段缺失）一律返回 None，绝不抛错，
+#      由调用方按「无建议」处理（FR-11 fail-open）。
+
+_ROUTE_KEYS = ("routes", "relatedMemories", "agentHealth")
+
+
+def task_route_status(task: str, agent: str, project: str,
+                      limit: int = 5, timeout: float = 1.5) -> tuple:
+    """跨项目历史路由建议 + 降级原因。返回 (data|None, reason)。
+
+    reason ∈ none / empty_project / runtime_unavailable / timeout / schema_error
+    """
+    task = (task or "").strip()
+    project = (project or "").strip()
+    if not project:
+        return None, "empty_project"
+    if not available():
+        return None, "runtime_unavailable"
+    if not task:
+        return None, "schema_error"
+    owner = (agent or "").strip() or "taskhub"
+    res = run_mio(
+        ["--json", "task", "route", task,
+         "--project", project, "--scope", "all",
+         "--limit", str(max(1, min(int(limit), 10))),
+         "--persist-query", "--agent-id", owner],
+        timeout=timeout,
+    )
+    if not res["ok"]:
+        if (res.get("stderr") or "").strip() == "timeout":
+            return None, "timeout"
+        if mio_cli() is None:
+            return None, "runtime_unavailable"
+        return None, "schema_error"
+    try:
+        data = json.loads(res["stdout"] or "")
+    except Exception:  # noqa: BLE001
+        return None, "schema_error"
+    if not isinstance(data, dict) or not all(k in data for k in _ROUTE_KEYS):
+        return None, "schema_error"
+    return data, "none"
+
+
+def task_route(task: str, agent: str, project: str,
+               limit: int = 5, timeout: float = 1.5) -> Optional[dict]:
+    """跨项目历史路由建议（FR-2）。不可用 / project 为空 / 失败 → None。"""
+    data, _ = task_route_status(task, agent, project, limit=limit, timeout=timeout)
+    return data
+
+
+def task_outcome(outcome: str, task: str, agent: str, project: str,
+                 summary: str = "", verification: str = "",
+                 trace_id: str = "", timeout: float = 3.0) -> Optional[dict]:
+    """把一次真实执行结果写回 runtime（FR-5/FR-6）。失败 → None（由 outbox 重试）。"""
+    if not available():
+        return None
+    outcome = (outcome or "").strip().lower()
+    if outcome not in ("success", "failure", "aborted"):
+        return None
+    project = (project or "").strip()
+    if not project:
+        return None
+    owner = (agent or "").strip() or "taskhub"
+    args = ["--json", "task", "record-outcome",
+            "--outcome", outcome, "--project", project,
+            "--agent-id", owner, "--yes"]
+    if (task or "").strip():
+        args += ["--task", task.strip()[:500]]
+    if (summary or "").strip():
+        args += ["--summary", summary.strip()[:1000]]
+    if (verification or "").strip():
+        args += ["--verification", verification.strip()[:1000]]
+    if (trace_id or "").strip():
+        args += ["--trace-id", trace_id.strip()]
+    ok, data = _json_stdout(args, timeout=timeout)
+    if not ok or not isinstance(data, dict):
+        return None
+    return data
+
+
+def experience_pending(project: str = "", limit: int = 20,
+                       timeout: float = 3.0) -> Optional[dict]:
+    """待人工确认的 auto-claim 经验（FR-8）。不可用 / 失败 → None。"""
+    if not available():
+        return None
+    args = ["--json", "experience", "list", "--status", "pending",
+            "--limit", str(max(1, min(int(limit), 100)))]
+    if (project or "").strip():
+        args += ["--project", project.strip()]
+    ok, data = _json_stdout(args, timeout=timeout)
+    if not ok or not isinstance(data, dict):
+        return None
+    return data
+
+
+def experience_confirm(record_id: str, by: str = "taskhub",
+                       timeout: float = 3.0) -> Optional[dict]:
+    """确认一条 pending 经验（FR-8）。必须命中 runtime 真实确认逻辑（不本地改写）。"""
+    if not available() or not (record_id or "").strip():
+        return None
+    ok, data = _json_stdout(
+        ["--json", "experience", "confirm",
+         "--ids", record_id.strip(), "--by", (by or "").strip() or "taskhub"],
+        timeout=timeout,
+    )
+    if not ok or not isinstance(data, dict):
+        return None
+    return data
+
+
 def run_mio(args: List[str], timeout: float = 300.0) -> dict:
     """白名单内调用 mio CLI。返回 {ok, code, stdout, stderr}；不可用/超时 → ok=False。
 
-    注意文档约定：`--json` 是全局 flag（须写在子命令前）；失败时 usage 走 stderr、
+    注意文档约定：`--json` 是全局 flag（须写在子命令前）；失败时 usage 落 stderr、
     stdout 为空。此处只透传，不做语义解析。
     """
     why = _check_allowed(args)
@@ -686,6 +806,19 @@ CONTRACT_PROBES = (
     {"name": "policy_check", "args": ("--json", "policy", "check",
                                       "mio-taskhub contract smoke self-check"),
      "fields": ("riskLevel", "total", "guidance.hardGate")},
+    # TH-01（FR-10）：历史路由 / 结果写回 / 待确认经验的契约面。
+    # route 探针不带 --persist-query：冒烟不应污染 queries.jsonl（否则每 60min
+    # 写一条查询，可能被后续 outcome 误 auto-claim）。
+    {"name": "task_route", "args": ("--json", "task", "route",
+                                    "mio-taskhub contract smoke self-check"),
+     "fields": ("count", "routes", "agentHealth")},
+    {"name": "experience_list", "args": ("--json", "experience", "list", "--limit", "1"),
+     "fields": ("count", "total", "records")},
+    # 能力探测：--persist-query / --agent-id 是 TH-01 闭环的前置条件。
+    # 不能真的执行（会写 queries.jsonl），所以直接读 CLI 源文件确认补丁还在；
+    # npm 升级覆盖补丁时这里先炸。
+    {"name": "mio_cli_flags", "args": (),
+     "cli_flags": ("--persist-query", "--agent-id")},
     {"name": "mcp_script", "args": (), "fields": ("path", "node")},
 )
 
@@ -743,8 +876,35 @@ def contract_check(timeout: float = 120.0) -> dict:
                     entry["path"] = script
                 probes_out.append(entry)
                 continue
+            if p.get("cli_flags"):
+                # 本地探针：读 CLI 源文件确认能力标志仍在（零副作用）
+                cli = mio_cli() or []
+                script = next((a for a in cli if str(a).lower().endswith(".js")), None)
+                missing = list(p["cli_flags"])
+                if script and Path(script).is_file():
+                    try:
+                        text = Path(script).read_text(encoding="utf-8", errors="replace")
+                        missing = [f for f in p["cli_flags"] if f not in text]
+                    except OSError:
+                        pass
+                entry = {"name": p["name"], "ok": not missing, "missing": missing}
+                if missing:
+                    entry["error"] = "upstream patch missing (npm upgrade?)"
+                probes_out.append(entry)
+                continue
+            if p.get("contains"):
+                # 用法/能力探测：只跑 --help，不产生任何写入
+                res = run_mio(list(p["args"]), timeout=timeout)
+                blob = (res.get("stdout") or "") + (res.get("stderr") or "")
+                found = bool(res["ok"]) and p["contains"] in blob
+                entry = {"name": p["name"], "ok": found,
+                         "missing": [] if found else [p["contains"]]}
+                if not found:
+                    entry["error"] = "usage flag not found (upstream patch missing?)"
+                probes_out.append(entry)
+                continue
             args = list(p["args"])
-            if p["name"] == "policy_check":
+            if p["name"] in ("policy_check", "task_route"):
                 args += ["--project", _project_name()]
             ok, data = _json_stdout(args, timeout=timeout)
             missing = [f for f in p["fields"]

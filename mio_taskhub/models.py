@@ -576,3 +576,36 @@ class OutboxEvent(SQLModel, table=True):
     error: Optional[str] = None
     created_at: datetime = Field(default_factory=_now)
     processed_at: Optional[datetime] = None
+
+# ── TH-01：历史决策闭环（FR-4 / FR-5）────────────────────────────────────
+# 两张表都只增不改既有表；create_all 建表，无存量数据迁移。
+
+class RouteDecision(SQLModel, table=True):
+    """一次 claim 的路由决策记录（决策记录；不参与排序与门控）。"""
+    __tablename__ = "route_decision"
+    id: str = Field(primary_key=True)                 # rd-<run_id>
+    task_id: str = Field(index=True)
+    run_id: str = Field(index=True, unique=True)
+    agent: str = ""
+    project: str = ""
+    query: str = ""
+    route_count: int = 0
+    top_experience_id: Optional[str] = None
+    agent_health_best: Optional[str] = None
+    degraded_reason: Optional[str] = None
+    at: datetime = Field(default_factory=_now)
+
+
+class MioOutbox(SQLModel, table=True):
+    """runtime 结果写回的投递队列（key 唯一 = 幂等；runtime 侧无幂等）。"""
+    __tablename__ = "mio_outbox"
+    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    key: str = Field(index=True, unique=True)         # run:<run_id>:outcome
+    run_id: str = Field(index=True)
+    task_id: str = Field(index=True)
+    payload: str = ""                                 # JSON 文本（runtime CLI 入参）
+    status: str = "pending"                           # pending|sent|failed|dead
+    attempts: int = 0
+    next_at: datetime = Field(default_factory=_now, index=True)
+    last_error: Optional[str] = None
+    at: datetime = Field(default_factory=_now)

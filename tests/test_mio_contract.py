@@ -1,5 +1,8 @@
 # tests/test_mio_contract.py
 """契约冒烟自检：CLI 输出 schema 字段断言 + 告警接线（防 runtime 升级静默漂移）。"""
+import pathlib
+import tempfile
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -16,7 +19,22 @@ GOOD = {
     "creativity_status": {"hypotheses": 0, "combos": 0, "active": 0},
     "policy_check": {"riskLevel": "low", "total": 0,
                      "guidance": {"hardGate": False}},
+    "task_route": {"count": 0, "routes": [], "relatedMemories": [],
+                   "agentHealth": None},
+    "experience_list": {"count": 0, "total": 0, "records": []},
 }
+
+# 能力探测读的是 CLI 源文件；测试里给一个包含 TH-01 两个标志的假脚本。
+_FLAG_SCRIPT = pathlib.Path(tempfile.gettempdir()) / "mio_cli_flags_probe.js"
+
+
+def _flag_script() -> str:
+    _FLAG_SCRIPT.write_text(
+        "persistQuery: flagPresent(flags, '--persist-query')\n"
+        "// --agent-id\n",
+        encoding="utf-8",
+    )
+    return str(_FLAG_SCRIPT)
 
 
 @pytest.fixture(autouse=True)
@@ -35,13 +53,17 @@ def _fake_json_stdout(payloads):
             return True, payloads.get("creativity_status", GOOD["creativity_status"])
         if "policy" in args:
             return True, payloads.get("policy_check", GOOD["policy_check"])
+        if "task" in args:
+            return True, payloads.get("task_route", GOOD["task_route"])
+        if "experience" in args:
+            return True, payloads.get("experience_list", GOOD["experience_list"])
         return True, payloads.get("status", GOOD["status"])
     return fake
 
 
 def _patch_cli(monkeypatch, payloads=None):
     monkeypatch.setattr(mio, "available", lambda: True)
-    monkeypatch.setattr(mio, "mio_cli", lambda: ["mio"])
+    monkeypatch.setattr(mio, "mio_cli", lambda: [_flag_script()])
     monkeypatch.setattr(mio, "_json_stdout", _fake_json_stdout(payloads or {}))
     # mcp_script 本地探针确定性化：指向真实存在的文件（mio_runtime 自身）
     monkeypatch.setattr(mio, "resolve_mcp_script", lambda: mio.__file__)
@@ -57,7 +79,7 @@ def test_contract_check_all_probes_ok(monkeypatch):
     assert res["available"] is True
     assert [p["name"] for p in res["probes"]] == [
         "status", "insight_status", "creativity_status", "policy_check",
-        "mcp_script"]
+        "task_route", "experience_list", "mio_cli_flags", "mcp_script"]
     assert all(p["ok"] for p in res["probes"])
     # 结果已缓存
     assert mio.contract_last()["epoch"] == res["epoch"]
@@ -171,7 +193,7 @@ def test_contract_route_cached_and_run(monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is True
-    assert len(body["probes"]) == 5
+    assert len(body["probes"]) == 8
 
     # 默认读缓存（不重跑）
     r = client.get("/api/v1/mio/contract")

@@ -16,6 +16,7 @@ from mio_taskhub.workflow.state_machine import State as M1State, Stage as M1Stag
 from mio_taskhub.workflow.state_machine import IllegalTransition as M1Illegal
 from mio_taskhub.ideas.idea_review import IdeaReviewScanner
 from mio_taskhub.mio_runtime import MioDigestJob, ContractJob
+from mio_taskhub.mio_bridge import MioOutcomeJob
 from mio_taskhub.heartbeat import (
     HeartbeatSweep,
     RunInfo,
@@ -333,6 +334,15 @@ def _on_timeout(run_id: str, task_id: str):
             logger.exception("failed to emit reaper_decision evidence")
 
         db.commit()
+        # TH-01（FR-6）：系统超时/agent 掉线也是一次真实结果，按 aborted 写回。
+        # never_started 不算执行结果（agent 从未运行），不写回。
+        if not never_started:
+            try:
+                from mio_taskhub.mio_bridge import enqueue_outcome
+                enqueue_outcome(db, task, run, "aborted",
+                                run.result or "timeout", verification=kind)
+            except Exception:  # noqa: BLE001 — 写回失败不影响回收
+                logger.warning("outbox enqueue on timeout failed", exc_info=True)
         # Verify 闭链（P1-2）：requeue 后校验任务确实回到可领取状态，否则留证便于排查
         if task is not None and never_started:
             db.refresh(task)
@@ -637,17 +647,20 @@ def start_background_jobs():
     idea_scanner = IdeaReviewScanner()
     digest_job = MioDigestJob()
     contract_job = ContractJob()
+    outcome_job = MioOutcomeJob()
     sweep.start()
     scheduler.start()
     idea_scanner.start()
     digest_job.start()
     contract_job.start()
+    outcome_job.start()
     register_thread("heartbeat", sweep._thread, sweep)
     register_thread("scheduler", scheduler._thread, scheduler)
     register_thread("idea-review", idea_scanner._thread, idea_scanner)
     register_thread("mio-digest", digest_job._thread, digest_job)
     register_thread("mio-contract", contract_job._thread, contract_job)
-    return sweep, scheduler, idea_scanner, digest_job, contract_job
+    register_thread("mio-outcome", outcome_job._thread, outcome_job)
+    return sweep, scheduler, idea_scanner, digest_job, contract_job, outcome_job
 
 
 # HeartbeatSweep / RunInfo 已统一到 mio_taskhub.heartbeat（单一事实源）。

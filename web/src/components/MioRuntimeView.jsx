@@ -22,18 +22,22 @@ export default function MioRuntimeView() {
   const [traces, setTraces] = useState([])
   const [mem, setMem] = useState([])
   const [crea, setCrea] = useState(null)
+  const [pending, setPending] = useState(null)
+  const [confirming, setConfirming] = useState('')
   const [err, setErr] = useState(null)
   const [starting, setStarting] = useState(false)
 
   async function load() {
     try {
-      const [s, t, m, c] = await Promise.all([
+      const [s, t, m, c, p] = await Promise.all([
         api.mioStatus(), api.mioTraces(15), api.mioMemory(15), api.mioCreativity(15),
+        api.mioExperiencePending('', 20).catch(() => null),
       ])
       setSt(s)
       setTraces(t.items || [])
       setMem(m.items || [])
       setCrea(c)
+      setPending(p)
       setErr(null)
     } catch (e) {
       setErr(e?.message || String(e))
@@ -52,6 +56,21 @@ export default function MioRuntimeView() {
       setErr(e?.message || String(e))
     } finally {
       setStarting(false)
+    }
+  }
+
+  // TH-01（FR-9）：确认一条待复用经验。确认只调用 runtime 真实逻辑，
+  // 失败来源（outcome 未改善）在按钮层即禁用。
+  async function confirmExp(id) {
+    setConfirming(id)
+    try {
+      await api.mioExperienceConfirm(id)
+      setPending(await api.mioExperiencePending('', 20).catch(() => null))
+      setErr(null)
+    } catch (e) {
+      setErr(e?.message || String(e))
+    } finally {
+      setConfirming('')
     }
   }
 
@@ -151,6 +170,43 @@ export default function MioRuntimeView() {
           ))}
         </tbody>
       </table>
+
+      <h3 className="mio-sec">经验待确认</h3>
+      {(!pending || pending.available === false) ? (
+        <p className="detail-muted">runtime 不可用，待确认经验暂不可读。</p>
+      ) : (pending.records || []).length === 0 ? (
+        <p className="detail-muted">
+          没有待确认经验。任务结果写回后会生成 pending，人工确认后才会进入下次 claim 的路由建议。
+        </p>
+      ) : (
+        <ul className="mio-list">
+          {(pending.records || []).map(r => (
+            <li key={r.id} className="mio-item">
+              <div className="mio-item__head">
+                <span className="mono mio-tag">{r.experienceId}</span>
+                <span className="detail-muted mono">{r.project || '-'}</span>
+                {!r.confirmable && (
+                  <span className="mio-outcome mio-outcome--failure">不可确认</span>
+                )}
+                <span className="detail-muted">{fmtTime(r.timestamp)}</span>
+                <button className="btn btn--ghost btn--xs"
+                        disabled={!r.confirmable || confirming === r.id}
+                        title={r.confirmable
+                          ? '确认这条经验值得复用'
+                          : '失败来源（outcome 未改善），不可确认'}
+                        onClick={() => confirmExp(r.id)}>
+                  {confirming === r.id ? '确认中…' : '确认'}
+                </button>
+              </div>
+              {!r.confirmable && (
+                <div className="mio-snippet">
+                  不可确认（outcome 未改善）——确认只代表「值得复用」，不把失败改写成成功。
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
 
       <div className="mio-cols">
         <div className="mio-col">
