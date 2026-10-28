@@ -145,8 +145,10 @@ P5.1 没有回退 P5 的修复；decision 硬闸主要影响新样本中的碎�
 | 裁决表 | `adjudication-sheet.tsv`（原始表不覆盖） |
 | 分析 | `scripts/materials_review_analysis.py`（一致率/κ/混淆矩阵/分歧） |
 | 构建/校验 | `scripts/materials_review_kit.py --build / --verify` |
+| 发放 | `review-handout-p51b/`：A/B 空白副本、`HANDOFF.md`、发放哈希 |
+| 完整性 | 分析脚本检查行数、代号冲突、原文一致性，并记录返回表 sha256 |
 | 冻结哈希 | `manifest.json`（7 个文件） |
-| 当前状态 | **等待真实人工复核** |
+| 当前状态 | **已发放，等待两份独立人工表** |
 
 说明：
 - 独立 agent 预复核（`independent-review-p51b.jsonl`）只作为工具预检，不计入人工结论。

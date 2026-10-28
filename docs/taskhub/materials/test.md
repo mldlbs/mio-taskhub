@@ -136,6 +136,8 @@
 | T74 | `test_materials_review.py::test_review_analysis_agreement_and_disagreement` | 双人一致率/κ/分歧清单 |
 | T75 | `test_materials_review.py::test_review_analysis_requires_reason` | 缺理由拒绝分析 |
 | T76 | `test_materials_review.py::test_review_kit_builds_blind_pack_and_verifies` | 盲包重建/hash 校验/篡改检出 |
+| T77 | `test_materials_review.py::test_review_analysis_flags_quote_tamper_and_identity_collision` | 原文篡改与共用代号检出 |
+| T78 | `test_materials_review.py::test_review_kit_handout_copies_blank_sheets` | 双人空白副本发放与哈希 |
 
 ---
 
@@ -253,7 +255,7 @@ python scripts/materials_audit.py
 python scripts/materials_backfill.py --days 30
 ```
 
-素材库实测：`76 passed`；全量 `1686 passed / 2 skipped / 4 deselected`（2026-10-28）。
+素材库实测：`78 passed`；全量 `1688 passed / 2 skipped / 4 deselected`（2026-10-28）。
 
 ---
 

@@ -21,11 +21,12 @@ def _kit(tmp_path):
     return kit
 
 
-def _sheet(path, rows):
+def _sheet(path, rows, reviewer_id="A", quote_override=None):
     header = "sample_id\tsource_key\tquote\tlabel_kind\tlabel_usable\tconfidence\treason\treviewer_id\treviewed_at\tround\n"
     body = []
     for r in rows:
-        body.append(f'{r["sample_id"]}\t{r["source_key"]}\t{r["quote"]}\t{r["kind"]}\t{r["usable"]}\t{r["confidence"]}\t{r["reason"]}\tA\t2026-10-28\t1')
+        quote = (quote_override or {}).get(r["sample_id"], r["quote"])
+        body.append(f'{r["sample_id"]}\t{r["source_key"]}\t{quote}\t{r["kind"]}\t{r["usable"]}\t{r["confidence"]}\t{r["reason"]}\t{reviewer_id}\t2026-10-28\t1')
     path.write_text(header + "\n".join(body) + "\n", encoding="utf-8")
 
 
@@ -42,9 +43,11 @@ def test_review_analysis_agreement_and_disagreement(tmp_path):
         {"sample_id": 1, "source_key": "doc.review", "quote": "A", "kind": "result", "usable": "yes", "confidence": "high", "reason": "test count"},
         {"sample_id": 2, "source_key": "hn", "quote": "B", "kind": "signal", "usable": "yes", "confidence": "high", "reason": "event"},
         {"sample_id": 3, "source_key": "run.result", "quote": "C", "kind": "result", "usable": "no", "confidence": "high", "reason": "fragment"},
-    ])
+    ], reviewer_id="B")
     r = analyze(kit, [a, b])
     assert r["samples"] == 3
+    assert r["integrity"]["clean"] is True
+    assert r["integrity"]["identity_collisions"] == []
     pair = r["pairs"][0]
     assert pair["kind_agreement"] == 0.6667
     assert pair["usable_agreement"] == 1.0
@@ -65,6 +68,25 @@ def test_review_analysis_requires_reason(tmp_path):
     _sheet(b, rows)
     with pytest.raises(ValueError):
         analyze(kit, [a, b])
+
+
+def test_review_analysis_flags_quote_tamper_and_identity_collision(tmp_path):
+    kit = _kit(tmp_path)
+    a = tmp_path / "a.tsv"
+    b = tmp_path / "b.tsv"
+    rows = [
+        {"sample_id": i, "source_key": src, "quote": q, "kind": kind,
+         "usable": "yes", "confidence": "high", "reason": "U1"}
+        for i, (src, q, kind) in enumerate(
+            [("doc.review", "A", "decision"), ("hn", "B", "signal"),
+             ("run.result", "C", "result")], start=1)
+    ]
+    _sheet(a, rows, reviewer_id="R")
+    _sheet(b, rows, reviewer_id="R", quote_override={2: "B (edited)"})
+    r = analyze(kit, [a, b])
+    assert r["integrity"]["clean"] is False
+    assert r["integrity"]["identity_collisions"] == ["R"]
+    assert r["integrity"]["quote_mismatches"]["b"] == ["2"]
 
 
 def _label_rows():
@@ -123,4 +145,22 @@ def test_review_kit_builds_blind_pack_and_verifies(tmp_path):
     (kit / "review-pack.jsonl").write_text("tampered", encoding="utf-8")
     problems = verify(kit)
     assert any("review-pack.jsonl" in p for p in problems)
+
+
+def test_review_kit_handout_copies_blank_sheets(tmp_path):
+    from scripts.materials_review_kit import handout
+
+    kit = tmp_path / "kit"
+    kit.mkdir()
+    sheet = kit / "review-sheet.tsv"
+    sheet.write_text("sample_id\tquote\n1\tA\n", encoding="utf-8")
+    (kit / "manifest.json").write_text(json.dumps({"files": {}}), encoding="utf-8")
+
+    out = tmp_path / "handout"
+    payload = handout(kit, out)
+    for rid in ("A", "B"):
+        copy = out / f"review-sheet-{rid}.tsv"
+        assert copy.read_bytes() == sheet.read_bytes()
+        assert payload["blank_copies"][copy.name]["sha256"]
+    assert (out / "handout-manifest.json").exists()
 

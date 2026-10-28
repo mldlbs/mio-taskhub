@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 from collections import Counter, defaultdict
@@ -68,11 +69,52 @@ def _read_reviewer(path: Path) -> Dict[str, dict]:
                 "label_usable": usable,
                 "confidence": conf,
                 "reason": row.get("reason", ""),
-                "reviewer_id": row.get("reviewer_id", ""),
-                "reviewed_at": row.get("reviewed_at", ""),
-                "round": row.get("round", ""),
+                "quote": row.get("quote", ""),
+                "reviewer_id": (row.get("reviewer_id") or "").strip(),
+                "reviewed_at": (row.get("reviewed_at") or "").strip(),
+                "round": (row.get("round") or "").strip(),
             }
     return out
+
+
+def _expected_quote(text: str) -> str:
+    return text.replace("\t", " ").replace("\n", "\\n").strip()
+
+
+def _integrity(pack: Dict[str, dict], reviewers: Dict[str, Dict[str, dict]]) -> dict:
+    """标注表完整性：行数、复核人标识、原文一致性、轮次与时间。"""
+
+    quote_mismatch: Dict[str, List[str]] = {}
+    ids_by_reviewer: Dict[str, List[str]] = {}
+    missing_id: Dict[str, List[str]] = {}
+    rounds: Dict[str, List[str]] = {}
+    for name, rows in reviewers.items():
+        bad = [s for s, r in rows.items()
+               if r["quote"].strip()
+               and r["quote"].strip() != _expected_quote(pack[s]["quote"])]
+        quote_mismatch[name] = sorted(bad)
+        ids_by_reviewer[name] = sorted({r["reviewer_id"] for r in rows.values()
+                                        if r["reviewer_id"]})
+        missing_id[name] = sorted(s for s, r in rows.items() if not r["reviewer_id"])
+        rounds[name] = sorted({r["round"] for r in rows.values() if r["round"]})
+
+    owners: Dict[str, set] = {}
+    for name, ids in ids_by_reviewer.items():
+        for rid in ids:
+            owners.setdefault(rid, set()).add(name)
+    collisions = sorted(rid for rid, who in owners.items() if len(who) > 1)
+
+    return {
+        "rows_per_reviewer": {n: len(r) for n, r in reviewers.items()},
+        "reviewer_ids": ids_by_reviewer,
+        "missing_reviewer_id": missing_id,
+        "identity_collisions": collisions,
+        "quote_mismatches": quote_mismatch,
+        "rounds": rounds,
+        "clean": (not collisions
+                  and not any(missing_id.values())
+                  and not any(quote_mismatch.values())),
+    }
 
 
 def _confusion(a: List[str], b: List[str]) -> Dict[str, Dict[str, int]]:
@@ -159,10 +201,15 @@ def analyze(kit: Path, reviewer_paths: List[Path],
                 "usable_kappa": _kappa(ua, us),
             }
 
+    integrity = _integrity(pack, reviewers)
+    integrity["sheet_sha256"] = {
+        p.stem: hashlib.sha256(p.read_bytes()).hexdigest() for p in reviewer_paths}
+
     return {
         "kit": str(kit),
         "samples": len(ids),
         "reviewers": names,
+        "integrity": integrity,
         "per_reviewer": {
             name: {
                 "kind_counts": dict(Counter(r["label_kind"] for r in rows.values())),
@@ -182,6 +229,19 @@ def render(report: dict, out: Path) -> None:
     lines.append("|---|---|")
     lines.append(f"| 复核人 | {', '.join(report['reviewers'])} |")
     lines.append(f"| 样本 | {report['samples']} |")
+    lines.append("")
+    integrity = report.get("integrity") or {}
+    lines.append("## 完整性检查")
+    lines.append("")
+    lines.append("| 项 | 值 |")
+    lines.append("|---|---|")
+    lines.append(f"| 行数 | {json.dumps(integrity.get('rows_per_reviewer', {}), ensure_ascii=False)} |")
+    lines.append(f"| 复核人标识 | {json.dumps(integrity.get('reviewer_ids', {}), ensure_ascii=False)} |")
+    lines.append(f"| 标识冲突 | {integrity.get('identity_collisions') or '无'} |")
+    lines.append(f"| 缺复核人标识 | {json.dumps(integrity.get('missing_reviewer_id', {}), ensure_ascii=False)} |")
+    lines.append(f"| 原文不一致 | {json.dumps(integrity.get('quote_mismatches', {}), ensure_ascii=False)} |")
+    lines.append(f"| 轮次 | {json.dumps(integrity.get('rounds', {}), ensure_ascii=False)} |")
+    lines.append(f"| 表 hash | {json.dumps(integrity.get('sheet_sha256', {}), ensure_ascii=False)} |")
     lines.append("")
     lines.append("## 一致性")
     lines.append("")

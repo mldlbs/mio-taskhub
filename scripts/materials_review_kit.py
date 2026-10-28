@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List
@@ -133,10 +134,39 @@ def verify(kit: Path) -> List[str]:
     return problems
 
 
+def handout(kit: Path, out: Path) -> dict:
+    """生成两名复核人的空白独立副本与发放清单（不改动冻结包）。"""
+    manifest_path = kit / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    out.mkdir(parents=True, exist_ok=True)
+    copies = {}
+    for rid in ("A", "B"):
+        name = f"review-sheet-{rid}.tsv"
+        dst = out / name
+        shutil.copyfile(kit / "review-sheet.tsv", dst)
+        copies[name] = {
+            "size": dst.stat().st_size,
+            "sha256": hashlib.sha256(dst.read_bytes()).hexdigest(),
+        }
+    payload = {
+        "issued_at": datetime.now(timezone.utc).isoformat(),
+        "kit": str(kit).replace("\\", "/"),
+        "kit_manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+        "frozen_files": manifest["files"],
+        "blank_copies": copies,
+        "note": ("Each reviewer fills one copy independently. Returned files are "
+                 "hashed by the analysis script; raw sheets are never overwritten."),
+    }
+    (out / "handout-manifest.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--build", action="store_true")
     p.add_argument("--verify", action="store_true")
+    p.add_argument("--handout")
     p.add_argument("--kit", required=True)
     p.add_argument("--sample")
     p.add_argument("--labels")
@@ -163,8 +193,11 @@ def main() -> int:
             print(f"OK {kit} files={len(FREEZE_FILES)}")
             return 0
         return 1
-    if not (args.build or args.verify):
-        raise SystemExit("nothing to do: pass --build and/or --verify")
+    if args.handout:
+        payload = handout(kit, Path(args.handout))
+        print(f"handout {args.handout} copies={len(payload['blank_copies'])}")
+    if not (args.build or args.verify or args.handout):
+        raise SystemExit("nothing to do: pass --build and/or --verify and/or --handout")
     return 0
 
 
