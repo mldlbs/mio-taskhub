@@ -4779,3 +4779,180 @@ textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }
   .obs-body.has-detail { grid-template-columns: minmax(0, 1fr); }
   .obs-panel { position: static; }
 }
+
+/* ============================================================
+   Liquid Glass layer (2026-10)  ·  v2「透亮」
+   Frosted Touch + Liquid Morph ambient drift
+   - 降低底色不透明度、叠加白色 sheen 与内高光，让玻璃真的"透"
+   - 环境光加亮加饱和，玻璃后面必须有东西可透
+   - 仍保留三道安全网：@supports 回退 / 高对比档关模糊 / reduced-motion
+   ============================================================ */
+
+:root {
+  /* 玻璃底色：只留很薄的一层"雾"，其余交给背后的光 */
+  --glass-rail:   linear-gradient(180deg, rgba(22, 30, 42, 0.52), rgba(11, 16, 23, 0.40));
+  --glass-lane:   linear-gradient(180deg, rgba(34, 45, 60, 0.26), rgba(15, 21, 29, 0.16));
+  --glass-card:   linear-gradient(148deg, rgba(255, 255, 255, 0.135), rgba(255, 255, 255, 0.042) 44%, rgba(255, 255, 255, 0.014));
+  --glass-card-h: linear-gradient(148deg, rgba(255, 255, 255, 0.185), rgba(255, 255, 255, 0.062) 44%, rgba(255, 255, 255, 0.022));
+  --glass-modal:  linear-gradient(160deg, rgba(40, 52, 68, 0.72), rgba(18, 24, 33, 0.76));
+  /* 斜向高光：模拟一片玻璃的折射线 */
+  --glass-sheen:  linear-gradient(142deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.045) 34%, rgba(255, 255, 255, 0) 56%);
+  --glass-line:   rgba(255, 255, 255, 0.20);
+  --glass-line-2: rgba(255, 255, 255, 0.12);
+  /* 上缘一道亮边 + 下缘一道反光，这是"玻璃感"的关键 */
+  --glass-in:     inset 0 1px 0 rgba(255, 255, 255, 0.26), inset 0 -1px 0 rgba(255, 255, 255, 0.055);
+  --glass-in-sm:  inset 0 1px 0 rgba(255, 255, 255, 0.20);
+  --shadow-lane:  0 30px 70px -34px rgba(0, 0, 0, 0.92), 0 2px 12px -6px rgba(0, 0, 0, 0.5);
+  --shadow-card:  0 12px 28px -18px rgba(0, 0, 0, 0.9);
+  --blur-rail: 24px;
+  --blur-lane: 30px;
+  --blur-modal: 34px;
+  --radius: 16px;
+}
+
+.shell { background: transparent; position: relative; }
+.main { position: relative; z-index: 1; }
+
+/* --- ambient：玻璃背后必须有光，而且要是彩色的 --- */
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(56% 46% at 10% 4%, rgba(110, 150, 255, 0.22), transparent 62%),
+    radial-gradient(44% 40% at 92% -6%, rgba(205, 250, 63, 0.13), transparent 58%),
+    radial-gradient(50% 44% at 78% 42%, rgba(150, 120, 255, 0.10), transparent 62%),
+    radial-gradient(66% 60% at 46% 116%, rgba(96, 128, 168, 0.26), transparent 64%),
+    var(--bg);
+}
+.ambient::before,
+.ambient::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(86px);
+  opacity: 0.9;
+  will-change: transform;
+}
+.ambient::before {
+  width: 54vw; height: 54vw; left: -14vw; top: -18vw;
+  background: radial-gradient(circle, rgba(120, 162, 255, 0.52), transparent 66%);
+  animation: driftA 26s ease-in-out infinite alternate;
+}
+.ambient::after {
+  width: 48vw; height: 48vw; right: -12vw; bottom: -20vw;
+  background: radial-gradient(circle, rgba(205, 250, 63, 0.30), transparent 64%);
+  animation: driftB 32s ease-in-out infinite alternate;
+}
+@keyframes driftA { to { transform: translate3d(7vw, 5vh, 0) scale(1.14); } }
+@keyframes driftB { to { transform: translate3d(-6vw, -4vh, 0) scale(1.10); } }
+
+/* --- rail：最靠边的一层薄玻璃 --- */
+.rail {
+  background: var(--glass-sheen), var(--glass-rail);
+  backdrop-filter: blur(var(--blur-rail)) saturate(190%) brightness(1.16);
+  -webkit-backdrop-filter: blur(var(--blur-rail)) saturate(190%) brightness(1.16);
+  border-right: 1px solid var(--glass-line-2);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.10), 16px 0 46px -32px rgba(0, 0, 0, 0.9);
+}
+
+/* --- mission bar --- */
+.mission {
+  background: var(--glass-sheen), linear-gradient(180deg, rgba(18, 24, 33, 0.56), rgba(11, 16, 22, 0.42));
+  backdrop-filter: blur(22px) saturate(185%) brightness(1.12);
+  -webkit-backdrop-filter: blur(22px) saturate(185%) brightness(1.12);
+  border-bottom: 1px solid var(--glass-line-2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 20px 44px -36px rgba(0, 0, 0, 0.95);
+}
+
+/* --- lanes：主玻璃面 --- */
+.lane {
+  background: var(--glass-sheen), var(--glass-lane);
+  backdrop-filter: blur(var(--blur-lane)) saturate(195%) brightness(1.14);
+  -webkit-backdrop-filter: blur(var(--blur-lane)) saturate(195%) brightness(1.14);
+  border: 1px solid var(--glass-line-2);
+  box-shadow: var(--shadow-lane), var(--glass-in);
+}
+.lane.is-over {
+  border-color: rgba(205, 250, 63, 0.62);
+  background: var(--glass-sheen), linear-gradient(180deg, rgba(205, 250, 63, 0.16), rgba(15, 21, 29, 0.20));
+  box-shadow: 0 0 0 1px rgba(205, 250, 63, 0.30), 0 0 52px -16px var(--accent-glow), var(--glass-in);
+}
+.lane__head {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.012));
+  border-bottom: 1px solid var(--glass-line-2);
+}
+
+/* --- task cards：高透白片，靠 lane 的模糊透出层次（不做 backdrop-filter） --- */
+.task {
+  background:
+    radial-gradient(120% 100% at 100% 100%, rgba(205, 250, 63, 0.055), transparent 62%),
+    var(--glass-card);
+  border: 1px solid var(--glass-line-2);
+  border-radius: 13px;
+  box-shadow: var(--shadow-card), var(--glass-in-sm);
+}
+.task:hover {
+  background:
+    radial-gradient(120% 100% at 100% 100%, rgba(205, 250, 63, 0.09), transparent 62%),
+    var(--glass-card-h);
+  border-color: var(--glass-line);
+  box-shadow: 0 20px 40px -22px rgba(0, 0, 0, 0.92), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+.task.is-running {
+  border-color: rgba(205, 250, 63, 0.46);
+  box-shadow: 0 0 34px -12px var(--accent-glow), var(--glass-in-sm);
+}
+
+/* --- modal：更厚的玻璃，但仍要透 --- */
+.overlay {
+  background: rgba(6, 8, 11, 0.52);
+  backdrop-filter: blur(12px) saturate(130%);
+  -webkit-backdrop-filter: blur(12px) saturate(130%);
+}
+.modal {
+  background: var(--glass-sheen), var(--glass-modal);
+  backdrop-filter: blur(var(--blur-modal)) saturate(180%) brightness(1.12);
+  -webkit-backdrop-filter: blur(var(--blur-modal)) saturate(180%) brightness(1.12);
+  border: 1px solid var(--glass-line);
+  border-radius: 22px;
+  box-shadow: 0 52px 130px -42px rgba(0, 0, 0, 0.95), var(--glass-in);
+}
+
+/* --- 小控件：胶囊玻璃 --- */
+.btn--ghost {
+  background: rgba(255, 255, 255, 0.055);
+  border-color: var(--glass-line-2);
+  box-shadow: var(--glass-in-sm);
+}
+.btn--ghost:hover { background: rgba(255, 255, 255, 0.10); }
+
+/* --- 无 backdrop-filter：退回"亚光玻璃"，仍保留高光 --- */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .rail, .lane, .mission, .modal, .overlay { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .rail { background: rgba(24, 32, 43, 0.96); }
+  .lane { background: rgba(28, 37, 49, 0.94); }
+  .modal { background: rgba(28, 37, 49, 0.98); }
+}
+
+/* --- 高对比档：关模糊、抬不透明度、停漂移 --- */
+html[data-contrast="high"] .rail,
+html[data-contrast="high"] .lane,
+html[data-contrast="high"] .mission,
+html[data-contrast="high"] .modal,
+html[data-contrast="high"] .overlay {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+html[data-contrast="high"] .rail { background: rgba(22, 29, 39, 0.98) !important; }
+html[data-contrast="high"] .lane { background: rgba(30, 40, 52, 0.95) !important; }
+html[data-contrast="high"] .task { background: rgba(36, 47, 62, 0.97) !important; }
+html[data-contrast="high"] .modal { background: rgba(32, 42, 55, 0.99) !important; }
+html[data-contrast="high"] .ambient::before,
+html[data-contrast="high"] .ambient::after { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ambient::before, .ambient::after { animation: none; }
+}

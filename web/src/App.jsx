@@ -361,6 +361,7 @@ export default function App() {
 
   return (
     <div className="shell">
+      <div className="ambient" aria-hidden="true" />
       <Rail view={view} onChange={setView} wsLive={ws} contrast={contrast} onToggleContrast={toggleContrast} />
 
       <div className="main">
