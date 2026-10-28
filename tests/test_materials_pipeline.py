@@ -126,3 +126,14 @@ def test_rebuild_rejects_config_drift_without_version_bump():
         s.commit()
     with pytest.raises(ValueError, match="config_version_mismatch"):
         rebuild_source("hn", _extractor, to_version=2, to_config_hash="v3")
+
+
+def test_rejected_raw_is_not_reprocessed_same_version():
+    rec = _record("hn-rej", "A sufficiently long content for the payload.")
+    bad = lambda p, s: [Draft(
+        kind="signal", quote="short", field="content", evidence_tier="A")]
+    first = ingest_records("hn", [rec], bad)
+    second = ingest_records("hn", [rec], bad)
+    assert first.rejected == 1
+    assert second.skipped == 1
+    assert second.rejected == 0

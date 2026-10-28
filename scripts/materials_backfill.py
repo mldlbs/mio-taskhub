@@ -18,8 +18,9 @@ if str(ROOT) not in sys.path:
 
 from sqlmodel import Session  # noqa: E402
 
-from mio_taskhub.db import engine, init_db  # noqa: E402
+from mio_taskhub.db import engine  # noqa: E402
 from mio_taskhub.materials.adapters import ADAPTERS, run_adapter, source_health  # noqa: E402
+from mio_taskhub.materials.bootstrap import init_materials_db  # noqa: E402
 from mio_taskhub.materials.extract import extract_for_source  # noqa: E402
 from mio_taskhub.materials.models import MaterialSource  # noqa: E402
 from mio_taskhub.materials.pipeline import ingest_records  # noqa: E402
@@ -43,7 +44,7 @@ def main() -> int:
     parser.add_argument("--root", default=None,
                         help="文档路径根目录；默认 task.workspace")
     args = parser.parse_args()
-    init_db()
+    init_materials_db()
 
     keys = args.source or list(ADAPTERS.keys())
     failed = 0

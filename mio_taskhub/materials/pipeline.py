@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -14,6 +15,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from sqlalchemy import func
+from sqlalchemy.exc import OperationalError
 from sqlmodel import Session, select
 
 from mio_taskhub.db import engine
@@ -289,7 +291,7 @@ def _extract_raw(session: Session, source: MaterialSource, raw: MaterialRaw,
                  extractor: Extractor, stats: IngestStats, now: datetime,
                  force: bool = False, project: Optional[str] = None) -> None:
     if not force and raw.extract_version >= source.extract_version \
-            and raw.extract_status == "extracted":
+            and raw.extract_status in ("extracted", "rejected", "skipped"):
         stats.skipped += 1
         return
 
@@ -340,13 +342,11 @@ def _extract_raw(session: Session, source: MaterialSource, raw: MaterialRaw,
     stats.rejected += rejected
 
 
-def ingest_records(source_key: str, records: Sequence[RawRecord],
-                   extractor: Extractor, cursor: Optional[str] = None,
-                   now: Optional[datetime] = None) -> IngestStats:
-    """单批采集入库；整批一个事务，失败回滚。"""
-    now = now or _now()
+def _ingest_records_once(source_key: str, records: Sequence[RawRecord],
+                         extractor: Extractor, cursor: Optional[str],
+                         now: datetime, target_engine) -> IngestStats:
     stats = IngestStats()
-    with Session(engine) as session:
+    with Session(target_engine or engine) as session:
         source = _source_or_raise(session, source_key)
         for record in records:
             raw, created = _get_or_create_raw(session, source, record)
@@ -360,6 +360,30 @@ def ingest_records(source_key: str, records: Sequence[RawRecord],
             source.cursor = cursor
         session.commit()
     return stats
+
+
+def ingest_records(source_key: str, records: Sequence[RawRecord],
+                   extractor: Extractor, cursor: Optional[str] = None,
+                   now: Optional[datetime] = None,
+                   target_engine=None) -> IngestStats:
+    """单批采集入库；整批一个事务，失败回滚；锁冲突退避重试。"""
+    now = now or _now()
+    delays = (0.0, 0.2, 0.5, 1.0)
+    last_exc: Optional[Exception] = None
+    for delay in delays:
+        if delay:
+            time.sleep(delay)
+        try:
+            return _ingest_records_once(source_key, records, extractor,
+                                        cursor, now, target_engine)
+        except OperationalError as exc:
+            text = str(exc).lower()
+            if "locked" not in text and "busy" not in text:
+                raise
+            last_exc = exc
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("ingest_records exhausted retries")
 
 
 def add_link(session: Session, material_id: str, ref_type: str, ref_id: str,

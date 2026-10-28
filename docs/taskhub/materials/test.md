@@ -4,12 +4,12 @@
 
 | 项 | 值 |
 |---|---|
-| 文档版本 | v1.2 |
-| 最后更新 | 2026-10-28 17:05 |
+| 文档版本 | v1.3 |
+| 最后更新 | 2026-10-28 18:00 |
 | 状态 | approved |
 | 负责人 | opencode |
 | 上游依据 | `spec.md` v1.1 §5、`plan.md` v1.1 §4 |
-| 下游关联 | P4 校准、P5 完整 API / 面板 |
+| 下游关联 | P4 正式标注、P5 完整 API / 面板 |
 
 ---
 
@@ -42,12 +42,15 @@
 - 四个反例：T-MIRROR / T-RAWVER / T-EXTRACT / T-CRASH
 - 10 个来源的确定性提炼器、16 条精确黄金样本、50 条分类基线
 - 7 类真实来源适配器、30 天回填、采集 job 日上限/单源隔离、来源健康端点
+- 生产只读预检、副本双跑演练、业务表零变化证明
+- P4 200 条分层样本与证据不足标记
 
 ### 未覆盖（后续阶段）
 
 | 范围 | 阶段 | 说明 |
 |---|---|---|
-| 质量阈值校准 | P4 | 需要真实人工标注集 |
+| 生产库实际回填 | 待批准 | 预检通过，但未执行 |
+| 阈值校准 | P4 | 样本已准备，标签未填写 |
 | 完整 API / 面板 | P5 | 当前只有 `GET /materials/sources` |
 | 日志试运行 | P6 | 当前只验证 trial 隔离 |
 
@@ -101,6 +104,14 @@
 | T42 | `test_materials_jobs.py::test_job_daily_cap` | 日上限 |
 | T43 | `test_materials_jobs.py::test_job_isolates_source_failure` | 单源失败隔离 |
 | T44 | `test_materials_api.py::test_sources_health_endpoint` | 来源健康端点 |
+| T45 | `test_materials_bootstrap.py::test_bootstrap_idempotent_on_global_engine` | 只建素材表 + 幂等 |
+| T46 | `test_materials_bootstrap.py::test_bootstrap_does_not_touch_existing_task_table` | 不碰业务表结构/数据 |
+| T47 | `test_materials_bootstrap.py::test_ingest_retries_locked` | 锁冲突重试 |
+| T48 | `test_materials_preflight.py::test_preflight_read_only_flags` | 只读预检缺列/备份 |
+| T49 | `test_materials_preflight.py::test_preflight_flags_existing_material_tables` | 已存在素材表告警 |
+| T50 | `test_materials_sample.py::test_allocate_proportional_and_capped` | 分层配额 |
+| T51 | `test_materials_sample.py::test_build_sample_shape_and_determinism` | 200 条样本可复现 |
+| T52 | `test_materials_pipeline.py::test_rejected_raw_is_not_reprocessed_same_version` | 拒收 raw 不重复处理 |
 
 ---
 
@@ -139,18 +150,33 @@
 
 回填后 `scripts/materials_audit.py` 返回 `ok: true`。生产库未写入，等待确认后再执行。
 
+### 4.3 生产预检与 P4 样本准备
+
+| 证据 | 结果 |
+|---|---|
+| 只读预检 | `quick_check=ok`；33 张表；无 `material_*`；最近备份可用 |
+| 旧 exe 影响 | 新表/索引不引用业务表；回填脚本使用 `init_materials_db()`，不跑既有迁移 |
+| 副本双跑 | 业务表 7 张哈希前后一致；第二遍 raw/material/witness 零新增 |
+| 审计 | `ok: true` |
+| P4 样本 | 200 条；5 个层有数据，20 个层标记证据不足 |
+| 新 exe | **阻塞**：生产库缺 `task.updated_at`，需先补迁移 |
+
+详细报告：`docs/taskhub/materials/preflight-20261028.md`。
+
 ---
 
 ## 5 运行方式
 
 ```bash
-# 素材库 P1 + P2 + P3
+# 素材库 P1 + P2 + P3 + 预检/P4 准备
 python -m pytest tests/test_materials_models.py tests/test_materials_sanitize.py \
   tests/test_materials_quality.py tests/test_materials_pipeline.py \
   tests/test_materials_mirror.py tests/test_materials_versioning.py \
   tests/test_materials_extract_history.py tests/test_materials_rebuild_crash.py \
   tests/test_materials_extract.py tests/test_materials_adapters.py \
-  tests/test_materials_jobs.py tests/test_materials_api.py -q
+  tests/test_materials_jobs.py tests/test_materials_api.py \
+  tests/test_materials_bootstrap.py tests/test_materials_preflight.py \
+  tests/test_materials_sample.py -q
 
 # 不变量审计（使用当前 MIO_TASKHUB_DB）
 python scripts/materials_audit.py
@@ -159,7 +185,7 @@ python scripts/materials_audit.py
 python scripts/materials_backfill.py --days 30
 ```
 
-素材库实测：`44 passed`；全量 `1654 passed / 2 skipped / 4 deselected`（2026-10-28）。
+素材库实测：`52 passed`；全量 `1662 passed / 2 skipped / 4 deselected`（2026-10-28）。
 
 ---
 
@@ -167,6 +193,8 @@ python scripts/materials_backfill.py --days 30
 
 1. P1~P3 只提供库、流水线、适配器与一个来源健康端点；完整素材 API/面板在 P5。
 2. 30 天回填在生产库副本上验证，生产库尚未写入。
-3. `material_source_audit` 的“只增不改不删”目前靠约定与写路径保证，未加数据库触发器。
-4. 质量阈值尚未校准，`quality_model_version=1` 只是工程初值。
-5. `MIO_MATERIALS_AUTOSTART=0` 可关闭采集后台线程（测试默认关闭）。
+3. 新 exe 部署仍被 `task.updated_at` 缺列阻塞；需先由该改动补迁移。
+4. P4 的 200 条样本已准备，但标签未填写、阈值未冻结。
+5. `material_source_audit` 的“只增不改不删”目前靠约定与写路径保证，未加数据库触发器。
+6. 质量阈值尚未校准，`quality_model_version=1` 只是工程初值。
+7. `MIO_MATERIALS_AUTOSTART=0` 可关闭采集后台线程（测试默认关闭）。

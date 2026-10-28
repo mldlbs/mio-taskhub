@@ -264,3 +264,20 @@
 | 审计 | `scripts/materials_audit.py` 返回 `ok: true` |
 | 测试 | 新增 12 个；素材库 44 passed；全量 1654 passed / 2 skipped |
 | 生产库 | **未写入**；等待确认后再执行回填 |
+
+---
+
+## 12 生产预检与 P4 准备（2026-10-28）
+
+| 项 | 结果 |
+|---|---|
+| 只读预检 | `quick_check=ok`；33 表；无 `material_*`；小时级备份可用 |
+| 业务表基线 | task 1,941 / run 5,207 / event 21,090 / historyevent 99 / discussion 67 |
+| 副本双跑 | 业务表 7 张哈希前后一致；第二遍零新增 raw/material/witness |
+| 写入边界 | 回填脚本改用 `init_materials_db()`，只建 7 张新表，不跑既有迁移 |
+| 旧 exe 影响 | 新表/索引/线程不进入旧进程；旧 exe 不引用新表 |
+| 新 exe 阻塞 | 生产库缺 `task.updated_at`，需先补迁移 |
+| P4 样本 | 200 条，5 层有数据、20 层证据不足；标签未填 |
+| 生产写入 | **未执行**，等待明确批准 |
+| 测试 | 新增 8 个；素材库 52 passed；全量 1662 passed / 2 skipped |
+| 报告 | `preflight-20261028.md` |

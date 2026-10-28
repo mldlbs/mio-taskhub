@@ -13,7 +13,8 @@ if str(ROOT) not in sys.path:
 from sqlalchemy import func  # noqa: E402
 from sqlmodel import Session, select  # noqa: E402
 
-from mio_taskhub.db import engine, init_db  # noqa: E402
+from mio_taskhub.db import engine  # noqa: E402
+from mio_taskhub.materials.bootstrap import init_materials_db  # noqa: E402
 from mio_taskhub.materials.models import (  # noqa: E402
     Material, MaterialExtract, MaterialRaw, MaterialWitness,
 )
@@ -23,10 +24,12 @@ def _check(name: str, rows: list) -> dict:
     return {"check": name, "ok": not rows, "count": len(rows), "sample": rows[:5]}
 
 
-def run_audit() -> dict:
-    init_db()
+def run_audit(target_engine=None) -> dict:
+    eng = target_engine or engine
+    if target_engine is None:
+        init_materials_db(eng)
     checks = []
-    with Session(engine) as s:
+    with Session(eng) as s:
         orphan = s.exec(
             select(Material.id).where(
                 ~Material.id.in_(select(MaterialWitness.material_id))

@@ -1,0 +1,202 @@
+{
+  "source_db": "C:\\Users\\admin\\.mio_taskhub\\preflight\\rehearsal_20261028_094107.db",
+  "source_db_sha256": "d17c1e6f83dfe11fa5628790b7fe2f0308f6ad95fb1be74f613763118f7e8998",
+  "generated_at": "2026-10-28T09:44:53.960263+00:00",
+  "seed": 42,
+  "requested": 200,
+  "eligible": 2387,
+  "sampled": 200,
+  "per_cell": {
+    "decision|external": {
+      "eligible": 0,
+      "minimum": 0,
+      "target": 0,
+      "sampled": 0,
+      "evidence_insufficient": true
+    },
+    "decision|internal": {
+      "eligible": 136,
+      "minimum": 20,
+      "target": 52,
+      "sampled": 52,
+      "evidence_insufficient": false
+    },
+    "decision|log": {
+      "eligible": 0,
+      "minimum": 0,
+      "target": 0,
+      "sampled": 0,
+      "evidence_insufficient": true
+    },
+    "decision|task": {
+      "eligible": 0,
+      "minimum": 0,
+      "target": 0,
+      "sampled": 0,
+      "evidence_insufficient": true
+    },
+    "fact|external": {
+      "eligible": 0,
+      "minimum": 0,
+      "target": 0,
+      "sampled": 0,
+      "evidence_insufficient": true
+    },
+    "fact|internal": {
+      "eligible": 0,
+      "minimum": 0,
+      "target": 0,
+      "sampled": 0,
+      "evidence_insufficient": true
+    },
+    "fact|log": {
+      "eligible": 0,
+      "minimum": 0,
+      "target": 0,
+      "sampled": 0,
+      "evidence_insufficient": true
+    },
+    "fact|task": {
+      "eligible": 0,
+      "minimum": 0,
+      "target": 0,
+      "sampled": 0,
+      "evidence_insufficient": true
+    },
+    "lesson|external": {
+      "eligible": 0,
+      "minimum": 0,
+      "target": 0,
+      "sampled": 0,
+      "evidence_insufficient": true
+    },
+    "lesson|internal": {
+      "eligible": 0,
+      "minimum": 0,
+      "target": 0,
+      "sampled": 0,
+      "evidence_insufficient": true
+    },
+    "lesson|log": {
+      "eligible": 0,
+      "minimum": 0,
+      "target": 0,
+      "sampled": 0,
+      "evidence_insufficient": true
+    },
+    "lesson|task": {
+      "eligible": 0,
+      "minimum": 0,
+      "target": 0,
+      "sampled": 0,
+      "evidence_insufficient": true
+    },
+    "problem|external": {
+      "eligible": 0,
+      "minimum": 0,
+      "target": 0,
+      "sampled": 0,
+      "evidence_insufficient": true
+    },
+    "problem|internal": {
+      "eligible": 19,
+      "minimum": 20,
+      "target": 19,
+      "sampled": 19,
+      "evidence_insufficient": true
+    },
+    "problem|log": {
+      "eligible": 0,
+      "minimum": 0,
+      "target": 0,
+      "sampled": 0,
+      "evidence_insufficient": true
+    },
+    "problem|task": {
+      "eligible": 26,
+      "minimum": 20,
+      "target": 26,
+      "sampled": 26,
+      "evidence_insufficient": false
+    },
+    "result|external": {
+      "eligible": 0,
+      "minimum": 0,
+      "target": 0,
+      "sampled": 0,
+      "evidence_insufficient": true
+    },
+    "result|internal": {
+      "eligible": 0,
+      "minimum": 0,
+      "target": 0,
+      "sampled": 0,
+      "evidence_insufficient": true
+    },
+    "result|log": {
+      "eligible": 0,
+      "minimum": 0,
+      "target": 0,
+      "sampled": 0,
+      "evidence_insufficient": true
+    },
+    "result|task": {
+      "eligible": 150,
+      "minimum": 20,
+      "target": 51,
+      "sampled": 51,
+      "evidence_insufficient": false
+    },
+    "signal|external": {
+      "eligible": 2056,
+      "minimum": 20,
+      "target": 52,
+      "sampled": 52,
+      "evidence_insufficient": false
+    },
+    "signal|internal": {
+      "eligible": 0,
+      "minimum": 0,
+      "target": 0,
+      "sampled": 0,
+      "evidence_insufficient": true
+    },
+    "signal|log": {
+      "eligible": 0,
+      "minimum": 0,
+      "target": 0,
+      "sampled": 0,
+      "evidence_insufficient": true
+    },
+    "signal|task": {
+      "eligible": 0,
+      "minimum": 0,
+      "target": 0,
+      "sampled": 0,
+      "evidence_insufficient": true
+    }
+  },
+  "insufficient_cells": [
+    "decision|external",
+    "decision|log",
+    "decision|task",
+    "fact|external",
+    "fact|internal",
+    "fact|log",
+    "fact|task",
+    "lesson|external",
+    "lesson|internal",
+    "lesson|log",
+    "lesson|task",
+    "problem|external",
+    "problem|internal",
+    "problem|log",
+    "result|external",
+    "result|internal",
+    "result|log",
+    "signal|internal",
+    "signal|log",
+    "signal|task"
+  ],
+  "labeling_note": "label_* 字段为空，需人工填写；本文件不是校准结论。"
+}
