@@ -1,0 +1,8 @@
+{
+  "backup": "C:\\Users\\admin\\.mio_taskhub\\preflight\\prod-backfill-20261028\\taskhub-before-backfill.db",
+  "size": 19435520,
+  "sha256": "f5cedee8047a68ef8b4bf418eb69cb15f7f39d4bc58e9c1751da79f6792487b6",
+  "quick_check": "ok",
+  "tables": 33,
+  "at": "2026-10-28T10:58:41.729076+00:00"
+}

@@ -1,0 +1,86 @@
+{
+  "business": {
+    "task": {
+      "before_rows": 1941,
+      "after_rows": 1941,
+      "before_sha256": "61d1ded5d1faa38468cce5820ce4112a6567f2bf2942ab672d37628277caee31",
+      "after_sha256": "61d1ded5d1faa38468cce5820ce4112a6567f2bf2942ab672d37628277caee31",
+      "same": true
+    },
+    "run": {
+      "before_rows": 5207,
+      "after_rows": 5207,
+      "before_sha256": "bca295e228358cf81cf751b64558fc04e49965e942440350dee3cc5678f63166",
+      "after_sha256": "bca295e228358cf81cf751b64558fc04e49965e942440350dee3cc5678f63166",
+      "same": true
+    },
+    "event": {
+      "before_rows": 21090,
+      "after_rows": 21090,
+      "before_sha256": "651cc43d72a6c6f173133ddab1402a736cffc6ecc2d1101dbbefee6d0ee32ffd",
+      "after_sha256": "651cc43d72a6c6f173133ddab1402a736cffc6ecc2d1101dbbefee6d0ee32ffd",
+      "same": true
+    },
+    "historyevent": {
+      "before_rows": 99,
+      "after_rows": 99,
+      "before_sha256": "014dd9896d4133f62a0216bce65ed55afc332d69049551ee0d631b9b60009f17",
+      "after_sha256": "014dd9896d4133f62a0216bce65ed55afc332d69049551ee0d631b9b60009f17",
+      "same": true
+    },
+    "discussion": {
+      "before_rows": 67,
+      "after_rows": 67,
+      "before_sha256": "77226fc8202f2051a1a10e2dd27bc48087cba8b30aaaee8728bda5d6ca90e5da",
+      "after_sha256": "77226fc8202f2051a1a10e2dd27bc48087cba8b30aaaee8728bda5d6ca90e5da",
+      "same": true
+    },
+    "tasktemplate": {
+      "before_rows": 8,
+      "after_rows": 8,
+      "before_sha256": "7db3e8ecbaf4c00902909e58aee535bf1870fb6fc4b76555b8dde40f8c45323f",
+      "after_sha256": "7db3e8ecbaf4c00902909e58aee535bf1870fb6fc4b76555b8dde40f8c45323f",
+      "same": true
+    },
+    "scheduledjob": {
+      "before_rows": 3,
+      "after_rows": 3,
+      "before_sha256": "59f4a4ca29aca51a9a8a361b093b0e74c9bd737267f4af63f8b18eace66df6ba",
+      "after_sha256": "59f4a4ca29aca51a9a8a361b093b0e74c9bd737267f4af63f8b18eace66df6ba",
+      "same": true
+    }
+  },
+  "business_identical": true,
+  "material_counts": {
+    "material_source": 10,
+    "material_raw": 8658,
+    "material": 2389,
+    "material_witness": 8744,
+    "material_extract": 8744,
+    "material_link": 0,
+    "material_source_audit": 0
+  },
+  "duplicates": {
+    "raw_revision": 0,
+    "material_key": 0,
+    "witness": 0,
+    "extract": 0
+  },
+  "orphan_material": 0,
+  "orphan_witness": 0,
+  "by_status": {
+    "active": 2351,
+    "quarantine": 38
+  },
+  "by_kind": {
+    "decision": 136,
+    "problem": 45,
+    "result": 150,
+    "signal": 2058
+  },
+  "by_origin": {
+    "external": 2058,
+    "internal": 155,
+    "task": 176
+  }
+}

@@ -7,8 +7,10 @@
 | 文档版本 | v1.0 |
 | 生成时间 | 2026-10-28 17:45 |
 | 范围 | 素材库 7 张表的 30 天回填；不含新 exe 部署 |
-| 生产写入 | **未执行** |
-| 结论 | 有条件通过（仅素材表回填）；等待明确批准 |
+| 生产写入 | **已于 2026-10-28 18:58 执行**（证据见 `evidence/20261028/`） |
+| 结论 | 回填通过；新 exe 仍阻塞；阈值未冻结 |
+
+> 执行更新（2026-10-28 19:05）：第 1~8 节是回填前预检快照。生产回填已按门禁执行，退出码 0、审计两次 `ok: true`、业务表 7 张哈希前后一致。执行日志与差异见 `evidence/20261028/README.md`。
 
 ---
 
@@ -155,7 +157,7 @@
 | 素材表回填 | **有条件通过**：必须使用 `init_materials_db()`、执行前备份、hub 空闲时运行 |
 | 业务表写入 | 不需要，演练证明零变化 |
 | 新 exe 部署 | **阻塞**：`task.updated_at` 缺列，需先补迁移 |
-| 生产写入 | **未执行**，等待明确批准 |
+| 生产写入 | **已执行 2026-10-28 18:58**；详见 §11 |
 | P4 | 样本已准备，阈值未校准 |
 
 ---
@@ -167,6 +169,25 @@
 | `scripts/materials_preflight.py` | 只读预检 |
 | `scripts/materials_rehearsal.py` | 副本双跑演练 |
 | `scripts/materials_sample.py` | P4 分层抽样 |
-| `scripts/materials_backfill.py` | 生产回填（当前未执行） |
+| `scripts/materials_backfill.py` | 生产回填（已于 18:58 执行） |
 | `scripts/materials_audit.py` | 不变量审计 |
 | `docs/taskhub/materials/calibration/` | 200 条样本与 manifest |
+| `docs/taskhub/materials/evidence/20261028/` | 生产回填日志、审计、差异 |
+
+---
+
+## 11 生产执行结果（2026-10-28）
+
+| 项 | 结果 |
+|---|---|
+| 退出码 | 0 |
+| 审计 | 两次 `ok: true`，文件一致 |
+| 业务表 | 7 张行数与 sha256 前后一致 |
+| 素材表 | source 10 / raw 8,658 / material 2,389 / witness 8,744 / extract 8,744 |
+| 重复 / 孤儿 | 全部 0 |
+| 状态 | active 2,351 / quarantine 38 |
+| 旧 exe | 回填后重启，board `ready=12 done=92` |
+| 新 exe | 未部署 |
+| 阈值 | 未冻结 |
+
+完整证据：`docs/taskhub/materials/evidence/20261028/README.md`。
