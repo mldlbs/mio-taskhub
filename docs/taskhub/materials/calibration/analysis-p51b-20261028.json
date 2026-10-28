@@ -1,0 +1,562 @@
+{
+  "sample": "docs\\taskhub\\materials\\calibration\\sample-p51b-20261028.jsonl",
+  "labels": "docs\\taskhub\\materials\\calibration\\labels-p51b-20261028.jsonl",
+  "manifest": "docs\\taskhub\\materials\\calibration\\manifest-p51b-20261028.json",
+  "per_cell": {
+    "decision|external": {
+      "active_eligible": 0,
+      "active_sampled": 0,
+      "active_usable_yes": 0,
+      "active_usable_no": 0,
+      "misaccept_rate": null,
+      "misaccept_ci95": null,
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": null,
+      "kind_accuracy_ci95": null,
+      "active_kind_accuracy": null,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    },
+    "decision|internal": {
+      "active_eligible": 337,
+      "active_sampled": 61,
+      "active_usable_yes": 51,
+      "active_usable_no": 10,
+      "misaccept_rate": 0.1639,
+      "misaccept_ci95": [
+        0.0916,
+        0.2761
+      ],
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": 0.9836,
+      "kind_accuracy_ci95": [
+        0.9128,
+        0.9971
+      ],
+      "active_kind_accuracy": 0.9836,
+      "active_insufficient": false,
+      "miss_insufficient": true
+    },
+    "decision|log": {
+      "active_eligible": 0,
+      "active_sampled": 0,
+      "active_usable_yes": 0,
+      "active_usable_no": 0,
+      "misaccept_rate": null,
+      "misaccept_ci95": null,
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": null,
+      "kind_accuracy_ci95": null,
+      "active_kind_accuracy": null,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    },
+    "decision|task": {
+      "active_eligible": 1,
+      "active_sampled": 1,
+      "active_usable_yes": 1,
+      "active_usable_no": 0,
+      "misaccept_rate": 0.0,
+      "misaccept_ci95": [
+        0.0,
+        0.7935
+      ],
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": 1.0,
+      "kind_accuracy_ci95": [
+        0.2065,
+        1.0
+      ],
+      "active_kind_accuracy": 1.0,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    },
+    "fact|external": {
+      "active_eligible": 0,
+      "active_sampled": 0,
+      "active_usable_yes": 0,
+      "active_usable_no": 0,
+      "misaccept_rate": null,
+      "misaccept_ci95": null,
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": null,
+      "kind_accuracy_ci95": null,
+      "active_kind_accuracy": null,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    },
+    "fact|internal": {
+      "active_eligible": 0,
+      "active_sampled": 0,
+      "active_usable_yes": 0,
+      "active_usable_no": 0,
+      "misaccept_rate": null,
+      "misaccept_ci95": null,
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": null,
+      "kind_accuracy_ci95": null,
+      "active_kind_accuracy": null,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    },
+    "fact|log": {
+      "active_eligible": 0,
+      "active_sampled": 0,
+      "active_usable_yes": 0,
+      "active_usable_no": 0,
+      "misaccept_rate": null,
+      "misaccept_ci95": null,
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": null,
+      "kind_accuracy_ci95": null,
+      "active_kind_accuracy": null,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    },
+    "fact|task": {
+      "active_eligible": 3,
+      "active_sampled": 3,
+      "active_usable_yes": 3,
+      "active_usable_no": 0,
+      "misaccept_rate": 0.0,
+      "misaccept_ci95": [
+        0.0,
+        0.5615
+      ],
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": 1.0,
+      "kind_accuracy_ci95": [
+        0.4385,
+        1.0
+      ],
+      "active_kind_accuracy": 1.0,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    },
+    "lesson|external": {
+      "active_eligible": 0,
+      "active_sampled": 0,
+      "active_usable_yes": 0,
+      "active_usable_no": 0,
+      "misaccept_rate": null,
+      "misaccept_ci95": null,
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": null,
+      "kind_accuracy_ci95": null,
+      "active_kind_accuracy": null,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    },
+    "lesson|internal": {
+      "active_eligible": 0,
+      "active_sampled": 0,
+      "active_usable_yes": 0,
+      "active_usable_no": 0,
+      "misaccept_rate": null,
+      "misaccept_ci95": null,
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": null,
+      "kind_accuracy_ci95": null,
+      "active_kind_accuracy": null,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    },
+    "lesson|log": {
+      "active_eligible": 0,
+      "active_sampled": 0,
+      "active_usable_yes": 0,
+      "active_usable_no": 0,
+      "misaccept_rate": null,
+      "misaccept_ci95": null,
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": null,
+      "kind_accuracy_ci95": null,
+      "active_kind_accuracy": null,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    },
+    "lesson|task": {
+      "active_eligible": 2,
+      "active_sampled": 2,
+      "active_usable_yes": 2,
+      "active_usable_no": 0,
+      "misaccept_rate": 0.0,
+      "misaccept_ci95": [
+        0.0,
+        0.6576
+      ],
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": 1.0,
+      "kind_accuracy_ci95": [
+        0.3424,
+        1.0
+      ],
+      "active_kind_accuracy": 1.0,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    },
+    "problem|external": {
+      "active_eligible": 0,
+      "active_sampled": 0,
+      "active_usable_yes": 0,
+      "active_usable_no": 0,
+      "misaccept_rate": null,
+      "misaccept_ci95": null,
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": null,
+      "kind_accuracy_ci95": null,
+      "active_kind_accuracy": null,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    },
+    "problem|internal": {
+      "active_eligible": 0,
+      "active_sampled": 0,
+      "active_usable_yes": 0,
+      "active_usable_no": 0,
+      "misaccept_rate": null,
+      "misaccept_ci95": null,
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": null,
+      "kind_accuracy_ci95": null,
+      "active_kind_accuracy": null,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    },
+    "problem|log": {
+      "active_eligible": 0,
+      "active_sampled": 0,
+      "active_usable_yes": 0,
+      "active_usable_no": 0,
+      "misaccept_rate": null,
+      "misaccept_ci95": null,
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": null,
+      "kind_accuracy_ci95": null,
+      "active_kind_accuracy": null,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    },
+    "problem|task": {
+      "active_eligible": 10,
+      "active_sampled": 10,
+      "active_usable_yes": 7,
+      "active_usable_no": 3,
+      "misaccept_rate": 0.3,
+      "misaccept_ci95": [
+        0.1078,
+        0.6032
+      ],
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": 1.0,
+      "kind_accuracy_ci95": [
+        0.7225,
+        1.0
+      ],
+      "active_kind_accuracy": 1.0,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    },
+    "result|external": {
+      "active_eligible": 0,
+      "active_sampled": 0,
+      "active_usable_yes": 0,
+      "active_usable_no": 0,
+      "misaccept_rate": null,
+      "misaccept_ci95": null,
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": null,
+      "kind_accuracy_ci95": null,
+      "active_kind_accuracy": null,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    },
+    "result|internal": {
+      "active_eligible": 0,
+      "active_sampled": 0,
+      "active_usable_yes": 0,
+      "active_usable_no": 0,
+      "misaccept_rate": null,
+      "misaccept_ci95": null,
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": null,
+      "kind_accuracy_ci95": null,
+      "active_kind_accuracy": null,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    },
+    "result|log": {
+      "active_eligible": 0,
+      "active_sampled": 0,
+      "active_usable_yes": 0,
+      "active_usable_no": 0,
+      "misaccept_rate": null,
+      "misaccept_ci95": null,
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": null,
+      "kind_accuracy_ci95": null,
+      "active_kind_accuracy": null,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    },
+    "result|task": {
+      "active_eligible": 140,
+      "active_sampled": 60,
+      "active_usable_yes": 53,
+      "active_usable_no": 7,
+      "misaccept_rate": 0.1167,
+      "misaccept_ci95": [
+        0.0577,
+        0.2218
+      ],
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": 1.0,
+      "kind_accuracy_ci95": [
+        0.9398,
+        1.0
+      ],
+      "active_kind_accuracy": 1.0,
+      "active_insufficient": false,
+      "miss_insufficient": true
+    },
+    "signal|external": {
+      "active_eligible": 882,
+      "active_sampled": 60,
+      "active_usable_yes": 50,
+      "active_usable_no": 10,
+      "misaccept_rate": 0.1667,
+      "misaccept_ci95": [
+        0.0931,
+        0.2803
+      ],
+      "quarantine_eligible": 3,
+      "quarantine_sampled": 3,
+      "quarantine_usable_yes": 3,
+      "miss_rate": 1.0,
+      "miss_ci95": [
+        0.4385,
+        1.0
+      ],
+      "kind_accuracy": 1.0,
+      "kind_accuracy_ci95": [
+        0.9425,
+        1.0
+      ],
+      "active_kind_accuracy": 1.0,
+      "active_insufficient": false,
+      "miss_insufficient": false
+    },
+    "signal|internal": {
+      "active_eligible": 0,
+      "active_sampled": 0,
+      "active_usable_yes": 0,
+      "active_usable_no": 0,
+      "misaccept_rate": null,
+      "misaccept_ci95": null,
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": null,
+      "kind_accuracy_ci95": null,
+      "active_kind_accuracy": null,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    },
+    "signal|log": {
+      "active_eligible": 0,
+      "active_sampled": 0,
+      "active_usable_yes": 0,
+      "active_usable_no": 0,
+      "misaccept_rate": null,
+      "misaccept_ci95": null,
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": null,
+      "kind_accuracy_ci95": null,
+      "active_kind_accuracy": null,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    },
+    "signal|task": {
+      "active_eligible": 0,
+      "active_sampled": 0,
+      "active_usable_yes": 0,
+      "active_usable_no": 0,
+      "misaccept_rate": null,
+      "misaccept_ci95": null,
+      "quarantine_eligible": 0,
+      "quarantine_sampled": 0,
+      "quarantine_usable_yes": 0,
+      "miss_rate": null,
+      "miss_ci95": null,
+      "kind_accuracy": null,
+      "kind_accuracy_ci95": null,
+      "active_kind_accuracy": null,
+      "active_insufficient": true,
+      "miss_insufficient": true
+    }
+  },
+  "overall": {
+    "active_sampled": 197,
+    "active_usable_yes": 167,
+    "misaccept_unweighted": 0.1523,
+    "misaccept_ci95": [
+      0.1088,
+      0.2091
+    ],
+    "quarantine_sampled": 3,
+    "quarantine_usable_yes": 3,
+    "miss_unweighted": 1.0,
+    "miss_ci95": [
+      0.4385,
+      1.0
+    ],
+    "kind_accuracy_unweighted": 0.995,
+    "kind_accuracy_ci95": [
+      0.9722,
+      0.9991
+    ],
+    "active_eligible_covered": 1375,
+    "active_usable_rate_weighted": 0.8389,
+    "kind_accuracy_weighted": 0.996
+  },
+  "score_bands_active": [
+    {
+      "band": "0.65-0.70",
+      "n": 16,
+      "usable_yes": 15,
+      "usable_rate": 0.9375
+    },
+    {
+      "band": "0.70-0.75",
+      "n": 10,
+      "usable_yes": 5,
+      "usable_rate": 0.5
+    },
+    {
+      "band": "0.75-0.80",
+      "n": 22,
+      "usable_yes": 17,
+      "usable_rate": 0.7727
+    },
+    {
+      "band": "0.80-0.85",
+      "n": 19,
+      "usable_yes": 16,
+      "usable_rate": 0.8421
+    },
+    {
+      "band": "0.85-1.01",
+      "n": 130,
+      "usable_yes": 114,
+      "usable_rate": 0.8769
+    }
+  ],
+  "quality_active_usable": {
+    "n": 167,
+    "min": 0.6596,
+    "median": 0.8896,
+    "max": 0.9821
+  },
+  "quality_active_unusable": {
+    "n": 30,
+    "min": 0.6793,
+    "median": 0.8674,
+    "max": 0.9812
+  },
+  "quality_quarantine": {
+    "n": 3,
+    "min": 0.4798,
+    "median": 0.6388,
+    "max": 0.6487
+  },
+  "label_notes": {
+    "reviewed": 199,
+    "contested_after_adjudication": 1
+  }
+}

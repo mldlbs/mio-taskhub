@@ -21,6 +21,16 @@ def _rate(yes: int, n: int):
     return round(yes / n, 4) if n else None
 
 
+def _wilson(k: int, n: int, z: float = 1.96):
+    if n <= 0:
+        return None
+    p = k / n
+    denom = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / denom
+    half = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / denom
+    return [round(max(0.0, centre - half), 4), round(min(1.0, centre + half), 4)]
+
+
 def analyze(sample_path: Path, labels_path: Path, manifest_path: Path) -> dict:
     sample = {r["sample_id"]: r for r in _load_jsonl(sample_path)}
     labels = _load_jsonl(labels_path)
@@ -42,11 +52,14 @@ def analyze(sample_path: Path, labels_path: Path, manifest_path: Path) -> dict:
             "active_usable_yes": active_yes,
             "active_usable_no": active_no,
             "misaccept_rate": _rate(active_no, len(active)),
+            "misaccept_ci95": _wilson(active_no, len(active)),
             "quarantine_eligible": m["quarantine_eligible"],
             "quarantine_sampled": len(quarantine),
             "quarantine_usable_yes": q_yes,
             "miss_rate": _rate(q_yes, len(quarantine)),
+            "miss_ci95": _wilson(q_yes, len(quarantine)),
             "kind_accuracy": _rate(kind_ok, len(rows)),
+            "kind_accuracy_ci95": _wilson(kind_ok, len(rows)),
             "active_kind_accuracy": _rate(active_kind_ok, len(active)),
             "active_insufficient": m["active_insufficient"],
             "miss_insufficient": m["quarantine_insufficient"],
@@ -71,11 +84,18 @@ def analyze(sample_path: Path, labels_path: Path, manifest_path: Path) -> dict:
         "misaccept_unweighted": _rate(
             sum(1 for r in active_rows if r["label_usable"] == "no"),
             len(active_rows)),
+        "misaccept_ci95": _wilson(
+            sum(1 for r in active_rows if r["label_usable"] == "no"),
+            len(active_rows)),
         "quarantine_sampled": len(q_rows),
         "quarantine_usable_yes": sum(1 for r in q_rows if r["label_usable"] == "yes"),
         "miss_unweighted": _rate(
             sum(1 for r in q_rows if r["label_usable"] == "yes"), len(q_rows)),
+        "miss_ci95": _wilson(
+            sum(1 for r in q_rows if r["label_usable"] == "yes"), len(q_rows)),
         "kind_accuracy_unweighted": _rate(
+            sum(1 for r in labels if r["label_kind"] == r["kind"]), len(labels)),
+        "kind_accuracy_ci95": _wilson(
             sum(1 for r in labels if r["label_kind"] == r["kind"]), len(labels)),
         "active_eligible_covered": active_eligible,
         "active_usable_rate_weighted": round(est_usable / active_eligible, 4)

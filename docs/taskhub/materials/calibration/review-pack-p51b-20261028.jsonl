@@ -1,0 +1,30 @@
+{"sample_id": 151, "source_key": "hn", "quote": "Example.com Just Launched the Biggest Redesign in Decades"}
+{"sample_id": 156, "source_key": "hn", "quote": "Picard 3.0 Released"}
+{"sample_id": 188, "source_key": "hn", "quote": "Cloudflare Keeps 1.1.1.1 Out of Piracy Blocking, Escapes Penalties in France"}
+{"sample_id": 1, "source_key": "doc.review", "quote": "全量 551 passed / 2 skipped / 3 deselected（基线 533 + 新增 18，无回归）"}
+{"sample_id": 2, "source_key": "doc.review", "quote": "Verify 闭链（requeue 后校验状态）"}
+{"sample_id": 3, "source_key": "discussion.closed", "quote": "10. 裁决需对照实验（埋点只给相关性）"}
+{"sample_id": 4, "source_key": "doc.review", "quote": "--cli-prefix 免引号模式（shlex + prompt 追加 + shell=False）与 wire_argv 均落地且有单测（prefix/模板/无配置三态）"}
+{"sample_id": 9, "source_key": "discussion.closed", "quote": "后端接口已就绪，本阶段零后端改动"}
+{"sample_id": 20, "source_key": "doc.review", "quote": "平拓扑引导与成环警告保留"}
+{"sample_id": 21, "source_key": "doc.requirement", "quote": "文档链：requirement/spec/api/plan 全部 approved 且质量分 ≥80；代码/测试注释引用本表真实 FR-n；分支 `task-8a966293`"}
+{"sample_id": 22, "source_key": "doc.review", "quote": "验收标准「新 [insight] 任务带正确 doc_paths 且 claim→required_reads 非空"}
+{"sample_id": 78, "source_key": "run.result", "quote": "✅ 构建通过：vite build --mode ai-decision --outDir ../vd-verify（21.46s，AlgorithmCenter chunk 62.28 kB）"}
+{"sample_id": 79, "source_key": "run.result", "quote": "根因：scripts/archive_spinning_tasks.py 直接写 t.state = TaskState.CANCELLED，绕过 workflow.transitions.apply_transition → 不写 TaskEvent、不设 cancelled_at，且把已有失败证据（failed_at 非空）的任务也洗成 CANCELLED"}
+{"sample_id": 80, "source_key": "run.result", "quote": "全量 **1081 passed + 1 skipped 零失败**"}
+{"sample_id": 81, "source_key": "run.result", "quote": "✅ 无回归：runningCount 仍为 computed(() => 0)"}
+{"sample_id": 89, "source_key": "run.result", "quote": "failed=25"}
+{"sample_id": 91, "source_key": "run.result", "quote": ".venv pytest tests/test_metrics.py → 18 passed"}
+{"sample_id": 113, "source_key": "run.result", "quote": "测试：11/11 新用例通过"}
+{"sample_id": 124, "source_key": "run.result", "quote": "评审/阶段回归：67 passed"}
+{"sample_id": 138, "source_key": "hn", "quote": "Show HN: I Put an AI Agent on a Nokia 110"}
+{"sample_id": 140, "source_key": "hn", "quote": "Neural Networks Are Already Clean"}
+{"sample_id": 141, "source_key": "hn", "quote": "New gTLD Application for .lan"}
+{"sample_id": 145, "source_key": "hn", "quote": "Survival LLM: AI assistant and emergency library that runs on your own computer"}
+{"sample_id": 139, "source_key": "hn", "quote": "Webster’s Dictionary: The pleasure of finding things out (2014)"}
+{"sample_id": 142, "source_key": "hn", "quote": "Building full-firm knowledge graphs to dramatically speed up agents"}
+{"sample_id": 143, "source_key": "hn", "quote": "Wanted to download an ISO, ended up writing a kernel exploit"}
+{"sample_id": 144, "source_key": "hn", "quote": "Greenvolt begins building 600 MW/2.4 GWh BESS in Poland"}
+{"sample_id": 69, "source_key": "history.root_cause", "quote": "2026-10-10 P0-4 只在 reviews.py 内联判据，且原实现 if reviewer and not body.get('self_review') 在 reviewer 为空时短路，完全跳过自审检查；self_review=true 是显式绕过通道"}
+{"sample_id": 70, "source_key": "run.result", "quote": "\u001b[0m✗ \u001b[0mGrep \"taskhub_task_success_rate\" failed\u001b[90m in E:/work/code/agent-dev\u001b[0m"}
+{"sample_id": 68, "source_key": "run.failure", "quote": "误领取：本次代理想领取自建任务 c1d3be13（Investigation 模板实现），但 taskhub_claim 在传了 task_id=c1d3be13 的情况下仍按相关度选中了队列高优先任务 e83cc9e2。属已知 claim-taskid-mcp-drop 行为。未对 e83cc9e2 做任何改动（工作树未切分支、未读其 required spec、未写码），主动失败释放回队列，避免占用其 deadline（2026-10-03T09:00:46Z）。建议后续由正确入口处理 e83cc9e2。"}

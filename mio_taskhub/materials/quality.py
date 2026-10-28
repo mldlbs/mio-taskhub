@@ -24,8 +24,15 @@ _ATOMIC_SOURCES = {
     "doc.review", "discussion.closed", "run.result",
     "hn", "github-trending",
 }
+_DECISION_SOURCES = {"doc.requirement", "doc.review", "discussion.closed"}
 _TERM_RE = re.compile(r"[。！？]|[.!?](?=\s|$)")
 _ITEM_RE = re.compile(r"[①-⑩]|(?<!\d)\d+[)）、]")
+_CLAIM_RE = re.compile(
+    r"是|为|必须|禁止|应|需|可|返回|新增|删除|保留|采用|通过|失败|错误|"
+    r"支持|实现|走|落|改|加|减|校验|拦截|超时|发布|推出|宣布|加入|泄露|"
+    r"起诉|裁员|收购|上线|修复|移除|打破|证实|发现|建议|要求|规定|决定|"
+    r"确认|同意|拒绝|默认|优先|需求|规则|验收|完成|保证|确保|approved|passed|failed|"
+    r"errors=|is|are|has|can", re.I)
 
 
 @dataclass
@@ -89,6 +96,10 @@ def evaluate_draft(draft: Draft, payload: Dict[str, Any], source_key: str,
         if n > 240 or len(_TERM_RE.findall(draft.quote)) > 2 \
                 or len(_ITEM_RE.findall(draft.quote)) >= 3:
             return GateResult(False, "HG-9:not_atomic")
+    if source_key in _DECISION_SOURCES:
+        q = (draft.quote or "").strip()
+        if n < 10 or q.endswith(("：", ":")) or not _CLAIM_RE.search(q):
+            return GateResult(False, "HG-12:not_a_conclusion")
 
     low_source = (source_key or "").lower()
     if any(marker in low_source for marker in LLM_SOURCE_MARKERS):

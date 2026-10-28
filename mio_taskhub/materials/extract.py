@@ -32,8 +32,15 @@ _FR_ID = re.compile(r"(FR-\d+)")
 _REVIEW_FAIL = re.compile(r"不通过|拒绝|驳回|reject|failed|失败|blocked", re.I)
 _ITEM_PREFIX = re.compile(r"(?m)^\s*(?:\d+[.)、]|[-*])\s+")
 _BULLET_PREFIX = re.compile(r"^[-*]\s+")
+_LEAD_MARK = re.compile(r"^\s*(?:[①-⑩]|\d+[)）、]|[-*]\s+)\s*")
 _TERM = re.compile(r"[。！？]|[.!?](?=\s|$)")
 _ITEM = re.compile(r"[①-⑩]|(?<!\d)\d+[)）、]")
+_DECISION_CLAIM = re.compile(
+    r"是|为|必须|禁止|应|需|可|返回|新增|删除|保留|采用|通过|失败|错误|"
+    r"支持|实现|走|落|改|加|减|校验|拦截|超时|发布|推出|宣布|加入|泄露|"
+    r"起诉|裁员|收购|上线|修复|移除|打破|证实|发现|建议|要求|规定|决定|"
+    r"确认|同意|拒绝|默认|优先|需求|规则|验收|完成|保证|确保|approved|passed|failed|"
+    r"errors=|is|are|has|can", re.I)
 _APPROVE = re.compile(
     r"验收通过|审查通过|批准通过|通过验收|Approve|Approved|LGTM|\bPASS\b", re.I)
 _REJECT = re.compile(r"不通过|未通过|驳回|拒绝|Reject|Rejected|\bFAIL\b", re.I)
@@ -116,7 +123,7 @@ def _atomic_units(text: str, max_chars: int = 240) -> List[str]:
     text = text or ""
     units: List[str] = []
     for sent in split_sentences(text):
-        sent = sent.strip()
+        sent = _LEAD_MARK.sub("", sent.strip()).strip()
         if not sent:
             continue
         if len(sent) <= max_chars and len(_TERM.findall(sent)) <= 2 \
@@ -125,7 +132,7 @@ def _atomic_units(text: str, max_chars: int = 240) -> List[str]:
             continue
         if len(sent) > max_chars:
             for part in re.split(r"[，,；;]", sent):
-                part = part.strip()
+                part = _LEAD_MARK.sub("", part.strip()).strip()
                 if 8 <= len(part) <= max_chars:
                     units.append(part)
     return units
@@ -284,7 +291,7 @@ def extract_doc_review(payload: Dict[str, Any], source: Any = None) -> List[Draf
     for part in parts:
         for unit in _atomic_units(part):
             unit = unit.strip()
-            if len(unit) < 8:
+            if len(unit) < 10 or not _DECISION_CLAIM.search(unit):
                 continue
             idx = text.find(unit, cursor)
             if idx < 0:
@@ -317,7 +324,7 @@ def extract_discussion_closed(payload: Dict[str, Any], source: Any = None) -> Li
     for item in _split_items(text):
         for unit in _atomic_units(item):
             quote = unit.strip()
-            if len(quote) < 8:
+            if len(quote) < 10 or not _DECISION_CLAIM.search(quote):
                 continue
             idx = text.find(quote, cursor)
             if idx < 0:

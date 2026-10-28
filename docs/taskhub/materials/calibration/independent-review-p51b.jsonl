@@ -1,0 +1,30 @@
+{"sample_id": 151, "label_kind": "signal", "label_usable": "yes", "label_notes": "含 Just Launched 事件动词，标题自包含；域名像占位符但不动摇事件性"}
+{"sample_id": 156, "label_kind": "signal", "label_usable": "yes", "label_notes": "规则点名的发布短标题例外（Released 动词）"}
+{"sample_id": 188, "label_kind": "signal", "label_usable": "yes", "label_notes": "具体监管/诉讼结果事件，主张完整可核验"}
+{"sample_id": 1, "label_kind": "result", "label_usable": "yes", "label_notes": "源自 doc.review 但内容是测试计数结论，非评审裁决"}
+{"sample_id": 2, "label_kind": "result", "label_usable": "no", "label_notes": "验证动作残片，无结果谓词且脱离上下文不可读；类型本身也两可"}
+{"sample_id": 3, "label_kind": "decision", "label_usable": "yes", "label_notes": "讨论结论编号项，可独立读懂；内容偏方法论，近似 lesson"}
+{"sample_id": 4, "label_kind": "result", "label_usable": "yes", "label_notes": "落地内容加单测覆盖，属实际完成结果而非裁决"}
+{"sample_id": 9, "label_kind": "fact", "label_usable": "yes", "label_notes": "描述接口与阶段现状，不是通过/驳回结论"}
+{"sample_id": 20, "label_kind": "decision", "label_usable": "yes", "label_notes": "保留某行为的评审结论，极短但谓词明确"}
+{"sample_id": 21, "label_kind": "decision", "label_usable": "yes", "label_notes": "多子句验收行（3 项要求），无编号项故按 U2 仍算原子"}
+{"sample_id": 22, "label_kind": "decision", "label_usable": "yes", "label_notes": "验收标准原文，含明确要求谓词"}
+{"sample_id": 78, "label_kind": "result", "label_usable": "yes", "label_notes": "构建通过结论，带耗时与产物体积"}
+{"sample_id": 79, "label_kind": "problem", "label_usable": "yes", "label_notes": "run.result 来源但内容是根因，按语义归 problem"}
+{"sample_id": 80, "label_kind": "result", "label_usable": "yes", "label_notes": "全量测试零失败的验证结论"}
+{"sample_id": 81, "label_kind": "result", "label_usable": "yes", "label_notes": "显式无回归验证结论，带具体符号"}
+{"sample_id": 89, "label_kind": "problem", "label_usable": "no", "label_notes": "裸计数，无上下文，U1/U3 均不满足"}
+{"sample_id": 91, "label_kind": "result", "label_usable": "yes", "label_notes": "带命令与通过数的测试结论"}
+{"sample_id": 113, "label_kind": "result", "label_usable": "yes", "label_notes": "新用例通过计数，结论明确"}
+{"sample_id": 124, "label_kind": "result", "label_usable": "yes", "label_notes": "回归通过计数，结论明确"}
+{"sample_id": 138, "label_kind": "signal", "label_usable": "yes", "label_notes": "Show HN 具体做法，有事件动词与对象"}
+{"sample_id": 140, "label_kind": "signal", "label_usable": "no", "label_notes": "观点式标题，无具体事件或可核验主张"}
+{"sample_id": 141, "label_kind": "signal", "label_usable": "no", "label_notes": "事件名词短语无动词，是否说明发生了什么存疑"}
+{"sample_id": 145, "label_kind": "signal", "label_usable": "yes", "label_notes": "项目能力描述具体，符合仓库描述例外"}
+{"sample_id": 139, "label_kind": "signal", "label_usable": "no", "label_notes": "文章标题，无事件、无主张"}
+{"sample_id": 142, "label_kind": "signal", "label_usable": "no", "label_notes": "实践类文章标题，无可核验结果或事件"}
+{"sample_id": 143, "label_kind": "signal", "label_usable": "yes", "label_notes": "个人经历事件标题，自包含；偏叙事但有事态"}
+{"sample_id": 144, "label_kind": "signal", "label_usable": "yes", "label_notes": "具体建设项目事件，含规模与地点"}
+{"sample_id": 69, "label_kind": "problem", "label_usable": "yes", "label_notes": "历史根因描述，缺陷成因与绕过通道清楚"}
+{"sample_id": 70, "label_kind": "problem", "label_usable": "no", "label_notes": "带 ANSI 转义的工具失败碎片，U5 不满足"}
+{"sample_id": 68, "label_kind": "problem", "label_usable": "no", "label_notes": "长段失败叙述（超 240 字、3 个句末标点），问题与处置建议混杂"}

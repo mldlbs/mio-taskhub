@@ -125,3 +125,51 @@ def test_run_result_kind_mixing_is_classified():
     assert _run_result_kind("注：set_doc_status 被守卫拦截。") == "lesson"
     assert _run_result_kind("✗ Read night_runner.json failed。") == "problem"
     assert _run_result_kind("pytest 10 passed.") == "result"
+
+
+def test_decision_fragment_is_rejected():
+    payload = {"review_result": "AC-1、AC-2", "project": "proj"}
+    assert extract_for_source("doc.review", payload) == []
+
+
+def test_decision_with_predicate_is_accepted():
+    payload = {"review_result": "验收通过：AC-1~AC-6 全通过。", "project": "proj"}
+    drafts = extract_for_source("doc.review", payload)
+    assert drafts
+    gate = evaluate_draft(drafts[0], payload, "doc.review", "proj", 1, 1)
+    assert gate.ok, gate.reason
+
+
+def test_decision_truncated_colon_is_rejected():
+    payload = {"review_result": "验收通过（0fe91462）：", "project": "proj"}
+    drafts = extract_for_source("doc.review", payload)
+    assert drafts
+    gate = evaluate_draft(drafts[0], payload, "doc.review", "proj", 1, 1)
+    assert not gate.ok
+    assert gate.reason == "HG-12:not_a_conclusion"
+
+
+def test_signal_positive_examples_are_not_killed():
+    positives = [
+        "Pentagon grants DHS permission to test heat ray weapon for use at border",
+        "The ovary doesn't retire after menopause",
+        "DeepSeek search and fetch – $0.75 per 1000 successful requests",
+        "Earth Tipped on Its Side During the Age of Dinosaurs–and Not Just Once",
+        "Picard 3.0 Released",
+    ]
+    from mio_taskhub.materials.extract import has_citable_signal
+    for q in positives:
+        assert has_citable_signal(q, "hn"), q
+
+
+def test_signal_negative_examples_are_excluded():
+    negatives = [
+        "Ask HN: CAD for wood working with LLM support?",
+        "Why we're watching these climate tech companies",
+        "Maybe a better way to track the release history of a Git repo",
+        "Google Playground",
+        "OpenSSH 10.6",
+    ]
+    from mio_taskhub.materials.extract import has_citable_signal
+    for q in negatives:
+        assert not has_citable_signal(q, "hn"), q

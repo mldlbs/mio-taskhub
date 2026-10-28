@@ -1,0 +1,11 @@
+{
+  "n": 200,
+  "reviewed": 199,
+  "contested": 1,
+  "usable_yes": 170,
+  "usable_no": 30,
+  "kind_errors": 1,
+  "contested_ids": [
+    68
+  ]
+}

@@ -128,6 +128,11 @@
 | T66 | `test_materials_extract_p5.py::test_signal_short_release_is_accepted` | 短发布标题保留 |
 | T67 | `test_materials_extract_p5.py::test_run_result_does_not_silently_truncate` | 不静默截断 |
 | T68 | `test_materials_extract_p5.py::test_run_result_kind_mixing_is_classified` | result/fact/lesson/problem 分类 |
+| T69 | `test_materials_extract_p5.py::test_decision_fragment_is_rejected` | decision 碎片拒绝 |
+| T70 | `test_materials_extract_p5.py::test_decision_with_predicate_is_accepted` | decision 谓词通过 |
+| T71 | `test_materials_extract_p5.py::test_decision_truncated_colon_is_rejected` | 冒号截断拒绝 |
+| T72 | `test_materials_extract_p5.py::test_signal_positive_examples_are_not_killed` | signal 正例不误杀 |
+| T73 | `test_materials_extract_p5.py::test_signal_negative_examples_are_excluded` | signal 反例排除 |
 
 ---
 
@@ -207,6 +212,21 @@
 
 报告：`docs/taskhub/materials/calibration/calibration-p5-20261028.md`。
 
+### 4.6 P5.1 决策硬闸与复核准备
+
+| 指标 | 结果 |
+|---|---|
+| decision 误收 | 52.5% → **16.4%**（95% CI 9.2–27.6） |
+| signal / result 误收 | 16.7% / 11.7% |
+| active 可用率（加权） | 83.9% |
+| active 误收（未加权） | 15.2%（95% CI 10.9–20.9） |
+| quarantine 漏收 | 100%（3/3，CI 43.9–100） |
+| 独立复核 | 30 条：类型 80.0%、可用性 56.7%；**人工复核未完成** |
+| 副本审计 | 业务表哈希一致；audit ok；二次回填零新增 |
+| 生产 | **未变更** |
+
+报告：`docs/taskhub/materials/calibration/calibration-p51-20261028.md`。
+
 ---
 
 ## 5 运行方式
@@ -230,7 +250,7 @@ python scripts/materials_audit.py
 python scripts/materials_backfill.py --days 30
 ```
 
-素材库实测：`67 passed`；全量 `1678 passed / 2 skipped / 4 deselected`（2026-10-28）。
+素材库实测：`73 passed`；全量 `1683 passed / 2 skipped / 4 deselected`（2026-10-28）。
 
 ---
 

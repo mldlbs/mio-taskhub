@@ -71,7 +71,8 @@ _LABEL_EVENT = re.compile(
     r"new|update|record|price|job|market|compan|startup|model|chip|GPU|software|"
     r"tool|library|framework|medical|health|climate|energy|robot|drone|satellite|"
     r"space|law|bill|court|judge|police|government|war|attack|crime|study|research|"
-    r"report|survey|data|API|protocol|browser|security|vulnerab", re.I)
+    r"report|survey|data|API|protocol|browser|security|vulnerab|grant|reduce|"
+    r"search|tip|doesn't", re.I)
 _LABEL_OPINION = re.compile(
     r"^(Ask HN|What|Why|How|Is|Are|Can|Do|Does|Should|Tell HN|Here Be Monsters|"
     r"The case|Maybe|Opinion|Rethinking|Thoughts on|Redesigning|Notes on|"
