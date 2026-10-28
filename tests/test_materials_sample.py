@@ -42,4 +42,30 @@ def test_build_sample_shape_and_determinism(tmp_path):
     assert len(ma["per_cell"]) == 24
     assert "fact|external" in ma["insufficient_cells"]
     assert all(x["label_kind"] == "" for x in a)
-    assert all(x["evidence_insufficient"] is False for x in a)
+    assert all(x["active_insufficient"] is False for x in a)
+
+
+def test_build_sample_includes_all_quarantine(tmp_path):
+    db = tmp_path / "sample2.db"
+    with sqlite3.connect(db) as c:
+        c.execute("create table material (id text primary key, kind text, origin text,"
+                  "status text, quality real, quote text, observed_at text)")
+        c.execute("create table material_witness (material_id text, source_key text,"
+                  "is_primary int)")
+        c.executemany(
+            "insert into material values (?,?,?,?,?,?,?)",
+            [
+                ("a1", "signal", "external", "active", 0.9, "Active signal", "2026-10-28"),
+                ("a2", "decision", "internal", "active", 0.9, "Active decision", "2026-10-28"),
+                ("q1", "signal", "external", "quarantine", 0.5, "Quarantine signal", "2026-10-28"),
+            ],
+        )
+        c.executemany(
+            "insert into material_witness values (?,?,1)",
+            [("a1", "hn"), ("a2", "doc.requirement"), ("q1", "hn")],
+        )
+    rows, manifest = build_sample(db, n=2, seed=1)
+    assert {r["material_id"] for r in rows} == {"q1", "a1"} or \
+           {r["material_id"] for r in rows} == {"q1", "a2"}
+    assert manifest["by_status"]["quarantine"]["sampled"] == 1
+    assert manifest["sampled"] == 2

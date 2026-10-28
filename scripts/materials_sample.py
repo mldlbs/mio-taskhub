@@ -83,36 +83,72 @@ def build_sample(db: Path, n: int, seed: int) -> tuple[List[dict], dict]:
     ).fetchall()
     conn.close()
 
-    cells: Dict[str, List[dict]] = defaultdict(list)
+    by_status: Dict[str, List[dict]] = defaultdict(list)
     for r in rows:
-        cell = f"{r['kind']}|{r['origin']}"
-        cells[cell].append(dict(r))
-    counts = {k: len(v) for k, v in cells.items()}
-    populated = [k for k, v in counts.items() if v > 0]
-    if populated and n >= 20 * len(populated):
+        by_status[r["status"]].append(dict(r))
+
+    rng = random.Random(seed)
+
+    # 隔离/过期样本全部纳入（数量很小），用于估计漏收；不足 n 时再补 active。
+    q_rows = by_status["quarantine"] + by_status["stale"]
+    if len(q_rows) <= n:
+        q_selected = q_rows
+    else:
+        q_cells: Dict[str, List[dict]] = defaultdict(list)
+        for r in q_rows:
+            q_cells[f"{r['kind']}|{r['origin']}"].append(r)
+        q_quotas = allocate({k: len(v) for k, v in q_cells.items()}, n)
+        q_selected = []
+        for cell, items in q_cells.items():
+            items = sorted(items, key=lambda x: x["id"])
+            q_selected.extend(rng.sample(items, min(q_quotas.get(cell, 0), len(items))))
+
+    remaining = max(0, n - len(q_selected))
+    active_rows = by_status["active"]
+    active_cells: Dict[str, List[dict]] = defaultdict(list)
+    for r in active_rows:
+        active_cells[f"{r['kind']}|{r['origin']}"].append(r)
+    active_counts = {k: len(v) for k, v in active_cells.items()}
+    populated = [k for k, v in active_counts.items() if v > 0]
+    if populated and remaining >= 20 * len(populated):
         minimum = 20
-    elif populated and n >= 10 * len(populated):
+    elif populated and remaining >= 10 * len(populated):
         minimum = 10
     else:
-        minimum = max(1, n // max(1, len(populated)))
-    quotas = allocate(counts, n)
-    rng = random.Random(seed)
+        minimum = max(1, remaining // max(1, len(populated)))
+    quotas = allocate(active_counts, remaining) if remaining else {}
+
+    q_by_cell: Dict[str, List[dict]] = defaultdict(list)
+    for r in q_selected:
+        q_by_cell[f"{r['kind']}|{r['origin']}"].append(r)
+
     sampled: List[dict] = []
     per_cell = {}
-    for cell in sorted(set(
-            [f"{k}|{o}" for k in KINDS for o in ORIGINS] + list(cells)
-    )):
-        items = sorted(cells.get(cell, []), key=lambda x: x["id"])
-        q = min(quotas.get(cell, 0), len(items))
-        chosen = rng.sample(items, q) if q else []
-        sampled.extend(chosen)
+    all_cells = sorted(set(
+        [f"{k}|{o}" for k in KINDS for o in ORIGINS]
+        + list(active_cells) + list(q_by_cell)
+    ))
+    for cell in all_cells:
+        a_items = sorted(active_cells.get(cell, []), key=lambda x: x["id"])
+        q_items = sorted(q_by_cell.get(cell, []), key=lambda x: x["id"])
+        a_q = min(quotas.get(cell, 0), len(a_items)) if remaining else 0
+        a_sel = rng.sample(a_items, a_q) if a_q else []
+        sampled.extend(a_sel)
+        sampled.extend(q_items)
+        active_insufficient = (not a_items) or len(a_items) < minimum
+        quarantine_insufficient = not q_items
         per_cell[cell] = {
-            "eligible": len(items),
-            "minimum": minimum if items else 0,
-            "target": quotas.get(cell, 0),
-            "sampled": q,
-            "evidence_insufficient": (not items) or len(items) < minimum,
+            "active_eligible": len(a_items),
+            "active_target": quotas.get(cell, 0),
+            "active_sampled": a_q,
+            "quarantine_eligible": len(q_items),
+            "quarantine_sampled": len(q_items),
+            "minimum": minimum if a_items else 0,
+            "active_insufficient": active_insufficient,
+            "quarantine_insufficient": quarantine_insufficient,
+            "evidence_insufficient": active_insufficient,
         }
+
     sampled.sort(key=lambda x: (x["kind"], x["origin"], x["id"]))
     out = []
     for i, r in enumerate(sampled, 1):
@@ -128,13 +164,16 @@ def build_sample(db: Path, n: int, seed: int) -> tuple[List[dict], dict]:
             "observed_at": r["observed_at"],
             "quote": r["quote"],
             "cell": cell,
-            "evidence_insufficient": per_cell[cell]["evidence_insufficient"],
+            "active_insufficient": per_cell[cell]["active_insufficient"],
+            "quarantine_insufficient": per_cell[cell]["quarantine_insufficient"],
             "label_kind": "",
             "label_usable": "",
             "label_duplicate_of": "",
             "label_notes": "",
         })
     manifest = {
+        "version": 2,
+        "sampling_design": "all quarantine/stale + balanced active",
         "source_db": str(db),
         "source_db_sha256": hashlib.sha256(db.read_bytes()).hexdigest(),
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -142,9 +181,20 @@ def build_sample(db: Path, n: int, seed: int) -> tuple[List[dict], dict]:
         "requested": n,
         "eligible": len(rows),
         "sampled": len(out),
+        "by_status": {
+            "active": {"eligible": len(by_status["active"]),
+                       "sampled": sum(1 for r in out if r["status"] == "active")},
+            "quarantine": {"eligible": len(by_status["quarantine"]),
+                           "sampled": sum(1 for r in out if r["status"] == "quarantine")},
+            "stale": {"eligible": len(by_status["stale"]),
+                      "sampled": sum(1 for r in out if r["status"] == "stale")},
+        },
         "per_cell": per_cell,
         "insufficient_cells": [
-            c for c, v in per_cell.items() if v["evidence_insufficient"]
+            c for c, v in per_cell.items() if v["active_insufficient"]
+        ],
+        "miss_insufficient_cells": [
+            c for c, v in per_cell.items() if v["quarantine_insufficient"]
         ],
         "labeling_note": "label_* 字段为空，需人工填写；本文件不是校准结论。",
     }

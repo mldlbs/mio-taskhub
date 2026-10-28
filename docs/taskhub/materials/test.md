@@ -112,6 +112,13 @@
 | T50 | `test_materials_sample.py::test_allocate_proportional_and_capped` | 分层配额 |
 | T51 | `test_materials_sample.py::test_build_sample_shape_and_determinism` | 200 条样本可复现 |
 | T52 | `test_materials_pipeline.py::test_rejected_raw_is_not_reprocessed_same_version` | 拒收 raw 不重复处理 |
+| T53 | `test_materials_sample.py::test_build_sample_includes_all_quarantine` | 隔离样本全量入样 |
+| T54 | `test_materials_label.py::test_review_acceptance_is_decision_not_problem` | 评审通过 vs problem |
+| T55 | `test_materials_label.py::test_review_rejection_is_problem` | 评审拒绝 |
+| T56 | `test_materials_label.py::test_generic_failure_is_not_usable` | 泛化失败不可用 |
+| T57 | `test_materials_label.py::test_short_release_title_is_usable` | 短发布标题 |
+| T58 | `test_materials_label.py::test_three_numbered_items_is_not_atomic` | 多编号项非原子 |
+| T59 | `test_materials_label.py::test_boilerplate_word_boundary` | 样板词边界 |
 
 ---
 
@@ -163,6 +170,21 @@
 
 详细报告：`docs/taskhub/materials/preflight-20261028.md`。
 
+### 4.4 P4 校准结果（未冻结阈值）
+
+| 指标 | 结果 |
+|---|---|
+| 样本 | 200 条：162 active + 38 quarantine（全部隔离样本） |
+| 标注 | 规则 v1.1 双遍 + 11 条争议裁决；非人工金标准 |
+| active 可用率 | 未加权 47.5% / 覆盖层加权 **60.8%** |
+| active 误收率 | 未加权 52.5% / 覆盖层加权 **39.2%** |
+| quarantine 漏收率 | **7.9%**（3/38，仅 `signal\|external`） |
+| 分类准确率 | 未加权 86.0% / 加权 97.7% |
+| 阈值 | **未调整、未冻结**；0.40 下限未被触发 |
+| 结论 | 当前错误主要来自提取器，不是阈值；先修提取器再校准 |
+
+报告：`docs/taskhub/materials/calibration/calibration-20261028.md`。
+
 ---
 
 ## 5 运行方式
@@ -176,7 +198,7 @@ python -m pytest tests/test_materials_models.py tests/test_materials_sanitize.py
   tests/test_materials_extract.py tests/test_materials_adapters.py \
   tests/test_materials_jobs.py tests/test_materials_api.py \
   tests/test_materials_bootstrap.py tests/test_materials_preflight.py \
-  tests/test_materials_sample.py -q
+  tests/test_materials_sample.py tests/test_materials_label.py -q
 
 # 不变量审计（使用当前 MIO_TASKHUB_DB）
 python scripts/materials_audit.py
@@ -185,16 +207,15 @@ python scripts/materials_audit.py
 python scripts/materials_backfill.py --days 30
 ```
 
-素材库实测：`52 passed`；全量 `1662 passed / 2 skipped / 4 deselected`（2026-10-28）。
+素材库实测：`59 passed`；全量 `1669 passed / 2 skipped / 4 deselected`（2026-10-28）。
 
 ---
 
 ## 6 已知限制
 
-1. P1~P3 只提供库、流水线、适配器与一个来源健康端点；完整素材 API/面板在 P5。
-2. 30 天回填已在副本验证并已执行生产回填；新 exe 部署仍被 `task.updated_at` 缺列阻塞。
-3. 新 exe 部署仍被 `task.updated_at` 缺列阻塞；需先由该改动补迁移。
-4. P4 的 200 条样本已准备，但标签未填写、阈值未冻结。
-5. `material_source_audit` 的“只增不改不删”目前靠约定与写路径保证，未加数据库触发器。
-6. 质量阈值尚未校准，`quality_model_version=1` 只是工程初值。
-7. `MIO_MATERIALS_AUTOSTART=0` 可关闭采集后台线程（测试默认关闭）。
+1. P1~P4 只提供库、流水线、适配器、来源健康端点与校准报告；完整素材 API/面板在 P5。
+2. 30 天回填已执行生产库；新 exe 部署仍被 `task.updated_at` 缺列阻塞。
+3. P4 标签是规则辅助 + 单 agent 裁决，不是人工金标准；19 个层证据不足，阈值未冻结。
+4. `material_source_audit` 的“只增不改不删”目前靠约定与写路径保证，未加数据库触发器。
+5. 质量阈值尚未校准，`quality_model_version=1` 只是工程初值。
+6. `MIO_MATERIALS_AUTOSTART=0` 可关闭采集后台线程（测试默认关闭）。
