@@ -1,5 +1,5 @@
 {
-  "issued_at": "2026-10-28T14:32:00.956622+00:00",
+  "issued_at": "2026-10-28T14:55:27.344090+00:00",
   "kit": "docs/taskhub/materials/review-kit-p51b",
   "kit_manifest_sha256": "4b3f8fff69fdf31e257c4c7cd9afde0358cd8bd3d4081b40f367698fb71cc8ef",
   "frozen_files": {
@@ -35,12 +35,14 @@
   "blank_copies": {
     "review-sheet-A.tsv": {
       "size": 3257,
-      "sha256": "a92b91a55e2c7d0bfd8f0667f28c573c9a728eca299517611763afefd06e0aaa"
+      "sha256": "a92b91a55e2c7d0bfd8f0667f28c573c9a728eca299517611763afefd06e0aaa",
+      "sha256_lf": "a92b91a55e2c7d0bfd8f0667f28c573c9a728eca299517611763afefd06e0aaa"
     },
     "review-sheet-B.tsv": {
       "size": 3257,
-      "sha256": "a92b91a55e2c7d0bfd8f0667f28c573c9a728eca299517611763afefd06e0aaa"
+      "sha256": "a92b91a55e2c7d0bfd8f0667f28c573c9a728eca299517611763afefd06e0aaa",
+      "sha256_lf": "a92b91a55e2c7d0bfd8f0667f28c573c9a728eca299517611763afefd06e0aaa"
     }
   },
-  "note": "Each reviewer fills one copy independently. Returned files are hashed by the analysis script; raw sheets are never overwritten."
+  "note": "Each reviewer fills one copy independently. Returned files are hashed by the analysis script; raw sheets are never overwritten. sha256_lf ignores CRLF normalization on checkout."
 }

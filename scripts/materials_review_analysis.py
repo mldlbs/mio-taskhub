@@ -204,6 +204,10 @@ def analyze(kit: Path, reviewer_paths: List[Path],
     integrity = _integrity(pack, reviewers)
     integrity["sheet_sha256"] = {
         p.stem: hashlib.sha256(p.read_bytes()).hexdigest() for p in reviewer_paths}
+    integrity["sheet_sha256_lf"] = {
+        p.stem: hashlib.sha256(
+            p.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+        for p in reviewer_paths}
 
     return {
         "kit": str(kit),
@@ -242,6 +246,7 @@ def render(report: dict, out: Path) -> None:
     lines.append(f"| 原文不一致 | {json.dumps(integrity.get('quote_mismatches', {}), ensure_ascii=False)} |")
     lines.append(f"| 轮次 | {json.dumps(integrity.get('rounds', {}), ensure_ascii=False)} |")
     lines.append(f"| 表 hash | {json.dumps(integrity.get('sheet_sha256', {}), ensure_ascii=False)} |")
+    lines.append(f"| 表 hash (LF) | {json.dumps(integrity.get('sheet_sha256_lf', {}), ensure_ascii=False)} |")
     lines.append("")
     lines.append("## 一致性")
     lines.append("")

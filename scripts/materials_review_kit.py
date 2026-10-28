@@ -147,6 +147,8 @@ def handout(kit: Path, out: Path) -> dict:
         copies[name] = {
             "size": dst.stat().st_size,
             "sha256": hashlib.sha256(dst.read_bytes()).hexdigest(),
+            "sha256_lf": hashlib.sha256(
+                dst.read_bytes().replace(b"\r\n", b"\n")).hexdigest(),
         }
     payload = {
         "issued_at": datetime.now(timezone.utc).isoformat(),
@@ -155,7 +157,8 @@ def handout(kit: Path, out: Path) -> dict:
         "frozen_files": manifest["files"],
         "blank_copies": copies,
         "note": ("Each reviewer fills one copy independently. Returned files are "
-                 "hashed by the analysis script; raw sheets are never overwritten."),
+                 "hashed by the analysis script; raw sheets are never overwritten. "
+                 "sha256_lf ignores CRLF normalization on checkout."),
     }
     (out / "handout-manifest.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

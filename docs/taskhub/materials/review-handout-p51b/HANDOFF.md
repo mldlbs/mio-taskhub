@@ -50,6 +50,7 @@ python scripts/materials_review_kit.py --verify --kit docs/taskhub/materials/rev
 
 - 填完直接把 `review-sheet-A.tsv` / `review-sheet-B.tsv` 放回 `docs/taskhub/materials/review-handout-p51b/`。
 - 交给分析前不要覆盖、不要“顺手整理”原表；分析脚本会记录返回文件的 sha256。
+- 发放清单同时记录 raw 与 LF-normalized hash，Git 检出造成的 CRLF 差异不影响核对。
 - 两份表都到齐后，才运行分析并生成分歧清单；裁决另存 `adjudication-sheet.tsv`，不回写原表。
 
 ## 时间
