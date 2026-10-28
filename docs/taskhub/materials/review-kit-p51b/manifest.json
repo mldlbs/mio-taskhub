@@ -1,0 +1,38 @@
+{
+  "kit": "P5.1 independent review kit",
+  "frozen_at": "2026-10-28T14:09:00.515219+00:00",
+  "protocol": "REVIEW-PROTOCOL-P51.md v1.0-frozen",
+  "samples": 30,
+  "sample_source": "sample-p51b-20261028.jsonl",
+  "files": {
+    "review-pack.jsonl": {
+      "size": 4318,
+      "sha256": "ae613e2b7e1ef0c30e3180caa204ffeb764eed531706b8fbc42862f1cf87e184"
+    },
+    "RULES-20261028.md": {
+      "size": 6140,
+      "sha256": "a694603322e18a9912e4dfbfdb0dc7d990be8cbc8ccc4eefdac934a786cc6124"
+    },
+    "REVIEW-PROTOCOL-P51.md": {
+      "size": 6070,
+      "sha256": "7fa420988cd8147f3f142dc7a7c24f0c04c990a2e6b3bd9422e8ae9a181e6bad"
+    },
+    "review-sheet.tsv": {
+      "size": 3257,
+      "sha256": "a92b91a55e2c7d0bfd8f0667f28c573c9a728eca299517611763afefd06e0aaa"
+    },
+    "adjudication-sheet.tsv": {
+      "size": 544,
+      "sha256": "1aec88cdbc94f3a420a28059919effe148d13551f0afc01f341eb81e311e17e9"
+    },
+    "README.md": {
+      "size": 2322,
+      "sha256": "1e948425bc0c0865036c0bec14e779083e74a9975d7a9622010eeb1bbea78004"
+    },
+    "REPORT-TEMPLATE.md": {
+      "size": 1387,
+      "sha256": "f2099fabdffe45fe2ce54210c0ea0705d4b9aa03375b5a967c5e2f97af183fd8"
+    }
+  },
+  "note": "Do not edit the pack/rules/protocol after the first reviewer starts. Raw sheets are preserved; adjudication is separate."
+}

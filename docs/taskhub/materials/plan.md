@@ -332,4 +332,20 @@
 | 独立复核 | 30 条独立 agent：类型 80.0%、可用性 56.7%；**人工复核未完成** |
 | 副本审计 | 业务表哈希一致；audit ok；二次回填零新增 |
 | 生产 | **未变更** |
-| 测试 | 素材库 73 passed；全量 1683 passed / 2 skipped |
+| 测试 | 素材库 76 passed；全量 1686 passed / 2 skipped |
+
+---
+
+## 16 P5.1 独立人工复核包（冻结，2026-10-28）
+
+| 项 | 结果 |
+|---|---|
+| 协议 | `review-kit-p51b/REVIEW-PROTOCOL-P51.md` **v1.0-frozen** |
+| 样本 | 30 条盲包，仅 `sample_id` / `source_key` / `quote` |
+| 原始表 | `review-sheet.tsv`（A/B 各一份；不改原表） |
+| 裁决表 | `adjudication-sheet.tsv`（裁决另存） |
+| 分析工具 | `scripts/materials_review_analysis.py`：一致率、Cohen's κ、混淆矩阵、分歧清单、系统标签对照 |
+| 构建/校验 | `scripts/materials_review_kit.py --build / --verify`（确定性重建，篡改即失败） |
+| 冻结哈希 | `manifest.json`（7 个文件） |
+| 分析测试 | `tests/test_materials_review.py`（T74/T75/T76） |
+| 当前状态 | **等待真实人工复核**；独立 agent 预复核不计入门禁 |

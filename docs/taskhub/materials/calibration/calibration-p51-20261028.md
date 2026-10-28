@@ -131,3 +131,24 @@ P5.1 没有回退 P5 的修复；decision 硬闸主要影响新样本中的碎�
 2. 根据人工裁决修订 U1/U2：明确“短结论”最小谓词、`doc.review` 中测试计数应归 result 还是 decision。
 3. signal 剩余 10 条逐条建立正反例；避免把“科学标题/发布标题”误杀。
 4. 复核一致率达到可接受水平后，再决定是否生产重跑和阈值校准。
+
+---
+
+## 7 独立人工复核包（已冻结）
+
+| 项 | 值 |
+|---|---|
+| 复核包 | `docs/taskhub/materials/review-kit-p51b/` |
+| 协议 | `REVIEW-PROTOCOL-P51.md` v1.0-frozen |
+| 样本 | 30 条，只含 `sample_id` / `source_key` / `quote` |
+| 原始表 | `review-sheet.tsv`（每位复核人一份） |
+| 裁决表 | `adjudication-sheet.tsv`（原始表不覆盖） |
+| 分析 | `scripts/materials_review_analysis.py`（一致率/κ/混淆矩阵/分歧） |
+| 构建/校验 | `scripts/materials_review_kit.py --build / --verify` |
+| 冻结哈希 | `manifest.json`（7 个文件） |
+| 当前状态 | **等待真实人工复核** |
+
+说明：
+- 独立 agent 预复核（`independent-review-p51b.jsonl`）只作为工具预检，不计入人工结论。
+- 30 条足以暴露规则歧义，不足以证明全库质量达标。
+- 收到人工表前，不裁决、不冻结阈值、不做生产重跑。

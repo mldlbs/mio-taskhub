@@ -133,6 +133,9 @@
 | T71 | `test_materials_extract_p5.py::test_decision_truncated_colon_is_rejected` | 冒号截断拒绝 |
 | T72 | `test_materials_extract_p5.py::test_signal_positive_examples_are_not_killed` | signal 正例不误杀 |
 | T73 | `test_materials_extract_p5.py::test_signal_negative_examples_are_excluded` | signal 反例排除 |
+| T74 | `test_materials_review.py::test_review_analysis_agreement_and_disagreement` | 双人一致率/κ/分歧清单 |
+| T75 | `test_materials_review.py::test_review_analysis_requires_reason` | 缺理由拒绝分析 |
+| T76 | `test_materials_review.py::test_review_kit_builds_blind_pack_and_verifies` | 盲包重建/hash 校验/篡改检出 |
 
 ---
 
@@ -250,7 +253,7 @@ python scripts/materials_audit.py
 python scripts/materials_backfill.py --days 30
 ```
 
-素材库实测：`73 passed`；全量 `1683 passed / 2 skipped / 4 deselected`（2026-10-28）。
+素材库实测：`76 passed`；全量 `1686 passed / 2 skipped / 4 deselected`（2026-10-28）。
 
 ---
 
