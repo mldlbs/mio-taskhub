@@ -11,6 +11,10 @@ const VIEWS = [
   { id: 'scheduled', label: '定时任务', icon: '⏱' },
   { id: 'stats', label: '统计', icon: '📊' },
   { id: 'memory', label: '记忆', icon: '🧠' },
+  // 以下是 2026-10-28 从导航栏下线、但命令面板仍可进入的视图
+  { id: 'observability', label: '观测台', icon: '📈' },
+  { id: 'mio', label: 'Mio 运行时', icon: '🔌' },
+  { id: 'material', label: '素材面板', icon: '🗂' },
 ]
 
 export default function CommandPalette({ open, onClose, onNavigate, tasks = [] }) {

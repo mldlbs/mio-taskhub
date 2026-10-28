@@ -89,6 +89,10 @@ const GEAR_ICON = (
   </svg>
 )
 
+// 2026-10-28 导航精简：这 4 个视图从主入口下线（数据 / 路由 / API 全保留）。
+// 仍可通过命令面板 Ctrl+K 或数字快捷键进入；要恢复只需删掉对应的 id。
+const HIDDEN_VIEWS = new Set(['ideas', 'scheduled', 'observability', 'memory'])
+
 export default function Rail({ view, onChange, wsLive, contrast, onToggleContrast }) {
   return (
     <nav className="rail" aria-label="主导航">
@@ -96,7 +100,7 @@ export default function Rail({ view, onChange, wsLive, contrast, onToggleContras
         <img src="/icon.png" alt="" width="38" height="38" />
       </div>
 
-      {VIEWS.map(v => (
+      {VIEWS.filter(v => !HIDDEN_VIEWS.has(v.id)).map(v => (
         <button
           key={v.id}
           className={`rail__btn${view === v.id ? ' is-active' : ''}`}
