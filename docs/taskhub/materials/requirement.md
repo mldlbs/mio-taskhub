@@ -4,8 +4,8 @@
 
 | 项 | 值 |
 |---|---|
-| 文档版本 | v1.0 |
-| 最后更新 | 2026-10-28 14:58 |
+| 文档版本 | v1.1 |
+| 最后更新 | 2026-10-28 15:10 |
 | 状态 | draft |
 | 负责人 | opencode |
 | 上游依据 | 2026-10-28 素材重构讨论：定义、来源、质量三项裁定 |
@@ -62,14 +62,14 @@
 |---|---|---|---|
 | FR-1 | 素材定义：一条素材 = 带出处的原文片段，按 `kind`（signal/fact/result/problem/decision/lesson）与 `origin`（external/internal/task/log）两轴分类 | P0 | 任一素材行都有合法 kind 与 origin；非法值被硬闸拒收 |
 | FR-2 | 来源登记：每个来源在 `material_source` 登记，含 origin、adapter、采集间隔、日上限、运行模式 | P0 | 未登记来源的 raw 一律拒收；`GET /materials/sources` 可看到每个源的状态 |
-| FR-3 | raw 落地：脱敏后的原始记录不可变、可追溯，按 `(source_key, external_id)` 唯一 | P0 | 同一 external_id 重复采集不新增 raw；raw 含 `source_hash`、`sanitized_hash`、`sanitizer_version` |
+| FR-3 | raw 落地：脱敏后的原始记录不可变、可追溯，按 `(source_key, external_id, raw_revision)` 版本化 | P0 | 同一快照重复采集不新增 raw；raw 含 `source_snapshot_hash`、`sanitized_payload_hash`、`sanitizer_version`、`sanitizer_config_hash`、`raw_revision` |
 | FR-4 | 确定性提炼：纯函数把 raw 转成 0..N 条 Draft，复用 `task_lessons.py` 的切句与关键词规则 | P0 | 同一输入连续执行 3 次，输出逐字节一致；函数内无 IO、无网络、无 LLM |
 | FR-5 | 硬闸：出处可定位、原文可回读、quote 逐字命中、kind 合法、长度 8..400、非 LLM 产品 | P0 | 任一硬闸失败即拒收并记录原因；不存在绕过硬闸的写入口 |
 | FR-6 | 指纹与去重：分离 `content_fingerprint`（内容）与 `(kind, scope_key, content_fingerprint)`（素材键） | P0 | `signal` 全局合并；其余同文不同项目不合并；重复出现不覆盖主出处 |
-| FR-7 | 计数语义：`occurrences` 为去重后的观察次数，`corroboration` 为不同来源数 | P0 | 同一来源重复 100 次：occurrences=100、corroboration=1；重放不增加二者 |
+| FR-7 | 计数语义：`occurrences` 为去重后的观察次数，`corroboration` 为不同独立来源组的数量 | P0 | 同一来源重复 100 次：occurrences=100、corroboration=1；镜像源同组不虚增；重放不增加二者 |
 | FR-8 | 质量评分：evidence / freshness / authority / density 四维，硬闸与评分分离 | P0 | 评分模型带版本号；阈值可配置；每条素材保存评分拆解 |
 | FR-9 | 生命周期：quarantine → active → stale → archived，另有 refuted | P0 | 非法转移被拒绝；TTL 到期只改状态不删除；已引用素材不自动归档 |
-| FR-10 | 重建：按来源版本化重放，批次事务，已引用素材不丢 | P0 | 重建失败批次回滚、游标不前移；重建后 linked 素材数量不减少、quote 不变 |
+| FR-10 | 重建：按来源版本化重放，批次事务，已引用素材不丢，提取历史不覆盖 | P0 | 重建失败批次回滚、游标不前移；重建后 linked 素材数量不减少、quote 不变；旧 extract 记录仍可查 |
 | FR-11 | 引用：任务、想法、文档、run、讨论可引用素材，记录关系 | P0 | 同一素材同一引用对象同一关系只存一条；引用关系可反查 |
 | FR-12 | API：列表、详情、引用、来源健康、手动采集、重建、统计 | P0 | 新接口前缀 `/api/v1/materials`；旧 `/api/v1/mio/material-panel` 保留 |
 | FR-13 | 面板重建：素材页按 origin 分组、按 kind 筛选、可搜索、可看原文上下文与质量拆解 | P1 | 旧洞察/选题/creativity/价值发现区域从素材页移除；旧数据仍可通过旧 API 读取 |
@@ -81,7 +81,7 @@
 |---|---|---|
 | NFR-1 | 不影响核心链路 | 采集 job 单批事务 ≤2 秒、≤200 行；素材 job 运行时核心 API P95 回归 ≤10% |
 | NFR-2 | 并发安全 | 沿用 WAL + busy_timeout=5000ms；只写 `material_*` 表；锁冲突重试后放弃本批，不阻塞 hub |
-| NFR-3 | 容量 | 5 万素材/年；DB 年增长 ≤100MB；列表查询 P95 ≤100ms |
+| NFR-3 | 容量 | 5 万素材/年；DB 年增长 ≤150MB（含提取历史）；列表查询 P95 ≤100ms |
 | NFR-4 | 安全 | 脱敏用等长掩码；source_snapshot 不落库；入库后按密钥正则复扫，命中即隔离 |
 | NFR-5 | 可运维 | 每个来源独立状态与错误；支持手动采集、重建、导出；失败不波及其他来源 |
 | NFR-6 | 可测试 | 固定 raw 样本 + 黄金输出；重放、唯一约束、脱敏、回滚均有自动化用例 |
@@ -111,9 +111,14 @@
 | AC-8 | 误收 / 漏收 | 误收率 ≤5%，漏收率 ≤15% | P4 |
 | AC-9 | 重复合并 | 人工标注重复对上的合并正确率 ≥95% | P4 |
 | AC-10 | 日志安全 | 试运行样本密钥扫描命中 0；误合并率 ≤2% | P6 |
+| AC-11 | 镜像佐证 | 同组两源同文：corroboration=1；改分组不回溯历史评分；审计有记录 | P1 |
+| AC-12 | 旧 witness 可回读 | sanitizer 升级后，旧 witness 仍按旧 raw revision 逐字命中 | P1 |
+| AC-13 | 提取历史 | 同一 raw 两版本输出不同：两条 extract、两条 material、旧 link 保留、无重复 | P2 |
+| AC-14 | 重建崩溃恢复 | 杀进程后重启，从最后成功批次续跑；计数与引用不变 | P2 |
 
 ## 变更记录
 
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v1.0 | 2026-10-28 | 初稿，吸收来源、评分、去重、事务四项评审意见 |
+| v1.1 | 2026-10-28 | 补版本化 raw、独立来源组、提取历史、分层校准与重建恢复 |
