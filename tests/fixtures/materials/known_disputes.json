@@ -1,0 +1,410 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "kind_review_accept",
+      "category": "kind_attribution",
+      "source": "doc.review",
+      "payload": {
+        "review_result": "验收通过（0fe91462）：AC-1~AC-6 全通过。",
+        "project": "p"
+      },
+      "expected": {
+        "drafts": [
+          [
+            "decision",
+            "验收通过（0fe91462）：AC-1~AC-6 全通过"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "kind_review_test_count",
+      "category": "kind_attribution",
+      "source": "doc.review",
+      "payload": {
+        "review_result": "1468 passed / 3 skipped",
+        "project": "p"
+      },
+      "expected": {
+        "drafts": [
+          [
+            "result",
+            "1468 passed / 3 skipped"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "kind_review_scoped_count",
+      "category": "kind_attribution",
+      "source": "doc.review",
+      "payload": {
+        "review_result": "全量 1468 passed",
+        "project": "p"
+      },
+      "expected": {
+        "drafts": [
+          [
+            "result",
+            "全量 1468 passed"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "kind_review_root_cause",
+      "category": "kind_attribution",
+      "source": "doc.review",
+      "payload": {
+        "review_result": "根因：task.updated_at 缺列导致 ORM 查询失败。",
+        "project": "p"
+      },
+      "expected": {
+        "drafts": [
+          [
+            "problem",
+            "根因：task.updated_at 缺列导致 ORM 查询失败"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "kind_review_rejected",
+      "category": "kind_attribution",
+      "source": "doc.review",
+      "payload": {
+        "review_result": "不通过：缺少逐字校验，旧 witness 无法回读。",
+        "project": "p"
+      },
+      "expected": {
+        "drafts": [
+          [
+            "problem",
+            "不通过：缺少逐字校验，旧 witness 无法回读"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "kind_run_result_pass",
+      "category": "kind_attribution",
+      "source": "run.result",
+      "payload": {
+        "result": "pytest 10 passed."
+      },
+      "expected": {
+        "drafts": [
+          [
+            "result",
+            "pytest 10 passed."
+          ]
+        ]
+      }
+    },
+    {
+      "id": "kind_run_result_problem",
+      "category": "kind_attribution",
+      "source": "run.result",
+      "payload": {
+        "result": "✗ Read night_runner.json failed。"
+      },
+      "expected": {
+        "drafts": [
+          [
+            "problem",
+            "✗ Read night_runner.json failed"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "short_review_ids",
+      "category": "short_conclusion",
+      "source": "doc.review",
+      "payload": {
+        "review_result": "AC-1、AC-2",
+        "project": "p"
+      },
+      "expected": {
+        "drafts": []
+      }
+    },
+    {
+      "id": "short_review_colon",
+      "category": "short_conclusion",
+      "source": "doc.review",
+      "payload": {
+        "review_result": "验收通过（0fe91462）：",
+        "project": "p"
+      },
+      "expected": {
+        "drafts": [
+          [
+            "decision",
+            "验收通过（0fe91462）："
+          ]
+        ],
+        "reject_reasons": [
+          "HG-12:not_a_conclusion"
+        ]
+      }
+    },
+    {
+      "id": "short_review_bare",
+      "category": "short_conclusion",
+      "source": "doc.review",
+      "payload": {
+        "review_result": "平拓扑",
+        "project": "p"
+      },
+      "expected": {
+        "drafts": []
+      }
+    },
+    {
+      "id": "short_result_count",
+      "category": "short_conclusion",
+      "source": "doc.review",
+      "payload": {
+        "review_result": "67 passed",
+        "project": "p"
+      },
+      "expected": {
+        "drafts": []
+      }
+    },
+    {
+      "id": "signal_np_openssh",
+      "category": "noun_phrase_signal",
+      "source": "hn",
+      "payload": {
+        "content": "OpenSSH 10.6 (12 points by u)",
+        "url": null
+      },
+      "expected": {
+        "reject_reasons": [
+          "HG-10:no_citable_signal"
+        ]
+      }
+    },
+    {
+      "id": "signal_np_google",
+      "category": "noun_phrase_signal",
+      "source": "hn",
+      "payload": {
+        "content": "Google Playground (12 points by u)",
+        "url": null
+      },
+      "expected": {
+        "reject_reasons": [
+          "HG-10:no_citable_signal"
+        ]
+      }
+    },
+    {
+      "id": "signal_question_ask",
+      "category": "noun_phrase_signal",
+      "source": "hn",
+      "payload": {
+        "content": "Ask HN: CAD for wood working with LLM support? (12 points by u)",
+        "url": null
+      },
+      "expected": {
+        "reject_reasons": [
+          "HG-10:no_citable_signal"
+        ]
+      }
+    },
+    {
+      "id": "signal_opinion_why",
+      "category": "noun_phrase_signal",
+      "source": "hn",
+      "payload": {
+        "content": "Why we're watching these climate tech companies (12 points by u)",
+        "url": null
+      },
+      "expected": {
+        "reject_reasons": [
+          "HG-10:no_citable_signal"
+        ]
+      }
+    },
+    {
+      "id": "signal_release",
+      "category": "noun_phrase_signal",
+      "source": "hn",
+      "payload": {
+        "content": "Picard 3.0 Released (12 points by u)",
+        "url": null
+      },
+      "expected": {
+        "drafts": [
+          [
+            "signal",
+            "Picard 3.0 Released"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "signal_claim",
+      "category": "noun_phrase_signal",
+      "source": "hn",
+      "payload": {
+        "content": "The ovary doesn't retire after menopause (12 points by u)",
+        "url": null
+      },
+      "expected": {
+        "drafts": [
+          [
+            "signal",
+            "The ovary doesn't retire after menopause"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "signal_event",
+      "category": "noun_phrase_signal",
+      "source": "hn",
+      "payload": {
+        "content": "Plex laid off the whole player team (12 points by u)",
+        "url": null
+      },
+      "expected": {
+        "drafts": [
+          [
+            "signal",
+            "Plex laid off the whole player team"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "fragment_bare_count",
+      "category": "no_predicate_fragment",
+      "source": "run.result",
+      "payload": {
+        "result": "failed=25"
+      },
+      "expected": {
+        "drafts": [
+          [
+            "result",
+            "failed=25"
+          ]
+        ],
+        "reject_reasons": [
+          "HG-13:bare_count"
+        ]
+      }
+    },
+    {
+      "id": "fragment_marker_strip",
+      "category": "no_predicate_fragment",
+      "source": "run.result",
+      "payload": {
+        "result": "②可选即时恢复：1470 条 FAILED+archived 回滚 CANCELLED（批量写库，需确认）"
+      },
+      "expected": {
+        "drafts": [
+          [
+            "result",
+            "可选即时恢复：1470 条 FAILED+archived 回滚 CANCELLED（批量写库，需确认）"
+          ]
+        ],
+        "no_leading_marker": true,
+        "max_len": 240
+      }
+    },
+    {
+      "id": "mixed_review_split",
+      "category": "mixed_content",
+      "source": "doc.review",
+      "payload": {
+        "review_result": "验收通过：AC-1、AC-2 全通过；AC-3、AC-4 全通过；AC-5、AC-6 全通过。",
+        "project": "p"
+      },
+      "expected": {
+        "drafts": [
+          [
+            "decision",
+            "验收通过：AC-1、AC-2 全通过"
+          ],
+          [
+            "decision",
+            "AC-3、AC-4 全通过"
+          ],
+          [
+            "decision",
+            "AC-5、AC-6 全通过"
+          ]
+        ],
+        "max_len": 240
+      }
+    },
+    {
+      "id": "mixed_numeric_list",
+      "category": "mixed_content",
+      "source": "doc.review",
+      "payload": {
+        "review_result": "1. 验收通过：AC-1 全通过\n2. 验收通过：AC-2 全通过",
+        "project": "p"
+      },
+      "expected": {
+        "drafts": [
+          [
+            "decision",
+            "验收通过：AC-1 全通过"
+          ],
+          [
+            "decision",
+            "验收通过：AC-2 全通过"
+          ]
+        ],
+        "no_leading_marker": true,
+        "max_len": 240
+      }
+    },
+    {
+      "id": "mixed_discussion_split",
+      "category": "mixed_content",
+      "source": "discussion.closed",
+      "payload": {
+        "conclusions": "①决定采用双轨 raw/refined ②禁止 LLM 生成内容进入素材 ③要求所有 witness 可回读",
+        "project": "p"
+      },
+      "expected": {
+        "drafts": [
+          [
+            "decision",
+            "决定采用双轨 raw/refined"
+          ],
+          [
+            "decision",
+            "禁止 LLM 生成内容进入素材"
+          ],
+          [
+            "decision",
+            "要求所有 witness 可回读"
+          ]
+        ],
+        "no_leading_marker": true,
+        "max_len": 240
+      }
+    },
+    {
+      "id": "mixed_long_unbroken",
+      "category": "mixed_content",
+      "source": "doc.review",
+      "payload": {
+        "review_result": "修复了超时问题并补充回滚脚本以及重试逻辑修复了超时问题并补充回滚脚本以及重试逻辑修复了超时问题并补充回滚脚本以及重试逻辑修复了超时问题并补充回滚脚本以及重试逻辑修复了超时问题并补充回滚脚本以及重试逻辑修复了超时问题并补充回滚脚本以及重试逻辑修复了超时问题并补充回滚脚本以及重试逻辑修复了超时问题并补充回滚脚本以及重试逻辑修复了超时问题并补充回滚脚本以及重试逻辑修复了超时问题并补充回滚脚本以及重试逻辑修复了超时问题并补充回滚脚本以及重试逻辑修复了超时问题并补充回滚脚本以及重试逻辑修复了超时问题并补充回滚脚本以及重试逻辑修复了超时问题并补充回滚脚本以及重试逻辑",
+        "project": "p"
+      },
+      "expected": {
+        "drafts": []
+      }
+    }
+  ]
+}

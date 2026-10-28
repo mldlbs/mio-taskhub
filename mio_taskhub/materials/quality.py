@@ -33,6 +33,9 @@ _CLAIM_RE = re.compile(
     r"起诉|裁员|收购|上线|修复|移除|打破|证实|发现|建议|要求|规定|决定|"
     r"确认|同意|拒绝|默认|优先|需求|规则|验收|完成|保证|确保|approved|passed|failed|"
     r"errors=|is|are|has|can", re.I)
+_BARE_COUNT_RE = re.compile(
+    r"^\s*(?:\d+\s*(?:passed|failed|skipped|errors?)?|"
+    r"(?:passed|failed|skipped|errors?)\s*[=:：]\s*\d+)\s*$", re.I)
 
 
 @dataclass
@@ -100,6 +103,8 @@ def evaluate_draft(draft: Draft, payload: Dict[str, Any], source_key: str,
         q = (draft.quote or "").strip()
         if n < 10 or q.endswith(("：", ":")) or not _CLAIM_RE.search(q):
             return GateResult(False, "HG-12:not_a_conclusion")
+    if draft.kind == "result" and _BARE_COUNT_RE.match((draft.quote or "").strip()):
+        return GateResult(False, "HG-13:bare_count")
 
     low_source = (source_key or "").lower()
     if any(marker in low_source for marker in LLM_SOURCE_MARKERS):

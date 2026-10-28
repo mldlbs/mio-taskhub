@@ -1,0 +1,31 @@
+{
+  "db": "C:/Users/admin/.mio_taskhub/preflight/rehearsal_p52_20261028.db",
+  "generated_at": "2026-10-28T15:18:32.907314+00:00",
+  "population": {
+    "materials": 1378,
+    "excluded_held_out": 324,
+    "evaluated": 1054,
+    "active": 1054,
+    "quarantine": 0
+  },
+  "checks": {
+    "active_with_any_defect": 0,
+    "by_check": {},
+    "verbatim_unverifiable": 0,
+    "duplicate_groups": 0,
+    "duplicate_materials": 0
+  },
+  "structural_misaccept": {
+    "n": 0,
+    "rate": 0.0,
+    "examples": {}
+  },
+  "quarantine_possible_miss": {
+    "n": 0,
+    "rate": null,
+    "status_reasons": {},
+    "examples": []
+  },
+  "duplicates": {},
+  "note": "结构检查不等于语义标注；true usability 未测量。quarantine_possible_miss 仅表示未发现结构缺陷。"
+}

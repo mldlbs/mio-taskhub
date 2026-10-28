@@ -1,0 +1,19 @@
+{
+  "baseline": "C:/Users/admin/.mio_taskhub/preflight/rehearsal_p52_20261028.db",
+  "candidate": "C:/Users/admin/.mio_taskhub/preflight/rehearsal_p52b_20261028.db",
+  "generated_at": "2026-10-28T15:18:10.466554+00:00",
+  "counts": {
+    "baseline": 1378,
+    "candidate": 1378,
+    "removed": 0,
+    "added": 0,
+    "kind_changed": 0,
+    "status_changed": 0,
+    "union": 1378
+  },
+  "drift_rate": 0.0,
+  "removed_examples": [],
+  "added_examples": [],
+  "kind_changed_examples": [],
+  "status_changed_examples": []
+}

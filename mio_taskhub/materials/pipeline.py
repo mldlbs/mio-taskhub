@@ -167,6 +167,25 @@ def _recount(session: Session, material: Material) -> tuple[int, int]:
     return material.occurrences, material.corroboration
 
 
+def draft_reject_reason(draft: Draft, payload: Dict[str, Any], source_key: str,
+                        scope: str, raw_revision: int,
+                        sanitizer_version: int,
+                        gate: Optional[GateResult] = None) -> Optional[str]:
+    """按 pipeline 顺序返回拒绝原因；None 表示可入库。供测试与归档复用。"""
+    if gate is None:
+        gate = evaluate_draft(draft, payload, source_key, scope,
+                              raw_revision, sanitizer_version)
+    if not gate.ok:
+        return gate.reason
+    if source_key in ("hn", "github-trending") \
+            and not has_citable_signal(draft.quote, source_key):
+        return "HG-10:no_citable_signal"
+    if source_key in ("run.failure", "history.root_cause") \
+            and is_generic_failure(draft.quote):
+        return "HG-11:generic_failure"
+    return None
+
+
 def _accept_draft(session: Session, source: MaterialSource, raw: MaterialRaw,
                   draft: Draft, gate: GateResult, scope_key: str,
                   stats: IngestStats, now: datetime) -> None:
@@ -323,22 +342,14 @@ def _extract_raw(session: Session, source: MaterialSource, raw: MaterialRaw,
             draft, payload, source.key, scope, raw.raw_revision,
             raw.sanitizer_version,
         )
-        if not gate.ok:
-            _write_quarantine(source.key, gate.reason, draft)
+        reason = draft_reject_reason(
+            draft, payload, source.key, scope, raw.raw_revision,
+            raw.sanitizer_version, gate=gate,
+        )
+        if reason:
+            _write_quarantine(source.key, reason, draft)
             rejected += 1
-            first_reason = first_reason or gate.reason
-            continue
-        if source.key in ("hn", "github-trending") \
-                and not has_citable_signal(draft.quote, source.key):
-            _write_quarantine(source.key, "HG-10:no_citable_signal", draft)
-            rejected += 1
-            first_reason = first_reason or "HG-10:no_citable_signal"
-            continue
-        if source.key in ("run.failure", "history.root_cause") \
-                and is_generic_failure(draft.quote):
-            _write_quarantine(source.key, "HG-11:generic_failure", draft)
-            rejected += 1
-            first_reason = first_reason or "HG-11:generic_failure"
+            first_reason = first_reason or reason
             continue
         try:
             _accept_draft(session, source, raw, draft, gate, scope, stats, now)

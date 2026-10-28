@@ -32,7 +32,8 @@ _FR_ID = re.compile(r"(FR-\d+)")
 _REVIEW_FAIL = re.compile(r"不通过|拒绝|驳回|reject|failed|失败|blocked", re.I)
 _ITEM_PREFIX = re.compile(r"(?m)^\s*(?:\d+[.)、]|[-*])\s+")
 _BULLET_PREFIX = re.compile(r"^[-*]\s+")
-_LEAD_MARK = re.compile(r"^\s*(?:[①-⑩]|\d+[)）、]|[-*]\s+)\s*")
+_LEAD_MARK = re.compile(
+    r"^\s*(?:[①-⑩]|\d+[.)、]\s+|\d+[)）、]|[-*]\s+)\s*")
 _TERM = re.compile(r"[。！？]|[.!?](?=\s|$)")
 _ITEM = re.compile(r"[①-⑩]|(?<!\d)\d+[)）、]")
 _DECISION_CLAIM = re.compile(
@@ -44,6 +45,13 @@ _DECISION_CLAIM = re.compile(
 _APPROVE = re.compile(
     r"验收通过|审查通过|批准通过|通过验收|Approve|Approved|LGTM|\bPASS\b", re.I)
 _REJECT = re.compile(r"不通过|未通过|驳回|拒绝|Reject|Rejected|\bFAIL\b", re.I)
+_REVIEW_RESULT = re.compile(
+    r"\b\d+\s+(?:passed|failed|skipped|errors?)\b|"
+    r"(?:passed|failed|skipped)\s*/\s*\d+|"
+    r"(?:测试|用例|build|构建|pytest|npm|go test|全量)"
+    r"[^\n]{0,12}(?:passed|failed|ok|成功|全绿|通过)", re.I)
+_REVIEW_ROOT_CAUSE = re.compile(
+    r"^(?:根因|原因|失败原因|问题原因|root\s*cause)|根因[:：]", re.I)
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _OPINION_PREFIX = re.compile(
     r"^(Ask HN|What|Why|How|Is|Are|Can|Do|Does|Should|Tell HN|"
@@ -276,12 +284,22 @@ def extract_doc_requirement(payload: Dict[str, Any], source: Any = None) -> List
     return out
 
 
+def _review_kind(quote: str, verdict: str) -> str:
+    """doc.review 单条归属：驳回/根因→problem，测试/构建结果→result，其余→decision。"""
+    if verdict == "rejected":
+        return "problem"
+    if _REVIEW_ROOT_CAUSE.search(quote):
+        return "problem"
+    if _REVIEW_RESULT.search(quote) and not _APPROVE.search(quote):
+        return "result"
+    return "decision"
+
+
 def extract_doc_review(payload: Dict[str, Any], source: Any = None) -> List[Draft]:
     text = str(payload.get("review_result") or "")
     if not text.strip():
         return []
     verdict = review_verdict(text)
-    kind = "problem" if verdict == "rejected" else "decision"
     parts = re.split(r"(?=[①-⑩])", text)
     if len(parts) <= 1:
         parts = _split_items(text)
@@ -299,7 +317,8 @@ def extract_doc_review(payload: Dict[str, Any], source: Any = None) -> List[Draf
             if idx < 0:
                 continue
             cursor = idx + len(unit)
-            d = _draft(kind, unit, "review_result", text, idx, idx + len(unit),
+            d = _draft(_review_kind(unit, verdict), unit, "review_result", text,
+                       idx, idx + len(unit),
                        title="评审结论", scope_key=project, evidence_tier="C")
             if d:
                 out.append(d)
@@ -309,10 +328,18 @@ def extract_doc_review(payload: Dict[str, Any], source: Any = None) -> List[Draf
 
 
 def _split_items(text: str) -> List[str]:
-    parts = _ITEM_PREFIX.split(text)
+    if re.search(r"[①-⑩]", text):
+        parts = re.split(r"(?=[①-⑩])", text)
+    else:
+        parts = _ITEM_PREFIX.split(text)
     if len(parts) <= 1:
         parts = re.split(r"[\n]+", text)
-    return [p.strip() for p in parts if p and p.strip()]
+    out = []
+    for part in parts:
+        cleaned = _LEAD_MARK.sub("", part.strip()).strip()
+        if cleaned:
+            out.append(cleaned)
+    return out
 
 
 def extract_discussion_closed(payload: Dict[str, Any], source: Any = None) -> List[Draft]:

@@ -1,0 +1,52 @@
+{
+  "db": "C:/Users/admin/.mio_taskhub/preflight/rehearsal_p52_20261028.db",
+  "generated_at": "2026-10-28T15:18:33.105311+00:00",
+  "population": {
+    "materials": 1378,
+    "excluded_held_out": 0,
+    "evaluated": 1378,
+    "active": 1375,
+    "quarantine": 3
+  },
+  "checks": {
+    "active_with_any_defect": 0,
+    "by_check": {},
+    "verbatim_unverifiable": 0,
+    "duplicate_groups": 0,
+    "duplicate_materials": 0
+  },
+  "structural_misaccept": {
+    "n": 0,
+    "rate": 0.0,
+    "examples": {}
+  },
+  "quarantine_possible_miss": {
+    "n": 3,
+    "rate": 1.0,
+    "status_reasons": {
+      "below_threshold": 3
+    },
+    "examples": [
+      {
+        "id": "mat_588d0da0",
+        "kind": "signal",
+        "source_key": "hn",
+        "quote": "Picard 3.0 Released"
+      },
+      {
+        "id": "mat_b8da8db0",
+        "kind": "signal",
+        "source_key": "hn",
+        "quote": "Example.com Just Launched the Biggest Redesign in Decades"
+      },
+      {
+        "id": "mat_5e9396f6",
+        "kind": "signal",
+        "source_key": "hn",
+        "quote": "Cloudflare Keeps 1.1.1.1 Out of Piracy Blocking, Escapes Penalties in France"
+      }
+    ]
+  },
+  "duplicates": {},
+  "note": "结构检查不等于语义标注；true usability 未测量。quarantine_possible_miss 仅表示未发现结构缺陷。"
+}

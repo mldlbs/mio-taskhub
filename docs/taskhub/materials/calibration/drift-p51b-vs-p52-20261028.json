@@ -1,0 +1,214 @@
+{
+  "baseline": "C:/Users/admin/.mio_taskhub/preflight/rehearsal_p51b_20261028.db",
+  "candidate": "C:/Users/admin/.mio_taskhub/preflight/rehearsal_p52_20261028.db",
+  "generated_at": "2026-10-28T15:18:10.619651+00:00",
+  "counts": {
+    "baseline": 1378,
+    "candidate": 1378,
+    "removed": 8,
+    "added": 8,
+    "kind_changed": 32,
+    "status_changed": 0,
+    "union": 1386
+  },
+  "drift_rate": 0.0346,
+  "removed_examples": [
+    {
+      "fp": "3227d03aec6833b1efd7b08c6a64a9302667c61c68eba21039245a0a9413b94b",
+      "kinds": [
+        "decision"
+      ],
+      "quote": "6. 保留期/TTL + 裁决后归档"
+    },
+    {
+      "fp": "32ef082758eb3b1490e8b8a960e71e2ead8104885bfbebb6df54fa846499f704",
+      "kinds": [
+        "decision"
+      ],
+      "quote": "10. 裁决需对照实验（埋点只给相关性）"
+    },
+    {
+      "fp": "36ce45ba0583aa27724f1ce869f69543a840369c2c05edd1a090bf2dd83e58d8",
+      "kinds": [
+        "decision"
+      ],
+      "quote": "7. event 表 namespace 隔离 + 裁决显式排除（权衡后仍不改 schema）"
+    },
+    {
+      "fp": "46fc332e2aeeaa69fbbaad6836a8a6cdb27ea30e9c02c9b85e65ac82baa56e4e",
+      "kinds": [
+        "decision"
+      ],
+      "quote": "D5→heartbeat_count 入 payload 不改 schema"
+    },
+    {
+      "fp": "674379ac8f6ede020455bdfb5d31acb75f050b4cb00f3e0f524f49da2e12e708",
+      "kinds": [
+        "decision"
+      ],
+      "quote": "溯因式想法生成协议 v2 评审通过（有条件）：方向与 MVP 边界成立，但成败押在两道闸上——①首周建人工溯因黄金集作为评测基准"
+    },
+    {
+      "fp": "6a42617a83bb1816a2334b6499eca1ee1012f15710bcca8a3bd36c6f75f2f7d8",
+      "kinds": [
+        "decision"
+      ],
+      "quote": "8. 定性为可撤退诊断脚手架"
+    },
+    {
+      "fp": "989a784b03be1abefb566a26e6576823e439535adfb41c99186639be1ae232d6",
+      "kinds": [
+        "result"
+      ],
+      "quote": "failed=25"
+    },
+    {
+      "fp": "b47ace320d10b814401d5ac2eb4114052cd9dc05d4b026449875744eb55b7e98",
+      "kinds": [
+        "decision"
+      ],
+      "quote": "**观测不得反作用 + 不得连带失明**（红队+运维+技术共识）：埋点必须 ① 异步 fire-and-forget（daemon 线程、短超时、丢包不重试、绝不进执行关键路径）"
+    }
+  ],
+  "added_examples": [
+    {
+      "fp": "13e1841bb3bf0e9291aa37296304f7d4757494707441811e0b957d2962f913e9",
+      "kinds": [
+        "decision"
+      ],
+      "quote": "异步 fire-and-forget（daemon 线程、短超时、丢包不重试、绝不进执行关键路径）"
+    },
+    {
+      "fp": "25222f18835c2739dde786b214240a4c1dd9c6018fa5440b5bc47a35041a6288",
+      "kinds": [
+        "decision"
+      ],
+      "quote": "保留期/TTL + 裁决后归档"
+    },
+    {
+      "fp": "25cdabd3258dffd1e70d984dff20be05ba9b62665de461622a9d3f1e901da4ca",
+      "kinds": [
+        "decision"
+      ],
+      "quote": "**观测不得反作用 + 不得连带失明**（红队+运维+技术共识）：埋点必须"
+    },
+    {
+      "fp": "30a9506f4423a550e6719a7873542cbde8eeadf19e5b675a378c87e059a94768",
+      "kinds": [
+        "decision"
+      ],
+      "quote": "event 表 namespace 隔离 + 裁决显式排除（权衡后仍不改 schema）"
+    },
+    {
+      "fp": "4b003e21eb055d779a4f1d81df821d366881d1dfbaa4ad2096196749b888fadf",
+      "kinds": [
+        "decision"
+      ],
+      "quote": "定性为可撤退诊断脚手架"
+    },
+    {
+      "fp": "694b6291bdfee3e4483b0402b3bfecb2985bc0db867e01fec4818692b9dbed08",
+      "kinds": [
+        "decision"
+      ],
+      "quote": "裁决需对照实验（埋点只给相关性）"
+    },
+    {
+      "fp": "8784592de22431a1db4cf5648e0a4409c039c99e3337c8f1d557a362ac63a591",
+      "kinds": [
+        "decision"
+      ],
+      "quote": "首周建人工溯因黄金集作为评测基准"
+    },
+    {
+      "fp": "fdec7dcff32994d147cbbd371951811bb1c2767c2b20498f66eda29069aa1b45",
+      "kinds": [
+        "decision"
+      ],
+      "quote": "溯因式想法生成协议 v2 评审通过（有条件）：方向与 MVP 边界成立，但成败押在两道闸上——"
+    }
+  ],
+  "kind_changed_examples": [
+    {
+      "fp": "00ccd3de43cc12c5d8e4cf5747e15d247e9a4d4c648e45ce59f6d2dd15e5c926",
+      "from": [
+        "decision"
+      ],
+      "to": [
+        "result"
+      ],
+      "quote": "全量 1090 passed + 1 skipped 零失败、exe 重建、已推 origin"
+    },
+    {
+      "fp": "0c9aad009bdf13a8e76b12bd0da9dcf803580ff0ede477bcc4e5d460b97c13b8",
+      "from": [
+        "decision"
+      ],
+      "to": [
+        "result"
+      ],
+      "quote": "全量 1059 passed + 1 skipped 零失败、exe 重建"
+    },
+    {
+      "fp": "1c00f9a2deb582e455a9c63f0a97f277442bdf55c9b45b5d525309773eedf290",
+      "from": [
+        "decision"
+      ],
+      "to": [
+        "result"
+      ],
+      "quote": "测试 +3、全量 1088 passed + 1 skipped 零失败、exe 重建、已推 origin"
+    },
+    {
+      "fp": "1e8c4a621eac9cafa350c9379e956a2b148f9f3df19c9409b9b460ae81d4ee96",
+      "from": [
+        "decision"
+      ],
+      "to": [
+        "result"
+      ],
+      "quote": "测试 +33、全量 1046 passed + 1 skipped 零失败、exe 重建"
+    },
+    {
+      "fp": "2a381834a6598a687c70a67876d3b26ff5f77e55cc24f6db9d5ee9185d3bd650",
+      "from": [
+        "decision"
+      ],
+      "to": [
+        "result"
+      ],
+      "quote": "全量 1055 passed + 1 skipped 零失败、exe 重建"
+    },
+    {
+      "fp": "2e2f7e805fc148f5d91b6cc91b9f139e49d29acec08957f1c573b79106a1feec",
+      "from": [
+        "decision"
+      ],
+      "to": [
+        "result"
+      ],
+      "quote": "project 回填语义保留（既有 test_api 两个契约用例恢复通过）"
+    },
+    {
+      "fp": "3f90c2304723282d2528b77c854a5856e8155cfa0e29586e99c2078f104bc613",
+      "from": [
+        "decision"
+      ],
+      "to": [
+        "result"
+      ],
+      "quote": "1 幂等 ingest 不重复 ✔ 2 异常退出本地留痕 ✔ 3 多进程按 pid 分文件不坏 ✔ 4 process_alive 结果态回填（无 sleep）✔ 5 agent_ready 认 Hub last_heartbeat ✔ 6 heartbeat_sent_count 可对照 ✔ 7 关开关执行逻辑不变（Noop+零落盘）✔ 8 全量 1102 passed + 1 skipped（+12 零回归）✔"
+    },
+    {
+      "fp": "46525e8ce4eea95eb7e36df8b0154cc58dba90a22ab89288c558c6b726371cdd",
+      "from": [
+        "decision"
+      ],
+      "to": [
+        "result"
+      ],
+      "quote": "全量 1120 passed + 1 skipped 零回归"
+    }
+  ],
+  "status_changed_examples": []
+}

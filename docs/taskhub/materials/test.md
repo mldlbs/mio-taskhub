@@ -138,6 +138,8 @@
 | T76 | `test_materials_review.py::test_review_kit_builds_blind_pack_and_verifies` | 盲包重建/hash 校验/篡改检出 |
 | T77 | `test_materials_review.py::test_review_analysis_flags_quote_tamper_and_identity_collision` | 原文篡改与共用代号检出 |
 | T78 | `test_materials_review.py::test_review_kit_handout_copies_blank_sheets` | 双人空白副本发放与哈希 |
+| T79 | `test_materials_known_disputes.py`（49 项） | 24 条已知争议 × 结果/确定性 + 类别覆盖 |
+| T80 | `test_materials_validate.py`（3 项） | 结构缺陷、held-out 排除、类型/状态漂移 |
 
 ---
 
@@ -226,11 +228,27 @@
 | active 可用率（加权） | 83.9% |
 | active 误收（未加权） | 15.2%（95% CI 10.9–20.9） |
 | quarantine 漏收 | 100%（3/3，CI 43.9–100） |
-| 独立复核 | 30 条：类型 80.0%、可用性 56.7%；**人工复核未完成** |
+| 独立复核 | 已取消（编号 12）；Agent 预复核 80.0% / 56.7% **不作为金标准** |
 | 副本审计 | 业务表哈希一致；audit ok；二次回填零新增 |
 | 生产 | **未变更** |
 
 报告：`docs/taskhub/materials/calibration/calibration-p51-20261028.md`。
+
+### 4.7 自动化质量验证（编号 12）
+
+| 检查 | 结果 |
+|---|---|
+| 已知争议 | 24 条 / 5 类，全部通过；两次提取结果一致 |
+| held-out 结构缺陷 | 0 / 1,054 |
+| 全量结构缺陷 / 重复 | 0 / 0（1,378 素材） |
+| P5.1→当前漂移 | 8 removed / 8 added / 32 kind；3.46% |
+| 同版本复跑漂移 | 0 |
+| 二次回填 | 全部 `accepted=0 / new=0 / merged=0` |
+| 业务表 / 审计 | 哈希一致；`ok: true` |
+| 真实可用率 / 语义误收 | **未测量** |
+
+报告：`docs/taskhub/materials/calibration/validation-20261028.md`。
+证据冻结：`docs/taskhub/materials/calibration/EVIDENCE-FREEZE-20261028.md`。
 
 ---
 
@@ -255,7 +273,7 @@ python scripts/materials_audit.py
 python scripts/materials_backfill.py --days 30
 ```
 
-素材库实测：`78 passed`；全量 `1688 passed / 2 skipped / 4 deselected`（2026-10-28）。
+素材库实测：`130 passed`；全量 `1740 passed / 2 skipped / 4 deselected`（2026-10-28）。
 
 ---
 
