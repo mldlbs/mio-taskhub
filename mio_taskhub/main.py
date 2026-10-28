@@ -214,6 +214,9 @@ app.add_middleware(RateLimitMiddleware)
 app.add_middleware(RequestIDMiddleware)
 init_db()
 
+from mio_taskhub.materials.api import router as materials_router
+app.include_router(materials_router, prefix="/api/v1", tags=["materials"])
+
 app.include_router(templates.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(reviews.router, prefix="/api/v1", tags=["reviews"])
 app.include_router(task_stages.router, prefix="/api/v1", tags=["tasks"])

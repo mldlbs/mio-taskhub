@@ -23,6 +23,8 @@ os.environ.setdefault(
 # 污染 claim/挑选类用例（如 test_claim_only_picks_ready），造成跨用例 flaky。
 os.environ.setdefault("MIO_INSIGHT_AUTOTASK", "0")
 os.environ.setdefault("MIO_INSIGHT_AUTOTASK_PRECHECK", "0")
+# 测试不启动素材采集后台线程（P3），避免读取真实 observer 文件污染临时库
+os.environ.setdefault("MIO_MATERIALS_AUTOSTART", "0")
 
 from sqlmodel import select  # noqa: E402
 from mio_taskhub.db import engine, init_db  # noqa: E402

@@ -248,3 +248,19 @@
 | 测试 | 新增 6 个；素材库合计 32 passed；全量 1642 passed / 2 skipped |
 | 基线结果 | 黄金样本全过、3 次逐字节一致、分类基线 100%（自建） |
 | 未做 | 真实采集与 payload 构造（P3）、真实标注校准（P4） |
+
+---
+
+## 11 P3 落地记录（2026-10-28）
+
+| 项 | 结果 |
+|---|---|
+| 适配器 | `materials/adapters.py`：HN / GitHub / 需求 / 评审 / 讨论 / run / history |
+| 调度 | `materials/jobs.py`：30s tick、min_interval、日上限、单源失败隔离 |
+| 回填 | `scripts/materials_backfill.py --days 30` |
+| 端点 | `GET /api/v1/materials/sources`（只读来源健康） |
+| 开关 | `MIO_MATERIALS_AUTOSTART=0` 可关闭采集线程 |
+| 回填验证（生产库副本） | HN 3,373→1,957；GitHub 112→98；需求 14→138；评审 89→87；讨论 60→76；run.result 193→216；run.failure 5,011→37；history 1→1 |
+| 审计 | `scripts/materials_audit.py` 返回 `ok: true` |
+| 测试 | 新增 12 个；素材库 44 passed；全量 1654 passed / 2 skipped |
+| 生产库 | **未写入**；等待确认后再执行回填 |

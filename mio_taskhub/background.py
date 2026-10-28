@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import datetime, timezone, timedelta
 import threading
 import time
@@ -660,7 +661,18 @@ def start_background_jobs():
     register_thread("mio-digest", digest_job._thread, digest_job)
     register_thread("mio-contract", contract_job._thread, contract_job)
     register_thread("mio-outcome", outcome_job._thread, outcome_job)
-    return sweep, scheduler, idea_scanner, digest_job, contract_job, outcome_job
+    jobs = [sweep, scheduler, idea_scanner, digest_job, contract_job, outcome_job]
+    if os.environ.get("MIO_MATERIALS_AUTOSTART", "1").lower() not in (
+            "0", "false", "no", "off"):
+        try:
+            from mio_taskhub.materials.jobs import MaterialIngestJob
+            material_job = MaterialIngestJob()
+            material_job.start()
+            register_thread("materials-ingest", material_job._thread, material_job)
+            jobs.append(material_job)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("materials ingest job not started: %s", exc)
+    return tuple(jobs)
 
 
 # HeartbeatSweep / RunInfo 已统一到 mio_taskhub.heartbeat（单一事实源）。

@@ -73,7 +73,7 @@ def _version() -> str:
 def _count_rest_endpoints() -> int:
     """统计 api/*.py 中 @router.get/post/put/patch/delete 装饰器数量。"""
     total = 0
-    for f in _iter_py("mio_taskhub/api"):
+    for f in _iter_py("mio_taskhub"):
         text = f.read_text(encoding="utf-8", errors="replace")
         total += len(re.findall(r'@router\.(get|post|put|patch|delete)\b', text))
     return total

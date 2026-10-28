@@ -4,22 +4,23 @@
 
 | 项 | 值 |
 |---|---|
-| 文档版本 | v1.1 |
-| 最后更新 | 2026-10-28 16:05 |
+| 文档版本 | v1.2 |
+| 最后更新 | 2026-10-28 17:05 |
 | 状态 | approved |
 | 负责人 | opencode |
 | 上游依据 | `spec.md` v1.1 §5、`plan.md` v1.1 §4 |
-| 下游关联 | P3 来源适配器、P5 API 测试 |
+| 下游关联 | P4 校准、P5 完整 API / 面板 |
 
 ---
 
 ## 1 验收标准
 
-| 编号 | 指标 | 目标 | P1 状态 |
+| 编号 | 指标 | 目标 | 状态 |
 |---|---|---|---|
 | AC-1 | 重放幂等 | 同一 raw 重放 3 次，素材行数、occurrences、corroboration 不变 | 已覆盖 |
 | AC-2 | 逐字核验 | active 素材 locator 回读命中率 100% | 已覆盖（硬闸 + 审计） |
 | AC-4 | 计数语义 | 同源 100 次重复：occurrences=100、corroboration=1 | 已覆盖（按来源记录去重） |
+| AC-5 | 故障隔离 | 单源异常不影响其他源 | 已覆盖（P3 job） |
 | AC-11 | 镜像佐证 | 同组两源同文 corroboration=1；改组不回溯 | 已覆盖 |
 | AC-12 | 旧 witness 可回读 | sanitizer 升级后旧 witness 仍命中旧 revision | 已覆盖 |
 | AC-13 | 提取历史 | 两版本输出不同：两条 extract、两条 material、旧 link 保留 | 已覆盖 |
@@ -31,7 +32,7 @@
 
 ## 2 测试范围
 
-### 已覆盖（P1 + P2）
+### 已覆盖（P1 + P2 + P3）
 
 - 7 张表、复合唯一约束、主 witness 部分唯一索引、来源种子
 - 等长脱敏、密钥复扫、掩码折叠指纹、稳定 hash
@@ -40,14 +41,14 @@
 - 引用前置条件、配置漂移拒绝
 - 四个反例：T-MIRROR / T-RAWVER / T-EXTRACT / T-CRASH
 - 10 个来源的确定性提炼器、16 条精确黄金样本、50 条分类基线
+- 7 类真实来源适配器、30 天回填、采集 job 日上限/单源隔离、来源健康端点
 
 ### 未覆盖（后续阶段）
 
 | 范围 | 阶段 | 说明 |
 |---|---|---|
-| HN / GitHub / 文档 / run / history 的真实采集与 payload 构造 | P3 | P2 只验证纯提炼函数 |
 | 质量阈值校准 | P4 | 需要真实人工标注集 |
-| API / 面板 | P5 | 当前无 HTTP 入口 |
+| 完整 API / 面板 | P5 | 当前只有 `GET /materials/sources` |
 | 日志试运行 | P6 | 当前只验证 trial 隔离 |
 
 ---
@@ -88,6 +89,18 @@
 | T30 | `test_materials_extract.py::test_golden_is_deterministic` | 同一输入 3 次逐字节一致 |
 | T31 | `test_materials_extract.py::test_classification_baseline_50` | 50 条分类基线 ≥90% |
 | T32 | `test_materials_extract.py::test_public_lesson_helpers` | 复用切句/证据规则 |
+| T33 | `test_materials_adapters.py::test_hn_adapter_and_cursor` | HN 适配 + 日期游标 |
+| T34 | `test_materials_adapters.py::test_hn_limit_does_not_skip_mid_file` | 限额不跳过未处理条目 |
+| T35 | `test_materials_adapters.py::test_github_adapter_builds_clean_content` | GitHub 清洗 `repo — desc` |
+| T36 | `test_materials_adapters.py::test_doc_requirement_adapter` | 已批准需求文档 |
+| T37 | `test_materials_adapters.py::test_doc_review_adapter` | 评审结论 |
+| T38 | `test_materials_adapters.py::test_discussion_adapter` | 讨论结论 + 项目 |
+| T39 | `test_materials_adapters.py::test_run_adapters_split_by_exit_code` | run result/failure 分流 |
+| T40 | `test_materials_adapters.py::test_history_root_cause_adapter` | 根因事件 |
+| T41 | `test_materials_adapters.py::test_adapter_to_pipeline_end_to_end` | 适配器 → 入库 |
+| T42 | `test_materials_jobs.py::test_job_daily_cap` | 日上限 |
+| T43 | `test_materials_jobs.py::test_job_isolates_source_failure` | 单源失败隔离 |
+| T44 | `test_materials_api.py::test_sources_health_endpoint` | 来源健康端点 |
 
 ---
 
@@ -109,29 +122,51 @@
 
 说明：50 条基线是工程回归集，不是 P4 的现场标注集；P4 必须重新抽样并报告误收/漏收。
 
+### 4.2 P3 真实回填验证（生产库副本）
+
+在 `taskhub.db` 副本上执行，不写生产库：
+
+| 来源 | raw | materials | 状态 |
+|---|---|---|---|
+| hn（30 天） | 3,373 | 1,957 | active 1,927 / quarantine 30 |
+| github-trending（30 天） | 112 | 98 | active 91 / quarantine 7 |
+| doc.requirement（180 天） | 14 | 138 | active 138 |
+| doc.review | 89 | 87 | active 87 |
+| discussion.closed | 60 | 76 | active 76 |
+| run.result | 193 | 216 | active 216 |
+| run.failure | 5,011 | 37 | active 37 |
+| history.root_cause | 1 | 1 | active 1 |
+
+回填后 `scripts/materials_audit.py` 返回 `ok: true`。生产库未写入，等待确认后再执行。
+
 ---
 
 ## 5 运行方式
 
 ```bash
-# 素材库 P1 + P2
+# 素材库 P1 + P2 + P3
 python -m pytest tests/test_materials_models.py tests/test_materials_sanitize.py \
   tests/test_materials_quality.py tests/test_materials_pipeline.py \
   tests/test_materials_mirror.py tests/test_materials_versioning.py \
   tests/test_materials_extract_history.py tests/test_materials_rebuild_crash.py \
-  tests/test_materials_extract.py -q
+  tests/test_materials_extract.py tests/test_materials_adapters.py \
+  tests/test_materials_jobs.py tests/test_materials_api.py -q
 
 # 不变量审计（使用当前 MIO_TASKHUB_DB）
 python scripts/materials_audit.py
+
+# 30 天回填（默认全部已适配来源）
+python scripts/materials_backfill.py --days 30
 ```
 
-素材库实测：`32 passed`；全量 `1642 passed / 2 skipped / 4 deselected`（2026-10-28）。
+素材库实测：`44 passed`；全量 `1654 passed / 2 skipped / 4 deselected`（2026-10-28）。
 
 ---
 
 ## 6 已知限制
 
-1. P1/P2 只提供库、流水线与纯提炼函数，没有 HTTP 入口，不能从 UI 触发。
-2. 真实采集与 payload 构造在 P3；P2 的输入是黄金样本。
+1. P1~P3 只提供库、流水线、适配器与一个来源健康端点；完整素材 API/面板在 P5。
+2. 30 天回填在生产库副本上验证，生产库尚未写入。
 3. `material_source_audit` 的“只增不改不删”目前靠约定与写路径保证，未加数据库触发器。
 4. 质量阈值尚未校准，`quality_model_version=1` 只是工程初值。
+5. `MIO_MATERIALS_AUTOSTART=0` 可关闭采集后台线程（测试默认关闭）。

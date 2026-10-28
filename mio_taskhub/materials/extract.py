@@ -25,6 +25,9 @@ from mio_taskhub.materials.quality import Draft
 
 _HN_SUFFIX = re.compile(r"\s*\(\d+\s+points?\s+by\s+[^)]*\)\s*$", re.I)
 _FR_LINE = re.compile(r"^\s*(?:[-*]\s*)?(?:\*\*)?(FR-\d+)(?:\*\*)?\s*[：:]?\s*\S")
+_FR_TABLE = re.compile(
+    r"^\s*\|\s*(?:\*\*)?(FR-\d+)(?:\*\*)?\s*\|\s*(.+?)\s*\|"
+)
 _FR_ID = re.compile(r"(FR-\d+)")
 _REVIEW_FAIL = re.compile(r"不通过|拒绝|驳回|reject|failed|失败|blocked", re.I)
 _ITEM_PREFIX = re.compile(r"(?m)^\s*(?:\d+[.)、]|[-*])\s+")
@@ -139,18 +142,26 @@ def extract_doc_requirement(payload: Dict[str, Any], source: Any = None) -> List
     project = _project(payload)
     out: List[Draft] = []
     for line_start, line in _lines_with_offsets(text):
-        if not _FR_LINE.match(line):
+        table = _FR_TABLE.match(line)
+        if table:
+            quote = table.group(2).strip()
+            start = line_start + table.start(2)
+            end = start + len(quote)
+        elif _FR_LINE.match(line):
+            stripped = line.strip()
+            bullet = _BULLET_PREFIX.match(stripped)
+            if bullet:
+                stripped = stripped[bullet.end():].strip()
+            quote = stripped
+            start = line_start + line.find(stripped)
+            end = start + len(stripped)
+        else:
             continue
-        stripped = line.strip()
-        bullet = _BULLET_PREFIX.match(stripped)
-        if bullet:
-            stripped = stripped[bullet.end():].strip()
-        if len(stripped) < 8:
+        if len(quote) < 8:
             continue
-        start = line_start + line.find(stripped)
-        d = _draft("decision", stripped, "text", text,
-                   start, start + len(stripped),
-                   title=_FR_ID.search(stripped).group(1),
+        d = _draft("decision", quote, "text", text,
+                   start, end,
+                   title=_FR_ID.search(quote).group(1) if _FR_ID.search(quote) else None,
                    scope_key=project, evidence_tier="B")
         if d:
             out.append(d)

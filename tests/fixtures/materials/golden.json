@@ -85,13 +85,13 @@
     {
       "source": "doc.requirement",
       "payload": {
-        "text": "**FR-7** scope_key 必须与 kind 的全局/项目规则一致。\n",
+        "text": "| FR-7 | scope_key 必须与 kind 的全局/项目规则一致。 | P0 | 规则查询 |\n",
         "project": "mio-taskhub"
       },
       "expected": [
         {
           "kind": "decision",
-          "quote": "**FR-7** scope_key 必须与 kind 的全局/项目规则一致。"
+          "quote": "scope_key 必须与 kind 的全局/项目规则一致。"
         }
       ]
     },
