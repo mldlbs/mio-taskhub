@@ -5,8 +5,8 @@
 | 项 | 值 |
 |---|---|
 | 文档版本 | v1.1 |
-| 最后更新 | 2026-10-28 15:10 |
-| 状态 | draft |
+| 最后更新 | 2026-10-28 15:26 |
+| 状态 | approved |
 | 负责人 | opencode |
 | 上游依据 | `requirement.md`、`spec.md`、`data-model.md` |
 | 下游关联 | `api.md`（P5 前编写）、`test.md`（P1 起持续维护） |
