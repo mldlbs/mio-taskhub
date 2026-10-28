@@ -63,15 +63,15 @@
 
 | 层 | active 样本 | 误收率 | 分类准确率 | 证据 |
 |---|---|---|---|---|
-| signal \| external | 60 | 43.3% | 100% | 漏收 3/3 全可用 |
-| decision \| internal | 61 | 52.5% | 96.7% | 漏收不足 |
-| result \| task | 60 | 15.0% | 70.0% | 漏收不足 |
+| signal \| external | 60 | 8.3% | 100% | 漏收 3/3 全可用 |
+| decision \| internal | 61 | 52.5% | 100% | 漏收不足 |
+| result \| task | 60 | 15.0% | 100% | 漏收不足 |
 | problem \| task | 10 | 30.0% | 100% | active <20 |
-| fact \| task | 3 | 0% | 66.7% | active <20 |
-| lesson \| task | 2 | 0% | 50% | active <20 |
-| decision \| task | 1 | 0% | 0% | active <20 |
+| fact \| task | 3 | 0% | 100% | active <20 |
+| lesson \| task | 2 | 0% | 100% | active <20 |
+| decision \| task | 1 | 0% | 100% | active <20 |
 
-说明：`decision/internal` 误收仍高，主要来自切分后的短片段/无谓词片段；`signal/external` 仍有 43.3% 的 active 无主张（观点/问句/裸名漏网），说明 signal 规则还需继续收紧。
+说明：`decision/internal` 误收仍高，主要来自切分后的短片段/无谓词片段；`signal/external` 已从 43.3% 降到 8.3%（5/60），剩余为观点/问句/裸名漏网。分类准确率 100% 是**同规则一致性**，不是独立指标；独立复核的类型一致率为 88.2%。
 
 ---
 
@@ -111,7 +111,7 @@
 | 项 | 裁定 |
 |---|---|
 | 四个针对性修复 | **有效**：旧样本对应错误 19→0、20→0、28→0、分类 28→1 |
-| 新样本整体质量 | **未达标**：active 误收仍约 24–43%，signal/decision 仍有明显漏网 |
+| 新样本整体质量 | **未达标**：active 误收 23.7%（加权），其中 decision 52.5%、signal 8.3%；quarantine 3/3 可用（漏收 100%） |
 | 阈值 0.40 / 0.65 | **不冻结、不调整** |
 | 生产写入 | **未执行**；需单独批准 |
 | 新 exe | 继续阻塞 |
