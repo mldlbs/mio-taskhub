@@ -41,13 +41,17 @@ def _migrate_stage_column(target_engine=None):
     run_migrations(target_engine)
 
 def init_db():
+    # 素材库模型必须在 create_all 之前导入，否则新表不会被注册
+    from mio_taskhub.materials import models as _material_models  # noqa: F401
     SQLModel.metadata.create_all(engine)
     _migrate_stage_column()
     # 首次运行播种常用模板（表为空时才插入，幂等）
     from mio_taskhub.seed import seed_common_templates, seed_idea_generate_job
+    from mio_taskhub.materials.seed import seed_material_sources
     with Session(engine) as s:
         seed_common_templates(s)
         seed_idea_generate_job(s)
+        seed_material_sources(s)
 
 def get_session() -> Generator[Session, None, None]:
     with Session(engine) as session:

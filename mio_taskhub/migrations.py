@@ -40,9 +40,23 @@ def run_migrations(target_engine=None):
             _migrate_ratchet_baseline(conn)
 
         _migrate_observability(conn)
+        if "material_witness" in tables:
+            _migrate_materials(conn)
         _drop_orphan_tables(conn)
 
         conn.commit()
+
+
+def _migrate_materials(conn):
+    """素材库：部分唯一索引兜底（一条素材只有一个主出处）。"""
+    try:
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_material_witness_primary "
+            "ON material_witness (material_id) WHERE is_primary = 1"
+        ))
+    except Exception:
+        # 历史重复主出处等异常不阻塞启动；写入端与审计脚本会报出
+        pass
 
 
 def _drop_orphan_tables(conn):

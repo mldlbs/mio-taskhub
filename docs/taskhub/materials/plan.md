@@ -158,12 +158,12 @@
 | T-EXTRACT | 同一 raw 经两个提取版本产生不同结果 | `COUNT(material_extract)=2`；`COUNT(material)=2`；M1 的 `material_link` 数不变；`(material_id, raw_id, extract_version)` 无冲突 | AC-13 |
 | T-CRASH | 重建第 1 批提交后杀进程 | `rebuild_cursor` 停在批 1；重启后 `rebuild_resumed_count=1`；extract 无重复；link 数不变；最终计数与一次跑完一致 | AC-14 |
 
-对应测试文件（P1/P2 落地）：
+对应测试文件（P1 已落地）：
 
-- `tests/test_materials_mirror.py::test_mirror_corroboration`
-- `tests/test_materials_versioning.py::test_old_witness_reads_old_raw`
-- `tests/test_materials_extract_history.py::test_two_versions_keep_history`
-- `tests/test_materials_rebuild_crash.py::test_resume_after_crash`
+- `tests/test_materials_mirror.py::test_mirror_counts_one_and_group_change_does_not_rewrite_history`
+- `tests/test_materials_versioning.py::test_old_witness_survives_sanitizer_upgrade`
+- `tests/test_materials_extract_history.py::test_two_versions_keep_history_and_links`
+- `tests/test_materials_rebuild_crash.py::test_rebuild_crash_resumes_from_last_committed_batch`
 
 每阶段结束必须更新 `test.md`，把用例编号映射到 AC。
 
@@ -222,3 +222,15 @@
 |---|---|---|
 | v1.0 | 2026-10-28 | 初稿：P0~P6 分阶段，先冻结模型/事务/硬闸/指标 |
 | v1.1 | 2026-10-28 | 按评审补：版本化 raw、提取历史、独立性分组审计、分层校准、崩溃恢复、四反例 |
+
+---
+
+## 9 P1 落地记录（2026-10-28）
+
+| 项 | 结果 |
+|---|---|
+| 表 | 7 张表已建；10 个来源已种子（日志 trial） |
+| 代码 | `mio_taskhub/materials/{models,sanitize,quality,pipeline,seed}.py` |
+| 审计 | `scripts/materials_audit.py`：I1/I2/I3/I5/I6/I12/I13/I14/I16 |
+| 测试 | 26 个素材用例；全量 1636 passed / 2 skipped / 4 deselected |
+| 未做 | 真实来源接入（P3）、质量校准（P4）、API/面板（P5）、日志 trial（P6） |
