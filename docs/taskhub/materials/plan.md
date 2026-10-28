@@ -206,11 +206,11 @@
 
 | 文档 | 阶段 | 状态 |
 |---|---|---|
-| `requirement.md` | 设计 | draft |
-| `spec.md` | 设计 | draft |
-| `data-model.md` | P1 | draft |
+| `requirement.md` | 设计 | approved |
+| `spec.md` | 设计 | approved |
+| `data-model.md` | P1 | approved |
 | `api.md` | P5 前 | 未开始 |
-| `test.md` | P1 起 | 未开始 |
+| `test.md` | P1 起 | P1/P2 已建 |
 | `changelog.md` | P5 | 未开始 |
 | `review.md` | P5 | 未开始 |
 
@@ -234,3 +234,17 @@
 | 审计 | `scripts/materials_audit.py`：I1/I2/I3/I5/I6/I12/I13/I14/I16 |
 | 测试 | 26 个素材用例；全量 1636 passed / 2 skipped / 4 deselected |
 | 未做 | 真实来源接入（P3）、质量校准（P4）、API/面板（P5）、日志 trial（P6） |
+
+---
+
+## 10 P2 落地记录（2026-10-28）
+
+| 项 | 结果 |
+|---|---|
+| 提炼器 | `mio_taskhub/materials/extract.py`：10 个来源，纯函数 |
+| 复用 | `api/task_lessons.py` 公开 `split_sentences` / `has_test_evidence` |
+| 黄金样本 | `tests/fixtures/materials/golden.json`：16 条精确期望 |
+| 分类基线 | `tests/fixtures/materials/classification.json`：50 条 |
+| 测试 | 新增 6 个；素材库合计 32 passed；全量 1642 passed / 2 skipped |
+| 基线结果 | 黄金样本全过、3 次逐字节一致、分类基线 100%（自建） |
+| 未做 | 真实采集与 payload 构造（P3）、真实标注校准（P4） |

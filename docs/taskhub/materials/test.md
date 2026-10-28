@@ -4,12 +4,12 @@
 
 | 项 | 值 |
 |---|---|
-| 文档版本 | v1.0 |
-| 最后更新 | 2026-10-28 15:45 |
+| 文档版本 | v1.1 |
+| 最后更新 | 2026-10-28 16:05 |
 | 状态 | approved |
 | 负责人 | opencode |
 | 上游依据 | `spec.md` v1.1 §5、`plan.md` v1.1 §4 |
-| 下游关联 | P2 适配器测试、P5 API 测试 |
+| 下游关联 | P3 来源适配器、P5 API 测试 |
 
 ---
 
@@ -31,7 +31,7 @@
 
 ## 2 测试范围
 
-### 已覆盖（P1）
+### 已覆盖（P1 + P2）
 
 - 7 张表、复合唯一约束、主 witness 部分唯一索引、来源种子
 - 等长脱敏、密钥复扫、掩码折叠指纹、稳定 hash
@@ -39,13 +39,14 @@
 - 单批事务、raw revision 分配、重放幂等、计数语义
 - 引用前置条件、配置漂移拒绝
 - 四个反例：T-MIRROR / T-RAWVER / T-EXTRACT / T-CRASH
+- 10 个来源的确定性提炼器、16 条精确黄金样本、50 条分类基线
 
 ### 未覆盖（后续阶段）
 
 | 范围 | 阶段 | 说明 |
 |---|---|---|
-| HN / GitHub / 文档 / run / history 适配器 | P3 | P1 用测试 extractor 替身 |
-| 质量阈值校准 | P4 | 需要人工标注集 |
+| HN / GitHub / 文档 / run / history 的真实采集与 payload 构造 | P3 | P2 只验证纯提炼函数 |
+| 质量阈值校准 | P4 | 需要真实人工标注集 |
 | API / 面板 | P5 | 当前无 HTTP 入口 |
 | 日志试运行 | P6 | 当前只验证 trial 隔离 |
 
@@ -81,6 +82,12 @@
 | T24 | `test_materials_versioning.py::test_old_witness_survives_sanitizer_upgrade` | AC-12 |
 | T25 | `test_materials_extract_history.py::test_two_versions_keep_history_and_links` | AC-13 |
 | T26 | `test_materials_rebuild_crash.py::test_rebuild_crash_resumes_from_last_committed_batch` | AC-14 |
+| T27 | `test_materials_extract.py::test_registry_covers_all_seeded_sources` | 10 个来源都有提炼器 |
+| T28 | `test_materials_extract.py::test_unknown_source_raises` | 未登记来源拒绝 |
+| T29 | `test_materials_extract.py::test_golden_exact` | 16 条黄金样本精确输出 |
+| T30 | `test_materials_extract.py::test_golden_is_deterministic` | 同一输入 3 次逐字节一致 |
+| T31 | `test_materials_extract.py::test_classification_baseline_50` | 50 条分类基线 ≥90% |
+| T32 | `test_materials_extract.py::test_public_lesson_helpers` | 复用切句/证据规则 |
 
 ---
 
@@ -93,28 +100,38 @@
 | T-EXTRACT | 两条 `material_extract`、两条 material；旧 `material_link` 保留；同版本重放不新增 |
 | T-CRASH | `rebuild_cursor` 停在已提交批次；重启后 `rebuild_resumed_count=1`；extract 无重复、link 数不变 |
 
+### 4.1 P2 黄金样本与分类基线
+
+| 文件 | 内容 | 结果 |
+|---|---|---|
+| `tests/fixtures/materials/golden.json` | 16 条精确期望，覆盖 10 个来源 | 全部通过，逐字节一致 |
+| `tests/fixtures/materials/classification.json` | 50 条分类基线（kind 期望） | 准确率 100%（自建基线，不等同真实分布） |
+
+说明：50 条基线是工程回归集，不是 P4 的现场标注集；P4 必须重新抽样并报告误收/漏收。
+
 ---
 
 ## 5 运行方式
 
 ```bash
-# 素材库 P1
+# 素材库 P1 + P2
 python -m pytest tests/test_materials_models.py tests/test_materials_sanitize.py \
   tests/test_materials_quality.py tests/test_materials_pipeline.py \
   tests/test_materials_mirror.py tests/test_materials_versioning.py \
-  tests/test_materials_extract_history.py tests/test_materials_rebuild_crash.py -q
+  tests/test_materials_extract_history.py tests/test_materials_rebuild_crash.py \
+  tests/test_materials_extract.py -q
 
 # 不变量审计（使用当前 MIO_TASKHUB_DB）
 python scripts/materials_audit.py
 ```
 
-P1 实测：`26 passed`；全量 `1636 passed / 2 skipped / 4 deselected`（2026-10-28）。
+素材库实测：`32 passed`；全量 `1642 passed / 2 skipped / 4 deselected`（2026-10-28）。
 
 ---
 
 ## 6 已知限制
 
-1. P1 只提供库与流水线，没有 HTTP 入口，不能从 UI 触发。
-2. 适配器是测试替身；真实来源接入在 P3。
+1. P1/P2 只提供库、流水线与纯提炼函数，没有 HTTP 入口，不能从 UI 触发。
+2. 真实采集与 payload 构造在 P3；P2 的输入是黄金样本。
 3. `material_source_audit` 的“只增不改不删”目前靠约定与写路径保证，未加数据库触发器。
 4. 质量阈值尚未校准，`quality_model_version=1` 只是工程初值。

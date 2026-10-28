@@ -54,6 +54,23 @@ _TASK_SCAN_FACTOR = 3
 _TASK_SCAN_CAP = 50
 
 
+# 对外公开的切句/证据判断（材料库 extract.py 复用；2026-10-28 P2）
+TEST_EVIDENCE_PATTERNS = _TEST_PATTERNS
+
+
+def split_sentences(text: Optional[str]) -> List[str]:
+    """按中英文句号、分号、换行和列表项切句；保留原文片段。"""
+    if not text:
+        return []
+    return [s.strip() for s in _SENT_SPLIT.split(str(text)) if s and s.strip()]
+
+
+def has_test_evidence(text: str) -> bool:
+    """句子是否包含测试/构建/ lint 证据关键词（大小写不敏感）。"""
+    low = (text or "").lower()
+    return any(p in low for p in TEST_EVIDENCE_PATTERNS)
+
+
 def empty_lessons() -> Dict[str, Any]:
     """空结构。字段与有数据时完全一致，避免消费方判空分支。"""
     return {

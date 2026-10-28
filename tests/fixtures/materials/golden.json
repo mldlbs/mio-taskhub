@@ -1,0 +1,230 @@
+{
+  "cases": [
+    {
+      "source": "hn",
+      "payload": {
+        "content": "OpenLDK: Bringing the Java World into Common Lisp (12 points by atgreen)",
+        "url": "https://atgreen.github.io/repl-yell/posts/openldk-java-into-common-lisp/"
+      },
+      "expected": [
+        {
+          "kind": "signal",
+          "quote": "OpenLDK: Bringing the Java World into Common Lisp"
+        }
+      ]
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "A deterministic approach to material extraction (3 points by someone)",
+        "url": "https://example.com/deterministic"
+      },
+      "expected": [
+        {
+          "kind": "signal",
+          "quote": "A deterministic approach to material extraction"
+        }
+      ]
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "SQLite in production: what we learned (48 points by dbuser)",
+        "url": "https://example.com/sqlite"
+      },
+      "expected": [
+        {
+          "kind": "signal",
+          "quote": "SQLite in production: what we learned"
+        }
+      ]
+    },
+    {
+      "source": "github-trending",
+      "payload": {
+        "content": "owner/repo — A deterministic material extraction toolkit",
+        "url": "https://github.com/owner/repo"
+      },
+      "expected": [
+        {
+          "kind": "signal",
+          "quote": "owner/repo — A deterministic material extraction toolkit"
+        }
+      ]
+    },
+    {
+      "source": "github-trending",
+      "payload": {
+        "content": "acme/queue — SQLite-backed job queue with WAL",
+        "url": "https://github.com/acme/queue"
+      },
+      "expected": [
+        {
+          "kind": "signal",
+          "quote": "acme/queue — SQLite-backed job queue with WAL"
+        }
+      ]
+    },
+    {
+      "source": "doc.requirement",
+      "payload": {
+        "text": "# 需求\n\n- FR-1 素材必须带出处，且可逐字核验。\n- FR-2 旧 witness 必须可回读旧 revision。\n",
+        "project": "mio-taskhub"
+      },
+      "expected": [
+        {
+          "kind": "decision",
+          "quote": "FR-1 素材必须带出处，且可逐字核验。"
+        },
+        {
+          "kind": "decision",
+          "quote": "FR-2 旧 witness 必须可回读旧 revision。"
+        }
+      ]
+    },
+    {
+      "source": "doc.requirement",
+      "payload": {
+        "text": "**FR-7** scope_key 必须与 kind 的全局/项目规则一致。\n",
+        "project": "mio-taskhub"
+      },
+      "expected": [
+        {
+          "kind": "decision",
+          "quote": "**FR-7** scope_key 必须与 kind 的全局/项目规则一致。"
+        }
+      ]
+    },
+    {
+      "source": "doc.review",
+      "payload": {
+        "review_result": "批准通过（Approve with follow-ups）：AC-1~AC-6 全通过。\n后续补 AC-7。",
+        "project": "mio-taskhub"
+      },
+      "expected": [
+        {
+          "kind": "decision",
+          "quote": "批准通过（Approve with follow-ups）：AC-1~AC-6 全通过。\n后续补 AC-7。"
+        }
+      ]
+    },
+    {
+      "source": "doc.review",
+      "payload": {
+        "review_result": "不通过：缺少逐字校验，旧 witness 无法回读。",
+        "project": "mio-taskhub"
+      },
+      "expected": [
+        {
+          "kind": "problem",
+          "quote": "不通过：缺少逐字校验，旧 witness 无法回读。"
+        }
+      ]
+    },
+    {
+      "source": "discussion.closed",
+      "payload": {
+        "conclusions": "1) 采用版本化 raw revision。\n2) 分组调整必须写审计。",
+        "topic": "素材库边界",
+        "project": "mio-taskhub"
+      },
+      "expected": [
+        {
+          "kind": "decision",
+          "quote": "采用版本化 raw revision。"
+        },
+        {
+          "kind": "decision",
+          "quote": "分组调整必须写审计。"
+        }
+      ]
+    },
+    {
+      "source": "discussion.closed",
+      "payload": {
+        "conclusions": "重建只保证批次原子性；已提交批次不回滚。",
+        "project": "mio-taskhub"
+      },
+      "expected": [
+        {
+          "kind": "decision",
+          "quote": "重建只保证批次原子性；已提交批次不回滚。"
+        }
+      ]
+    },
+    {
+      "source": "run.result",
+      "payload": {
+        "result": "Implemented extractors. pytest 1636 passed, 2 skipped. npm run build ok.",
+        "exit_code": 0,
+        "project": "mio-taskhub"
+      },
+      "expected": [
+        {
+          "kind": "result",
+          "quote": "pytest 1636 passed, 2 skipped."
+        },
+        {
+          "kind": "result",
+          "quote": "npm run build ok."
+        }
+      ]
+    },
+    {
+      "source": "run.result",
+      "payload": {
+        "result": "go test ./... ok.",
+        "exit_code": 0,
+        "project": "mio-taskhub"
+      },
+      "expected": [
+        {
+          "kind": "result",
+          "quote": "go test ./... ok."
+        }
+      ]
+    },
+    {
+      "source": "run.failure",
+      "payload": {
+        "result": "Traceback (most recent call last):\n  File x.py\nValueError: config_version_mismatch",
+        "exit_code": 1,
+        "project": "mio-taskhub"
+      },
+      "expected": [
+        {
+          "kind": "problem",
+          "quote": "Traceback (most recent call last):\n  File x.py\nValueError: config_version_mismatch"
+        }
+      ]
+    },
+    {
+      "source": "history.root_cause",
+      "payload": {
+        "root_cause": "archive_spinning_tasks.py 绕过 apply_transition 硬写 state，导致 4 处状态不一致。",
+        "project": "mio-taskhub"
+      },
+      "expected": [
+        {
+          "kind": "problem",
+          "quote": "archive_spinning_tasks.py 绕过 apply_transition 硬写 state，导致 4 处状态不一致。"
+        }
+      ]
+    },
+    {
+      "source": "hub.console",
+      "payload": {
+        "block": "ERROR database is locked after 5000ms\n  at pipeline.py:123",
+        "file": "console.log",
+        "line": 42,
+        "occurrence_count": 37
+      },
+      "expected": [
+        {
+          "kind": "problem",
+          "quote": "ERROR database is locked after 5000ms\n  at pipeline.py:123"
+        }
+      ]
+    }
+  ]
+}

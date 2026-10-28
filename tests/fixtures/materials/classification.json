@@ -1,0 +1,414 @@
+{
+  "cases": [
+    {
+      "source": "hn",
+      "payload": {
+        "content": "OpenLDK: Bringing the Java World into Common Lisp (1 points by user1)",
+        "url": "https://example.com/hn/1"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "A deterministic approach to material extraction (2 points by user2)",
+        "url": "https://example.com/hn/2"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "SQLite in production: what we learned (3 points by user3)",
+        "url": "https://example.com/hn/3"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "Show HN: I built a local-first task hub (4 points by user4)",
+        "url": "https://example.com/hn/4"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "Why your test suite is slower than you think (5 points by user5)",
+        "url": "https://example.com/hn/5"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "The hidden cost of semantic search (6 points by user6)",
+        "url": "https://example.com/hn/6"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "Postgres 18 adds incremental backups (7 points by user7)",
+        "url": "https://example.com/hn/7"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "Rust 1.90 release notes (8 points by user8)",
+        "url": "https://example.com/hn/8"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "A practical guide to event sourcing (9 points by user9)",
+        "url": "https://example.com/hn/9"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "We replaced our queue with SQLite (10 points by user10)",
+        "url": "https://example.com/hn/10"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "Understanding WAL mode in SQLite (11 points by user11)",
+        "url": "https://example.com/hn/11"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "TypeScript 6.0 beta announced (12 points by user12)",
+        "url": "https://example.com/hn/12"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "Building a local RAG pipeline (13 points by user13)",
+        "url": "https://example.com/hn/13"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "The case against microservices (14 points by user14)",
+        "url": "https://example.com/hn/14"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "How we cut CI time by 70% (15 points by user15)",
+        "url": "https://example.com/hn/15"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "A tiny observability stack for solo developers (16 points by user16)",
+        "url": "https://example.com/hn/16"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "Notes on writing deterministic tests (17 points by user17)",
+        "url": "https://example.com/hn/17"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "Python 3.14 free-threading update (18 points by user18)",
+        "url": "https://example.com/hn/18"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "Why local-first software matters (19 points by user19)",
+        "url": "https://example.com/hn/19"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "hn",
+      "payload": {
+        "content": "A minimal design for evidence storage (20 points by user20)",
+        "url": "https://example.com/hn/20"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "github-trending",
+      "payload": {
+        "content": "owner/repo — A deterministic material extraction toolkit",
+        "url": "https://github.com/example/1"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "github-trending",
+      "payload": {
+        "content": "acme/queue — SQLite-backed job queue with WAL",
+        "url": "https://github.com/example/2"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "github-trending",
+      "payload": {
+        "content": "dev/tools — Local-first task hub for multi-agent workflows",
+        "url": "https://github.com/example/3"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "github-trending",
+      "payload": {
+        "content": "lab/obs — Tiny observability stack for solo developers",
+        "url": "https://github.com/example/4"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "github-trending",
+      "payload": {
+        "content": "org/notes — Evidence-first note taking",
+        "url": "https://github.com/example/5"
+      },
+      "expected_kind": "signal"
+    },
+    {
+      "source": "doc.requirement",
+      "payload": {
+        "text": "# 需求\n\n- FR-1 这是第 1 条可核验的功能需求。\n",
+        "project": "mio-taskhub"
+      },
+      "expected_kind": "decision"
+    },
+    {
+      "source": "doc.requirement",
+      "payload": {
+        "text": "# 需求\n\n- FR-2 这是第 2 条可核验的功能需求。\n",
+        "project": "mio-taskhub"
+      },
+      "expected_kind": "decision"
+    },
+    {
+      "source": "doc.requirement",
+      "payload": {
+        "text": "# 需求\n\n- FR-3 这是第 3 条可核验的功能需求。\n",
+        "project": "mio-taskhub"
+      },
+      "expected_kind": "decision"
+    },
+    {
+      "source": "doc.review",
+      "payload": {
+        "review_result": "批准通过：证据链完整，可以进入实现。",
+        "project": "mio-taskhub"
+      },
+      "expected_kind": "decision"
+    },
+    {
+      "source": "doc.review",
+      "payload": {
+        "review_result": "不通过：缺少逐字校验与回滚用例。",
+        "project": "mio-taskhub"
+      },
+      "expected_kind": "problem"
+    },
+    {
+      "source": "discussion.closed",
+      "payload": {
+        "conclusions": "1) 讨论结论第 1 条：采用确定性提炼。",
+        "project": "mio-taskhub"
+      },
+      "expected_kind": "decision"
+    },
+    {
+      "source": "discussion.closed",
+      "payload": {
+        "conclusions": "2) 讨论结论第 2 条：采用确定性提炼。",
+        "project": "mio-taskhub"
+      },
+      "expected_kind": "decision"
+    },
+    {
+      "source": "discussion.closed",
+      "payload": {
+        "conclusions": "3) 讨论结论第 3 条：采用确定性提炼。",
+        "project": "mio-taskhub"
+      },
+      "expected_kind": "decision"
+    },
+    {
+      "source": "discussion.closed",
+      "payload": {
+        "conclusions": "4) 讨论结论第 4 条：采用确定性提炼。",
+        "project": "mio-taskhub"
+      },
+      "expected_kind": "decision"
+    },
+    {
+      "source": "discussion.closed",
+      "payload": {
+        "conclusions": "5) 讨论结论第 5 条：采用确定性提炼。",
+        "project": "mio-taskhub"
+      },
+      "expected_kind": "decision"
+    },
+    {
+      "source": "run.result",
+      "payload": {
+        "result": "pytest 1636 passed, 2 skipped.",
+        "exit_code": 0,
+        "project": "proj1"
+      },
+      "expected_kind": "result"
+    },
+    {
+      "source": "run.result",
+      "payload": {
+        "result": "npm run build ok. lint 0 errors.",
+        "exit_code": 0,
+        "project": "proj2"
+      },
+      "expected_kind": "result"
+    },
+    {
+      "source": "run.result",
+      "payload": {
+        "result": "go test ./... ok.",
+        "exit_code": 0,
+        "project": "proj3"
+      },
+      "expected_kind": "result"
+    },
+    {
+      "source": "run.result",
+      "payload": {
+        "result": "mvn test passed.",
+        "exit_code": 0,
+        "project": "proj4"
+      },
+      "expected_kind": "result"
+    },
+    {
+      "source": "run.result",
+      "payload": {
+        "result": "ruff check passed; tsc --noEmit ok.",
+        "exit_code": 0,
+        "project": "proj5"
+      },
+      "expected_kind": "result"
+    },
+    {
+      "source": "run.failure",
+      "payload": {
+        "result": "ValueError: config_version_mismatch: rebuild requires version bump",
+        "exit_code": 1,
+        "project": "proj1"
+      },
+      "expected_kind": "problem"
+    },
+    {
+      "source": "run.failure",
+      "payload": {
+        "result": "Traceback (most recent call last):\nTimeoutError: heartbeat timeout",
+        "exit_code": 1,
+        "project": "proj2"
+      },
+      "expected_kind": "problem"
+    },
+    {
+      "source": "run.failure",
+      "payload": {
+        "result": "pytest failed: 2 failed, 10 passed",
+        "exit_code": 1,
+        "project": "proj3"
+      },
+      "expected_kind": "problem"
+    },
+    {
+      "source": "run.failure",
+      "payload": {
+        "result": "npm ERR! build failed with exit code 1",
+        "exit_code": 1,
+        "project": "proj4"
+      },
+      "expected_kind": "problem"
+    },
+    {
+      "source": "run.failure",
+      "payload": {
+        "result": "ERROR database is locked after 5000ms",
+        "exit_code": 1,
+        "project": "proj5"
+      },
+      "expected_kind": "problem"
+    },
+    {
+      "source": "history.root_cause",
+      "payload": {
+        "root_cause": "archive_spinning_tasks.py 绕过 apply_transition 硬写 state。",
+        "project": "proj1"
+      },
+      "expected_kind": "problem"
+    },
+    {
+      "source": "history.root_cause",
+      "payload": {
+        "root_cause": "同一 raw 在重试时重复计数，因为唯一键缺失。",
+        "project": "proj2"
+      },
+      "expected_kind": "problem"
+    },
+    {
+      "source": "history.root_cause",
+      "payload": {
+        "root_cause": "脱敏规则升级后旧 witness 无法回读。",
+        "project": "proj3"
+      },
+      "expected_kind": "problem"
+    },
+    {
+      "source": "history.root_cause",
+      "payload": {
+        "root_cause": "重建游标在事务提交前推进，导致批次丢失。",
+        "project": "proj4"
+      },
+      "expected_kind": "problem"
+    },
+    {
+      "source": "history.root_cause",
+      "payload": {
+        "root_cause": "镜像源被当成独立来源，佐证数虚增。",
+        "project": "proj5"
+      },
+      "expected_kind": "problem"
+    }
+  ]
+}
