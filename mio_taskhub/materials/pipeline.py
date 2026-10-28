@@ -23,6 +23,9 @@ from mio_taskhub.materials.common import (
     canonical_json, content_fingerprint, draft_fingerprint,
 )
 from mio_taskhub.materials.constants import BATCH_MAX_ROWS, REBUILD_LOCK_SECONDS
+from mio_taskhub.materials.extract import (
+    has_citable_signal, is_generic_failure,
+)
 from mio_taskhub.materials.models import (
     Material, MaterialExtract, MaterialLink, MaterialRaw, MaterialSource,
     MaterialWitness,
@@ -324,6 +327,18 @@ def _extract_raw(session: Session, source: MaterialSource, raw: MaterialRaw,
             _write_quarantine(source.key, gate.reason, draft)
             rejected += 1
             first_reason = first_reason or gate.reason
+            continue
+        if source.key in ("hn", "github-trending") \
+                and not has_citable_signal(draft.quote, source.key):
+            _write_quarantine(source.key, "HG-10:no_citable_signal", draft)
+            rejected += 1
+            first_reason = first_reason or "HG-10:no_citable_signal"
+            continue
+        if source.key in ("run.failure", "history.root_cause") \
+                and is_generic_failure(draft.quote):
+            _write_quarantine(source.key, "HG-11:generic_failure", draft)
+            rejected += 1
+            first_reason = first_reason or "HG-11:generic_failure"
             continue
         try:
             _accept_draft(session, source, raw, draft, gate, scope, stats, now)

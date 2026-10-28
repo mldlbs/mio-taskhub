@@ -59,6 +59,64 @@ def clean_ansi(q: str) -> str:
     return re.sub(r"\x1b\[[0-9;]*m", "", q).strip()
 
 
+_LABEL_APPROVE = re.compile(
+    r"验收通过|审查通过|批准通过|通过验收|Approve|Approved|LGTM|\bPASS\b", re.I)
+_LABEL_REJECT = re.compile(r"不通过|未通过|驳回|拒绝|Reject|Rejected|\bFAIL\b", re.I)
+_LABEL_EVENT = re.compile(
+    r"arrest|halt|sabotage|cyberattack|merger|complet|introduc|curb|bluff|cut|"
+    r"restor|solar|quantum|protein|binder|traffic|bot|draw|ping|font|furigana|"
+    r"education|icon|cit|fire|earthquake|leak|hack|ban|releas|launch|announc|"
+    r"join|break|add|fix|remov|acquir|su(?:e|es|ed|ing)|resign|pass|block|"
+    r"outage|breach|RCE|CVE|bankrupt|purge|escape|keep|found|lost|hit|debut|"
+    r"new|update|record|price|job|market|compan|startup|model|chip|GPU|software|"
+    r"tool|library|framework|medical|health|climate|energy|robot|drone|satellite|"
+    r"space|law|bill|court|judge|police|government|war|attack|crime|study|research|"
+    r"report|survey|data|API|protocol|browser|security|vulnerab", re.I)
+_LABEL_OPINION = re.compile(
+    r"^(Ask HN|What|Why|How|Is|Are|Can|Do|Does|Should|Tell HN|Here Be Monsters|"
+    r"The case|Maybe|Opinion|Rethinking|Thoughts on|Redesigning|Notes on|"
+    r"A practical guide|A tiny|A minimal|The hidden|Understanding)\b", re.I)
+
+
+def _review_verdict_label(q: str) -> str:
+    head = clean_ansi(q)[:160]
+    a, r = _LABEL_APPROVE.search(head), _LABEL_REJECT.search(head)
+    if a and (not r or a.start() < r.start()):
+        return "approved"
+    if r:
+        return "rejected"
+    return "unknown"
+
+
+def _result_kind_label(q: str) -> str:
+    q = clean_ansi(q)
+    if q.startswith("注：") or "易踩坑" in q:
+        return "lesson"
+    if q.startswith(("git_sync.py 是", "现行", "task 表", "运行进程 PID", "测试跑在")):
+        return "fact"
+    if q.startswith("【历史") and "建议" in q:
+        return "decision"
+    if re.match(r"^(✗|Read .* failed|Grep .* failed|ERROR|Traceback|npm ERR)", q, re.I):
+        return "problem"
+    return "result"
+
+
+def _signal_ok_label(q: str, src: str) -> bool:
+    q = clean_ansi(q)
+    if q.startswith("Ask HN:") or q.strip().endswith("?"):
+        return False
+    if src == "github-trending":
+        return " — " in q and len(q) >= 20
+    if q.startswith("Show HN:") and len(q) >= 20:
+        return True
+    if len(q) < 30 and not _LABEL_EVENT.search(q):
+        return False
+    if _LABEL_OPINION.search(q) and not _LABEL_EVENT.search(q):
+        return False
+    return bool(_LABEL_EVENT.search(q) or re.search(
+        r"\b(is|are|was|were|has|have|can|will)\b", q, re.I))
+
+
 def classify_kind(row: dict) -> str:
     src = row["source_key"]
     q = clean_ansi(row["quote"])
@@ -67,17 +125,11 @@ def classify_kind(row: dict) -> str:
     if src in ("run.failure", "history.root_cause"):
         return "problem"
     if src == "doc.review":
-        if FAIL.search(q) and not SUCCESS.search(q):
-            return "problem"
+        return "problem" if _review_verdict_label(q) == "rejected" else "decision"
+    if src in ("doc.requirement", "discussion.closed"):
         return "decision"
     if src == "run.result":
-        if FAIL.search(q) and not SUCCESS.search(q):
-            return "problem"
-        if "易踩坑" in q or q.startswith("注："):
-            return "lesson"
-        if q.startswith(("git_sync.py 是", "现行", "task 表", "运行进程 PID", "测试跑在")):
-            return "fact"
-        return "result"
+        return _result_kind_label(q)
     return "decision"
 
 
@@ -116,11 +168,7 @@ def usable(row: dict, version: int) -> Tuple[bool, str]:
         if kind == "problem" and not has_verb(q):
             return False, "fragment_no_claim"
     if src in ("hn", "github-trending"):
-        if q.startswith("Ask HN:"):
-            return False, "question"
-        if QUESTION.match(q) and not has_verb(q, SIGNAL_VERBS):
-            return False, "question"
-        if not has_verb(q, SIGNAL_VERBS):
+        if not _signal_ok_label(q, src):
             return False, "no_claim"
     return True, ""
 

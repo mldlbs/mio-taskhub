@@ -32,6 +32,103 @@ _FR_ID = re.compile(r"(FR-\d+)")
 _REVIEW_FAIL = re.compile(r"不通过|拒绝|驳回|reject|failed|失败|blocked", re.I)
 _ITEM_PREFIX = re.compile(r"(?m)^\s*(?:\d+[.)、]|[-*])\s+")
 _BULLET_PREFIX = re.compile(r"^[-*]\s+")
+_TERM = re.compile(r"[。！？]|[.!?](?=\s|$)")
+_ITEM = re.compile(r"[①-⑩]|(?<!\d)\d+[)）、]")
+_APPROVE = re.compile(
+    r"验收通过|审查通过|批准通过|通过验收|Approve|Approved|LGTM|\bPASS\b", re.I)
+_REJECT = re.compile(r"不通过|未通过|驳回|拒绝|Reject|Rejected|\bFAIL\b", re.I)
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+_OPINION_PREFIX = re.compile(
+    r"^(Ask HN|What|Why|How|Is|Are|Can|Do|Does|Should|Tell HN|"
+    r"Here Be Monsters|The case|Maybe|Opinion|Rethinking|Thoughts on|Redesigning|"
+    r"Notes on|A practical guide|A tiny|A minimal|The hidden|Understanding)\b", re.I)
+_STRONG_EVENT = re.compile(
+    r"released|launch|announc|join|ban|leak|hack|breach|breaks|adds|fixes|"
+    r"removes|remove|acquires|sues|resigns|passes|blocks|outage|vulnerab|"
+    r"\bRCE\b|\bCVE\b|bankrupt|purges|escapes|keeps|found|lost|hitting|"
+    r"debut|\bnew\b|earthquake|wildfire|storm|election|attack|crash|extort|"
+    r"404|not found", re.I)
+_VERB = re.compile(
+    r"\b(is|are|was|were|has|have|can|cannot|does|doesn't|did|didn't|will|"
+    r"just|keeps|escapes|purges|bankrupted|ported|makes|hitting|found|lost|"
+    r"watching|bring|brings|bringing|introduc\w*|show\w*|build\w*|implement\w*|"
+    r"support\w*|use\w*|mak\w*|giv\w*|get\w*|learn\w*|teach\w*|find\w*|"
+    r"writ\w*|read\w*|play\w*|creat\w*|design\w*|test\w*|deploy\w*|"
+    r"replac\w*|cut|cuts|add\w*|announc\w*|releas\w*|launch\w*|join\w*|"
+    r"ban\w*|leak\w*|hack\w*|break\w*|fix\w*|remov\w*|acquir\w*|su\w*|"
+    r"resign\w*|pass\w*|block\w*|limit\w*|rais\w*|reduc\w*|improv\w*)\b|"
+    r"发布|推出|宣布|加入|禁止|泄露|起诉|裁员|收购|上线|修复|"
+    r"移除|打破|证实|发现|建议", re.I)
+_GENERIC_FAILURE = {
+    "agent offline", "heartbeat timeout", "never started (no heartbeat)",
+    "never started", "legacy 失败提交", "hermes failed/timed out",
+    "build · big-pickle", "exit 3221226505",
+}
+
+
+def _clean(q: str) -> str:
+    return _ANSI.sub("", q or "").strip()
+
+
+def review_verdict(text: str) -> str:
+    head = _clean(text)[:160]
+    a, r = _APPROVE.search(head), _REJECT.search(head)
+    if a and (not r or a.start() < r.start()):
+        return "approved"
+    if r:
+        return "rejected"
+    return "unknown"
+
+
+def is_generic_failure(q: str) -> bool:
+    norm = " ".join(_clean(q).split()).lower()
+    if norm in _GENERIC_FAILURE:
+        return True
+    if re.fullmatch(r"exit \d+", norm):
+        return True
+    if re.match(r"^(node:internal|e:internal)\b", norm):
+        return True
+    return False
+
+
+def has_citable_signal(q: str, source: str = "hn") -> bool:
+    q = _clean(q)
+    if not q:
+        return False
+    if q.startswith("Ask HN:"):
+        return False
+    if q.strip().endswith("?"):
+        return False
+    if source == "github-trending":
+        # repo — description：描述本身是能力主张；长度由原子闸控制
+        return " — " in q and len(q) >= 20
+    if q.startswith("Show HN:") and len(q) >= 20:
+        return True
+    if len(q) < 30 and not _STRONG_EVENT.search(q):
+        return False
+    if _OPINION_PREFIX.search(q) and not _STRONG_EVENT.search(q):
+        return False
+    return bool(_STRONG_EVENT.search(q) or _VERB.search(q))
+
+
+def _atomic_units(text: str, max_chars: int = 240) -> List[str]:
+    """把长段切成可逐字命中的原子单元；单句仍超限则丢弃该句。"""
+    text = text or ""
+    units: List[str] = []
+    for sent in split_sentences(text):
+        sent = sent.strip()
+        if not sent:
+            continue
+        if len(sent) <= max_chars and len(_TERM.findall(sent)) <= 2 \
+                and len(_ITEM.findall(sent)) <= 2:
+            units.append(sent)
+            continue
+        if len(sent) > max_chars:
+            for part in re.split(r"[，,；;]", sent):
+                part = part.strip()
+                if 8 <= len(part) <= max_chars:
+                    units.append(part)
+    return units
 
 
 def _project(payload: Dict[str, Any]) -> str:
@@ -122,14 +219,16 @@ def extract_github_trending(payload: Dict[str, Any], source: Any = None) -> List
     content = str(payload.get("content") or "")
     if content.strip():
         start, end = _trimmed_span(content, 0, len(content))
-        d = _draft("signal", content[start:end], "content", content, start, end,
+        quote = content[start:end]
+        d = _draft("signal", quote, "content", content, start, end,
                    title=None, url=payload.get("url"),
                    evidence_tier="A" if payload.get("url") else "C",
                    scope_key="")
         return [d] if d else []
     desc = str(payload.get("description") or "")
     start, end = _trimmed_span(desc, 0, len(desc))
-    d = _draft("signal", desc[start:end], "description", desc, start, end,
+    quote = desc[start:end]
+    d = _draft("signal", quote, "description", desc, start, end,
                title=str(payload.get("repo") or None),
                url=payload.get("url"),
                evidence_tier="A" if payload.get("url") else "C",
@@ -172,15 +271,34 @@ def extract_doc_requirement(payload: Dict[str, Any], source: Any = None) -> List
 
 def extract_doc_review(payload: Dict[str, Any], source: Any = None) -> List[Draft]:
     text = str(payload.get("review_result") or "")
-    start, end = _first_lines_span(text, max_lines=2, max_chars=300)
-    quote = text[start:end]
-    if len(quote) < 8:
+    if not text.strip():
         return []
-    kind = "problem" if _REVIEW_FAIL.search(quote) else "decision"
-    d = _draft(kind, quote, "review_result", text, start, end,
-               title="评审结论", scope_key=_project(payload),
-               evidence_tier="C")
-    return [d] if d else []
+    verdict = review_verdict(text)
+    kind = "problem" if verdict == "rejected" else "decision"
+    parts = re.split(r"(?=[①-⑩])", text)
+    if len(parts) <= 1:
+        parts = _split_items(text)
+    project = _project(payload)
+    out: List[Draft] = []
+    cursor = 0
+    for part in parts:
+        for unit in _atomic_units(part):
+            unit = unit.strip()
+            if len(unit) < 8:
+                continue
+            idx = text.find(unit, cursor)
+            if idx < 0:
+                idx = text.find(unit)
+            if idx < 0:
+                continue
+            cursor = idx + len(unit)
+            d = _draft(kind, unit, "review_result", text, idx, idx + len(unit),
+                       title="评审结论", scope_key=project, evidence_tier="C")
+            if d:
+                out.append(d)
+            if len(out) >= 20:
+                return out
+    return out
 
 
 def _split_items(text: str) -> List[str]:
@@ -197,22 +315,23 @@ def extract_discussion_closed(payload: Dict[str, Any], source: Any = None) -> Li
     out: List[Draft] = []
     cursor = 0
     for item in _split_items(text):
-        quote = item.strip()
-        if len(quote) < 8:
-            continue
-        idx = text.find(quote, cursor)
-        if idx < 0:
-            idx = text.find(quote)
-        if idx < 0:
-            continue
-        cursor = idx + len(quote)
-        d = _draft("decision", quote, "conclusions", text,
-                   idx, idx + len(quote), title=topic,
-                   scope_key=project, evidence_tier="C")
-        if d:
-            out.append(d)
-        if len(out) >= 20:
-            break
+        for unit in _atomic_units(item):
+            quote = unit.strip()
+            if len(quote) < 8:
+                continue
+            idx = text.find(quote, cursor)
+            if idx < 0:
+                idx = text.find(quote)
+            if idx < 0:
+                continue
+            cursor = idx + len(quote)
+            d = _draft("decision", quote, "conclusions", text,
+                       idx, idx + len(quote), title=topic,
+                       scope_key=project, evidence_tier="C")
+            if d:
+                out.append(d)
+            if len(out) >= 20:
+                return out
     return out
 
 
@@ -229,6 +348,19 @@ def _split_run_sentences(text: str) -> List[str]:
     return out
 
 
+def _run_result_kind(q: str) -> str:
+    q = _clean(q)
+    if q.startswith("注：") or "易踩坑" in q:
+        return "lesson"
+    if q.startswith(("git_sync.py 是", "现行", "task 表", "运行进程 PID", "测试跑在")):
+        return "fact"
+    if q.startswith("【历史") and "建议" in q:
+        return "decision"
+    if re.match(r"^(✗|Read .* failed|Grep .* failed|ERROR|Traceback|npm ERR)", q, re.I):
+        return "problem"
+    return "result"
+
+
 def extract_run_result(payload: Dict[str, Any], source: Any = None) -> List[Draft]:
     exit_code = payload.get("exit_code")
     if exit_code is not None and int(exit_code) != 0:
@@ -238,24 +370,25 @@ def extract_run_result(payload: Dict[str, Any], source: Any = None) -> List[Draf
     out: List[Draft] = []
     cursor = 0
     for sent in _split_run_sentences(text):
-        if not has_test_evidence(sent):
-            continue
-        quote = _truncate(sent, 240)
-        if len(quote) < 8:
-            continue
-        idx = text.find(quote, cursor)
-        if idx < 0:
-            idx = text.find(quote)
-        if idx < 0:
-            continue
-        cursor = idx + len(quote)
-        d = _draft("result", quote, "result", text,
-                   idx, idx + len(quote), title=None,
-                   scope_key=project, evidence_tier="C")
-        if d:
-            out.append(d)
-        if len(out) >= 5:
-            break
+        for unit in _atomic_units(sent, 240):
+            if not has_test_evidence(unit):
+                continue
+            quote = unit.strip()
+            if len(quote) < 8:
+                continue
+            idx = text.find(quote, cursor)
+            if idx < 0:
+                idx = text.find(quote)
+            if idx < 0:
+                continue
+            cursor = idx + len(quote)
+            d = _draft(_run_result_kind(quote), quote, "result", text,
+                       idx, idx + len(quote), title=None,
+                       scope_key=project, evidence_tier="C")
+            if d:
+                out.append(d)
+            if len(out) >= 5:
+                return out
     return out
 
 
@@ -264,9 +397,11 @@ def extract_run_failure(payload: Dict[str, Any], source: Any = None) -> List[Dra
     if exit_code is not None and int(exit_code) == 0:
         return []
     text = str(payload.get("result") or "")
-    start, end = _first_lines_span(text, max_lines=3, max_chars=400)
+    start, end = _first_lines_span(text, max_lines=3, max_chars=100000)
     quote = text[start:end]
-    if len(quote) < 8:
+    if len(quote) < 8 or len(quote) > 400:
+        return []
+    if is_generic_failure(quote):
         return []
     run_id = str(payload.get("run_id") or "").strip()
     title = f"run {run_id}" if run_id else "失败原因"

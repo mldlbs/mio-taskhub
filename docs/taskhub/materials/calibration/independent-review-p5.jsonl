@@ -1,0 +1,17 @@
+{"sample_id": 174, "label_kind": "signal", "label_usable": "yes", "label_notes": "标题含发布动词 Launched，按 §3 发布短标题例外记为 signal；主体 Example.com 偏泛但事件成立。"}
+{"sample_id": 198, "label_kind": "signal", "label_usable": "yes", "label_notes": "§3 明确的发布短标题例外，Released 动词说明发生了什么。"}
+{"sample_id": 199, "label_kind": "signal", "label_usable": "yes", "label_notes": "具体监管/法律事件，主体、动作与结果齐全，可核验。"}
+{"sample_id": 148, "label_kind": "signal", "label_usable": "no", "label_notes": "仅为主题式短标题，无事件、无结论，U3 不满足。"}
+{"sample_id": 154, "label_kind": "signal", "label_usable": "yes", "label_notes": "政策授权类具体事件，主体+动作+对象完整。"}
+{"sample_id": 156, "label_kind": "signal", "label_usable": "yes", "label_notes": "科学结论型标题，含可核验主张，属外部技术主张而非内部状态描述。"}
+{"sample_id": 173, "label_kind": "signal", "label_usable": "yes", "label_notes": "无发布动词，但有具体价格规格（$0.75/1000 次），超出裸产品名，可核验故记可用。"}
+{"sample_id": 180, "label_kind": "signal", "label_usable": "yes", "label_notes": "科学发现型标题，含具体可核验主张（地轴倾斜事件）。"}
+{"sample_id": 1, "label_kind": "decision", "label_usable": "no", "label_notes": "编号项残片，缺组件主语（“整链”指代不明），U1 不满足。"}
+{"sample_id": 2, "label_kind": "decision", "label_usable": "yes", "label_notes": "评审对指标口径的结论（冻结快照 vs 实时已达标），自包含且带具体数值。"}
+{"sample_id": 3, "label_kind": "decision", "label_usable": "yes", "label_notes": "讨论关闭后的阶段性结论，谓词完整；项目指代缺失但语义可懂。"}
+{"sample_id": 4, "label_kind": "decision", "label_usable": "no", "label_notes": "冒号后无内容，属截断残片，U5/U1 不满足。"}
+{"sample_id": 6, "label_kind": "decision", "label_usable": "yes", "label_notes": "用户裁决类决策，对象与结论明确，可直接引用。"}
+{"sample_id": 84, "label_kind": "result", "label_usable": "yes", "label_notes": "回归测试结果（67 passed），带范围；项目符号前缀不影响原子性。"}
+{"sample_id": 86, "label_kind": "problem", "label_usable": "yes", "label_notes": "缺陷+根因+修复，主体清晰；兼有 result 成分，按主导语义记 problem。"}
+{"sample_id": 87, "label_kind": "lesson", "label_usable": "no", "label_notes": "内部状态机术语堆叠且为待确认选项，脱离上下文难懂，U1 不满足。"}
+{"sample_id": 96, "label_kind": "result", "label_usable": "yes", "label_notes": "单测结果，极简但结论明确（26 passed）。"}

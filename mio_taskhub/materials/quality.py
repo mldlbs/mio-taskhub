@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field as dc_field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple
@@ -19,6 +20,12 @@ _BOILERPLATE = (
     "登录后", "注册", "subscribe", "share this", "comments",
 )
 _TERMINATORS = "。！？.!?"
+_ATOMIC_SOURCES = {
+    "doc.review", "discussion.closed", "run.result",
+    "hn", "github-trending",
+}
+_TERM_RE = re.compile(r"[。！？]|[.!?](?=\s|$)")
+_ITEM_RE = re.compile(r"[①-⑩]|(?<!\d)\d+[)）、]")
 
 
 @dataclass
@@ -78,6 +85,10 @@ def evaluate_draft(draft: Draft, payload: Dict[str, Any], source_key: str,
     n = len(draft.quote or "")
     if n < MIN_QUOTE_CHARS or n > MAX_QUOTE_CHARS:
         return GateResult(False, "HG-5:length")
+    if source_key in _ATOMIC_SOURCES:
+        if n > 240 or len(_TERM_RE.findall(draft.quote)) > 2 \
+                or len(_ITEM_RE.findall(draft.quote)) >= 3:
+            return GateResult(False, "HG-9:not_atomic")
 
     low_source = (source_key or "").lower()
     if any(marker in low_source for marker in LLM_SOURCE_MARKERS):

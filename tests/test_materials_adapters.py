@@ -51,7 +51,7 @@ def _write_observations(tmp_path, monkeypatch):
         "observations": [
             {"id": "hn-2", "timestamp": "2026-10-28T10:00:00Z",
              "source": "hackernews",
-             "content": "A second signal about SQLite WAL (3 points by user2)",
+             "content": "SQLite WAL mode cuts write latency by 40% (3 points by user2)",
              "url": "https://example.com/2"},
             {"id": "gh-2", "timestamp": "2026-10-28T11:00:00Z",
              "source": "github-trending",

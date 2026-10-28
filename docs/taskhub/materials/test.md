@@ -119,6 +119,15 @@
 | T57 | `test_materials_label.py::test_short_release_title_is_usable` | 短发布标题 |
 | T58 | `test_materials_label.py::test_three_numbered_items_is_not_atomic` | 多编号项非原子 |
 | T59 | `test_materials_label.py::test_boilerplate_word_boundary` | 样板词边界 |
+| T60 | `test_materials_extract_p5.py::test_review_acceptance_splits_and_stays_decision` | 评审通过 + 原子切分 |
+| T61 | `test_materials_extract_p5.py::test_review_rejection_is_problem` | 评审拒绝 |
+| T62 | `test_materials_extract_p5.py::test_long_single_sentence_review_is_rejected` | 超长单句拒绝 |
+| T63 | `test_materials_extract_p5.py::test_discussion_long_items_split` | 讨论结论切分 |
+| T64 | `test_materials_extract_p5.py::test_run_failure_generic_is_rejected_by_pipeline` | 泛化失败排除 |
+| T65 | `test_materials_extract_p5.py::test_signal_question_is_rejected_by_pipeline` | 问句 signal 排除 |
+| T66 | `test_materials_extract_p5.py::test_signal_short_release_is_accepted` | 短发布标题保留 |
+| T67 | `test_materials_extract_p5.py::test_run_result_does_not_silently_truncate` | 不静默截断 |
+| T68 | `test_materials_extract_p5.py::test_run_result_kind_mixing_is_classified` | result/fact/lesson/problem 分类 |
 
 ---
 
@@ -185,6 +194,19 @@
 
 报告：`docs/taskhub/materials/calibration/calibration-20261028.md`。
 
+### 4.5 P5 提取器修复与重验证（未写生产）
+
+| 指标 | 结果 |
+|---|---|
+| 旧样本回归 | 评审误分类 19→0；泛化失败 20→0；非原子 28→0；分类错误 28→1 |
+| 新样本 | 197 active + 3 quarantine；active 可用率 76.3%（加权）；误收 23.7%；漏收 100%（3/3） |
+| 独立复核 | 17 条盲标：类型一致 88.2%，可用性一致仅 41.2% |
+| 副本审计 | 业务表哈希一致；audit ok；第二次回填零新增 |
+| 生产 | **未变更**；新提取器尚未写入生产 |
+| 阈值 | **未冻结、未调整** |
+
+报告：`docs/taskhub/materials/calibration/calibration-p5-20261028.md`。
+
 ---
 
 ## 5 运行方式
@@ -198,7 +220,8 @@ python -m pytest tests/test_materials_models.py tests/test_materials_sanitize.py
   tests/test_materials_extract.py tests/test_materials_adapters.py \
   tests/test_materials_jobs.py tests/test_materials_api.py \
   tests/test_materials_bootstrap.py tests/test_materials_preflight.py \
-  tests/test_materials_sample.py tests/test_materials_label.py -q
+  tests/test_materials_sample.py tests/test_materials_label.py \
+  tests/test_materials_extract_p5.py -q
 
 # 不变量审计（使用当前 MIO_TASKHUB_DB）
 python scripts/materials_audit.py
@@ -207,7 +230,7 @@ python scripts/materials_audit.py
 python scripts/materials_backfill.py --days 30
 ```
 
-素材库实测：`59 passed`；全量 `1669 passed / 2 skipped / 4 deselected`（2026-10-28）。
+素材库实测：`67 passed`；全量 `1678 passed / 2 skipped / 4 deselected`（2026-10-28）。
 
 ---
 
@@ -216,6 +239,7 @@ python scripts/materials_backfill.py --days 30
 1. P1~P4 只提供库、流水线、适配器、来源健康端点与校准报告；完整素材 API/面板在 P5。
 2. 30 天回填已执行生产库；新 exe 部署仍被 `task.updated_at` 缺列阻塞。
 3. P4 标签是规则辅助 + 单 agent 裁决，不是人工金标准；19 个层证据不足，阈值未冻结。
-4. `material_source_audit` 的“只增不改不删”目前靠约定与写路径保证，未加数据库触发器。
-5. 质量阈值尚未校准，`quality_model_version=1` 只是工程初值。
-6. `MIO_MATERIALS_AUTOSTART=0` 可关闭采集后台线程（测试默认关闭）。
+4. P5 修复只在副本验证，生产未写入；17 条独立复核的可用性一致率仅 41.2%，标签仍需人工复核。
+5. `material_source_audit` 的“只增不改不删”目前靠约定与写路径保证，未加数据库触发器。
+6. 质量阈值尚未校准，`quality_model_version=1` 只是工程初值。
+7. `MIO_MATERIALS_AUTOSTART=0` 可关闭采集后台线程（测试默认关闭）。

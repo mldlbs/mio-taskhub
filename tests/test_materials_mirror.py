@@ -44,7 +44,7 @@ def _set_group(session, key, group, reason):
 
 
 def test_mirror_counts_one_and_group_change_does_not_rewrite_history():
-    quote = "OpenLDK brings the Java world into Common Lisp."
+    quote = "OpenLDK — brings the Java world into Common Lisp."
     with Session(engine) as s:
         _set_group(s, "hn", "mirror", "mirror pair")
         _set_group(s, "github-trending", "mirror", "mirror pair")

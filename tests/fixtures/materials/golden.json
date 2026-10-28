@@ -104,7 +104,11 @@
       "expected": [
         {
           "kind": "decision",
-          "quote": "批准通过（Approve with follow-ups）：AC-1~AC-6 全通过。\n后续补 AC-7。"
+          "quote": "批准通过（Approve with follow-ups）：AC-1~AC-6 全通过"
+        },
+        {
+          "kind": "decision",
+          "quote": "后续补 AC-7"
         }
       ]
     },
@@ -117,7 +121,7 @@
       "expected": [
         {
           "kind": "problem",
-          "quote": "不通过：缺少逐字校验，旧 witness 无法回读。"
+          "quote": "不通过：缺少逐字校验，旧 witness 无法回读"
         }
       ]
     },
@@ -131,11 +135,11 @@
       "expected": [
         {
           "kind": "decision",
-          "quote": "采用版本化 raw revision。"
+          "quote": "采用版本化 raw revision"
         },
         {
           "kind": "decision",
-          "quote": "分组调整必须写审计。"
+          "quote": "分组调整必须写审计"
         }
       ]
     },
@@ -148,7 +152,11 @@
       "expected": [
         {
           "kind": "decision",
-          "quote": "重建只保证批次原子性；已提交批次不回滚。"
+          "quote": "重建只保证批次原子性"
+        },
+        {
+          "kind": "decision",
+          "quote": "已提交批次不回滚"
         }
       ]
     },

@@ -1,0 +1,17 @@
+{"sample_id": 174, "source_key": "hn", "quote": "Example.com Just Launched the Biggest Redesign in Decades"}
+{"sample_id": 198, "source_key": "hn", "quote": "Picard 3.0 Released"}
+{"sample_id": 199, "source_key": "hn", "quote": "Cloudflare Keeps 1.1.1.1 Out of Piracy Blocking, Escapes Penalties in France"}
+{"sample_id": 148, "source_key": "hn", "quote": "Reducing undefined behavior in the C language"}
+{"sample_id": 154, "source_key": "hn", "quote": "Pentagon grants DHS permission to test heat ray weapon for use at border"}
+{"sample_id": 156, "source_key": "hn", "quote": "The ovary doesn't retire after menopause"}
+{"sample_id": 173, "source_key": "hn", "quote": "DeepSeek search and fetch – $0.75 per 1000 successful requests"}
+{"sample_id": 180, "source_key": "hn", "quote": "Earth Tipped on Its Side During the Age of Dinosaurs–and Not Just Once"}
+{"sample_id": 1, "source_key": "doc.review", "quote": "② 单击聚焦整链 + 双击打开，交互提示入图例"}
+{"sample_id": 2, "source_key": "doc.review", "quote": "告警值 0.3720 系 insight #106 冻结快照，实时 success_rate=0.8182 已达标"}
+{"sample_id": 3, "source_key": "discussion.closed", "quote": "后端接口已就绪，本阶段零后端改动"}
+{"sample_id": 4, "source_key": "doc.review", "quote": "验收通过（0fe91462）："}
+{"sample_id": 6, "source_key": "doc.requirement", "quote": "用户裁决「mneme 保持不动」"}
+{"sample_id": 84, "source_key": "run.result", "quote": "- 评审/阶段回归：67 passed"}
+{"sample_id": 86, "source_key": "run.result", "quote": "③force_generate 端点 WebhookFailed 未捕获致 500——已改为 success=false 友好 JSON"}
+{"sample_id": 87, "source_key": "run.result", "quote": "②可选即时恢复：1470 条 FAILED+archived:spinning+repaired 回滚 CANCELLED（批量写库，需确认）"}
+{"sample_id": 96, "source_key": "run.result", "quote": "单测 26 passed"}
