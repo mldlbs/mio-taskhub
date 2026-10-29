@@ -95,6 +95,8 @@ python scripts/migrate_task_updated_at.py --db <db> --rollback <backup.db> --yes
 
 ## 6 副本演练结果（2026-10-29）
 
+> 完整预演（备份恢复、旧/新代码读写、重启、回滚）见 `REHEARSAL-task-updated-at-20261029.md`。
+
 | 项 | 结果 |
 |---|---|
 | 副本 | `~/.mio_taskhub/preflight/migration-task-updated-at-20261029/taskhub-copy.db`（40,050,688 字节） |
