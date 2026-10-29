@@ -145,7 +145,7 @@
 | T83 | `test_gate_attestation.py`（5 项） | 报告指纹、commit、DB 哈希、失败门禁 |
 | T84 | `test_required_checks.py`（3 项） | 分支保护 required checks 缺失/无 token |
 | T85 | `test_release_entry.py`（4 项） | 发布必须校验报告；构建不发布；CI/分支保护审计 |
-| T86 | `test_migrate_flow.py`（9 项） | 预检/授权/迁移/验证/失败回滚/幂等/TOCTOU/伪造审批 |
+| T86 | `test_migrate_flow.py`（12 项） | 预检/授权/迁移/验证/失败回滚/幂等/TOCTOU/脏代码/离线审批/并发写入 |
 | T87 | `test_migration_approval.py`（8 项） | 服务端签名、过期、伪造、换库、缺事件、缺时间、重复审批 |
 | T88 | `test_task_create_stage_guard.py`（2 项） | 创建禁止直接 review；默认阶段可建 |
 
@@ -281,7 +281,7 @@ python scripts/materials_audit.py
 python scripts/materials_backfill.py --days 30
 ```
 
-素材库实测：`155 passed`；全量 `1802 passed / 2 skipped / 4 deselected`（2026-10-29）。
+素材库实测：`155 passed`；全量 `1805 passed / 2 skipped / 4 deselected`（2026-10-29）。
 
 ---
 

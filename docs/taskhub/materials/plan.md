@@ -381,7 +381,7 @@
 | 生产重跑 | 不批准 |
 | 日志来源 | `trial` |
 | 新 exe | 继续阻塞（`task.updated_at` 独立事项） |
-| 测试 | 素材库 155 passed；全量 1802 passed / 2 skipped |
+| 测试 | 素材库 155 passed；全量 1805 passed / 2 skipped |
 
 ---
 
@@ -420,6 +420,6 @@
 | 合法转移 | 创建禁止直接 `review`；审批要求 `review_started_at` + `stage_changed -> review`；重复审批拒绝 |
 | 分支保护 | 发布治理独立事项；自动检查存在，但未确认 required checks 实际阻止合并；不作为数据库迁移阻塞 |
 | 回滚演练 | 恢复备份后列消失、行数保留 |
-| 生产 | **未执行**，等待授权条件满足；不与素材门禁捆绑 |
+| 生产 | **已执行（2026-10-29）**：1,943 行、NULL=0、触发器生效、ORM/API 通过；见 `docs/ops/PRODUCTION-MIGRATION-RESULT-20261029.md` |
 | 文档 | `docs/ops/MIGRATION-task-updated-at-20261029.md` / `REHEARSAL-...` / `APPROVAL-REQUEST-...` |
 | 测试 | `tests/test_migrate_task_updated_at.py`、`tests/test_migrate_flow.py` |
