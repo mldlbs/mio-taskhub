@@ -2,11 +2,17 @@
 """迁移流程：预检、授权、执行、验证、失败回滚、幂等。"""
 import sqlite3
 
+import pytest
 from sqlalchemy import create_engine
 from sqlmodel import Session
 
 from mio_taskhub.models import SQLModel, Task, TaskStage, TaskState
 from scripts import migrate_task_updated_at_flow as flow
+
+
+@pytest.fixture(autouse=True)
+def _clean_code(monkeypatch):
+    monkeypatch.setattr(flow, "_dirty", lambda: False)
 
 
 def _make_db(path):
@@ -81,6 +87,32 @@ def test_flow_aborts_on_identity_mismatch(tmp_path, monkeypatch):
     assert not (tmp_path / "pre.db").exists()
 
 
+def test_dirty_code_blocks_preflight(tmp_path, monkeypatch):
+    db = tmp_path / "taskhub.db"
+    _make_db(db)
+    monkeypatch.setattr(flow, "_dirty", lambda: True)
+    report = flow.run_flow(db, _sha(db), tmp_path / "pre.db", "http://hub",
+                           "t1", app_read_check=False)
+    assert report["ok"] is False
+    assert report["stage"] == "preflight"
+    assert any(c["name"] == "code_clean" and not c["ok"]
+               for c in report["checks"])
+
+
+def test_content_hash_ignores_approval_records(tmp_path):
+    db = tmp_path / "taskhub.db"
+    _make_db(db)
+    before = flow._content_hash(db)
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "insert into taskreview (id, task_id, decision, summary, comments, "
+        "artifacts, reviewer, created_at) values ('r1','x','approve','s','','[]','o',?)",
+        ("2026-10-29 00:00:00.000000",))
+    conn.commit()
+    conn.close()
+    assert flow._content_hash(db) == before
+
+
 def test_flow_requires_matching_approval(tmp_path, monkeypatch):
     db = tmp_path / "taskhub.db"
     _make_db(db)
@@ -93,6 +125,29 @@ def test_flow_requires_matching_approval(tmp_path, monkeypatch):
     conn = sqlite3.connect(db)
     assert "updated_at" not in [r[1] for r in conn.execute("pragma table_info(task)")]
     conn.close()
+
+
+def test_offline_approval_reads_db(tmp_path, monkeypatch):
+    db = tmp_path / "hub.db"
+    _make_db(db)
+    conn = sqlite3.connect(db)
+    tid = conn.execute("select id from task limit 1").fetchone()[0]
+    conn.execute("update task set stage='REVIEW', review_started_at=? where id=?",
+                 ("2026-10-29 00:00:00.000000", tid))
+    conn.execute(
+        "insert into taskevent (task_id, event_type, from_state, from_stage, "
+        "to_state, to_stage, actor_type, actor_id, reason, created_at) values "
+        "(?,'stage_changed','queued','brainstorming','queued','review',"
+        "'system','test','T18',?)", (tid, "2026-10-29 00:00:00.000000"))
+    conn.commit()
+    conn.close()
+    from scripts.migration_approval import approve as approve_migration
+    monkeypatch.setenv("MIO_APPROVAL_SECRET", "secret")
+    approval = approve_migration(db, tid, db, "secret")
+    assert approval["ok"] is True
+    result = flow.approval_check(None, tid, approval["db_content_hash"],
+                                 approval["code_commit"], approval_db=db)
+    assert result["ok"] is True
 
 
 def test_approval_requires_secret(monkeypatch):

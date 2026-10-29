@@ -47,7 +47,7 @@ def _content_hash(db: Path, conn: Optional[sqlite3.Connection] = None) -> str:
         conn = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
     tables = sorted(r[0] for r in conn.execute(
         "select name from sqlite_master where type='table' "
-        "and name not like 'sqlite_%'"))
+        "and name not like 'sqlite_%' and name != 'taskreview'"))
     h = hashlib.sha256()
     for table in tables:
         cols = _columns(conn, table)
@@ -122,21 +122,47 @@ def _head() -> str:
                           text=True, timeout=10).stdout.strip()
 
 
+def _dirty() -> bool:
+    status = subprocess.run(["git", "status", "--porcelain"], capture_output=True,
+                            text=True, timeout=10).stdout
+    return bool(status.strip())
+
+
 def _fetch_reviews(hub: str, task_id: str) -> list:
     url = f"{hub.rstrip('/')}/api/v1/tasks/{task_id}/reviews"
     with urllib.request.urlopen(url, timeout=15) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _fetch_reviews_db(db: Path, task_id: str) -> list:
+    conn = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "select id, decision, artifacts, reviewer from taskreview "
+            "where task_id=? order by created_at", (task_id,)).fetchall()
+        return [{"id": r["id"], "decision": r["decision"],
+                 "artifacts": json.loads(r["artifacts"] or "[]"),
+                 "reviewer": r["reviewer"]} for r in rows]
+    finally:
+        conn.close()
+
+
 def approval_check(hub: Optional[str], task_id: Optional[str],
-                   db_hash: str, commit: str) -> dict:
-    if not hub or not task_id:
+                   db_hash: str, commit: str,
+                   approval_db: Optional[Path] = None) -> dict:
+    if not task_id:
         return {"ok": False, "error": "approval_task_required"}
     secret = os.environ.get("MIO_APPROVAL_SECRET", "")
     if not secret:
         return {"ok": False, "error": "approval_secret_missing"}
     try:
-        reviews = _fetch_reviews(hub, task_id)
+        if approval_db is not None:
+            reviews = _fetch_reviews_db(approval_db, task_id)
+        elif hub:
+            reviews = _fetch_reviews(hub, task_id)
+        else:
+            return {"ok": False, "error": "approval_source_missing"}
     except Exception as exc:
         return {"ok": False, "error": f"approval_fetch_failed:{exc}"}
     from scripts.migration_approval import verify as verify_approval
@@ -241,7 +267,8 @@ def inverse_rollback(db: Path, expected_rows: int) -> dict:
 
 
 def run_flow(db: Path, expect_content_hash: str, backup: Path, hub: str,
-             approval_task: str, app_read_check: bool = True) -> dict:
+             approval_task: str, app_read_check: bool = True,
+             approval_db: Optional[Path] = None) -> dict:
     checks: List[dict] = []
 
     def add(name: str, ok: bool, detail=None) -> None:
@@ -263,6 +290,7 @@ def run_flow(db: Path, expect_content_hash: str, backup: Path, hub: str,
                 "db_content_hash": actual_hash}
     integrity = conn.execute("pragma integrity_check").fetchone()[0]
     add("integrity", integrity == "ok", integrity)
+    add("code_clean", not _dirty())
     before_cols = _columns(conn, "task")
     before_stats = _row_stats(conn)
     before_triggers = _triggers(conn)
@@ -283,7 +311,8 @@ def run_flow(db: Path, expect_content_hash: str, backup: Path, hub: str,
                     "error": "already_applied_without_backup",
                     "db_content_hash": actual_hash}
         approval_hash = _content_hash(backup)
-    approval = approval_check(hub, approval_task, approval_hash, expect_commit)
+    approval = approval_check(hub, approval_task, approval_hash, expect_commit,
+                              approval_db=approval_db)
     add("approval", approval["ok"], approval)
     if not approval["ok"]:
         return {"ok": False, "stage": "approval", "checks": checks,
@@ -368,10 +397,12 @@ def main() -> int:
     p.add_argument("--backup", required=True)
     p.add_argument("--approval-task", required=True)
     p.add_argument("--hub", default="http://127.0.0.1:48620")
+    p.add_argument("--approval-db", default=None)
     p.add_argument("--report", default=None)
     args = p.parse_args()
     report = run_flow(Path(args.db), args.expect_content_hash, Path(args.backup),
-                      args.hub, args.approval_task, app_read_check=True)
+                      args.hub, args.approval_task, app_read_check=True,
+                      approval_db=Path(args.approval_db) if args.approval_db else None)
     if args.report:
         Path(args.report).write_text(
             json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

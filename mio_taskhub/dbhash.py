@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """数据库逻辑内容哈希（跨 sqlite backup 稳定）。"""
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ def content_hash(path: Path) -> str:
     try:
         tables = sorted(r[0] for r in conn.execute(
             "select name from sqlite_master where type='table' "
-            "and name not like 'sqlite_%'"))
+            "and name not like 'sqlite_%' and name != 'taskreview'"))
         h = hashlib.sha256()
         for table in tables:
             h.update(table.encode("utf-8"))
