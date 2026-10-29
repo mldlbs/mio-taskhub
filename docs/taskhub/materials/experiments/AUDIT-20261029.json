@@ -1,0 +1,153 @@
+{
+  "db": "C:/Users/admin/.mio_taskhub/taskhub.db",
+  "generated_at": "2026-10-29T07:56:51.605360+00:00",
+  "cutoff": "2026-10-01",
+  "raw": {
+    "terminal_tasks": 1916,
+    "states": {
+      "CANCELLED": 198,
+      "COMPLETED": 190,
+      "FAILED": 1528
+    },
+    "agent_types": {
+      "idea-reviewer": 1526,
+      "(none)": 240,
+      "cli": 100,
+      "coding": 13,
+      "chrome-ext-agent": 8,
+      "frontend": 7,
+      "mio-taskhub": 6,
+      "opencode": 6,
+      "robot": 4,
+      "desktop-agent": 2,
+      "dev": 2,
+      "wechat-operator": 1
+    },
+    "stages": {
+      "IMPLEMENTING": 1532,
+      "CANCELLED": 177,
+      "REVIEW": 101,
+      "DONE": 88,
+      "READY": 12,
+      "BRAINSTORMING": 5,
+      "DESIGN": 1
+    },
+    "retry_buckets": {
+      "0": 426,
+      "2+": 1474,
+      "1": 16
+    },
+    "bounce_buckets": {
+      "0": 1810,
+      "2+": 65,
+      "1": 41
+    }
+  },
+  "dedupe": {
+    "unique_groups": 277,
+    "duplicate_rows": 1666,
+    "largest_group": 128,
+    "groups_spanning_split": 12,
+    "unique_states": {
+      "CANCELLED": 64,
+      "COMPLETED": 171,
+      "FAILED": 42
+    },
+    "unique_agent_types": {
+      "(none)": 195,
+      "idea-reviewer": 34,
+      "coding": 13,
+      "chrome-ext-agent": 8,
+      "frontend": 7,
+      "mio-taskhub": 6,
+      "robot": 4,
+      "cli": 3,
+      "desktop-agent": 2,
+      "dev": 2,
+      "wechat-operator": 1,
+      "opencode": 1
+    },
+    "unique_projects": {
+      "(none)": 115,
+      "agent-dev": 66,
+      "mio-taskhub": 48,
+      "csps-app-service": 20,
+      "多源感知及AI智能决策中心": 16,
+      "chrome-ext-agent": 10,
+      "demo": 1,
+      "csps-app-fxyj": 1
+    }
+  },
+  "split": {
+    "train": {
+      "n": 165,
+      "states": {
+        "CANCELLED": 45,
+        "COMPLETED": 100,
+        "FAILED": 20
+      }
+    },
+    "test": {
+      "n": 112,
+      "states": {
+        "COMPLETED": 71,
+        "CANCELLED": 19,
+        "FAILED": 22
+      }
+    },
+    "test_positive": 71,
+    "test_negative": 41
+  },
+  "features": {
+    "empty_title_rows": 0,
+    "empty_description_rows": 51,
+    "rows_with_acceptance": 209,
+    "unique_with_acceptance": 173
+  },
+  "label_noise": {
+    "rows_failed_repaired_block_reason": 1490,
+    "unique_failed_repaired": 4,
+    "cancelled_before_implementing_rows": 17,
+    "cancelled_before_implementing_unique": 15,
+    "rows_without_review_result": 1827,
+    "unique_without_review_result": 191
+  },
+  "materials": {
+    "test_external_before_creation": {
+      "tasks": 112,
+      "at_least_one": 112,
+      "at_least_k": 112,
+      "k": 5,
+      "rate_at_least_one": 1.0,
+      "rate_at_least_k": 1.0
+    },
+    "train_external_before_creation": {
+      "tasks": 165,
+      "at_least_one": 52,
+      "at_least_k": 52,
+      "k": 5,
+      "rate_at_least_one": 0.3152,
+      "rate_at_least_k": 0.3152
+    }
+  },
+  "power": {
+    "effect": 0.1,
+    "alpha": 0.05,
+    "power": 0.8,
+    "se_balanced_accuracy": 0.0981,
+    "ci95_half_width": 0.1922,
+    "min_detectable_effect_80pct": 0.2748,
+    "required_positive_per_arm": 393,
+    "assumptions": "independent arms, balanced accuracy, conservative variance"
+  },
+  "verdict": {
+    "runnable": false,
+    "reasons": [
+      "1,916 行终止任务仅对应 277 个唯一任务；重复任务主导标签分布",
+      "1,490 行 FAILED 带“失败被清洗为取消”修复标记，标签非任务难度",
+      "去重后测试集仅 71 completed / 41 failed，功效不足",
+      "12 个重复组跨时间切分，存在直接泄漏"
+    ]
+  },
+  "note": "只读审计；未训练模型、未使用测试标签做选择、未运行对照实验。"
+}
