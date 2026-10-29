@@ -381,7 +381,7 @@
 | 生产重跑 | 不批准 |
 | 日志来源 | `trial` |
 | 新 exe | 继续阻塞（`task.updated_at` 独立事项） |
-| 测试 | 素材库 155 passed；全量 1787 passed / 2 skipped |
+| 测试 | 素材库 155 passed；全量 1797 passed / 2 skipped |
 
 ---
 
@@ -414,6 +414,9 @@
 | 授权 | taskhub `approve` 评审，artifacts 绑定 `scope` / `db_content_hash` / `code_commit`；无 CLI 跳过开关 |
 | 副本演练 | 列存在、NULL=0、ORM 读 1,941 行、38 张非 task 表哈希一致 |
 | 流程演练 | 第一次 `verified`；第二次 `already_applied`；错误哈希预检中止；验证失败自动回滚 |
+| TOCTOU | 授权后修改 DB / commit：写锁内复核，`toctou_*` 中止，未写库 |
+| 回滚边界 | 反向迁移（删触发器/列），保留并发写入；整库备份仅灾难恢复 |
+| 审批可信度 | 服务端重算哈希/commit + HMAC 签名 + 过期时间；伪造/过期/换库均拒绝 |
 | 回滚演练 | 恢复备份后列消失、行数保留 |
 | 生产 | **未执行**，等待授权条件满足；不与素材门禁捆绑 |
 | 文档 | `docs/ops/MIGRATION-task-updated-at-20261029.md` / `REHEARSAL-...` / `APPROVAL-REQUEST-...` |

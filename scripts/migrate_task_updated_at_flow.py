@@ -40,9 +40,11 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _content_hash(db: Path) -> str:
+def _content_hash(db: Path, conn: Optional[sqlite3.Connection] = None) -> str:
     """逻辑内容哈希：跨 sqlite backup 稳定，用于审批绑定。"""
-    conn = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
+    own = conn is None
+    if own:
+        conn = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
     tables = sorted(r[0] for r in conn.execute(
         "select name from sqlite_master where type='table' "
         "and name not like 'sqlite_%'"))
@@ -57,7 +59,8 @@ def _content_hash(db: Path) -> str:
             rows = conn.execute(f"select * from {table} order by 1").fetchall()
         for row in rows:
             h.update(repr(tuple(row)).encode("utf-8"))
-    conn.close()
+    if own:
+        conn.close()
     return h.hexdigest()
 
 
@@ -129,21 +132,26 @@ def approval_check(hub: Optional[str], task_id: Optional[str],
                    db_hash: str, commit: str) -> dict:
     if not hub or not task_id:
         return {"ok": False, "error": "approval_task_required"}
+    secret = os.environ.get("MIO_APPROVAL_SECRET", "")
+    if not secret:
+        return {"ok": False, "error": "approval_secret_missing"}
     try:
         reviews = _fetch_reviews(hub, task_id)
     except Exception as exc:
         return {"ok": False, "error": f"approval_fetch_failed:{exc}"}
-    required = {APPROVAL_SCOPE, f"db_content_hash:{db_hash}", f"code_commit:{commit}"}
+    from scripts.migration_approval import verify as verify_approval
+    last_error = "no_matching_approval"
     for review in reviews:
         if str(review.get("decision", "")).lower() != "approve":
             continue
-        artifacts = {str(a) for a in (review.get("artifacts") or [])}
-        if required <= artifacts:
+        result = verify_approval(secret, review.get("artifacts") or [],
+                                 db_hash, commit, task_id)
+        if result["ok"]:
             return {"ok": True, "review_id": review.get("id"),
                     "reviewer": review.get("reviewer"),
-                    "artifacts": sorted(required)}
-    return {"ok": False, "error": "no_matching_approval",
-            "required": sorted(required)}
+                    "expires_at": result["expires_at"]}
+        last_error = result["error"]
+    return {"ok": False, "error": last_error}
 
 
 def app_read(db: Path) -> Tuple[bool, str]:
@@ -162,6 +170,74 @@ def app_read(db: Path) -> Tuple[bool, str]:
     if proc.returncode != 0:
         return False, (proc.stderr or proc.stdout)[-500:]
     return True, proc.stdout.strip()
+
+
+def _backup_db(db: Path, backup: Path) -> None:
+    backup.parent.mkdir(parents=True, exist_ok=True)
+    src = sqlite3.connect(db)
+    dst = sqlite3.connect(backup)
+    try:
+        src.backup(dst)
+    finally:
+        src.close()
+        dst.close()
+
+
+def guarded_apply(db: Path, backup: Path, expect_hash: str,
+                  expect_commit: str) -> dict:
+    """在同一写锁内复核内容哈希与代码 commit，再执行迁移，消除 TOCTOU。"""
+    _backup_db(db, backup)
+    conn = sqlite3.connect(db, timeout=10)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        current = _content_hash(db, conn)
+        commit = _head()
+        if current != expect_hash:
+            conn.rollback()
+            return {"ok": False, "applied": False, "error": "toctou_db_changed",
+                    "expected": expect_hash, "actual": current}
+        if commit != expect_commit:
+            conn.rollback()
+            return {"ok": False, "applied": False, "error": "toctou_code_changed",
+                    "expected": expect_commit, "actual": commit}
+        cols = _columns(conn, "task")
+        if "updated_at" not in cols:
+            conn.execute("alter table task add column updated_at datetime")
+        conn.execute(
+            "update task set updated_at = coalesce(last_transition_at, "
+            "created_at, current_timestamp) where updated_at is null")
+        conn.execute(TRIGGER_INSERT)
+        conn.execute(TRIGGER_UPDATE)
+        conn.commit()
+        return {"ok": True, "applied": True,
+                "backup": str(backup).replace("\\", "/")}
+    except Exception as exc:
+        conn.rollback()
+        return {"ok": False, "applied": False, "error": f"apply_failed:{exc}"}
+    finally:
+        conn.close()
+
+
+def inverse_rollback(db: Path, expected_rows: int) -> dict:
+    """不覆盖并发写入的回滚：删触发器 + 删列，不恢复整库备份。"""
+    conn = sqlite3.connect(db, timeout=10)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("drop trigger if exists task_updated_at_after_insert")
+        conn.execute("drop trigger if exists task_updated_at_after_update")
+        if "updated_at" in _columns(conn, "task"):
+            conn.execute("alter table task drop column updated_at")
+        conn.commit()
+        integrity = conn.execute("pragma integrity_check").fetchone()[0]
+        rows = conn.execute("select count(*) from task").fetchone()[0]
+        ok = integrity == "ok" and rows == expected_rows
+        return {"ok": ok, "mode": "inverse", "rows": rows,
+                "expected_rows": expected_rows, "integrity": integrity}
+    except Exception as exc:
+        conn.rollback()
+        return {"ok": False, "mode": "inverse", "error": str(exc)[:300]}
+    finally:
+        conn.close()
 
 
 def run_flow(db: Path, expect_content_hash: str, backup: Path, hub: str,
@@ -199,6 +275,7 @@ def run_flow(db: Path, expect_content_hash: str, backup: Path, hub: str,
         return {"ok": False, "stage": "preflight", "checks": checks,
                 "db_content_hash": actual_hash}
 
+    expect_commit = _head()
     approval_hash = actual_hash
     if already:
         if not backup.exists():
@@ -206,7 +283,7 @@ def run_flow(db: Path, expect_content_hash: str, backup: Path, hub: str,
                     "error": "already_applied_without_backup",
                     "db_content_hash": actual_hash}
         approval_hash = _content_hash(backup)
-    approval = approval_check(hub, approval_task, approval_hash, _head())
+    approval = approval_check(hub, approval_task, approval_hash, expect_commit)
     add("approval", approval["ok"], approval)
     if not approval["ok"]:
         return {"ok": False, "stage": "approval", "checks": checks,
@@ -218,18 +295,19 @@ def run_flow(db: Path, expect_content_hash: str, backup: Path, hub: str,
                 "approval": approval, "db_content_hash": actual_hash,
                 "rows": before_stats["rows"]}
 
-    result = apply_migration(db, backup)
+    result = guarded_apply(db, backup, actual_hash, expect_commit)
     add("apply", result.get("ok", False), {
         "backup": result.get("backup"), "error": result.get("error")})
     if not result.get("ok"):
-        rolled = {"ok": False}
-        if backup.exists():
-            rolled = rollback_migration(db, backup)
+        rolled = {"ok": True, "skipped": "no_write"}
+        if result.get("applied"):
+            rolled = inverse_rollback(db, before_stats["rows"])
         add("rollback_after_apply_failure", rolled.get("ok", False), rolled)
         return {"ok": False, "stage": "apply_failed", "checks": checks,
                 "approval": approval, "db_content_hash": actual_hash,
                 "backup": str(backup).replace("\\", "/"),
-                "rolled_back": rolled.get("ok", False)}
+                "rolled_back": rolled.get("ok", False),
+                "rollback": rolled}
 
     conn = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
     after_cols = _columns(conn, "task")
@@ -269,7 +347,7 @@ def run_flow(db: Path, expect_content_hash: str, backup: Path, hub: str,
         "rolled_back": False,
     }
     if failed:
-        rolled = rollback_migration(db, backup)
+        rolled = inverse_rollback(db, before_stats["rows"])
         add("rollback", rolled.get("ok", False), rolled)
         conn = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
         cols = _columns(conn, "task")

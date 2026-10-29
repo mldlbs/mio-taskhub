@@ -75,11 +75,10 @@ python scripts/migrate_task_updated_at.py --db <db> --rollback <backup.db> --yes
 
 1. 目标身份：DB 逻辑内容哈希必须等于 `--expect-content-hash`（跨 sqlite backup 稳定）；
 2. 预检：`task` 表存在、`integrity_check=ok`、行数/关键字段统计、触发器状态；
-3. 授权：从 taskhub 评审状态机读取指定任务的 `approve` 记录，`artifacts` 必须同时包含
-   `scope:task.updated_at`、`db_content_hash:<hash>`、`code_commit:<HEAD>`；
-4. 执行：备份 + 加列 + 回填 + 触发器；
+3. 授权：由 `scripts/migration_approval.py` 服务端复核 task 处于 `review`、目标库内容哈希与代码 commit，写入带 HMAC 签名和过期时间的 `approve` 记录；流程校验签名与有效期，调用方无法只靠声明字符串通过；
+4. 执行：`BEGIN IMMEDIATE` 写锁内**再次**计算内容哈希并核对 commit，匹配后才加列/回填/触发器（消除 TOCTOU）；
 5. 验证：schema、行数不变、`updated_at` 无 NULL、触发器定义、非目标表哈希不变、应用 ORM 可读；
-6. 失败中止：任一验证失败自动恢复备份，并校验回滚后列不存在、行数保留；
+6. 失败中止：验证失败用**反向迁移**（删触发器、删列）恢复，保留并发写入；整库备份仅作灾难恢复，不用于常规回滚；
 7. 幂等：已迁移且触发器齐全时再次运行返回 `already_applied`，不重复写。
 
 ```bash

@@ -54,13 +54,13 @@
 
 ## 6 授权（自动化）
 
-审批不再以人工签字为默认门禁，使用 taskhub 既有评审状态机：
+审批不再以人工签字为默认门禁，使用 `scripts/migration_approval.py` 服务端流程：
 
-1. 创建审批任务（`POST /api/v1/tasks`）；
-2. 写入一条 `approve` 评审（`POST /api/v1/tasks/{id}/reviews`），`artifacts` 必须包含：
-   - `scope:task.updated_at`
-   - `db_content_hash:<目标库内容哈希>`
-   - `code_commit:<当前 HEAD>`
-3. 迁移流程脚本自动读取该任务评审；缺任一 artifact 或复用旧审批即中止。
+1. 创建审批任务并置于 `review` 阶段；
+2. 服务端读取目标库、重新计算内容哈希与代码 commit；
+3. 写入 `approve` 记录，artifacts 包含 `scope`、`db_path`、`db_content_hash`、`code_commit`、`expires_at` 和 HMAC `signature`；
+4. 迁移流程校验签名、有效期、哈希与 commit；任一不符即中止。
+
+客户端无法只靠声明 artifacts 通过校验；旧审批或换库复用都会失败。
 
 审批通过前：生产库不变、`trial` 不变、新 exe 不部署。
