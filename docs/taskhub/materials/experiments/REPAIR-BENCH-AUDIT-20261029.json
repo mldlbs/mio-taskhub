@@ -1,0 +1,183 @@
+{
+  "generated_at": "2026-10-29T08:45:17.891602+00:00",
+  "samples": 5,
+  "unique_ids": true,
+  "unique_snapshots": true,
+  "all_constructible": true,
+  "baseline_failure_classes": [
+    "assertion"
+  ],
+  "results": [
+    {
+      "id": "repair-001-sum-even",
+      "snapshot_sha256": "1c87ec288d05ea1254f613f7840c2939fc559630078f5e900301022c041195bc",
+      "baseline_target": {
+        "returncode": 1,
+        "output": ".FF                                                                      [100%]\n================================== FAILURES ===================================\n_________________________________ test_small __________________________________\n\n    def test_small():\n>       assert sum_even(4) == 6\nE       assert 2 == 6\nE        +  where 2 = sum_even(4)\n\ntests\\test_target.py:9: AssertionError\n__________________________________ test_ten ___________________________________\n\n    def test_ten():\n>       assert sum_even(10) == 30\nE       assert 20 == 30\nE        +  where 20 = sum_even(10)\n\ntests\\test_target.py:13: AssertionError\n=========================== short test summary info ===========================\nFAILED tests/test_target.py::test_small - assert 2 == 6\nFAILED tests/test_target.py::test_ten - assert 20 == 30\n2 failed, 1 passed in 0.17s\n",
+        "duration_s": 0.848,
+        "timed_out": false,
+        "status": "assertion"
+      },
+      "baseline_regression": {
+        "returncode": 0,
+        "output": "..                                                                       [100%]\n2 passed in 0.01s\n",
+        "duration_s": 0.659,
+        "timed_out": false,
+        "status": "passed"
+      },
+      "gold_target": {
+        "returncode": 0,
+        "output": "...                                                                      [100%]\n3 passed in 0.01s\n",
+        "duration_s": 0.738,
+        "timed_out": false,
+        "status": "passed"
+      },
+      "gold_regression": {
+        "returncode": 0,
+        "output": "..                                                                       [100%]\n2 passed in 0.01s\n",
+        "duration_s": 0.704,
+        "timed_out": false,
+        "status": "passed"
+      },
+      "constructible": true
+    },
+    {
+      "id": "repair-002-clamp",
+      "snapshot_sha256": "c676f7bc255ab8185acede83fe45f2853545c4d5f69b0f5404cc8b1f249a1f24",
+      "baseline_target": {
+        "returncode": 1,
+        "output": "F.F                                                                      [100%]\n================================== FAILURES ===================================\n_________________________________ test_inside _________________________________\n\n    def test_inside():\n>       assert clamp(5, 0, 10) == 5\nE       assert 0 == 5\nE        +  where 0 = clamp(5, 0, 10)\n\ntests\\test_target.py:5: AssertionError\n__________________________________ test_high __________________________________\n\n    def test_high():\n>       assert clamp(11, 0, 10) == 10\nE       assert 0 == 10\nE        +  where 0 = clamp(11, 0, 10)\n\ntests\\test_target.py:13: AssertionError\n=========================== short test summary info ===========================\nFAILED tests/test_target.py::test_inside - assert 0 == 5\nFAILED tests/test_target.py::test_high - assert 0 == 10\n2 failed, 1 passed in 0.20s\n",
+        "duration_s": 1.01,
+        "timed_out": false,
+        "status": "assertion"
+      },
+      "baseline_regression": {
+        "returncode": 0,
+        "output": ".                                                                        [100%]\n1 passed in 0.01s\n",
+        "duration_s": 0.817,
+        "timed_out": false,
+        "status": "passed"
+      },
+      "gold_target": {
+        "returncode": 0,
+        "output": "...                                                                      [100%]\n3 passed in 0.02s\n",
+        "duration_s": 0.736,
+        "timed_out": false,
+        "status": "passed"
+      },
+      "gold_regression": {
+        "returncode": 0,
+        "output": ".                                                                        [100%]\n1 passed in 0.01s\n",
+        "duration_s": 0.724,
+        "timed_out": false,
+        "status": "passed"
+      },
+      "constructible": true
+    },
+    {
+      "id": "repair-003-parse-bool",
+      "snapshot_sha256": "30d09b2a58a1009e6f0155cc29a84ee93f92aed72f38a93d28222be4861895b8",
+      "baseline_target": {
+        "returncode": 1,
+        "output": "FF.                                                                      [100%]\n================================== FAILURES ===================================\n__________________________________ test_one ___________________________________\n\n    def test_one():\n>       assert parse_bool('1') is True\nE       AssertionError: assert False is True\nE        +  where False = parse_bool('1')\n\ntests\\test_target.py:5: AssertionError\n__________________________________ test_yes ___________________________________\n\n    def test_yes():\n>       assert parse_bool(' YES ') is True\nE       AssertionError: assert False is True\nE        +  where False = parse_bool(' YES ')\n\ntests\\test_target.py:9: AssertionError\n=========================== short test summary info ===========================\nFAILED tests/test_target.py::test_one - AssertionError: assert False is True\nFAILED tests/test_target.py::test_yes - AssertionError: assert False is True\n2 failed, 1 passed in 0.17s\n",
+        "duration_s": 0.897,
+        "timed_out": false,
+        "status": "assertion"
+      },
+      "baseline_regression": {
+        "returncode": 0,
+        "output": "..                                                                       [100%]\n2 passed in 0.01s\n",
+        "duration_s": 0.771,
+        "timed_out": false,
+        "status": "passed"
+      },
+      "gold_target": {
+        "returncode": 0,
+        "output": "...                                                                      [100%]\n3 passed in 0.01s\n",
+        "duration_s": 0.813,
+        "timed_out": false,
+        "status": "passed"
+      },
+      "gold_regression": {
+        "returncode": 0,
+        "output": "..                                                                       [100%]\n2 passed in 0.01s\n",
+        "duration_s": 0.972,
+        "timed_out": false,
+        "status": "passed"
+      },
+      "constructible": true
+    },
+    {
+      "id": "repair-004-median",
+      "snapshot_sha256": "0e81a7216c610a644a9acd52ae65611d0f07dd583fe13242a8b2a23b534b7040",
+      "baseline_target": {
+        "returncode": 1,
+        "output": "FF                                                                       [100%]\n================================== FAILURES ===================================\n__________________________________ test_even __________________________________\n\n    def test_even():\n>       assert median([1, 2, 3, 4]) == 2.5\nE       assert 3 == 2.5\nE        +  where 3 = median([1, 2, 3, 4])\n\ntests\\test_target.py:5: AssertionError\n_____________________________ test_even_unsorted ______________________________\n\n    def test_even_unsorted():\n>       assert median([4, 1, 3, 2]) == 2.5\nE       assert 3 == 2.5\nE        +  where 3 = median([4, 1, 3, 2])\n\ntests\\test_target.py:9: AssertionError\n=========================== short test summary info ===========================\nFAILED tests/test_target.py::test_even - assert 3 == 2.5\nFAILED tests/test_target.py::test_even_unsorted - assert 3 == 2.5\n2 failed in 0.19s\n",
+        "duration_s": 0.953,
+        "timed_out": false,
+        "status": "assertion"
+      },
+      "baseline_regression": {
+        "returncode": 0,
+        "output": "..                                                                       [100%]\n2 passed in 0.03s\n",
+        "duration_s": 1.795,
+        "timed_out": false,
+        "status": "passed"
+      },
+      "gold_target": {
+        "returncode": 0,
+        "output": "..                                                                       [100%]\n2 passed in 0.01s\n",
+        "duration_s": 1.216,
+        "timed_out": false,
+        "status": "passed"
+      },
+      "gold_regression": {
+        "returncode": 0,
+        "output": "..                                                                       [100%]\n2 passed in 0.01s\n",
+        "duration_s": 0.998,
+        "timed_out": false,
+        "status": "passed"
+      },
+      "constructible": true
+    },
+    {
+      "id": "repair-005-slugify",
+      "snapshot_sha256": "d74291c3aaa87aecdca5f308e0cdf6faad148e36c584a79241ca9fbc38d2e35b",
+      "baseline_target": {
+        "returncode": 1,
+        "output": "FF                                                                       [100%]\n================================== FAILURES ===================================\n_________________________________ test_spaces _________________________________\n\n    def test_spaces():\n>       assert slugify('Hello World') == 'hello-world'\nE       AssertionError: assert 'hello_world' == 'hello-world'\nE         \nE         - hello-world\nE         ?      ^\nE         + hello_world\nE         ?      ^\n\ntests\\test_target.py:5: AssertionError\n_________________________________ test_punct __________________________________\n\n    def test_punct():\n>       assert slugify(' A, B! ') == 'a-b'\nE       AssertionError: assert 'a_b' == 'a-b'\nE         \nE         - a-b\nE         + a_b\n\ntests\\test_target.py:9: AssertionError\n=========================== short test summary info ===========================\nFAILED tests/test_target.py::test_spaces - AssertionError: assert 'hello_worl...\nFAILED tests/test_target.py::test_punct - AssertionError: assert 'a_b' == 'a-b'\n2 failed in 0.42s\n",
+        "duration_s": 1.718,
+        "timed_out": false,
+        "status": "assertion"
+      },
+      "baseline_regression": {
+        "returncode": 0,
+        "output": "..                                                                       [100%]\n2 passed in 0.02s\n",
+        "duration_s": 1.189,
+        "timed_out": false,
+        "status": "passed"
+      },
+      "gold_target": {
+        "returncode": 0,
+        "output": "..                                                                       [100%]\n2 passed in 0.02s\n",
+        "duration_s": 1.48,
+        "timed_out": false,
+        "status": "passed"
+      },
+      "gold_regression": {
+        "returncode": 0,
+        "output": "..                                                                       [100%]\n2 passed in 0.02s\n",
+        "duration_s": 1.681,
+        "timed_out": false,
+        "status": "passed"
+      },
+      "constructible": true
+    }
+  ],
+  "materials": {
+    "cutoff": "2026-10-29 00:00:00",
+    "available": 2058,
+    "ids_sha256": "cd81d8fe370e8789b4d8b7be9f3c0eac021c304cb33b6810602e4032c93589d9"
+  },
+  "note": "只验证基准可构造性；未运行有无素材的对照实验。"
+}

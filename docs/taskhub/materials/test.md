@@ -149,6 +149,7 @@
 | T87 | `test_migration_approval.py`（8 项） | 服务端签名、过期、伪造、换库、缺事件、缺时间、重复审批 |
 | T88 | `test_task_create_stage_guard.py`（2 项） | 创建禁止直接 review；默认阶段可建 |
 | T89 | `test_materials_downstream_audit.py`（2 项） | 重复分组归一化、功效公式 |
+| T90 | `test_repair_benchmark.py`（1 项） | 构造式基准原型：唯一快照/基线失败/回归通过（已停止，不扩展） |
 
 ---
 
@@ -282,7 +283,7 @@ python scripts/materials_audit.py
 python scripts/materials_backfill.py --days 30
 ```
 
-素材库实测：`155 passed`；全量 `1807 passed / 2 skipped / 4 deselected`（2026-10-29）。
+素材库实测：`155 passed`；全量 `1808 passed / 2 skipped / 4 deselected`（2026-10-29）。
 
 ---
 
