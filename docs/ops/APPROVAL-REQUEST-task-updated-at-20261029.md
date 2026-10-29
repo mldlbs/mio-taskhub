@@ -63,6 +63,11 @@
 
 客户端无法只靠声明 artifacts 通过校验；旧审批或换库复用都会失败。
 
-**残余缺口（未闭环）**：当前审批服务校验 `task.stage == review`，但创建接口允许直接把任务建成 `review` 阶段，且服务尚未校验 `review_started_at` 或 `stage_changed` 事件。严格满足“approve 只能由合法状态转移产生”还需在创建/审批入口加 guard；在此之前不执行生产迁移。
+合法转移校验已闭环：
+
+- 创建接口拒绝 `stage=review`（`gate.review_requires_transition`）；
+- 审批服务要求 `review_started_at` 非空，且存在 `stage_changed -> review` 事件；
+- 同一任务重复审批被拒绝；
+- 过期、伪造签名、错误哈希均拒绝。
 
 审批通过前：生产库不变、`trial` 不变、新 exe 不部署。

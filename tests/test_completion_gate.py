@@ -7,7 +7,7 @@ from sqlmodel import Session
 
 from mio_taskhub.db import engine
 from mio_taskhub.main import app
-from mio_taskhub.models import Run, Task
+from mio_taskhub.models import Run, Task, TaskStage
 
 client = TestClient(app)
 
@@ -17,6 +17,16 @@ def _agent() -> str:
 
 
 def _mk(**body):
+    if body.get("stage") == "review":
+        # 创建入口禁止直接 review；测试需要 review 态时走 ORM 夹具。
+        with Session(engine) as s:
+            t = Task(title=body.get("title", "p1-task"),
+                     workspace=body.get("workspace"),
+                     stage=TaskStage.REVIEW)
+            s.add(t)
+            s.commit()
+            s.refresh(t)
+            return {"id": t.id}
     payload = {"title": "p1-task", "stage": "ready"}
     payload.update(body)
     r = client.post("/api/v1/tasks", json=payload)

@@ -5,14 +5,26 @@
 本组测试锁定泛化后的行为，并确保旧字段仍可用。
 """
 from fastapi.testclient import TestClient
+from sqlmodel import Session
 
+from mio_taskhub.db import engine
 from mio_taskhub.main import app
+from mio_taskhub.models import Task, TaskStage
 from mio_taskhub.doc_paths import DOC_KINDS
 
 client = TestClient(app)
 
 
 def _mk(workspace, **extra):
+    if extra.get('stage') == 'review':
+        # 创建入口禁止直接 review；测试需要 review 态时走 ORM 夹具。
+        with Session(engine) as s:
+            t = Task(title='doc paths case', workspace=str(workspace),
+                     stage=TaskStage.REVIEW)
+            s.add(t)
+            s.commit()
+            s.refresh(t)
+            return t.id
     payload = {'title': 'doc paths case', 'workspace': str(workspace), 'stage': 'ready'}
     payload.update(extra)
     r = client.post('/api/v1/tasks', json=payload)

@@ -20,6 +20,16 @@ def _db(path):
                    stage=TaskStage.READY))
         s.commit()
     eng.dispose()
+    conn = sqlite3.connect(path)
+    conn.execute("update task set review_started_at=? where id='t1'",
+                 ("2026-10-29 00:00:00.000000",))
+    conn.execute(
+        "insert into taskevent (task_id, event_type, from_state, from_stage, "
+        "to_state, to_stage, actor_type, actor_id, reason, created_at) values "
+        "('t1','stage_changed','queued','brainstorming','queued','review',"
+        "'system','test','T18',?)", ("2026-10-29 00:00:00.000000",))
+    conn.commit()
+    conn.close()
 
 
 def test_approve_requires_review_stage(tmp_path):
@@ -71,3 +81,37 @@ def test_wrong_target_hash_is_rejected(tmp_path):
                            result["code_commit"], "t1")
     assert verified["ok"] is False
     assert verified["error"] == "db_hash_mismatch"
+
+
+def test_missing_review_started_at_is_rejected(tmp_path):
+    db = tmp_path / "hub.db"
+    _db(db)
+    conn = sqlite3.connect(db)
+    conn.execute("update task set review_started_at=null where id='t1'")
+    conn.commit()
+    conn.close()
+    result = appr.approve(db, "t1", db, "secret")
+    assert result["ok"] is False
+    assert result["error"] == "task_review_not_entered"
+
+
+def test_missing_stage_event_is_rejected(tmp_path):
+    db = tmp_path / "hub.db"
+    _db(db)
+    conn = sqlite3.connect(db)
+    conn.execute("delete from taskevent where task_id='t1'")
+    conn.commit()
+    conn.close()
+    result = appr.approve(db, "t1", db, "secret")
+    assert result["ok"] is False
+    assert result["error"] == "missing_stage_transition_event"
+
+
+def test_duplicate_approval_is_rejected(tmp_path):
+    db = tmp_path / "hub.db"
+    _db(db)
+    first = appr.approve(db, "t1", db, "secret")
+    assert first["ok"] is True
+    second = appr.approve(db, "t1", db, "secret")
+    assert second["ok"] is False
+    assert second["error"] == "duplicate_approval"

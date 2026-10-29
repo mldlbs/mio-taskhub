@@ -63,3 +63,11 @@ CI 覆盖的是“代码与门禁测试”，**不是**手动发布入口；发�
 3. **`code_dirty` 必须为 false**。发布前先提交所有改动；构建脚本注入版本号应发生在校验之后。
 4. 分支保护 API 检查需要 `BRANCH_PROTECTION_TOKEN`（Administration 读权限）；未配置 secret 时 workflow 会失败，这是有意的门禁而不是跳过。
 5. required checks 名称随 job 名变化：当前为 `test (3.12)` 与 `materials-gate`；改 workflow job 名后需同步脚本参数。
+
+## 6 与生产迁移的关系
+
+分支保护是**代码发布治理**，不是数据库迁移正确性的一部分。实际 required checks 尚未用有权限凭证确认；因此：
+
+- 它不阻塞数据库迁移；
+- 它必须阻塞受保护代码的正式发布；当前 `release.ps1` 已强制校验门禁报告，作为代码发布侧的阻断；
+- 待有 Administration 权限的 token 后，运行 `check_required_checks.py` 确认并修复配置，再作为发布治理的完成条件。

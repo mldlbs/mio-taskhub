@@ -381,7 +381,7 @@
 | 生产重跑 | 不批准 |
 | 日志来源 | `trial` |
 | 新 exe | 继续阻塞（`task.updated_at` 独立事项） |
-| 测试 | 素材库 155 passed；全量 1797 passed / 2 skipped |
+| 测试 | 素材库 155 passed；全量 1802 passed / 2 skipped |
 
 ---
 
@@ -417,6 +417,8 @@
 | TOCTOU | 授权后修改 DB / commit：写锁内复核，`toctou_*` 中止，未写库 |
 | 回滚边界 | 反向迁移（删触发器/列），保留并发写入；整库备份仅灾难恢复 |
 | 审批可信度 | 服务端重算哈希/commit + HMAC 签名 + 过期时间；伪造/过期/换库均拒绝 |
+| 合法转移 | 创建禁止直接 `review`；审批要求 `review_started_at` + `stage_changed -> review`；重复审批拒绝 |
+| 分支保护 | 发布治理独立事项；自动检查存在，但未确认 required checks 实际阻止合并；不作为数据库迁移阻塞 |
 | 回滚演练 | 恢复备份后列消失、行数保留 |
 | 生产 | **未执行**，等待授权条件满足；不与素材门禁捆绑 |
 | 文档 | `docs/ops/MIGRATION-task-updated-at-20261029.md` / `REHEARSAL-...` / `APPROVAL-REQUEST-...` |

@@ -93,13 +93,27 @@ def approve(taskhub_db: Path, task_id: str, target_db: Path, secret: str,
     conn = sqlite3.connect(taskhub_db)
     conn.row_factory = sqlite3.Row
     try:
-        task = conn.execute("select id, stage from task where id=?",
-                            (task_id,)).fetchone()
+        task = conn.execute(
+            "select id, stage, review_started_at from task where id=?",
+            (task_id,)).fetchone()
         if task is None:
             return {"ok": False, "error": "task_not_found"}
         if str(task["stage"]).upper() != "REVIEW":
             return {"ok": False, "error": "task_not_in_review",
                     "stage": task["stage"]}
+        if not task["review_started_at"]:
+            return {"ok": False, "error": "task_review_not_entered"}
+        event = conn.execute(
+            "select 1 from taskevent where task_id=? and event_type='stage_changed' "
+            "and lower(to_stage)='review' limit 1", (task_id,)).fetchone()
+        if event is None:
+            return {"ok": False, "error": "missing_stage_transition_event"}
+        existing = conn.execute(
+            "select 1 from taskreview where task_id=? and decision='approve' "
+            "and artifacts like '%scope:task.updated_at%' limit 1",
+            (task_id,)).fetchone()
+        if existing is not None:
+            return {"ok": False, "error": "duplicate_approval"}
         db_hash = content_hash(target_db)
         commit = _commit()
         expires = (datetime.now(timezone.utc)

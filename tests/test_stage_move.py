@@ -9,7 +9,7 @@ client = TestClient(app)
 
 
 def _mk(title, stage="brainstorming", **kw):
-    if stage in ("done", "cancelled"):
+    if stage in ("done", "cancelled", "review"):
         # Phase 1：API 禁止直接创建终态任务，测试夹具直接落库。
         with Session(engine) as s:
             t = Task(title=title, stage=TaskStage(stage))

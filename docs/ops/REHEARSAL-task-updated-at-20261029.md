@@ -93,7 +93,7 @@ python scripts/migrate_task_updated_at.py --db <copy.db> --rollback <pre.db> --y
 
 | 步骤 | 结果 |
 |---|---|
-| 审批任务 | 创建时置 `review`；`migration_approval.py` 服务端复核后写入签名 `approve`（含过期时间） |
+| 审批任务 | 创建后通过状态机迁移到 `review`；`migration_approval.py` 校验 `review_started_at` 与 `stage_changed` 事件后写入签名 `approve` |
 | 第一次流程 | `verified`：预检、签名授权、锁内复核、迁移、验证、应用 ORM 读取全部通过 |
 | 第二次流程 | `already_applied`：幂等，不重复写 |
 | 错误内容哈希 | `preflight` 中止，退出码 1，未生成备份 |
@@ -107,4 +107,4 @@ python scripts/migrate_task_updated_at.py --db <copy.db> --rollback <pre.db> --y
 
 授权不是人工签字，也不是客户端自报：服务端重新计算目标库内容哈希和代码 commit，签名由 `MIO_APPROVAL_SECRET` 生成，流程侧校验签名与有效期；旧审批无法复用。
 
-残余：本次演练的审批任务由 API 直接建成 `review`，审批服务只校验了 stage，未校验 `review_started_at` / 状态迁移事件；严格合法转移闭环仍需补 guard。
+合法转移已闭环：创建接口禁止直接 `review`；审批服务要求 `review_started_at` 与 `stage_changed -> review` 事件；重复审批、过期、伪造均拒绝。

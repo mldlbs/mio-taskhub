@@ -51,6 +51,12 @@ def create_task(body: dict, db: Session = Depends(get_session)):
             "code": "gate.invalid_initial_stage",
             "message": "task cannot be created directly in done/cancelled",
         })
+    if stage == TaskStage.REVIEW:
+        raise HTTPException(422, detail={
+            "code": "gate.review_requires_transition",
+            "message": "task cannot be created directly in review; "
+                       "use a legal stage transition",
+        })
 
     # P2a 任务层级：parent_id 只能指向一个存在的顶层任务；子任务必须 ready。
     # P2b 起上面的 validate_enabled 分支已拒绝直接建子任务，这里仅保留 P2a 引导路径。
