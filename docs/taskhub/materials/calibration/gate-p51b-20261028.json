@@ -1,12 +1,13 @@
 {
   "ok": false,
   "db": "C:/Users/admin/.mio_taskhub/preflight/rehearsal_p51b_20261028.db",
-  "generated_at": "2026-10-29T00:45:05.427285+00:00",
-  "checked": 30,
+  "generated_at": "2026-10-29T01:23:11.500949+00:00",
+  "checked": 40,
   "blocking_failures": [
-    "structural:bare_count"
+    "structural:bare_count",
+    "audit:I7_active_gates"
   ],
-  "failed_count": 1,
+  "failed_count": 2,
   "warnings": [],
   "metrics": {
     "materials": 1378,
@@ -163,6 +164,53 @@
       "sample": []
     },
     {
+      "name": "audit:I4_fingerprint",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "audit:I7_active_gates",
+      "blocking": true,
+      "ok": false,
+      "count": 1,
+      "sample": [
+        {
+          "id": "mat_2ca8a2c1",
+          "reason": "HG-13:bare_count"
+        }
+      ]
+    },
+    {
+      "name": "audit:I8_linked_not_archived",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "audit:I9_scope",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "audit:I10_llm_source",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "audit:I11_link_target_status",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
       "name": "isolation:witness_group_empty",
       "blocking": true,
       "ok": true,
@@ -171,6 +219,34 @@
     },
     {
       "name": "isolation:source_group_empty",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "isolation:group_change_audited",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "audit:I15_extract_append_only",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "audit:I16_extract_versions",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "audit:I18_raw_missing",
       "blocking": true,
       "ok": true,
       "count": 0,

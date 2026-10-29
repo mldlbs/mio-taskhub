@@ -381,7 +381,7 @@
 | 生产重跑 | 不批准 |
 | 日志来源 | `trial` |
 | 新 exe | 继续阻塞（`task.updated_at` 独立事项） |
-| 测试 | 素材库 136 passed；全量 1746 passed / 2 skipped |
+| 测试 | 素材库 155 passed；全量 1768 passed / 2 skipped |
 
 ---
 
@@ -399,4 +399,19 @@
 | 0.40 / 0.65 | 可见性分层参数，不冒充质量准入阈值；不冻结 |
 | 生产 / 日志 / exe | 不重跑；`trial`；继续阻塞 |
 
-测试：`tests/test_materials_gate.py`（干净库通过 + 5 类缺陷阻塞）。
+测试：`tests/test_materials_gate.py`（25 项：I1–I18 逐项、240/241、10/9、TTL ±1s、缺库/缺表、CLI 退出码）。CI 在 push/PR 运行门禁测试，失败即红。
+
+---
+
+## 19 生产部署阻塞：`task.updated_at` 迁移（独立事项）
+
+| 项 | 结果 |
+|---|---|
+| 问题 | 生产 `task` 表 1,941 行缺 `updated_at`；新模型 ORM 查询失败 |
+| 方案 | 加列 + 回填 + 插入/更新双触发器（兼容旧 exe） |
+| 工具 | `scripts/migrate_task_updated_at.py`（apply/verify/rollback，自动备份） |
+| 副本演练 | 列存在、NULL=0、ORM 读 1,941 行、38 张非 task 表哈希一致 |
+| 回滚演练 | 恢复备份后列消失、行数保留 |
+| 生产 | **未执行**，需单独审批；不与素材门禁捆绑 |
+| 文档 | `docs/ops/MIGRATION-task-updated-at-20261029.md` |
+| 测试 | `tests/test_migrate_task_updated_at.py`（3 项） |

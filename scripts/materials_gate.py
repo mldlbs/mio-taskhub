@@ -24,7 +24,12 @@ if str(ROOT) not in sys.path:
 
 from sqlalchemy import create_engine  # noqa: E402
 
-from mio_taskhub.materials.constants import TTL_DAYS  # noqa: E402
+from mio_taskhub.materials.common import content_fingerprint  # noqa: E402
+from mio_taskhub.materials.constants import (  # noqa: E402
+    LLM_SOURCE_MARKERS, TTL_DAYS,
+)
+from mio_taskhub.materials.pipeline import draft_reject_reason  # noqa: E402
+from mio_taskhub.materials.quality import Draft  # noqa: E402
 from scripts.materials_audit import run_audit  # noqa: E402
 from scripts.materials_validate import validate  # noqa: E402
 
@@ -137,10 +142,70 @@ def gate(db: Path, examples: int = 5) -> dict:
         checks.append(_check(
             "duplicates:extract",
             _sql_count(conn,
-                       "select material_id, raw_id, extract_version, count(*) n "
-                       "from material_extract group by 1,2,3 having n>1")))
+                       "select material_id, raw_id, extract_version, count(*) n, "
+                       "count(distinct draft_fingerprint) fps "
+                       "from material_extract group by 1,2,3 having fps>1")))
 
-        # 4 来源隔离（witness 快照非空；corroboration 已由 audit I6 校验）
+        # 4 内容指纹与 active 硬闸（I4 / I7）
+        fingerprint_bad = []
+        for row in conn.execute(
+                "select id, quote, content_fingerprint from material"):
+            if content_fingerprint(str(row["quote"])) != row["content_fingerprint"]:
+                fingerprint_bad.append({"id": row["id"]})
+        checks.append(_check("audit:I4_fingerprint", fingerprint_bad))
+
+        active_gate_bad = []
+        for row in conn.execute(
+                "select m.id, m.kind, m.quote, m.scope_key, w.source_key, "
+                "w.raw_revision, w.sanitizer_version, w.locator, r.payload "
+                "from material m "
+                "join material_witness w on w.material_id=m.id and w.is_primary=1 "
+                "join material_raw r on r.id=w.raw_id "
+                "where m.status='active'"):
+            try:
+                payload = json.loads(row["payload"])
+                loc = json.loads(row["locator"] or "{}")
+                draft = Draft(
+                    kind=row["kind"], quote=row["quote"],
+                    field=str(loc.get("field") or "content"),
+                    char_start=loc.get("char_start"),
+                    char_end=loc.get("char_end"),
+                    scope_key=row["scope_key"] or "",
+                )
+                reason = draft_reject_reason(
+                    draft, payload, row["source_key"], row["scope_key"] or "",
+                    int(row["raw_revision"]), int(row["sanitizer_version"]))
+            except Exception as exc:
+                reason = f"payload_error:{exc}"
+            if reason:
+                active_gate_bad.append({"id": row["id"], "reason": reason})
+        checks.append(_check("audit:I7_active_gates", active_gate_bad))
+
+        # 5 链接与范围（I8 / I9 / I10 / I11）
+        checks.append(_check(
+            "audit:I8_linked_not_archived",
+            _sql_count(conn,
+                       "select distinct m.id from material m "
+                       "join material_link l on l.material_id=m.id "
+                       "where m.status not in ('active','stale')")))
+        checks.append(_check(
+            "audit:I9_scope",
+            _sql_count(conn,
+                       "select id from material where (kind='signal' and scope_key!='') "
+                       "or (kind!='signal' and scope_key is null)")))
+        llm_sources = [
+            row[0] for row in conn.execute("select key from material_source")
+            if any(marker in str(row[0]).lower() for marker in LLM_SOURCE_MARKERS)
+        ]
+        checks.append(_check("audit:I10_llm_source", llm_sources))
+        checks.append(_check(
+            "audit:I11_link_target_status",
+            _sql_count(conn,
+                       "select l.id from material_link l "
+                       "join material m on m.id=l.material_id "
+                       "where m.status not in ('active','stale')")))
+
+        # 6 来源隔离（witness 快照非空；corroboration 已由 audit I6 校验）
         checks.append(_check(
             "isolation:witness_group_empty",
             _sql_count(conn,
@@ -152,6 +217,41 @@ def gate(db: Path, examples: int = 5) -> dict:
             _sql_count(conn,
                        "select key from material_source where independence_group is null "
                        "or independence_group=''")))
+        checks.append(_check(
+            "isolation:group_change_audited",
+            _sql_count(conn,
+                       "select w.id from material_witness w "
+                       "join material_source s on s.key=w.source_key "
+                       "where w.independence_group != s.independence_group "
+                       "and not exists (select 1 from material_source_audit a "
+                       "where a.source_key=s.key and a.field='independence_group')")))
+
+        # 7 提取历史（I15 / I16 / I18）
+        checks.append(_check(
+            "audit:I15_extract_append_only",
+            _sql_count(conn,
+                       "select material_id, raw_id, extract_version, "
+                       "count(*) n, count(distinct draft_fingerprint) fps "
+                       "from material_extract group by 1,2,3 having fps>1")))
+        bad_versions = []
+        for row in conn.execute(
+                "select m.id, m.first_extract_version, m.last_extract_version, "
+                "(select count(distinct extract_version) from material_extract e "
+                " where e.material_id=m.id) n from material m"):
+            versions = {r[0] for r in conn.execute(
+                "select distinct extract_version from material_extract "
+                "where material_id=?", (row["id"],))}
+            if (row["first_extract_version"] not in versions
+                    or row["last_extract_version"] not in versions
+                    or int(row["first_extract_version"]) > int(row["last_extract_version"])):
+                bad_versions.append({"id": row["id"], "known": sorted(versions)})
+        checks.append(_check("audit:I16_extract_versions", bad_versions))
+        checks.append(_check(
+            "audit:I18_raw_missing",
+            _sql_count(conn,
+                       "select w.id from material_witness w "
+                       "where not exists (select 1 from material_raw r where r.id=w.raw_id)")))
+
 
         # 5 时效：expires_at 与 last_seen + TTL 一致；observed 不晚于 last_seen
         bad_expiry: List[dict] = []
@@ -168,7 +268,7 @@ def gate(db: Path, examples: int = 5) -> dict:
             if expected is None:
                 bad = expires is not None
             else:
-                bad = expires is None or abs((expires - expected).total_seconds()) > 1
+                bad = expires is None or (expires - expected).total_seconds() != 0
             if bad:
                 bad_expiry.append({"id": row["id"], "kind": row["kind"],
                                    "expires_at": row["expires_at"]})
@@ -240,6 +340,25 @@ def gate(db: Path, examples: int = 5) -> dict:
     }
 
 
+def run_gate(db: Path, examples: int = 5) -> dict:
+    """门禁入口：缺失库/表/列时返回 gate:error，而不是抛异常。"""
+    try:
+        return gate(db, examples=examples)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "db": str(db).replace("\\", "/"),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "blocking_failures": ["gate:error"],
+            "failed_count": 1,
+            "error": str(exc)[:500],
+            "warnings": [],
+            "metrics": {},
+            "checks": [],
+            "note": "门禁自身失败也必须阻止发布。",
+        }
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--db", required=True)
@@ -247,9 +366,7 @@ def main() -> int:
     p.add_argument("--examples", type=int, default=5)
     args = p.parse_args()
     db = Path(args.db)
-    if not db.exists():
-        raise SystemExit(f"db not found: {db}")
-    report = gate(db, examples=args.examples)
+    report = run_gate(db, examples=args.examples)
     if args.out:
         Path(args.out).write_text(
             json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

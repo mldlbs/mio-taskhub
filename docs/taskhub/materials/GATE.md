@@ -57,6 +57,56 @@ python scripts/materials_gate.py --db <db> --out <report.json>
 3. `ok: true` 才允许进入发布评审；`ok: false` 直接阻止；
 4. 门禁报告随发布证据归档。
 
+## 4.1 门禁自身验收（I1–I18）
+
+`tests/test_materials_gate.py` 对每类不变量构造独立缺陷，并保留合法数据与边界值：
+
+| 不变量 | 缺陷用例 | 结果 |
+|---|---|---|
+| I1 | 删除唯一 witness | 阻塞 |
+| I2 | 零主 witness | 阻塞 |
+| I3 | material.quote ≠ primary.quote_exact | 阻塞 |
+| I4 | content_fingerprint 被篡改 | 阻塞 |
+| I5 | occurrences 不符 | 阻塞 |
+| I6 | corroboration 不符 | 阻塞 |
+| I7 | active 素材不过硬闸（不可引用 signal） | 阻塞 |
+| I8 | 有 link 的素材被归档 | 阻塞 |
+| I9 | signal.scope_key 非空 | 阻塞 |
+| I10 | 来源键含 LLM 标记 | 阻塞 |
+| I11 | link 指向非 active/stale | 阻塞 |
+| I12 | witness 与 raw 版本/哈希不一致 | 阻塞 |
+| I13 | locator.raw_revision 不一致 | 阻塞 |
+| I14 | current_extract_id 指向错误 | 阻塞 |
+| I15 | 同键 extract 出现不同 draft_fingerprint | 阻塞 |
+| I16 | first/last_extract_version 不在历史中 | 阻塞 |
+| I17 | witness 分组与来源不一致且无审计记录 | 阻塞 |
+| I18 | witness 引用的 raw 被删除 | 阻塞 |
+
+边界与缺失：
+
+| 用例 | 期望 |
+|---|---|
+| 240 字 / 241 字 | 240 通过；241 阻塞 |
+| decision 10 字 / 9 字 | 10 通过；9 阻塞 |
+| expires_at 精确 / +1 秒 | 精确通过；+1 秒阻塞 |
+| 同键 extract 相同 fingerprint | 不阻塞 |
+| 库文件不存在 / 空库无表 | `gate:error`，退出码 1 |
+
+CI：`.github/workflows/test.yml` 在每次 push / PR 运行 `tests/test_materials_gate.py` 与 `tests/test_materials_validate.py`；任一失败即 CI 红。发布评审必须附门禁 JSON 报告，CI 未过不得发布。
+
+## 4.2 0.40 / 0.65 的语义
+
+| 项 | 事实 |
+|---|---|
+| 运行行为 | 决定 `active` / `quarantine` 可见性分层 |
+| 是否质量准入 | **不是**；没有独立语义验证 |
+| 是否冻结 | 不冻结 |
+| API | 当前不返回阈值数值；只返回 `status` / `status_reason` |
+| 界面 | 不展示阈值，只展示状态 |
+| 文案约束 | 不得写成“质量达标线”“真实可用率”；只能说“可见性分层参数” |
+
+本轮不改代码行为；若未来要在 API/界面展示，必须同时展示“未验证的启发式”说明。
+
 ## 5 第二层（暂不启动）
 
 下游任务效用实验的前提，缺一不可：

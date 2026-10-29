@@ -140,7 +140,8 @@
 | T78 | `test_materials_review.py::test_review_kit_handout_copies_blank_sheets` | 双人空白副本发放与哈希 |
 | T79 | `test_materials_known_disputes.py`（49 项） | 24 条已知争议 × 结果/确定性 + 类别覆盖 |
 | T80 | `test_materials_validate.py`（3 项） | 结构缺陷、held-out 排除、类型/状态漂移 |
-| T81 | `test_materials_gate.py`（6 项） | 干净库通过；回源/主 witness/分组/TTL/提取状态五类缺陷阻塞 |
+| T81 | `test_materials_gate.py`（25 项） | I1–I18 逐项阻塞、边界值、缺失库/表、CLI 退出码 |
+| T82 | `test_migrate_task_updated_at.py`（3 项） | task.updated_at 备份/回填/触发器/回滚/缺表 |
 
 ---
 
@@ -274,7 +275,7 @@ python scripts/materials_audit.py
 python scripts/materials_backfill.py --days 30
 ```
 
-素材库实测：`136 passed`；全量 `1746 passed / 2 skipped / 4 deselected`（2026-10-29）。
+素材库实测：`155 passed`；全量 `1768 passed / 2 skipped / 4 deselected`（2026-10-29）。
 
 ---
 

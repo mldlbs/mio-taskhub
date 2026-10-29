@@ -33,6 +33,7 @@ dist*/
 docs/*
 !docs/roadmap/
 !docs/taskhub/
+!docs/ops/
 !docs/quality-audit.md
 !docs/quality-plan-review-20261010.md
 !docs/csdn-mio-taskhub-practice.md
@@ -44,5 +45,5 @@ docs/*
 coverage.xml
 htmlcov/
 
-# ÊµÑéÔËÐÐ²úÎï£¨ÁÙÊ±£¬²»Èë¿â£©
+# Êµï¿½ï¿½ï¿½ï¿½ï¿½Ð²ï¿½ï¿½ï£¨ï¿½ï¿½Ê±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½â£©
 experiments/runs/
