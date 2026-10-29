@@ -1,0 +1,56 @@
+# 新 exe 部署记录（2026-10-29）
+
+> 用户批准“新 exe 部署”。本次只刷新本机运行目录，不做 GitHub Release、不发布 zip/安装包。
+
+## 1 构建
+
+| 项 | 值 |
+|---|---|
+| 代码 | `f867c2b`（干净工作区） |
+| 命令 | `packaging/build.ps1 -Quick` |
+| 版本 | `0.6.1`（未改版本号，未打 tag） |
+| 产物 | `dist/mio-taskhub-v3/TaskHub.exe` |
+| 新 exe sha256 | `abdf1d735ebeee80…` |
+| 大小 | 16,142,656 字节 |
+| 构建结果 | 退出码 0；安装器也重建，但未分发 |
+
+## 2 变更前备份
+
+| 项 | 路径 / 值 |
+|---|---|
+| 旧运行目录 | `~/.mio_taskhub/deploy-20261029/old-dist/` |
+| 旧 exe sha256 | `5c0e4acd44929c455a44f219c0cb0b2b4b32e099bc03478a99aafdd3163d893e` |
+| 旧 exe 大小 | 16,083,824 字节 |
+| 生产 DB 备份 | `~/.mio_taskhub/deploy-20261029/taskhub-pre-deploy.db` |
+| DB 备份 sha256 | `eba74313a32f61fb79079c1b1861a1a2a9dcc130caa2268d2ee16e7262c90f9b` |
+| DB 备份完整性 | `integrity_check=ok` |
+
+## 3 部署后状态
+
+| 检查 | 结果 |
+|---|---|
+| TaskHub 进程 | supervisor + worker（PID 37032 / 39580） |
+| 端口 48620 | 监听 |
+| `GET /api/v1/tasks` | HTTP 200 |
+| `GET /api/v1/materials/sources` | HTTP 200（10 个来源；旧 exe 为 404） |
+| `task` 行数 | 1,948 |
+| `updated_at` NULL | 0 |
+| `integrity_check` | `ok` |
+| 素材库 | 2,351 active / 38 quarantine |
+| runtime.log | supervisor spawn worker、worker 启动，无报错 |
+
+## 4 回滚
+
+1. 停止 TaskHub 进程；
+2. 用 `~/.mio_taskhub/deploy-20261029/old-dist` 覆盖 `dist/mio-taskhub-v3`；
+3. 启动 `TaskHub.exe hub --worker`；
+4. 验证 `/api/v1/tasks` 200、任务数、素材数。
+
+数据库无需回滚：旧 exe 不识别 `updated_at`，会忽略该列；迁移触发器保留也不影响旧代码。只有在确认新 exe 写坏数据时，才按迁移备份恢复 DB，并需单独批准。
+
+## 5 边界
+
+- 未上传 GitHub Release、未发 zip、未分发安装器；
+- 版本仍为 `0.6.1`，未打 tag；
+- 素材回填、阈值、日志来源（`trial`）未变；
+- 素材业务效用仍未测量。
