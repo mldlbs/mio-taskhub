@@ -11,8 +11,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sqlite3
+import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -340,12 +342,43 @@ def gate(db: Path, examples: int = 5) -> dict:
     }
 
 
+def _code_binding() -> dict:
+    commit, dirty = "unknown", True
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True,
+            cwd=ROOT, timeout=10).stdout.strip() or "unknown"
+        status = subprocess.run(
+            ["git", "status", "--porcelain"], capture_output=True, text=True,
+            cwd=ROOT, timeout=10).stdout
+        dirty = bool(status.strip())
+    except Exception:
+        pass
+    return {"code_commit": commit, "code_dirty": dirty}
+
+
+def _db_binding(db: Path) -> dict:
+    if not db.exists():
+        return {"db_sha256": None, "db_size": None}
+    return {
+        "db_sha256": hashlib.sha256(db.read_bytes()).hexdigest(),
+        "db_size": db.stat().st_size,
+    }
+
+
+def _fingerprint(report: dict) -> str:
+    body = {k: v for k, v in report.items() if k != "report_fingerprint"}
+    blob = json.dumps(body, ensure_ascii=False, sort_keys=True,
+                      separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
 def run_gate(db: Path, examples: int = 5) -> dict:
     """门禁入口：缺失库/表/列时返回 gate:error，而不是抛异常。"""
     try:
-        return gate(db, examples=examples)
+        report = gate(db, examples=examples)
     except Exception as exc:
-        return {
+        report = {
             "ok": False,
             "db": str(db).replace("\\", "/"),
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -357,6 +390,14 @@ def run_gate(db: Path, examples: int = 5) -> dict:
             "checks": [],
             "note": "门禁自身失败也必须阻止发布。",
         }
+    report["binding"] = {
+        "gate_version": 1,
+        **_code_binding(),
+        **_db_binding(db),
+        "db_path": str(db).replace("\\", "/"),
+    }
+    report["report_fingerprint"] = _fingerprint(report)
+    return report
 
 
 def main() -> int:

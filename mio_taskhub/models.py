@@ -200,6 +200,7 @@ class Task(SQLModel, table=True):
     # 不引入任何抢单状态机：领取仍走既有 claim() 的 CAS。
     grab_mode: bool = False
     created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
 
 
 class TaskEvent(SQLModel, table=True):

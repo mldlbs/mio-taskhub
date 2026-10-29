@@ -39,7 +39,7 @@ jobs:
 
       - name: Materials gate tests
         run: |
-          python -m pytest tests/test_materials_gate.py tests/test_materials_validate.py -q
+          python -m pytest tests/test_materials_gate.py tests/test_materials_validate.py tests/test_gate_attestation.py -q
 
       - name: Upload test results
         if: failure()

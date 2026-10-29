@@ -14,11 +14,27 @@ param(
   [string]$Notes = "",
   [switch]$Prerelease,
   [switch]$DryRun,
-  [switch]$SkipBuild
+  [switch]$SkipBuild,
+  [string]$GateReport = ""
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+
+# 真实发布必须先验证素材门禁报告：报告需绑定当前 commit 与被测 DB。
+# DryRun 不发布，允许跳过。
+if (-not $DryRun) {
+  if (-not $GateReport) {
+    throw 'Real release requires -GateReport <gate-report.json> (no bypass).'
+  }
+  if (-not (Test-Path $GateReport)) {
+    throw "Gate report not found: $GateReport"
+  }
+  & "$root\.venv\Scripts\python.exe" "$root\scripts\verify_gate_report.py" --report $GateReport
+  if ($LASTEXITCODE -ne 0) {
+    throw 'Gate report verification failed; release blocked.'
+  }
+}
 
 $Owner     = 'mldlbs'
 $Repo      = 'mio-taskhub'

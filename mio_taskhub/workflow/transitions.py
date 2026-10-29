@@ -81,6 +81,7 @@ def apply_transition(
     if to_state == State.CANCELLED and task.cancelled_at is None:
         task.cancelled_at = now
     task.last_transition_at = now
+    task.updated_at = now
 
     if t.increments_bounce:
         task.bounce_count = (task.bounce_count or 0) + 1
@@ -116,6 +117,7 @@ def record_post_claim(task: Task, actor_id: str) -> Optional[TaskEvent]:
     if task.claimed_at is None:
         task.claimed_at = now
     task.last_transition_at = now
+    task.updated_at = now
     return TaskEvent(
         task_id=task.id,
         event_type="claimed",
