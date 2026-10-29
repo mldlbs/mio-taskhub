@@ -19,7 +19,7 @@ const SORT_LABEL = {
 
 export default function ListView({ tasks, onCancel, onOpen }) {
   const [q, setQ] = useState('')
-  const [sort, setSort] = useState('priority')
+  const [sort, setSort] = useState('created')
   const [stateF, setStateF] = useState('all')
   const [agentF, setAgentF] = useState('all')
   const [confirmCancel, setConfirmCancel] = useState(null)

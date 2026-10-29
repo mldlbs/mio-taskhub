@@ -442,6 +442,8 @@ input, textarea, select { font-family: inherit; }
 .board-scene:hover { border-color: var(--line-strong); color: var(--ink); }
 .board-scene.is-on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); font-weight: 600; }
 .board-scene__count { font-family: var(--font-mono); font-size: 10px; opacity: 0.8; }
+.board-sort { display: flex; align-items: center; gap: 8px; margin: -4px 0 12px; font-size: 12px; color: var(--ink-dim); }
+.board-sort .toolbar__select { padding: 3px 8px; font-size: 12px; }
 .board-stats__fill {
   display: block;
   height: 100%;

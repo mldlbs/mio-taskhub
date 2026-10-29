@@ -23,11 +23,19 @@ function isOverdue(t) {
   return d && !Number.isNaN(+d) && d < new Date()
 }
 
+const SORTERS = {
+  created: (a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))
+    || (b.priority ?? 0) - (a.priority ?? 0),
+  priority: (a, b) => (b.priority ?? 0) - (a.priority ?? 0)
+    || String(b.created_at || '').localeCompare(String(a.created_at || '')),
+}
+
 export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, focus, groupBy = 'state' }) {
   const [dragging, setDragging] = useState(null)
   const [overPos, setOverPos] = useState(null)
   const [flashId, setFlashId] = useState(null)
   const [scene, setScene] = useState('all')
+  const [sort, setSort] = useState('created')
   const laneRefs = useRef({})
 
   const lanes = groupBy === 'stage' ? STAGES : LANES
@@ -52,7 +60,7 @@ export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, fo
 
   const byLane = Object.fromEntries(lanes.map(l => [
     l.id,
-    [...visible.filter(t => (t[groupField] || '') === l.id)].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0)),
+    [...visible.filter(t => (t[groupField] || '') === l.id)].sort(SORTERS[sort]),
   ]))
 
   const laneTotal = (id) => byLane[id].reduce((s, t) => s + (t.est_duration_min || 0), 0)
@@ -117,6 +125,15 @@ export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, fo
           </button>
         ))}
       </div>
+
+      <label className="board-sort">
+        <span>排序</span>
+        <select className="toolbar__select" value={sort}
+                onChange={e => setSort(e.target.value)} aria-label="看板排序">
+          <option value="created">创建时间（新→旧）</option>
+          <option value="priority">优先级</option>
+        </select>
+      </label>
 
       <div className="pipeline">
         {lanes.map(lane => {

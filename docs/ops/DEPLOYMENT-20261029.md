@@ -54,3 +54,17 @@
 - 版本仍为 `0.6.1`，未打 tag；
 - 素材回填、阈值、日志来源（`trial`）未变；
 - 素材业务效用仍未测量。
+
+## 6 追加部署：看板默认创建时间倒序（2026-10-29）
+
+| 项 | 值 |
+|---|---|
+| 变更 | 看板泳道默认按 `created_at` 倒序，保留“优先级”切换；列表默认改为创建时间倒序 |
+| 前端构建 | `npm run build` 通过，asset `index-B4blXezh.js` |
+| 新 exe sha256 | `530b074728b44b4b4892f3da2d36eeb2003cba86729fbd99456357aa6cb95f86` |
+| 部署前运行目录 | `~/.mio_taskhub/deploy-20261029/pre-sort-dist/` |
+| 进程 | PID 5468 / 28440（supervisor + worker） |
+| API | `/api/v1/tasks` 200；`/api/v1/materials/sources` 200 |
+| 页面 bundle | 已包含“创建时间（新→旧）”“优先级”两个排序选项 |
+
+回滚：恢复 `pre-sort-dist` 并重启 `TaskHub.exe hub --worker`；数据库无需变更。
