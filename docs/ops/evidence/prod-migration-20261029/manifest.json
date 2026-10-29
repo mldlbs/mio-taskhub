@@ -1,0 +1,50 @@
+{
+  "migration": "task.updated_at",
+  "executed_at": "2026-10-29T06:53:41Z",
+  "code_commit": "86d00bd067c873293e4b481d67de22f745d883d5",
+  "approval_task": "37e540b9",
+  "execution_logs": {
+    "execution-log.json": {
+      "size": 966,
+      "sha256": "f293d4b3420a763962c1fedcf9d4dd969e2c322ad3e21641aa246161d7f4e66e"
+    },
+    "execution-log-retry.json": {
+      "size": 794,
+      "sha256": "8d1110f40c0c6fc9b352dcc8d1fde72f0e34bbaa3b9de9e4e34fd24dc682dc8b"
+    },
+    "execution-log-clean.json": {
+      "size": 998,
+      "sha256": "857e1acdaee2bc6b4803ac2cb2d90a8c52686d65c3923eb74b319ec17a073eac"
+    },
+    "flow-report.json": {
+      "size": 595,
+      "sha256": "c3c59541f4d3980a4ded573fd3e1b33db74034fbcea684b44079e9092d504b6d"
+    },
+    "flow-report-retry.json": {
+      "size": 2448,
+      "sha256": "4a7ea267c15251b1edef1f0b9fc3270ba7d1507b52f498ac3d80ecff8d85f770"
+    },
+    "flow-report-clean.json": {
+      "size": 2545,
+      "sha256": "797ac87e283bf7ed50514716eec8eb6036b1e207c7fc244431e730a956363fb1"
+    }
+  },
+  "database_backups": {
+    "taskhub-pre-updated-at-20261029T064703Z.db": {
+      "path": "C:\\Users\\admin\\.mio_taskhub\\preflight\\prod-migration-20261029\\taskhub-pre-updated-at-20261029T064703Z.db",
+      "size": 40112128,
+      "sha256": "4d5b9063fe4459e267840de41135e62bea6b15105b71f3e4d6d7033bb1324bea"
+    },
+    "taskhub-pre-retry-20261029T064903Z.db": {
+      "path": "C:\\Users\\admin\\.mio_taskhub\\preflight\\prod-migration-20261029\\taskhub-pre-retry-20261029T064903Z.db",
+      "size": 40112128,
+      "sha256": "881c4baa8930f3bcbe5251c4494bd8d9f23f9d2856a8ffe386966d17e864944e"
+    },
+    "taskhub-migrated-20261029T065341Z.db": {
+      "path": "C:\\Users\\admin\\.mio_taskhub\\preflight\\prod-migration-20261029\\taskhub-migrated-20261029T065341Z.db",
+      "size": 40144896,
+      "sha256": "65e6bf5b43e29dcc5427492a645b7638eb0c209406217d6c6f732a9d9ab2fa83"
+    }
+  },
+  "note": "DB backups remain outside Git; hashes recorded here. First attempt failed preflight without writing; second attempt rolled back and re-ran on clean commit 86d00bd."
+}

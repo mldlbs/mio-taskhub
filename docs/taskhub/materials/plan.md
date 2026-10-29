@@ -423,3 +423,20 @@
 | 生产 | **已执行（2026-10-29）**：1,943 行、NULL=0、触发器生效、ORM/API 通过；见 `docs/ops/PRODUCTION-MIGRATION-RESULT-20261029.md` |
 | 文档 | `docs/ops/MIGRATION-task-updated-at-20261029.md` / `REHEARSAL-...` / `APPROVAL-REQUEST-...` |
 | 测试 | `tests/test_migrate_task_updated_at.py`、`tests/test_migrate_flow.py` |
+
+---
+
+## 20 迁移关闭与下游实验预注册（编号 22，2026-10-29）
+
+| 项 | 结果 |
+|---|---|
+| 生产迁移 | **验收通过**：1,943 行、NULL=0、触发器、ORM/API、完整性均通过 |
+| 审计链 | `PRODUCTION-MIGRATION-RESULT` + `docs/ops/evidence/prod-migration-20261029/`（日志/manifest/备份哈希） |
+| 分支保护 | 独立治理事项；不追溯阻塞迁移，代码发布仍受 `release.ps1` 校验 |
+| 下游任务 | 预注册：任务结果分诊（completed vs failed/cancelled） |
+| 数据审计 | 1,916 条；completed 190；测试集 90/1,556；素材覆盖 100% |
+| 功效门槛 | **未满足**（90 < 400）；5pp 不可检出，最小可检出约 13pp |
+| 对照实验 | **未运行** |
+| 人工标注 | 不恢复 |
+
+文档：`experiments/DOWNSTREAM-PREREG-20261029.md`。

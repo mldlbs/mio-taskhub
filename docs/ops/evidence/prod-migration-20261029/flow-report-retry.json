@@ -1,0 +1,105 @@
+{
+  "ok": true,
+  "stage": "verified",
+  "checks": [
+    {
+      "name": "db_identity",
+      "ok": true,
+      "detail": {
+        "expected": "add64b54df1a84ac7ecb35797a9bfd1e2b8b1898b2c1f081e446b8222c26a6cc",
+        "actual": "add64b54df1a84ac7ecb35797a9bfd1e2b8b1898b2c1f081e446b8222c26a6cc"
+      }
+    },
+    {
+      "name": "schema_present",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "integrity",
+      "ok": true,
+      "detail": "ok"
+    },
+    {
+      "name": "approval",
+      "ok": true,
+      "detail": {
+        "ok": true,
+        "review_id": "5fa19379778f",
+        "reviewer": "ops-migration",
+        "expires_at": "2026-10-29T08:49:05.558305+00:00"
+      }
+    },
+    {
+      "name": "apply",
+      "ok": true,
+      "detail": {
+        "backup": "C:/Users/admin/.mio_taskhub/preflight/prod-migration-20261029/taskhub-pre-flow.db",
+        "error": null
+      }
+    },
+    {
+      "name": "schema_updated_at",
+      "ok": true,
+      "detail": [
+        "human_confirm_note",
+        "completion_run_id",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "row_count_preserved",
+      "ok": true,
+      "detail": {
+        "before": 1943,
+        "after": 1943
+      }
+    },
+    {
+      "name": "updated_at_no_null",
+      "ok": true,
+      "detail": 0
+    },
+    {
+      "name": "integrity_after",
+      "ok": true,
+      "detail": "ok"
+    },
+    {
+      "name": "trigger_insert",
+      "ok": true,
+      "detail": [
+        "task_updated_at_after_insert",
+        "task_updated_at_after_update"
+      ]
+    },
+    {
+      "name": "trigger_definition",
+      "ok": true,
+      "detail": [
+        "task_updated_at_after_insert",
+        "task_updated_at_after_update"
+      ]
+    },
+    {
+      "name": "non_target_tables",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "app_read",
+      "ok": true,
+      "detail": "{\"rows\": 1943}"
+    }
+  ],
+  "approval": {
+    "ok": true,
+    "review_id": "5fa19379778f",
+    "reviewer": "ops-migration",
+    "expires_at": "2026-10-29T08:49:05.558305+00:00"
+  },
+  "db_content_hash": "add64b54df1a84ac7ecb35797a9bfd1e2b8b1898b2c1f081e446b8222c26a6cc",
+  "code_commit": "2a041d1980132be245e01c8c5e03399585ad0628",
+  "backup": "C:/Users/admin/.mio_taskhub/preflight/prod-migration-20261029/taskhub-pre-flow.db",
+  "rolled_back": false
+}

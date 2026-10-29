@@ -1,0 +1,33 @@
+{
+  "killed_pids": [
+    31728
+  ],
+  "rows_before_rollback": 1943,
+  "integrity_before_rollback": "ok",
+  "post_migration_backup": "C:\\Users\\admin\\.mio_taskhub\\preflight\\prod-migration-20261029\\taskhub-migrated-20261029T065341Z.db",
+  "post_migration_backup_sha256": "65e6bf5b43e29dcc5427492a645b7638eb0c209406217d6c6f732a9d9ab2fa83",
+  "inverse_rollback": {
+    "ok": true,
+    "mode": "inverse",
+    "rows": 1943,
+    "expected_rows": 1943,
+    "integrity": "ok"
+  },
+  "deleted_old_approvals": 1,
+  "content_hash_before": "9c7fcb665ed201b5aa1875182a558277827e0c35f245fd059e80391ef2602aea",
+  "approval": {
+    "ok": true,
+    "error": null,
+    "hash": "9c7fcb665ed201b5aa1875182a558277827e0c35f245fd059e80391ef2602aea",
+    "commit": "86d00bd067c873293e4b481d67de22f745d883d5"
+  },
+  "flow": {
+    "ok": true,
+    "stage": "verified",
+    "rolled_back": false,
+    "failures": []
+  },
+  "hub_restarted_pid": 25268,
+  "api_health": 200,
+  "flow_ok": true
+}

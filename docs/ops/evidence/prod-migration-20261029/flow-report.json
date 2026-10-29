@@ -1,0 +1,25 @@
+{
+  "ok": false,
+  "stage": "preflight",
+  "checks": [
+    {
+      "name": "db_identity",
+      "ok": false,
+      "detail": {
+        "expected": "ec6c567ac8c669516fdbd91b2b91f8744375d74baa9dcf9312f4d9fdd0f05c88",
+        "actual": "e89c5b3e55c88b4c534862a7b6036f00d7bdfd1ccc3ce390d93bf9de295ca327"
+      }
+    },
+    {
+      "name": "schema_present",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "integrity",
+      "ok": true,
+      "detail": "ok"
+    }
+  ],
+  "db_content_hash": "e89c5b3e55c88b4c534862a7b6036f00d7bdfd1ccc3ce390d93bf9de295ca327"
+}
