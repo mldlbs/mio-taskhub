@@ -1,4 +1,4 @@
-# 素材库（Material Library）实施计划
+﻿# 素材库（Material Library）实施计划
 
 ## 文档信息
 
@@ -381,4 +381,22 @@
 | 生产重跑 | 不批准 |
 | 日志来源 | `trial` |
 | 新 exe | 继续阻塞（`task.updated_at` 独立事项） |
-| 测试 | 素材库 130 passed；全量 1740 passed / 2 skipped |
+| 测试 | 素材库 136 passed；全量 1746 passed / 2 skipped |
+
+---
+
+## 18 第一层数据质量门禁（编号 13，2026-10-29）
+
+| 项 | 结果 |
+|---|---|
+| 门禁脚本 | `scripts/materials_gate.py`（退出码 0/1，失败阻止发布） |
+| 检查 | 回源、原子性、结论形状、裸计数、标记泄漏、四类去重、来源分组、TTL、extract 状态、审计 I1–I16 |
+| 当前副本 | **PASS**（1,378 / 1,375 active / 3 quarantine；17 条过期 active 仅指标） |
+| P5.1 副本 | **FAIL**：`structural:bare_count`（`failed=25`） |
+| 报告 | `calibration/gate-p52-20261028.json` / `gate-p51b-20261028.json` |
+| 文档 | `GATE.md` |
+| 第二层下游 A/B | **未启动**；真实可用率仍“未测量” |
+| 0.40 / 0.65 | 可见性分层参数，不冒充质量准入阈值；不冻结 |
+| 生产 / 日志 / exe | 不重跑；`trial`；继续阻塞 |
+
+测试：`tests/test_materials_gate.py`（干净库通过 + 5 类缺陷阻塞）。

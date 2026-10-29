@@ -1,0 +1,237 @@
+{
+  "ok": false,
+  "db": "C:/Users/admin/.mio_taskhub/preflight/rehearsal_p51b_20261028.db",
+  "generated_at": "2026-10-29T00:45:05.427285+00:00",
+  "checked": 30,
+  "blocking_failures": [
+    "structural:bare_count"
+  ],
+  "failed_count": 1,
+  "warnings": [],
+  "metrics": {
+    "materials": 1378,
+    "active": 1375,
+    "quarantine": 3,
+    "expired_active": 17
+  },
+  "checks": [
+    {
+      "name": "audit:I1_material_without_witness",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "audit:I2_primary_witness_count",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "audit:I3_quote_matches_primary",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "audit:I5_occurrences",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "audit:I6_corroboration",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "audit:I12_witness_raw_version",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "audit:I13_locator_revision",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "audit:I14_current_extract",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "audit:I16_extract_versions",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "structural:verbatim",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "structural:atomic",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "structural:decision_shape",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "structural:bare_count",
+      "blocking": true,
+      "ok": false,
+      "count": 1,
+      "sample": [
+        {
+          "id": "mat_2ca8a2c1",
+          "kind": "result",
+          "source_key": "run.result",
+          "quote": "failed=25"
+        }
+      ]
+    },
+    {
+      "name": "structural:marker_leak",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "structural:verbatim_unverifiable",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "duplicates:active_fingerprint",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "duplicates:material_key",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "duplicates:raw_revision",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "duplicates:witness",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "duplicates:extract",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "isolation:witness_group_empty",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "isolation:source_group_empty",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "freshness:expires_consistency",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "freshness:expired_active",
+      "blocking": false,
+      "ok": true,
+      "count": 17,
+      "sample": []
+    },
+    {
+      "name": "audit:raw_status_invalid",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "audit:rejected_without_reason",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "audit:extracted_without_witness",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "audit:skipped_with_witness",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "audit:raw_without_source",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    },
+    {
+      "name": "audit:source_without_status",
+      "blocking": true,
+      "ok": true,
+      "count": 0,
+      "sample": []
+    }
+  ],
+  "note": "仅数据质量与系统正确性；不包含检索命中或下游效用。"
+}

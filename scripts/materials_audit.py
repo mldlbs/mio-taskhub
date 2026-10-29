@@ -37,13 +37,17 @@ def run_audit(target_engine=None) -> dict:
         ).all()
         checks.append(_check("I1_material_without_witness", list(orphan)))
 
-        prim = s.exec(
-            select(MaterialWitness.material_id, func.count())
-            .where(MaterialWitness.is_primary == True)  # noqa: E712
-            .group_by(MaterialWitness.material_id)
-            .having(func.count() != 1)
-        ).all()
-        checks.append(_check("I2_primary_witness_count", [tuple(r) for r in prim]))
+        prim = []
+        for mid in s.exec(select(Material.id)).all():
+            n = s.execute(
+                select(func.count()).select_from(MaterialWitness).where(
+                    MaterialWitness.material_id == mid,
+                    MaterialWitness.is_primary == True,  # noqa: E712
+                )
+            ).scalar_one()
+            if int(n) != 1:
+                prim.append((mid, int(n)))
+        checks.append(_check("I2_primary_witness_count", prim))
 
         quote_bad = []
         for m in s.exec(select(Material)).all():

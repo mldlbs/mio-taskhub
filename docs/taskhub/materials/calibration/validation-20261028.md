@@ -12,6 +12,7 @@
 | 重复素材 | 0 |
 | 同版本两次独立回填 | 漂移 0 |
 | 二次回填 | 新增/合并/接受均为 0 |
+| 第一层数据质量门禁 | 当前副本 **PASS**；P5.1 副本 **FAIL**（bare_count） |
 | 真实可用率 | **未测量**（无独立语义真值） |
 | 语义误收率 | **未测量**（结构检查覆盖不到） |
 | 质量准入 | **未通过** |
@@ -138,6 +139,7 @@ python scripts/materials_validate.py --db <copy.db> \
 | `discussion.closed` 圈号列表未拆分 | 混合内容用例 | `_split_items` 支持 `①-⑩` |
 | `1.` / `6.` 数字标记泄漏 | 漂移对比发现 quote 以 `1.` 开头 | 统一剥离数字标记 |
 | `failed=25` 裸计数入库 | 已知争议用例 | HG-13 |
+| 审计 I2 漏检“零主 witness” | 门禁用例构造 | I2 改为逐素材计数，`!=1` 即失败 |
 
 说明：`1.` 标记泄漏是在本轮独立验证中被漂移对比暴露的，不在原计划用例内——属于“独立检查暴露未知问题”的一例。
 
@@ -166,7 +168,20 @@ python scripts/materials_validate.py --db <copy.db> \
 
 ---
 
-## 9 复现
+## 9 第一层门禁（编号 13）
+
+`scripts/materials_gate.py` 将上述结构检查与审计检查合并为阻塞式门禁：
+
+| 库 | 结果 | 证据 |
+|---|---|---|
+| `rehearsal_p52`（当前代码） | **PASS**（0 阻塞） | `calibration/gate-p52-20261028.json` |
+| `rehearsal_p51b`（P5.1） | **FAIL**：`structural:bare_count` | `calibration/gate-p51b-20261028.json` |
+
+门禁通过只代表数据质量与系统正确性，不代表业务效用。第二层下游 A/B 实验**未启动**，真实可用率仍为“未测量”。详见 `docs/taskhub/materials/GATE.md`。
+
+---
+
+## 10 复现
 
 ```bash
 # 已知争议
