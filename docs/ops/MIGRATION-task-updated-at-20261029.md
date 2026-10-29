@@ -69,6 +69,28 @@ python scripts/migrate_task_updated_at.py --db <db> --rollback <backup.db> --yes
 
 `--apply` 自带：sqlite backup → `integrity_check` → 加列 → 回填 → 建触发器 → 复检（列存在、NULL=0）。
 
+### 3.1 端到端流程（授权/预检/失败回滚）
+
+`scripts/migrate_task_updated_at_flow.py` 把以下步骤串成一条可审计流程：
+
+1. 目标身份：DB 逻辑内容哈希必须等于 `--expect-content-hash`（跨 sqlite backup 稳定）；
+2. 预检：`task` 表存在、`integrity_check=ok`、行数/关键字段统计、触发器状态；
+3. 授权：从 taskhub 评审状态机读取指定任务的 `approve` 记录，`artifacts` 必须同时包含
+   `scope:task.updated_at`、`db_content_hash:<hash>`、`code_commit:<HEAD>`；
+4. 执行：备份 + 加列 + 回填 + 触发器；
+5. 验证：schema、行数不变、`updated_at` 无 NULL、触发器定义、非目标表哈希不变、应用 ORM 可读；
+6. 失败中止：任一验证失败自动恢复备份，并校验回滚后列不存在、行数保留；
+7. 幂等：已迁移且触发器齐全时再次运行返回 `already_applied`，不重复写。
+
+```bash
+python scripts/migrate_task_updated_at_flow.py \
+  --db <copy.db> --expect-content-hash <hash> --backup <pre.db> \
+  --approval-task <task_id> --hub http://127.0.0.1:48620 \
+  --report <flow-report.json>
+```
+
+没有任何“跳过授权/跳过验证”的 CLI 开关。失败时退出码非零，报告写入 `--report`。
+
 ## 4 发布步骤（生产，需单独审批）
 
 1. 公告维护窗口；停止 hub 与 worker（避免迁移时写入竞争）。

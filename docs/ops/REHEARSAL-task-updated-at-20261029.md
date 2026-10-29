@@ -86,3 +86,19 @@ python scripts/migrate_task_updated_at.py --db <copy.db> --rollback <pre.db> --y
 ```
 
 旧代码路径：`git worktree add <dir> 278a447`；新代码：当前 `main`。
+
+## 9 端到端流程演练（编号 16）
+
+在隔离环境用旧代码（`278a447`）起 taskhub，写入一条真实 approve 评审，再用流程脚本执行：
+
+| 步骤 | 结果 |
+|---|---|
+| 审批任务 | `task_id` 创建成功；`approve` 评审写入，`artifacts` 绑定 scope / db 内容哈希 / commit |
+| 第一次流程 | `verified`：预检、授权、迁移、验证、应用 ORM 读取全部通过 |
+| 第二次流程 | `already_applied`：幂等，不重复写 |
+| 错误内容哈希 | `preflight` 中止，退出码 1，未生成备份 |
+| 验证失败回滚 | 单测注入 `app_read` 失败：自动恢复备份、列消失、行数保留 |
+
+流程报告：`~/.mio_taskhub/preflight/p2-flow-rehearsal-20261029/flow-report-{1,2}.json`。
+
+授权不是人工签字：它来自 taskhub 既有评审状态机的一条 `approve` 记录，且必须绑定本次数据库内容哈希与代码 commit；旧审批无法复用。

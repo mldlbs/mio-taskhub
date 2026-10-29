@@ -52,11 +52,14 @@ CI 覆盖的是“代码与门禁测试”，**不是**手动发布入口；发�
 | CI 测试 | 否（配置后） | 步骤失败即红；需在仓库设置中把该 job 设为 required |
 | 发布脚本 | 否 | `-GateReport` 必填 + 校验失败 throw |
 | 提交历史 | 可伪造报告？ | 报告指纹 + commit + DB 哈希绑定；篡改会被测试覆盖 |
-| 分支保护 | **代码无法保证** | 需仓库管理员在 GitHub 设置 required checks；本文档记录该缺口 |
+| 分支保护 | **自动检测** | `.github/workflows/branch-protection.yml` 每日/手动运行 `scripts/check_required_checks.py`，缺少 `test (3.12)` / `materials-gate` 即红 |
+
+分支保护本身仍由仓库设置决定，但不再依赖人工记忆：定时 workflow 会调用 GitHub API 检查 required checks，未配置就失败。
 
 ## 5 已知边界
 
 1. **报告是发布时产物，不是源码**。报告绑定的是生成时的 commit；如果把报告提交进仓库，下一个 commit 就会让 `code_commit` 不匹配。发布时应从目标 commit 的干净工作区生成报告并归档，不要把历史报告当作本次发布证据。
 2. **被测 DB 必须随报告可访问**。`verify_gate_report.py` 会重新哈希 DB；只给报告不给 DB 无法通过。
 3. **`code_dirty` 必须为 false**。发布前先提交所有改动；构建脚本注入版本号应发生在校验之后。
-4. 分支保护 required checks 需在 GitHub 仓库设置中启用，建议至少包含 `test` 与 `Materials gate tests`。这是仓库配置，不在代码内。
+4. 分支保护 API 检查需要 `BRANCH_PROTECTION_TOKEN`（Administration 读权限）；未配置 secret 时 workflow 会失败，这是有意的门禁而不是跳过。
+5. required checks 名称随 job 名变化：当前为 `test (3.12)` 与 `materials-gate`；改 workflow job 名后需同步脚本参数。

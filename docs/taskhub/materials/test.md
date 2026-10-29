@@ -142,6 +142,10 @@
 | T80 | `test_materials_validate.py`（3 项） | 结构缺陷、held-out 排除、类型/状态漂移 |
 | T81 | `test_materials_gate.py`（25 项） | I1–I18 逐项阻塞、边界值、缺失库/表、CLI 退出码 |
 | T82 | `test_migrate_task_updated_at.py`（3 项） | task.updated_at 备份/回填/触发器/回滚/缺表 |
+| T83 | `test_gate_attestation.py`（5 项） | 报告指纹、commit、DB 哈希、失败门禁 |
+| T84 | `test_required_checks.py`（3 项） | 分支保护 required checks 缺失/无 token |
+| T85 | `test_release_entry.py`（4 项） | 发布必须校验报告；构建不发布；CI/分支保护审计 |
+| T86 | `test_migrate_flow.py`（4 项） | 预检/授权/迁移/验证/失败回滚/幂等 |
 
 ---
 
@@ -275,7 +279,7 @@ python scripts/materials_audit.py
 python scripts/materials_backfill.py --days 30
 ```
 
-素材库实测：`155 passed`；全量 `1776 passed / 2 skipped / 4 deselected`（2026-10-29）。
+素材库实测：`155 passed`；全量 `1787 passed / 2 skipped / 4 deselected`（2026-10-29）。
 
 ---
 

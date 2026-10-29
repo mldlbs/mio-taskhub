@@ -19,7 +19,9 @@
 | 迁移方案 | `docs/ops/MIGRATION-task-updated-at-20261029.md` |
 | 预演报告 | `docs/ops/REHEARSAL-task-updated-at-20261029.md` |
 | 迁移脚本 | `scripts/migrate_task_updated_at.py` |
+| 端到端流程 | `scripts/migrate_task_updated_at_flow.py`（授权/预检/失败回滚） |
 | 单元测试 | `tests/test_migrate_task_updated_at.py`（3 项） |
+| 流程测试 | `tests/test_migrate_flow.py`（4 项） |
 | 旧/新代码测试 | `tests/test_task_updated_at.py`（3 项） |
 | 预演副本 | `~/.mio_taskhub/preflight/p2-migration-rehearsal-20261029/` |
 | 备份 sha256 | `bf1100a58da33c822fb5650bb1ac5445a419b8d7d9a1e15a6d1a6788086c45b1` |
@@ -50,12 +52,15 @@
 | SQLite 锁 | 维护窗口、单进程执行、重试逻辑 |
 | 新 exe 部署混入本次变更 | 明确排除；新 exe 另行审批 |
 
-## 6 审批
+## 6 授权（自动化）
 
-| 角色 | 结论 | 日期 |
-|---|---|---|
-| 变更申请人 | 待签 | |
-| 数据/运维负责人 | 待签 | |
-| 发布负责人 | 待签 | |
+审批不再以人工签字为默认门禁，使用 taskhub 既有评审状态机：
+
+1. 创建审批任务（`POST /api/v1/tasks`）；
+2. 写入一条 `approve` 评审（`POST /api/v1/tasks/{id}/reviews`），`artifacts` 必须包含：
+   - `scope:task.updated_at`
+   - `db_content_hash:<目标库内容哈希>`
+   - `code_commit:<当前 HEAD>`
+3. 迁移流程脚本自动读取该任务评审；缺任一 artifact 或复用旧审批即中止。
 
 审批通过前：生产库不变、`trial` 不变、新 exe 不部署。
