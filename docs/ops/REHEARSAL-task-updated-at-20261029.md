@@ -106,3 +106,5 @@ python scripts/migrate_task_updated_at.py --db <copy.db> --rollback <pre.db> --y
 流程报告：`~/.mio_taskhub/preflight/p2-flow-rehearsal-20261029/flow-report-{1,2}.json`。
 
 授权不是人工签字，也不是客户端自报：服务端重新计算目标库内容哈希和代码 commit，签名由 `MIO_APPROVAL_SECRET` 生成，流程侧校验签名与有效期；旧审批无法复用。
+
+残余：本次演练的审批任务由 API 直接建成 `review`，审批服务只校验了 stage，未校验 `review_started_at` / 状态迁移事件；严格合法转移闭环仍需补 guard。
