@@ -53,6 +53,27 @@ def test_workstream_empty_group():
     assert data["layers"] == []
 
 
+def test_workstream_hides_cancelled_members():
+    from sqlmodel import Session
+    from mio_taskhub.db import engine
+    from mio_taskhub.models import Task, TaskStage, TaskState
+
+    root = _mk("root2")
+    a = _mk("A2", labels=[f"part-of:{root}"])
+    d = _mk("D2", labels=[f"part-of:{root}"])
+    with Session(engine) as s:
+        t = s.get(Task, d)
+        t.state = TaskState.CANCELLED
+        t.stage = TaskStage.CANCELLED
+        s.add(t)
+        s.commit()
+    data = client.get(f"/api/v1/tasks/{root}/workstream").json()
+    assert data["stats"]["total"] == 1
+    assert data["stats"]["cancelled"] == 1
+    assert [n["id"] for n in data["nodes"]] == [a]
+    assert all(e["to"] != d and e["from"] != d for e in data["edges"])
+
+
 def test_list_tasks_includes_labels():
     t = _mk("labeled", labels=["part-of:root-x"])
     rows = client.get("/api/v1/tasks").json()

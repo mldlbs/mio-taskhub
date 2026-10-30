@@ -52,6 +52,11 @@ def get_workstream(task_id: str, db: Session = Depends(get_session)):
         x for x in all_tasks
         if f"part-of:{owner}" in [str(v) for v in (x.labels or [])]
     ]
+    cancelled_ids = {
+        x.id for x in members
+        if x.state == TaskState.CANCELLED or x.stage == TaskStage.CANCELLED
+    }
+    members = [x for x in members if x.id not in cancelled_ids]
     members.sort(key=lambda x: x.created_at or 0)
 
     def closed(x):
@@ -77,9 +82,13 @@ def get_workstream(task_id: str, db: Session = Depends(get_session)):
             if dep in ids:
                 edges.append({"from": dep, "to": x.id})
             elif dep in by_id:
+                dep_task = by_id[dep]
+                if (dep_task.state == TaskState.CANCELLED
+                        or dep_task.stage == TaskStage.CANCELLED):
+                    continue
                 external.append({"from": dep, "to": x.id,
-                                 "from_title": by_id[dep].title,
-                                 "closed": closed(by_id[dep])})
+                                 "from_title": dep_task.title,
+                                 "closed": closed(dep_task)})
             else:
                 missing.append({"from": dep, "to": x.id})
 
@@ -155,6 +164,7 @@ def get_workstream(task_id: str, db: Session = Depends(get_session)):
         "cycle_path": cycle,
         "stats": {
             "total": len(members),
+            "cancelled": len(cancelled_ids),
             "done": sum(1 for x in members if done(x)),
             "blocked": len(blocked),
             "estimate_min": sum(int(x.est_duration_min or 0) for x in members),

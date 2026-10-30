@@ -21,12 +21,15 @@ export default function WorkstreamPanel({ task, onOpen }) {
 
   const nodes = data.nodes || []
   if (!nodes.length) {
+    const cancelled = data.stats?.cancelled || 0
     return (
       <div className="ws-empty">
         <p className="detail-muted">
-          这个任务还没有工作流成员。建平级任务时加
-          {' '}<code>labels=["part-of:{task.id}"]</code>{' '}
-          并用 <code>depends_on</code> 连依赖，就会出现在这里。
+          {cancelled > 0
+            ? `该工作流有 ${cancelled} 个已取消任务，当前没有进行中的成员。`
+            : <>这个任务还没有工作流成员。建平级任务时加
+              {' '}<code>labels=["part-of:{task.id}"]</code>{' '}
+              并用 <code>depends_on</code> 连依赖，就会出现在这里。</>}
         </p>
       </div>
     )

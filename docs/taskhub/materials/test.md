@@ -283,7 +283,7 @@ python scripts/materials_audit.py
 python scripts/materials_backfill.py --days 30
 ```
 
-素材库实测：`155 passed`；全量 `1810 passed / 2 skipped / 5 deselected`（2026-10-30，排除本机已安装目录导致的 1 项 GUI 测试）。
+素材库实测：`155 passed`；全量 `1811 passed / 2 skipped / 5 deselected`（2026-10-30，排除本机已安装目录导致的 1 项 GUI 测试）。
 
 ---
 
