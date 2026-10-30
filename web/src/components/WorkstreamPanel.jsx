@@ -67,7 +67,7 @@ export default function WorkstreamPanel({ task, onOpen }) {
                 <button
                   key={id}
                   className={`ws-card${blocked.has(id) ? ' is-blocked' : ''}`}
-                  onClick={() => onOpen(id)}
+                  onClick={() => onOpen({ id })}
                   title={n.title}
                 >
                   <span className="ws-card__title">{n.title}</span>
