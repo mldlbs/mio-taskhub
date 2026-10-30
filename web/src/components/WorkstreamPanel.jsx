@@ -75,7 +75,7 @@ export default function WorkstreamPanel({ task, onOpen }) {
                   </span>
                   {(n.depends_on || []).length > 0 && (
                     <span className="ws-card__deps">
-                      {(n.depends_on || []).slice(0, 4).map(d => (
+                      {(n.depends_on || []).map(d => (
                         <span key={d} className="ws-dep">{byId[d]?.title || d}</span>
                       ))}
                     </span>

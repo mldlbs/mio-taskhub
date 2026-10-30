@@ -51,3 +51,10 @@ def test_workstream_empty_group():
     assert data["stats"]["total"] == 0
     assert data["nodes"] == []
     assert data["layers"] == []
+
+
+def test_list_tasks_includes_labels():
+    t = _mk("labeled", labels=["part-of:root-x"])
+    rows = client.get("/api/v1/tasks").json()
+    row = next(r for r in rows if r["id"] == t)
+    assert "part-of:root-x" in row["labels"]

@@ -381,7 +381,7 @@
 | 生产重跑 | 不批准 |
 | 日志来源 | `trial` |
 | 新 exe | 继续阻塞（`task.updated_at` 独立事项） |
-| 测试 | 素材库 155 passed；全量 1809 passed / 2 skipped |
+| 测试 | 素材库 155 passed；全量 1810 passed / 2 skipped |
 
 ---
 

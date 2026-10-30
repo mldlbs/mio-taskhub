@@ -50,9 +50,14 @@ export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, fo
     return () => clearTimeout(t)
   }, [focus])
 
-  const filtered = scene === 'all' ? tasks
-    : scene === 'today' ? tasks.filter(t => isToday(t.due_at) || t.stage === 'ready' || t.stage === 'implementing')
-    : tasks.filter(isOverdue)
+  const isWorkstreamMember = t =>
+    (t.labels || []).some(l => String(l).startsWith('part-of:'))
+  const baseTasks = tasks.filter(t => !isWorkstreamMember(t))
+  const hiddenMembers = tasks.length - baseTasks.length
+
+  const filtered = scene === 'all' ? baseTasks
+    : scene === 'today' ? baseTasks.filter(t => isToday(t.due_at) || t.stage === 'ready' || t.stage === 'implementing')
+    : baseTasks.filter(isOverdue)
 
   // 统计口径：排除已冻结的 idea 评审风暴历史噪声（数据仍在，列表可查）。
   const noise = filtered.filter(isFrozenReviewNoise)
@@ -72,9 +77,9 @@ export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, fo
   const progress = totalTasks ? Math.round((doneCount / totalTasks) * 100) : 0
 
   const sceneCounts = {
-    today: tasks.filter(t => !isFrozenReviewNoise(t)).filter(t => isToday(t.due_at) || t.stage === 'ready' || t.stage === 'implementing').length,
-    overdue: tasks.filter(t => !isFrozenReviewNoise(t)).filter(isOverdue).length,
-    all: tasks.length - tasks.filter(isFrozenReviewNoise).length,
+    today: baseTasks.filter(t => !isFrozenReviewNoise(t)).filter(t => isToday(t.due_at) || t.stage === 'ready' || t.stage === 'implementing').length,
+    overdue: baseTasks.filter(t => !isFrozenReviewNoise(t)).filter(isOverdue).length,
+    all: baseTasks.length - baseTasks.filter(isFrozenReviewNoise).length,
   }
 
   const clearDrag = () => { setDragging(null); setOverPos(null) }
@@ -106,6 +111,12 @@ export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, fo
           <span className="board-stats__noise"
                 title="idea 评审子系统 2026-10-19 的重建风暴（已冻结），从统计口径排除；数据仍可在列表/详情查看">
             已排除历史噪声 {noise.length} 条 · {fmtDur(noiseDur)}
+          </span>
+        )}
+        {hiddenMembers > 0 && (
+          <span className="board-stats__noise"
+                title="带 part-of 标签的工作流成员只在任务详情的“工作流”面板展示；看板只显示主任务">
+            已隐藏工作流成员 {hiddenMembers} 个
           </span>
         )}
         <span className="board-stats__bar" aria-hidden="true">

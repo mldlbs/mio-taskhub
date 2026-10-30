@@ -211,7 +211,8 @@ def list_tasks(state: str = None, agent_type: str = None, stage: str = None,
          # 统计口径需要：区分任务来源（如已冻结的 idea 评审）与创建时间
          "task_kind": r.task_kind.value if hasattr(r.task_kind, "value") else str(r.task_kind),
          "created_at": r.created_at.isoformat() if r.created_at else None,
-         "project": r.project, "workspace": r.workspace}
+         "project": r.project, "workspace": r.workspace,
+         "labels": list(r.labels or [])}
         for r in rows
     ]
 
