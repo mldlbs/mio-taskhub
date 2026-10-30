@@ -78,7 +78,7 @@ export const api = {
   // 原样返回 workspace 内文件（二进制安全），用于 <img src> 等直接引用
   rawFileUrl: (id, path) => `${BASE}/tasks/${id}/raw?path=${encodeURIComponent(path)}`,
   getTaskGraph: (id) => req('GET', `/tasks/${id}/graph`),
-  getFullGraph: () => req('GET', '/tasks/graph'),
+  getWorkstream: (id) => req('GET', `/tasks/${id}/workstream`),  getFullGraph: () => req('GET', '/tasks/graph'),
   createTask: (t) => req('POST', '/tasks', t),
   updateTask: (id, body) => req('PATCH', `/tasks/${id}`, body),
   addSubtask: (id, body) => req('POST', `/tasks/${id}/subtasks`, body),

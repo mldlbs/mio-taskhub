@@ -68,3 +68,18 @@
 | 页面 bundle | 已包含“创建时间（新→旧）”“优先级”两个排序选项 |
 
 回滚：恢复 `pre-sort-dist` 并重启 `TaskHub.exe hub --worker`；数据库无需变更。
+
+## 7 工作流面板 MVP（2026-10-30）
+
+| 项 | 内容 |
+|---|---|
+| 新接口 | `GET /api/v1/tasks/{id}/workstream` |
+| 分组 | `labels` 含 `part-of:<owner>` 的平级任务；成员打开时自动解析 owner |
+| 依赖 | 复用 `depends_on`；返回 `edges`、`layers`、`external`、`missing`、`blocked`、`cycle` |
+| 统计 | total / done / blocked / estimate_min / critical_path |
+| UI | 任务详情新增“工作流”标签：按拓扑层横排卡片、阻塞标记、依赖 chip、外部前置/缺失依赖 |
+| 默认 | 有 `part-of` 标签或存在工作流成员时自动选中“工作流” |
+| 旧“子任务” | 改名“清单”，仍只表示 `add_subtask` 勾选项 |
+| 边界 | 不改 `parent_id`，不改 `MIO_DECOMPOSE_STAGE`，不新增层级字段 |
+
+生产实测：`976be80e` 组返回 4 个任务、3 层、2 个阻塞；页面 bundle 含“工作流”标签，看板排序默认 `created`。回滚目录：`~/.mio_taskhub/deploy-20261029/pre-autotab-dist/`。

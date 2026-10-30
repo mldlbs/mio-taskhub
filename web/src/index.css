@@ -1672,6 +1672,29 @@ body { font-size: 15px; }
 .kv.is-due b { color: var(--danger); }
 
 /* --- drawer: subtasks --- */
+.ws { display: flex; flex-direction: column; gap: 12px; }
+.ws-stats { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; font-size: 12px; color: var(--ink-dim); }
+.ws-stats b { color: var(--ink); font-family: var(--font-mono); }
+.ws-stat--warn b { color: var(--warn); }
+.ws-owner { margin-left: auto; opacity: 0.75; }
+.ws-alert { padding: 8px 10px; border: 1px solid var(--danger); border-radius: 8px; color: var(--danger); font-size: 12px; }
+.ws-layers { display: flex; gap: 18px; overflow-x: auto; padding: 4px 2px 8px; align-items: flex-start; }
+.ws-layer { min-width: 190px; display: flex; flex-direction: column; gap: 8px; }
+.ws-layer__head { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-dim); }
+.ws-card { display: flex; flex-direction: column; gap: 6px; padding: 10px; text-align: left; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink); cursor: pointer; transition: border-color 0.15s, transform 0.15s; }
+.ws-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.ws-card.is-blocked { border-color: var(--warn); }
+.ws-card__title { font-size: 12.5px; font-weight: 600; line-height: 1.35; }
+.ws-card__meta { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--ink-dim); }
+.ws-card__blocked { color: var(--warn); font-weight: 600; }
+.ws-card__deps { display: flex; flex-wrap: wrap; gap: 4px; }
+.ws-dep { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); color: var(--ink-dim); }
+.ws-dep.is-open { border-color: var(--warn); color: var(--warn); }
+.ws-extra { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 11px; }
+.ws-extra__label { color: var(--ink-dim); margin-right: 4px; }
+.ws-extra--bad .ws-extra__label { color: var(--danger); }
+.ws-empty code { font-family: var(--font-mono); font-size: 11px; }
+
 .drawer__subtasks { display: flex; flex-direction: column; gap: 7px; }
 .subtask-row {
   display: flex;

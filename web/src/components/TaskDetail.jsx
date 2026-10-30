@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { LANES, STATE_META, STAGE_META, prio, fmtDur, fmtDate, compositeLabel, parseUtc } from '../constants'
 import { api } from '../api'
 import DependencyGraph from './DependencyGraph'
+import WorkstreamPanel from './WorkstreamPanel'
 
 const tone = (s) => STATE_META[s]?.tone || 'dim'
 const ACTIVE = ['queued', 'claimed', 'running', 'retrying']
@@ -128,8 +129,9 @@ function completionOf(task) {
 }
 
 const TAB_DEFS = [
+  { id: 'workstream', label: '工作流' },
   { id: 'deps',     label: '依赖' },
-  { id: 'subtasks', label: '子任务' },
+  { id: 'subtasks', label: '清单' },
   { id: 'disc',     label: '讨论' },
   { id: 'activity', label: '动态' },
 ]
@@ -197,10 +199,22 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
     const hasSub = (task.subtasks || []).length > 0
     const hasDisc = (task.discussions || []).length > 0
     const hasDeps = (task.depends_on || []).length > 0
-    if (hasDisc) setTab('disc')
+    const hasPart = (task.labels || []).some(l => String(l).startsWith('part-of:'))
+    if (hasPart) setTab('workstream')
+    else if (hasDisc) setTab('disc')
     else if (hasSub) setTab('subtasks')
     else if (hasDeps) setTab('deps')
     else setTab('activity')
+  }, [task?.id])
+
+  // 根任务没有 part-of 标签，但有工作流成员时也默认展示工作流
+  useEffect(() => {
+    if (!task?.id) return
+    let dead = false
+    api.getWorkstream(task.id)
+      .then(d => { if (!dead && (d.nodes || []).length) setTab('workstream') })
+      .catch(() => {})
+    return () => { dead = true }
   }, [task?.id])
 
   const sidx = STAGE_FLOW.indexOf(task.stage)
@@ -476,6 +490,10 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
           </div>
 
           <div className="td-tabs__panel" role="tabpanel">
+            {tab === 'workstream' && (
+              <WorkstreamPanel task={task} onOpen={onOpenTask} />
+            )}
+
             {tab === 'deps' && (
               <>
                 {(task.depends_on || []).length === 0 ? (
