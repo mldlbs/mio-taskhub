@@ -39,6 +39,18 @@ def update_subtask(task_id: str, sid: str, body: dict, db: Session = Depends(get
             "title": st.title, "status": st.status.value}
 
 
+@router.delete("/{task_id}/subtasks/{sid}")
+def delete_subtask(task_id: str, sid: str, db: Session = Depends(get_session)):
+    st = db.get(Subtask, sid)
+    if not st or st.task_id != task_id:
+        raise HTTPException(404, "subtask not found")
+    emit_event(db, type="task_subtask_deleted", entity="task", entity_id=task_id,
+               payload={"subtask_id": st.id, "title": st.title})
+    db.delete(st)
+    db.commit()
+    return {"ok": True, "id": sid, "task_id": task_id}
+
+
 @router.post("/{task_id}/gitrefs")
 def add_gitref(task_id: str, body: dict, db: Session = Depends(get_session)):
     t = db.get(Task, task_id)

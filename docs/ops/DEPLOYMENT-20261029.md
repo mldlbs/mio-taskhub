@@ -91,3 +91,5 @@
 工作流隐藏已取消成员（2026-10-30 追加）：exe sha256 `7c8c1e0c…`，16,146,713 字节；PID 17240 / 39988。`976be80e` 组：15 个进行中、4 个已取消（已隐藏）。
 
 工作流节点点击打开详情（2026-10-30 追加）：修正 `onOpen(id)` 与 `openTask({id})` 的参数不一致。exe sha256 `d10cec87…`，16,146,713 字节；PID 20120 / 35376。
+
+子任务删除与依赖缺失错误（2026-10-30 追加）：新增 `DELETE /tasks/{id}/subtasks/{sid}` 与 MCP `taskhub_delete_subtask`；缺少依赖返回结构化 422 `dependency.not_found`（含 `refs`）。exe sha256 `30f1dd48…`，16,147,323 字节；PID 18908 / 28188。

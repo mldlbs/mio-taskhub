@@ -44,8 +44,19 @@ def check_cycle(task, db):
 
 
 def validate_depends(task, db):
+    missing = []
     for dep in task_deps(task):
         if dep == task.id:
-            raise HTTPException(422, f"cannot depend on itself: {dep}")
+            raise HTTPException(422, detail={
+                "code": "dependency.self_reference",
+                "message": f"cannot depend on itself: {dep}",
+                "refs": [dep],
+            })
         if db.get(Task, dep) is None:
-            raise HTTPException(422, f"dependency not found: {dep}")
+            missing.append(dep)
+    if missing:
+        raise HTTPException(422, detail={
+            "code": "dependency.not_found",
+            "message": "dependency not found: " + ", ".join(missing),
+            "refs": missing,
+        })

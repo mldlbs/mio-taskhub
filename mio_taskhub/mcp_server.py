@@ -505,6 +505,14 @@ async def taskhub_update_subtask(
     return _fmt(await _request("PATCH", f"/tasks/{task_id}/subtasks/{subtask_id}", body=body))
 
 
+@_tool(name="taskhub_delete_subtask", title="删除子任务", method="DELETE", path="/tasks/{task_id}/subtasks/{subtask_id}", read_only=False, destructive=True, desc="删除一个子任务/清单项（不可恢复）。")
+async def taskhub_delete_subtask(
+    task_id: str = Field(description="任务唯一标识", min_length=1),
+    subtask_id: str = Field(description="子任务唯一标识", min_length=1),
+) -> str:
+    return _fmt(await _request("DELETE", f"/tasks/{task_id}/subtasks/{subtask_id}"))
+
+
 @_tool(name="taskhub_add_gitref", title="关联 Git 引用", method="POST", path="/tasks/{task_id}/gitrefs", read_only=False, destructive=False, desc="为任务关联一个 Git 引用（分支/commit/PR/tag）。")
 async def taskhub_add_gitref(
     task_id: str = Field(description="任务唯一标识", min_length=1),
