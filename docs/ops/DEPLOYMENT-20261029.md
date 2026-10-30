@@ -83,3 +83,5 @@
 | 边界 | 不改 `parent_id`，不改 `MIO_DECOMPOSE_STAGE`，不新增层级字段 |
 
 生产实测：`976be80e` 组返回 4 个任务、3 层、2 个阻塞；页面 bundle 含“工作流”标签，看板排序默认 `created`。回滚目录：`~/.mio_taskhub/deploy-20261029/pre-autotab-dist/`。
+
+最终 exe：sha256 `958297b0…`，16,146,391 字节；进程 PID 32524 / 35560。
