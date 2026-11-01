@@ -46,6 +46,8 @@ export default function App() {
   const [ideas, setIdeas] = useState([])
   const [view, setViewState] = useState(() => {
     try {
+      const q = new URLSearchParams(window.location.search).get('view')
+      if (q) return q
       const v = localStorage.getItem(VIEW_KEY) || 'workflow'
       // 旧版视图（board/stage/flow）统一合并为 workflow
       return ['board', 'stage', 'flow'].includes(v) ? 'workflow' : v

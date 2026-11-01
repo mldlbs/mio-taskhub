@@ -13,6 +13,7 @@
 | 环境光 | `.ambient` 与 `::before/::after` 改为靛紫/青/琥珀色团，移除青柠 |
 | 明暗主题 | `html[data-theme=light|dark]`；Rail 新增切换按钮；`localStorage(mio.theme)` 记忆 |
 | 可分享主题 | `?theme=light` / `?theme=dark` 可直接打开对应主题（用于验收/截图） |
+| 可分享视图 | `?view=workflow|list|...` 可直接打开指定视图（用于截图/深链） |
 
 ## 2 未接入
 
@@ -38,10 +39,11 @@
 
 | 项 | 值 |
 |---|---|
-| 新 exe sha256 | `fd2ff0cd986078d493eaa5af4b2702208e616c1fd5d8d3e718d50502ab36c9d0` |
+| 新 exe sha256 | `6668eb3b512e4f5e91a3e8d6248fb2df75f69a907b57ed0b2c0788823b99c7e7` |
 | 大小 | 16,147,323 字节 |
-| 进程 | supervisor + worker（PID 9976 / 11192） |
+| 进程 | supervisor + worker（PID 7528 / 16452） |
 | 版本 | 0.6.1（未发 Release） |
+| 功能截图 | `docs/ui/screenshots/`（14 个视图 + `contact-sheet.png`） |
 | UI 回滚备份 | `~/.mio_taskhub/deploy-20261029/dist-backend-only/`（新后端 + 旧青柠 UI） |
 | 旧 exe 备份 | `~/.mio_taskhub/deploy-20261029/old-dist/` |
 
