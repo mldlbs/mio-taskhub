@@ -33,6 +33,7 @@ import ConfirmDialog from './components/ConfirmDialog'
 
 const VIEW_KEY = 'mio.view'
 const CONTRAST_KEY = 'mio.contrast'
+const THEME_KEY = 'mio.theme'
 
 export default function App() {
   const isEmbed = typeof window !== 'undefined' && window.location.hash === '#/embed'
@@ -52,6 +53,13 @@ export default function App() {
   })
   const [contrast, setContrast] = useState(() => {
     try { return localStorage.getItem(CONTRAST_KEY) === 'high' } catch { return false }
+  })
+  const [theme, setTheme] = useState(() => {
+    try {
+      const q = new URLSearchParams(window.location.search).get('theme')
+      if (q === 'light' || q === 'dark') return q
+      return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'
+    } catch { return 'dark' }
   })
   const [ws, setWs] = useState(false)
   const [error, setError] = useState(null)  // { message, type, retry? }
@@ -87,7 +95,13 @@ export default function App() {
     try { localStorage.setItem(CONTRAST_KEY, contrast ? 'high' : 'standard') } catch { /* ignore */ }
   }, [contrast])
 
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    try { localStorage.setItem(THEME_KEY, theme) } catch { /* ignore */ }
+  }, [theme])
+
   const toggleContrast = useCallback(() => setContrast(c => !c), [])
+  const toggleTheme = useCallback(() => setTheme(t => (t === 'light' ? 'dark' : 'light')), [])
 
   const loadTasks = useCallback(() => {
     api.listTasks({ cancelled: 'true' })
@@ -362,7 +376,7 @@ export default function App() {
   return (
     <div className="shell">
       <div className="ambient" aria-hidden="true" />
-      <Rail view={view} onChange={setView} wsLive={ws} contrast={contrast} onToggleContrast={toggleContrast} />
+      <Rail view={view} onChange={setView} wsLive={ws} contrast={contrast} onToggleContrast={toggleContrast} theme={theme} onToggleTheme={toggleTheme} />
 
       <div className="main">
         <MissionBar

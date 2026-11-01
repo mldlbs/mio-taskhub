@@ -1,0 +1,178 @@
+/* ============================================================
+   Ledger theme bridge for mio-taskhub
+   Design language: Ledger — every state has a source, every
+   conclusion has evidence. Material: liquid glass, two themes.
+   Imported after index.css so it overrides the legacy palette.
+   ============================================================ */
+
+:root {
+  --font-display: "Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-body: "Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+
+  --bg: #0b0c0f;
+  --bg-2: #121418;
+  --bg-soft: #16181d;
+  --panel: #16181d;
+  --panel-2: #1d2026;
+  --card: #181b21;
+  --card-hover: #21252c;
+  --line: rgba(242, 243, 245, 0.09);
+  --line-strong: rgba(242, 243, 245, 0.19);
+  --grid-line: rgba(242, 243, 245, 0.045);
+
+  --ink: #f2f3f5;
+  --ink-dim: #c3c7d0;
+  --ink-faint: #8a8f9b;
+  --text: #f2f3f5;
+
+  --accent: #6f68f7;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(111, 104, 247, 0.16);
+  --accent-glow: rgba(111, 104, 247, 0.42);
+  --ok: #1faf6b;
+  --warn: #f5a524;
+  --warn-soft: rgba(245, 165, 36, 0.14);
+  --danger: #ef4444;
+  --danger-soft: rgba(239, 68, 68, 0.14);
+
+  /* liquid glass: indigo-tinted, light defines edges */
+  --glass-rail: linear-gradient(180deg, rgba(22, 24, 30, 0.74), rgba(11, 12, 15, 0.66));
+  --glass-lane: linear-gradient(180deg, rgba(34, 37, 46, 0.34), rgba(15, 16, 20, 0.24));
+  --glass-card: linear-gradient(148deg, rgba(111, 104, 247, 0.10), rgba(255, 255, 255, 0.042) 44%, rgba(255, 255, 255, 0.012));
+  --glass-card-h: linear-gradient(148deg, rgba(140, 134, 255, 0.16), rgba(255, 255, 255, 0.065) 44%, rgba(255, 255, 255, 0.022));
+  --glass-modal: linear-gradient(160deg, rgba(30, 33, 42, 0.86), rgba(12, 14, 18, 0.90));
+  --glass-sheen: linear-gradient(142deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.04) 34%, rgba(255, 255, 255, 0) 56%);
+  --glass-line: rgba(255, 255, 255, 0.18);
+  --glass-line-2: rgba(255, 255, 255, 0.10);
+  --glass-in: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+  --glass-in-sm: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+
+  color-scheme: dark;
+}
+
+html[data-theme="light"] {
+  --bg: #f4f5f7;
+  --bg-2: #edeef1;
+  --bg-soft: #e4e6ea;
+  --panel: #ffffff;
+  --panel-2: #f4f5f7;
+  --card: #ffffff;
+  --card-hover: #fafafb;
+  --line: rgba(21, 23, 28, 0.09);
+  --line-strong: rgba(21, 23, 28, 0.20);
+  --grid-line: rgba(21, 23, 28, 0.05);
+
+  --ink: #15171c;
+  --ink-dim: #565b66;
+  --ink-faint: #8a8f9b;
+  --text: #15171c;
+
+  --accent: #5b54f0;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(91, 84, 240, 0.11);
+  --accent-glow: rgba(91, 84, 240, 0.28);
+  --ok: #17915a;
+  --warn: #b45309;
+  --warn-soft: rgba(180, 83, 9, 0.10);
+  --danger: #dc2626;
+  --danger-soft: rgba(220, 38, 38, 0.10);
+
+  --glass-rail: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(250, 250, 251, 0.64));
+  --glass-lane: linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(244, 245, 247, 0.42));
+  --glass-card: linear-gradient(148deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.62) 44%, rgba(255, 255, 255, 0.40));
+  --glass-card-h: linear-gradient(148deg, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0.78) 44%, rgba(255, 255, 255, 0.56));
+  --glass-modal: linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(250, 250, 251, 0.92));
+  --glass-sheen: linear-gradient(142deg, rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0.20) 34%, rgba(255, 255, 255, 0) 56%);
+  --glass-line: rgba(21, 23, 28, 0.14);
+  --glass-line-2: rgba(21, 23, 28, 0.08);
+  --glass-in: inset 0 1px 0 rgba(255, 255, 255, 0.85), inset 0 -1px 0 rgba(21, 23, 28, 0.05);
+  --glass-in-sm: inset 0 1px 0 rgba(255, 255, 255, 0.80);
+
+  color-scheme: light;
+}
+
+/* high-contrast keeps Ledger indigo, not the legacy lime */
+html[data-contrast="high"] {
+  --accent: #8c86ff;
+  --accent-soft: rgba(140, 134, 255, 0.20);
+  --accent-glow: rgba(140, 134, 255, 0.50);
+}
+
+/* ambient light: same blobs as Ledger, no lime */
+.ambient {
+  background:
+    radial-gradient(56% 46% at 10% 4%, rgba(111, 104, 247, 0.26), transparent 62%),
+    radial-gradient(44% 40% at 92% -6%, rgba(34, 211, 238, 0.12), transparent 58%),
+    radial-gradient(50% 44% at 78% 42%, rgba(245, 165, 36, 0.075), transparent 62%),
+    radial-gradient(66% 60% at 46% 116%, rgba(91, 84, 240, 0.22), transparent 64%),
+    var(--bg);
+}
+
+html[data-theme="light"] .ambient {
+  background:
+    radial-gradient(56% 46% at 10% 4%, rgba(111, 104, 247, 0.16), transparent 62%),
+    radial-gradient(44% 40% at 92% -6%, rgba(34, 211, 238, 0.12), transparent 58%),
+    radial-gradient(50% 44% at 78% 42%, rgba(245, 165, 36, 0.10), transparent 62%),
+    radial-gradient(66% 60% at 46% 116%, rgba(91, 84, 240, 0.10), transparent 64%),
+    var(--bg);
+}
+
+.ambient::before {
+  background: radial-gradient(circle, rgba(111, 104, 247, 0.48), transparent 66%);
+}
+
+.ambient::after {
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.22), transparent 64%);
+}
+
+html[data-theme="light"] .ambient::before {
+  background: radial-gradient(circle, rgba(111, 104, 247, 0.26), transparent 66%);
+}
+
+html[data-theme="light"] .ambient::after {
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.14), transparent 64%);
+}
+
+/* the legacy mission bar had a hard-coded dark gradient */
+html[data-theme="light"] .mission {
+  background: var(--glass-sheen),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(244, 245, 247, 0.76));
+  border-bottom-color: var(--glass-line-2);
+}
+
+html[data-theme="dark"] .mission {
+  background: var(--glass-sheen),
+    linear-gradient(180deg, rgba(22, 24, 30, 0.72), rgba(11, 12, 15, 0.62));
+  border-bottom-color: var(--glass-line-2);
+}
+
+.shell {
+  background:
+    radial-gradient(1200px 600px at 78% -10%, rgba(111, 104, 247, 0.07), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(34, 211, 238, 0.05), transparent 55%),
+    var(--bg);
+}
+
+/* Ledger typography: display no longer geometric-wide */
+.mission__name,
+.modal__head h3,
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+.rail__theme-glyph {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* keep glass readable on light surfaces */
+html[data-theme="light"] .card,
+html[data-theme="light"] .task-card,
+html[data-theme="light"] .lane,
+html[data-theme="light"] .mission,
+html[data-theme="light"] .rail {
+  color: var(--ink);
+}

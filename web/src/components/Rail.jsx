@@ -93,7 +93,7 @@ const GEAR_ICON = (
 // 仍可通过命令面板 Ctrl+K 或数字快捷键进入；要恢复只需删掉对应的 id。
 const HIDDEN_VIEWS = new Set(['ideas', 'scheduled', 'observability', 'memory'])
 
-export default function Rail({ view, onChange, wsLive, contrast, onToggleContrast }) {
+export default function Rail({ view, onChange, wsLive, contrast, onToggleContrast, theme, onToggleTheme }) {
   return (
     <nav className="rail" aria-label="主导航">
       <div className="rail__logo" aria-hidden="true">
@@ -133,6 +133,17 @@ export default function Rail({ view, onChange, wsLive, contrast, onToggleContras
       >
         <span className="rail__contrast-glyph">Aa</span>
         <span className="rail__tip">{contrast ? '标准对比' : '高对比'}</span>
+      </button>
+
+      <button
+        className="rail__btn"
+        onClick={onToggleTheme}
+        aria-label={theme === 'light' ? '切换到深色主题' : '切换到浅色主题'}
+        aria-pressed={theme === 'light'}
+        title={theme === 'light' ? '深色主题' : '浅色主题'}
+      >
+        <span className="rail__theme-glyph" aria-hidden="true">{theme === 'light' ? '☾' : '☀'}</span>
+        <span className="rail__tip">{theme === 'light' ? '深色' : '浅色'}</span>
       </button>
 
       <div
