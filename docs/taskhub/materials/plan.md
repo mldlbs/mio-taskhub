@@ -477,4 +477,4 @@
 | 人工标注 | 不恢复 |
 | 边界 | 形式化质量有检查；业务效用未测量 ≠ 无价值 ≠ 必须补测 |
 
-**新 exe 部署（2026-10-29）**：`f867c2b` 构建并刷新本机运行目录；`/api/v1/materials/sources` 从 404 变为 200；任务 1,948、`updated_at` NULL=0、素材 2,351/38。未发布 GitHub Release。记录：`docs/ops/DEPLOYMENT-20261029.md`。
+**新 exe 部署（2026-11-01 复核）**：最终运行 `30f1dd48`（10-30 最新版，含工作流/排序/子任务删除）；`/api/v1/materials/sources` 200。2026-11-01 用旧提交构建的 `abdf1d73` worker 崩溃，未保留；回滚/纠正记录见 `docs/ops/DEPLOYMENT-20261029.md` §8。未发布 GitHub Release。
