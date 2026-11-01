@@ -95,10 +95,12 @@ export default function StatsView() {
   const [loading, setLoading] = useState(true)
   const [metrics, setMetrics] = useState(null)
   const [trendData, setTrendData] = useState(null)
+  const [report, setReport] = useState(null)
 
   useEffect(() => {
     api.statsOverview().then(setData).catch(() => setData(null)).finally(() => setLoading(false))
     api.metrics().then(setMetrics).catch(() => {})
+    api.observabilityReport().then(setReport).catch(() => {})
     api.listTasks({ cancelled: 'true' }).then((tasks) => {
       const days = []
       for (let i = 6; i >= 0; i--) {
@@ -150,35 +152,48 @@ export default function StatsView() {
     })
     .sort((a, b) => b.count - a.count)
 
-  const successRate = total_tasks > 0
-    ? Math.round(((by_state['completed'] || 0) / total_tasks) * 100)
-    : 0
+  const scope = report?.tasks?.scope
+  const scopeState = Object.fromEntries(
+    Object.entries(scope?.by_state || by_state || {})
+      .map(([k, v]) => [String(k).toLowerCase(), v])
+  )
+  const successRate = scope?.success_rate != null
+    ? Math.round(scope.success_rate * 100)
+    : total_tasks > 0
+      ? Math.round(((by_state['completed'] || 0) / total_tasks) * 100)
+      : 0
+  const asOf = scope?.as_of
+    ? new Date(scope.as_of).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : null
   const agentsOnline = metrics?.taskhub_agents_online?.find(a => a.label === 'online')?.count ?? 0
 
   return (
     <div className="stats-view">
       <header className="stats-header">
         <h2>统计概览</h2>
-        <span className="stats-header__total mono">{total_tasks} 任务 · {task_events_count} 事件</span>
+        <span className="stats-header__total mono">
+          当前 {scope?.total ?? '—'} 任务 · 历史 {total_tasks} · {task_events_count} 事件
+          {asOf ? ` · as of ${asOf}` : ''}
+        </span>
       </header>
 
       <div className="stats-metrics">
-        <MetricCard label="总任务" value={total_tasks} tone="live" />
-        <MetricCard label="事件" value={task_events_count} tone="dim" />
+        <MetricCard label="当前交付面" value={scope?.total ?? '—'} tone="live" />
+        <MetricCard label="历史全量" value={total_tasks} tone="dim" />
         <MetricCard label="Agent 在线" value={agentsOnline} tone="ok" />
-        <MetricCard label="成功率" value={`${successRate}%`} tone={successRate >= 80 ? 'ok' : successRate >= 50 ? 'warn' : 'danger'} />
+        <MetricCard label="成功率（当前）" value={`${successRate}%`} tone={successRate >= 80 ? 'ok' : successRate >= 50 ? 'warn' : 'danger'} />
       </div>
 
       <section className="stats-section">
-        <h3>7 日趋势</h3>
+        <h3>7 日趋势（历史全量）</h3>
         <TrendChart data={trendData} />
       </section>
 
       <section className="stats-section">
-        <h3>状态分布</h3>
+        <h3>状态分布（当前交付面）</h3>
         <div className="stats-bars">
           {LANES.map(l => (
-            <Bar key={l.id} label={l.label} value={by_state[l.id] || 0} max={maxState} tone={l.tone} />
+            <Bar key={l.id} label={l.label} value={scopeState[l.id] || 0} max={Math.max(1, ...Object.values(scopeState))} tone={l.tone} />
           ))}
         </div>
       </section>

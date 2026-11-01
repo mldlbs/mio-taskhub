@@ -1,4 +1,4 @@
-# Ledger 设计系统接入实际界面（2026-11-01）
+﻿# Ledger 设计系统接入实际界面（2026-11-01）
 
 > 依据 `docs/ui`（Ledger 设计系统，液态玻璃、明暗双主题）。本次只做主题层接入，不改业务结构与路由。
 
@@ -39,9 +39,9 @@
 
 | 项 | 值 |
 |---|---|
-| 新 exe sha256 | `6668eb3b512e4f5e91a3e8d6248fb2df75f69a907b57ed0b2c0788823b99c7e7` |
+| 新 exe sha256 | `9174653da50089bda02a09b16c338c4f747c403e7d30d27bf27591bda1198cef` |
 | 大小 | 16,147,323 字节 |
-| 进程 | supervisor + worker（PID 7528 / 16452） |
+| 进程 | supervisor + worker（PID 22592 / 22912） |
 | 版本 | 0.6.1（未发 Release） |
 | 功能截图 | `docs/ui/screenshots/`（14 个视图 + `contact-sheet.png`） |
 | UI 回滚备份 | `~/.mio_taskhub/deploy-20261029/dist-backend-only/`（新后端 + 旧青柠 UI） |

@@ -17,17 +17,19 @@ def _materials_dir(tmp_path, monkeypatch):
 
 
 def _observer(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    day = (datetime.now(timezone.utc) - timedelta(days=1)).date().isoformat()
     base = tmp_path / "observer"
     obs = base / "observations"
     obs.mkdir(parents=True)
-    (obs / "2026-10-28.json").write_text(json.dumps({
-        "date": "2026-10-28",
+    (obs / f"{day}.json").write_text(json.dumps({
+        "date": day,
         "observations": [
-            {"id": "hn-a", "timestamp": "2026-10-28T10:00:00Z",
+            {"id": "hn-a", "timestamp": f"{day}T10:00:00Z",
              "source": "hackernews",
              "content": "First signal is sufficiently long (1 point by a)",
              "url": "https://example.com/a"},
-            {"id": "hn-b", "timestamp": "2026-10-28T11:00:00Z",
+            {"id": "hn-b", "timestamp": f"{day}T11:00:00Z",
              "source": "hackernews",
              "content": "Second signal is sufficiently long (2 points by b)",
              "url": "https://example.com/b"},

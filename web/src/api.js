@@ -198,6 +198,7 @@ export const api = {
   validateCron: (expr) => req('GET', `/scheduled-jobs/validate-cron?expr=${encodeURIComponent(expr)}`),
   // Observability
   observabilitySummary: () => req('GET', '/observability/summary'),
+  observabilityReport: () => req('GET', '/observability/report'),
   listAlerts: () => req('GET', '/alerts'),
   taskTraces: (limit = 50) => req('GET', `/traces?limit=${limit}`),
   sloHistory: (hours = 24) => req('GET', `/slo/history?hours=${hours}`),

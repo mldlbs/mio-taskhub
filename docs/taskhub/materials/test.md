@@ -150,6 +150,7 @@
 | T88 | `test_task_create_stage_guard.py`（2 项） | 创建禁止直接 review；默认阶段可建 |
 | T89 | `test_materials_downstream_audit.py`（2 项） | 重复分组归一化、功效公式 |
 | T90 | `test_repair_benchmark.py`（1 项） | 构造式基准原型：唯一快照/基线失败/回归通过（已停止，不扩展） |
+| T91 | `test_observability_scope.py`（1 项） | 278 当前交付面口径与历史全量分离 |
 
 ---
 
@@ -283,7 +284,7 @@ python scripts/materials_audit.py
 python scripts/materials_backfill.py --days 30
 ```
 
-素材库实测：`155 passed`；全量 `1814 passed / 2 skipped / 5 deselected`（2026-10-30，排除本机已安装目录导致的 1 项 GUI 测试）。
+素材库实测：`155 passed`；全量 `1815 passed / 2 skipped / 5 deselected`（2026-11-01，排除 GUI 主循环测试）。
 
 ---
 
