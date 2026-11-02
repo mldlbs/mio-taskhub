@@ -8,6 +8,9 @@ import logging
 from dataclasses import dataclass, field
 from threading import Lock
 
+from sqlmodel import Session, text
+
+from mio_taskhub.db import engine
 from mio_taskhub.background import get_thread_health
 from mio_taskhub.middleware import get_http_metrics
 from mio_taskhub.observability.audit import AlertAudit
@@ -97,6 +100,77 @@ class AlertManager:
 
         return results
 
+    def _check_tasks(self) -> list[Alert]:
+        """活性指标：队列陈旧、状态机停摆、无消费者、调度状态丢失。"""
+        results: list[Alert] = []
+        now = time.time()
+        try:
+            with Session(engine) as s:
+                queued = s.exec(text(
+                    "SELECT COUNT(*), "
+                    "MIN(julianday('now')-julianday(COALESCE(last_transition_at, created_at)))*86400.0 "
+                    "FROM task WHERE state='QUEUED'"
+                )).first()
+                q_count = int((queued or (0, 0))[0] or 0)
+                q_age = float((queued or (0, 0))[1] or 0)
+
+                transitions = s.exec(text(
+                    "SELECT COUNT(*) FROM taskevent "
+                    "WHERE created_at >= datetime('now', '-2 hours')"
+                )).first()
+                t_count = int((transitions or (0,))[0] or 0)
+
+                online = s.exec(text(
+                    "SELECT COUNT(*) FROM agent WHERE status='online'"
+                )).first()
+                o_count = int((online or (0,))[0] or 0)
+
+                scheduler = s.exec(text(
+                    "SELECT COUNT(*) FROM scheduledjob "
+                    "WHERE enabled=1 AND next_run_at IS NULL"
+                )).first()
+                s_count = int((scheduler or (0,))[0] or 0)
+        except Exception:
+            return results
+
+        if q_count and q_age >= 900:
+            severity = "critical" if q_age >= 3600 else "warning"
+            results.append(Alert(
+                name="TaskQueueStale",
+                severity=severity,
+                message=f"最老排队任务已等 {q_age/60:.0f} 分钟（{q_count} 条 QUEUED）",
+                fired_at=now - max(q_age - 900, 0),
+                value=q_age,
+                labels={"queued": q_count},
+            ))
+        if q_count and t_count == 0:
+            results.append(Alert(
+                name="NoTaskTransition",
+                severity="critical",
+                message="状态机 2 小时无跃迁，队列无人消费",
+                fired_at=now,
+                value=0,
+                labels={"queued": q_count},
+            ))
+        if q_count and o_count == 0:
+            results.append(Alert(
+                name="NoConsumers",
+                severity="critical",
+                message=f"0 个消费者在线，{q_count} 条任务无人认领",
+                fired_at=now,
+                value=0,
+                labels={"queued": q_count},
+            ))
+        if s_count:
+            results.append(Alert(
+                name="SchedulerStateLost",
+                severity="critical",
+                message=f"{s_count} 条已启用定时任务 next_run 为空",
+                fired_at=now,
+                value=s_count,
+            ))
+        return results
+
     def _check_http(self) -> list[Alert]:
         results: list[Alert] = []
         hm = get_http_metrics()
@@ -166,6 +240,8 @@ class AlertManager:
 
             new_alerts: dict[str, Alert] = {}
             for alert in self._check_threads():
+                new_alerts[alert.name] = alert
+            for alert in self._check_tasks():
                 new_alerts[alert.name] = alert
             for alert in self._check_http():
                 new_alerts[alert.name] = alert
