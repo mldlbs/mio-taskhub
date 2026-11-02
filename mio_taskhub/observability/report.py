@@ -1,4 +1,4 @@
-"""结构化、agent 可消费的可观测性采集器 + integrity_check。
+﻿"""结构化、agent 可消费的可观测性采集器 + integrity_check。
 
 取代旧版 /observability/summary 用正则解析 Prometheus 文本取数的脆弱做法。
 一次调用返回完整结构化快照，agent 或脚本可直接消费，无需拼 5+ 端点。
@@ -6,7 +6,6 @@
 import os
 import time
 import logging
-from datetime import datetime, timezone
 from sqlmodel import Session, text
 
 from mio_taskhub.db import engine, check_connection
@@ -108,40 +107,20 @@ def _collect_threads() -> dict:
     }
 
 
-BOARD_NOISE_BEFORE = "2026-10-21"
+from mio_taskhub.observability.scope import delivery_stats
 
 
 def _collect_tasks() -> dict:
     with Session(engine) as s:
-        # Primary scope (278 at 2026-11-01): the board's "current delivery surface".
-        # Keep this SQL in sync with web/src/components/BoardView.jsx.
-        scope_rows = {
-            st: c for st, c in s.exec(text(
-                "SELECT state, COUNT(*) FROM task "
-                "WHERE state != 'CANCELLED' "
-                "  AND NOT (state='FAILED' AND UPPER(task_kind)='REVIEW' "
-                "           AND created_at < :noise_before) "
-                "  AND COALESCE(labels,'[]') NOT LIKE '%part-of:%' "
-                "GROUP BY state"
-            ), params={"noise_before": BOARD_NOISE_BEFORE}).all()
-        }
-        scope_total = sum(scope_rows.values())
-        scope_completed = scope_rows.get("COMPLETED", 0)
-        scope_failed = scope_rows.get("FAILED", 0)
-        scope_queued = scope_rows.get("QUEUED", 0)
-        success_rate = round(scope_completed / scope_total, 4) if scope_total else None
-        failure_rate = round(scope_failed / scope_total, 4) if scope_total else None
-
-        rate = s.exec(text(
-            "SELECT "
-            "SUM(CASE WHEN state='COMPLETED' THEN 1 ELSE 0 END), "
-            "SUM(CASE WHEN state='FAILED' THEN 1 ELSE 0 END), "
-            "SUM(CASE WHEN state='CANCELLED' THEN 1 ELSE 0 END), "
-            "COUNT(*) FROM task WHERE state IN ('COMPLETED','FAILED','CANCELLED')"
-        )).first()
-        completed, failed, cancelled, total = rate if rate else (0, 0, 0, 0)
-        history_success = round(completed / total, 4) if total else None
-        history_failure = round(failed / total, 4) if total else None
+        stats = delivery_stats(s)
+        scope = stats["scope"]
+        history = stats["history"]
+        success_rate = scope["success_rate"]
+        failure_rate = scope["failure_rate"]
+        completed = history["completed"]
+        failed = history["failed"]
+        cancelled = history["cancelled"]
+        total = history["total"]
         cancel_rate = round(cancelled / total, 4) if total else None
 
         by_state = {
@@ -172,33 +151,8 @@ def _collect_tasks() -> dict:
         "success_rate": success_rate,
         "failure_rate": failure_rate,
         "cancel_rate": cancel_rate,
-        "scope": {
-            "id": "delivery",
-            "label": "当前交付面",
-            "as_of": datetime.now(timezone.utc).isoformat(),
-            "definition": [
-                "state != CANCELLED",
-                f"not (FAILED and task_kind=REVIEW and created_at < {BOARD_NOISE_BEFORE})",
-                "labels not like part-of:%",
-            ],
-            "total": scope_total,
-            "completed": scope_completed,
-            "failed": scope_failed,
-            "queued": scope_queued,
-            "success_rate": success_rate,
-            "failure_rate": failure_rate,
-            "queued_rate": round(scope_queued / scope_total, 4) if scope_total else None,
-            "by_state": scope_rows,
-        },
-        "history": {
-            "label": "历史全量终态",
-            "total": total,
-            "completed": completed,
-            "failed": failed,
-            "cancelled": cancelled,
-            "success_rate": history_success,
-            "failure_rate": history_failure,
-        },
+        "scope": scope,
+        "history": history,
         "by_state": by_state,
         "throughput_24h": t24[0] if t24 else 0,
         "throughput_7d": t7[0] if t7 else 0,

@@ -7,6 +7,7 @@ from sqlmodel import Session
 from mio_taskhub.db import engine
 from mio_taskhub.models import Task, TaskStage, TaskState
 from mio_taskhub.observability.report import _collect_tasks
+from mio_taskhub.observability.metrics import render_metrics
 
 
 def _task(state, kind="NORMAL", labels=None, created=None):
@@ -37,3 +38,9 @@ def test_delivery_scope_excludes_noise_and_members():
     assert scope["failure_rate"] == 0.25
     assert data["history"]["total"] == 7
     assert data["history"]["failure_rate"] == round(3 / 7, 4)
+
+    text = render_metrics()
+    assert "taskhub_task_success_rate 0.5000" in text
+    assert "taskhub_task_failure_rate 0.2500" in text
+    assert "taskhub_task_scope_total 4" in text
+    assert "taskhub_task_success_rate_history 0.4286" in text

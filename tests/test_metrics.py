@@ -1,4 +1,4 @@
-"""Metrics endpoint tests."""
+﻿"""Metrics endpoint tests."""
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -74,9 +74,9 @@ def test_success_rate_excludes_cancelled(monkeypatch):
     _seed_terminal("cancelled-1", "CANCELLED")
     text = client.get("/metrics").text
     # 9 完成 / 1 取消 → 成功率应为 1.0（旧口径会是 0.9）
-    assert _gauge(text, "taskhub_task_success_rate") == 1.0
+    assert _gauge(text, "taskhub_task_success_rate_window") == 1.0
     assert _gauge(text, "taskhub_task_cancel_rate") == 0.1
-    assert _gauge(text, "taskhub_task_attempted_total") == 9
+    assert _gauge(text, "taskhub_task_attempted_total_window") == 9
 
 
 def test_success_rate_counts_failed_in_denominator():
@@ -85,8 +85,8 @@ def test_success_rate_counts_failed_in_denominator():
     _seed_terminal("c-3", "COMPLETED")
     _seed_terminal("f-1", "FAILED")
     text = client.get("/metrics").text
-    assert _gauge(text, "taskhub_task_success_rate") == 0.75
-    assert _gauge(text, "taskhub_task_failure_rate") == 0.25
+    assert _gauge(text, "taskhub_task_success_rate_window") == 0.75
+    assert _gauge(text, "taskhub_task_failure_rate_window") == 0.25
 
 
 def test_window_excludes_old_terminal_tasks(monkeypatch):
@@ -96,7 +96,7 @@ def test_window_excludes_old_terminal_tasks(monkeypatch):
     _seed_terminal("old-2", "CANCELLED", days_ago=90)
     _seed_terminal("new-1", "COMPLETED")
     text = client.get("/metrics").text
-    assert _gauge(text, "taskhub_task_success_rate") == 1.0
+    assert _gauge(text, "taskhub_task_success_rate_window") == 1.0
     assert _gauge(text, "taskhub_task_terminal_window_days") == 7
 
 
@@ -114,15 +114,15 @@ def test_success_and_failure_rate_are_complementary():
     _seed_terminal("f-1", "FAILED")
     _seed_terminal("f-2", "FAILED")
     text = client.get("/metrics").text
-    assert (_gauge(text, "taskhub_task_success_rate")
-            + _gauge(text, "taskhub_task_failure_rate")) == 1.0
+    assert (_gauge(text, "taskhub_task_success_rate_window")
+            + _gauge(text, "taskhub_task_failure_rate_window")) == 1.0
 
 
 def test_no_terminal_tasks_reports_zero_not_null():
     """空库时显式输出 0，避免前端显示 —。"""
     text = client.get("/metrics").text
-    assert _gauge(text, "taskhub_task_success_rate") == 0.0
-    assert _gauge(text, "taskhub_task_terminal_total") == 0
+    assert _gauge(text, "taskhub_task_success_rate_window") == 0.0
+    assert _gauge(text, "taskhub_task_terminal_total_window") == 0
 
 
 # ---------- active 口径（task 78d5fac5：指标被自己的告警闭环压低） ----------
@@ -139,9 +139,9 @@ def test_active_rate_excludes_insight_auto_noise():
     text = client.get("/metrics").text
     # 主口径已排除监控噪音（task e83cc9e2）：真实交付 3/4 = 0.75；
     # active 口径与主口径同义（此处无 archived:spinning）。
-    assert _gauge(text, "taskhub_task_success_rate") == 0.75
-    assert _gauge(text, "taskhub_task_failure_rate") == 0.25
-    assert _gauge(text, "taskhub_task_attempted_total") == 4
+    assert _gauge(text, "taskhub_task_success_rate_window") == 0.75
+    assert _gauge(text, "taskhub_task_failure_rate_window") == 0.25
+    assert _gauge(text, "taskhub_task_attempted_total_window") == 4
     assert _gauge(text, "taskhub_task_success_rate_active") == 0.75
     assert _gauge(text, "taskhub_task_failure_rate_active") == 0.25
     assert _gauge(text, "taskhub_task_attempted_total_active") == 4
@@ -198,9 +198,9 @@ def test_primary_rate_excludes_insight_auto_and_followup():
     _seed_terminal("noise-c-1", "COMPLETED", labels=["insight-auto", "metric:x"])
     text = client.get("/metrics").text
     # 主口径 = 真实交付 3/4 = 0.75；failure 0.25（<0.15 已不成立 critical）
-    assert _gauge(text, "taskhub_task_success_rate") == 0.75
-    assert _gauge(text, "taskhub_task_failure_rate") == 0.25
-    assert _gauge(text, "taskhub_task_attempted_total") == 4
+    assert _gauge(text, "taskhub_task_success_rate_window") == 0.75
+    assert _gauge(text, "taskhub_task_failure_rate_window") == 0.25
+    assert _gauge(text, "taskhub_task_attempted_total_window") == 4
     # 被排除的监控工件单独暴露（3 条：2 failed + 1 completed）
     assert _gauge(text, "taskhub_task_excluded_monitoring_total") == 3
     assert _gauge(text, "taskhub_task_monitoring_success_rate") == 0.3333
@@ -211,7 +211,7 @@ def test_primary_rate_zero_excluded_when_no_monitoring_noise():
     _seed_terminal("real-1", "COMPLETED")
     _seed_terminal("real-2", "FAILED")
     text = client.get("/metrics").text
-    assert _gauge(text, "taskhub_task_success_rate") == 0.5
+    assert _gauge(text, "taskhub_task_success_rate_window") == 0.5
     assert _gauge(text, "taskhub_task_excluded_monitoring_total") == 0
     assert _gauge(text, "taskhub_task_monitoring_success_rate") == 0.0
 
@@ -233,9 +233,9 @@ def test_primary_rate_excludes_archived_spinning_and_repair():
                            "repaired:p1-1-cancelled-to-failed"])
     text = client.get("/metrics").text
     # 真实交付 1 成 1 败；3 条归档/修复工件不进主口径
-    assert _gauge(text, "taskhub_task_success_rate") == 0.5
-    assert _gauge(text, "taskhub_task_failure_rate") == 0.5
-    assert _gauge(text, "taskhub_task_attempted_total") == 2
+    assert _gauge(text, "taskhub_task_success_rate_window") == 0.5
+    assert _gauge(text, "taskhub_task_failure_rate_window") == 0.5
+    assert _gauge(text, "taskhub_task_attempted_total_window") == 2
     assert _gauge(text, "taskhub_task_attempted_total_active") == 2
 
 
@@ -248,8 +248,8 @@ def test_primary_rate_null_labels_not_excluded():
                    completed_at=when, failed_at=when))
         s.commit()
     text = client.get("/metrics").text
-    assert _gauge(text, "taskhub_task_failure_rate") == 1.0
-    assert _gauge(text, "taskhub_task_attempted_total") == 1
+    assert _gauge(text, "taskhub_task_failure_rate_window") == 1.0
+    assert _gauge(text, "taskhub_task_attempted_total_window") == 1
 
 
 def test_stalled_metric_excludes_queued():

@@ -6,6 +6,7 @@ from sqlmodel import Session, text
 from mio_taskhub.db import engine
 from mio_taskhub.middleware import get_http_metrics
 from mio_taskhub.background import get_thread_health
+from mio_taskhub.observability.scope import delivery_stats
 
 _start_time = time.time()
 
@@ -264,6 +265,25 @@ def render_metrics() -> str:
             # 2) 只看滚动窗口内进入终态的任务：全量累计口径一旦被历史噪音
             #    污染就永不恢复，指标必然长期 critical。
             win = _terminal_window_days()
+
+            # Primary scope: same 278 definition as report/UI. This is the
+            # single value all surfaces should read.
+            scope_stats = delivery_stats(s)
+            scope = scope_stats["scope"]
+            history = scope_stats["history"]
+            if scope["total"]:
+                lines.append(f'taskhub_task_success_rate {scope["success_rate"]:.4f}')
+                lines.append(f'taskhub_task_failure_rate {scope["failure_rate"]:.4f}')
+                lines.append(f'taskhub_task_queued_rate {scope["queued_rate"]:.4f}')
+                lines.append(f'taskhub_task_scope_total {scope["total"]}')
+            else:
+                lines.append('taskhub_task_success_rate 0.0')
+                lines.append('taskhub_task_failure_rate 0.0')
+                lines.append('taskhub_task_queued_rate 0.0')
+                lines.append('taskhub_task_scope_total 0')
+            lines.append(f'taskhub_task_success_rate_history {history["success_rate"] or 0:.4f}')
+            lines.append(f'taskhub_task_failure_rate_history {history["failure_rate"] or 0:.4f}')
+            lines.append(f'taskhub_task_terminal_total_history {history["total"]}')
             # 监控自造任务（insight-auto / insight-followup）是控制面闭环自己
             # 派生的跟进任务，因 worker 生命周期失败而终态时并非交付失败。
             # 把它们计入分母会让指标度量自己派出的任务——数学上不可能靠再派
@@ -300,22 +320,22 @@ def render_metrics() -> str:
                 attempted = completed + failed
                 # success/failure 互补，样本量单独暴露，避免 n=1 的比率触发告警
                 if attempted > 0:
-                    lines.append(f'taskhub_task_success_rate {completed / attempted:.4f}')
-                    lines.append(f'taskhub_task_failure_rate {failed / attempted:.4f}')
+                    lines.append(f'taskhub_task_success_rate_window {completed / attempted:.4f}')
+                    lines.append(f'taskhub_task_failure_rate_window {failed / attempted:.4f}')
                 else:
-                    lines.append('taskhub_task_success_rate 0.0')
-                    lines.append('taskhub_task_failure_rate 0.0')
-                lines.append(f'taskhub_task_attempted_total {attempted}')
+                    lines.append('taskhub_task_success_rate_window 0.0')
+                    lines.append('taskhub_task_failure_rate_window 0.0')
+                lines.append(f'taskhub_task_attempted_total_window {attempted}')
                 lines.append(f'taskhub_task_cancel_rate {cancelled / total:.4f}')
-                lines.append(f'taskhub_task_terminal_total {total}')
+                lines.append(f'taskhub_task_terminal_total_window {total}')
                 lines.append(f'taskhub_task_terminal_window_days {win}')
             else:
                 # 窗口内无终态任务时显式输出 0，避免 summary 出现 null（前端显示 —）
-                lines.append('taskhub_task_success_rate 0.0')
-                lines.append('taskhub_task_failure_rate 0.0')
-                lines.append('taskhub_task_attempted_total 0')
+                lines.append('taskhub_task_success_rate_window 0.0')
+                lines.append('taskhub_task_failure_rate_window 0.0')
+                lines.append('taskhub_task_attempted_total_window 0')
                 lines.append('taskhub_task_cancel_rate 0.0')
-                lines.append('taskhub_task_terminal_total 0')
+                lines.append('taskhub_task_terminal_total_window 0')
                 lines.append(f'taskhub_task_terminal_window_days {win}')
 
             # 自度量审计：被排除的监控工件样本量与「监控自身派单完成率」。
