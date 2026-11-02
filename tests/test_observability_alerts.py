@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """活性告警：队列陈旧、无跃迁、无消费者、调度状态丢失。"""
+import time
 from datetime import datetime, timedelta, timezone
 
 from sqlmodel import Session
@@ -21,6 +22,11 @@ def test_task_activity_alerts_fire():
     names = {a.name for a in AlertManager()._check_tasks()}
     assert "TaskQueueStale" in names
     assert "NoTaskTransition" in names
+    assert "NoConsumers" not in names
+
+    mgr = AlertManager()
+    mgr._condition_since["NoConsumers"] = time.time() - 301
+    names = {a.name for a in mgr._check_tasks()}
     assert "NoConsumers" in names
     assert "SchedulerStateLost" in names
 

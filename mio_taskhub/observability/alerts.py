@@ -57,6 +57,7 @@ class AlertManager:
         self._alerts: dict[str, Alert] = {}
         self._last_eval = 0.0
         self._eval_interval = 30
+        self._condition_since: dict[str, float] = {}
 
     def _check_threads(self) -> list[Alert]:
         results: list[Alert] = []
@@ -135,13 +136,15 @@ class AlertManager:
 
         if q_count and q_age >= 900:
             severity = "critical" if q_age >= 3600 else "warning"
+            incident = q_age >= 86400
             results.append(Alert(
                 name="TaskQueueStale",
                 severity=severity,
-                message=f"最老排队任务已等 {q_age/60:.0f} 分钟（{q_count} 条 QUEUED）",
+                message=("事故级：" if incident else "")
+                        + f"最老排队任务已等 {q_age/60:.0f} 分钟（{q_count} 条 QUEUED）",
                 fired_at=now - max(q_age - 900, 0),
                 value=q_age,
-                labels={"queued": q_count},
+                labels={"queued": q_count, "incident": incident},
             ))
         if q_count and t_count == 0:
             results.append(Alert(
@@ -153,14 +156,18 @@ class AlertManager:
                 labels={"queued": q_count},
             ))
         if q_count and o_count == 0:
-            results.append(Alert(
-                name="NoConsumers",
-                severity="critical",
-                message=f"0 个消费者在线，{q_count} 条任务无人认领",
-                fired_at=now,
-                value=0,
-                labels={"queued": q_count},
-            ))
+            since = self._condition_since.setdefault("NoConsumers", now)
+            if now - since >= 300:
+                results.append(Alert(
+                    name="NoConsumers",
+                    severity="critical",
+                    message=f"0 个消费者在线，{q_count} 条任务无人认领（持续 {int(now-since)//60} 分钟）",
+                    fired_at=since,
+                    value=0,
+                    labels={"queued": q_count},
+                ))
+        else:
+            self._condition_since.pop("NoConsumers", None)
         if s_count:
             results.append(Alert(
                 name="SchedulerStateLost",

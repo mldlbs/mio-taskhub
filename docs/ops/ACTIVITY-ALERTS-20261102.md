@@ -10,24 +10,22 @@
 
 | 告警 | 条件 | 严重度 |
 |---|---|---|
-| `TaskQueueStale` | 最老 QUEUED 任务 ≥15min；≥60min 升 critical | warning/critical |
+| `TaskQueueStale` | 最老 QUEUED 任务 ≥15min；≥60min critical；≥24h 标记事故 | warning/critical |
 | `NoTaskTransition` | 队列非空且 2h 内 `taskevent` 无跃迁 | critical |
-| `NoConsumers` | 队列非空且 0 个 agent `status=online` | critical |
+| `NoConsumers` | 队列非空且 0 个 agent `status=online` **持续 ≥5min** | critical |
 | `SchedulerStateLost` | `enabled=1` 且 `next_run_at IS NULL` | critical |
 
 `SchedulerStateLost` 不会对停用任务误报：当前 3 条 cron 全部 `enabled=0`，因此不触发；启用后若 `next_run` 仍为空才告警。
 
 ## 3 生产结果（2026-11-02）
 
-`GET /api/v1/alerts` 返回 3 条活跃告警：
+部署后 `GET /api/v1/alerts` 返回 1 条事故级告警：
 
 | 告警 | 现场 |
 |---|---|
-| `TaskQueueStale` | 最老排队 49 分钟，42 条 QUEUED |
-| `NoTaskTransition` | 状态机 2 小时无跃迁 |
-| `NoConsumers` | 0 个消费者在线，42 条无人认领 |
+| `TaskQueueStale` | 最老排队 **4,453 分钟（约 3 天）**，40 条 QUEUED，`labels.incident=true` |
 
-观测台已显示「活跃告警 3」。
+`NoConsumers` 需持续 5 分钟才触发，部署瞬间不出现；`NoTaskTransition` 在近期有事件时自动不触发。观测台与首屏状态条显示红条「系统异常」。
 
 ### 3.1 首屏持久状态条
 
@@ -42,10 +40,10 @@
 
 ## 4 仍未完成
 
-1. **24h 事故级**：目前 60min 即 critical，未单独区分 24h。
-2. **告警去重/任务级下钻**：R13/R14 未做。
-3. **心跳持续 5min 才告警**：当前是即时 0 消费者；没有历史心跳窗口，可能对短暂重连敏感。
-4. `alertrule` 自定义规则仍为空；本次走内置检查，不依赖它。
+1. **告警去重/任务级下钻**：R13/R14 未做。
+2. **心跳持续窗口的持久化**：`NoConsumers` 的 5min 防抖在进程重启后重新计时；未落库。
+3. `alertrule` 自定义规则仍为空；本次走内置检查，不依赖它。
+4. 首屏状态条只列出告警类型，未列出具体任务 ID；下钻仍需手动进观测台。
 
 ## 5 验证
 
@@ -55,7 +53,7 @@
 | 生产 `/api/v1/alerts` | 200，active_count=2–3（动态） |
 | 首屏 | 红条「系统异常 2 条活跃告警」可见，不可关闭 |
 | 观测台 | 活跃告警列表 |
-| 部署 | exe sha256 `4686c1c0…`，PID 33392/42536 |
+| 部署 | exe sha256 `4686c1c0…`，PID 38688/43664 |
 
 ## 6 结论
 

@@ -39,9 +39,9 @@
 
 | 项 | 值 |
 |---|---|
-| 新 exe sha256 | `4686c1c0d0e7c2fc3ea7c5f8ada38e1499eb4d36495f788cd883b759c9ce17f7` |
+| 新 exe sha256 | `1165d6c0e4109b762fd20b32a681d947c368b071cd4e53e7dbffb2096fbad5ee` |
 | 大小 | 16,147,323 字节 |
-| 进程 | supervisor + worker（PID 33392 / 42536） |
+| 进程 | supervisor + worker（PID 38688 / 43664） |
 | 版本 | 0.6.1（未发 Release） |
 | 功能截图 | `docs/ui/screenshots/`（14 个视图 + `contact-sheet.png`） |
 | UI 回滚备份 | `~/.mio_taskhub/deploy-20261029/dist-backend-only/`（新后端 + 旧青柠 UI） |
