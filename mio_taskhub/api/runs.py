@@ -567,6 +567,10 @@ def _handle_success(task, run, m1_events, db=None):
     if recovered:
         payload["recovered_from_failed"] = True
 
+    # 证据链：成功 run 必须写回 task，否则「这个任务由哪个 run 完成」无法回答，
+    # ReadEvidence 也就无法按 run 关联到已完成任务。门禁 warn/off 同样要写。
+    task.completion_run_id = run.id or ""
+
     # 经验沉淀（任务 28f8fceb FR-3）：把本次的可复用信息写入 memory_store，
     # 供后续同项目任务 claim 时参考。**纯旁路**：失败只记日志，不影响状态流转。
     try:

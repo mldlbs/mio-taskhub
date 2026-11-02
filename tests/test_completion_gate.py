@@ -222,3 +222,34 @@ def test_legacy_done_is_readable(monkeypatch):
     detail = client.get(f"/api/v1/tasks/{tid}").json()
     assert detail["completion_state"] == "legacy_done"
     assert detail["completion_run_id"] == ""
+
+
+def test_warn_mode_records_completion_run_and_gate_issues(monkeypatch, tmp_path):
+    """warn 模式不阻断，但仍要写回 run_id 并把拦截原因留在证据里。"""
+    monkeypatch.setenv("MIO_COMPLETION_GATE", "warn")
+    monkeypatch.setenv("MIO_READ_GATE", "0")
+    t = _mk(workspace=str(tmp_path), acceptance_criteria="必须提供可执行测试")
+    run, _ = _claim(t["id"])
+    r = _submit(run["id"], {"success": True, "result": "实现了 X 并留下产物",
+                            "evidence": {"verification": {"artifacts": ["a.py"]}}})
+    assert r.status_code == 200, r.text
+    with Session(engine) as db:
+        task = db.get(Task, t["id"])
+        assert task.completion_run_id == run["id"]
+        rr = db.get(Run, run["id"])
+        assert rr.evidence["gate_mode"] == "warn"
+        codes = {i["code"] for i in rr.evidence["gate_issues"]}
+        assert "gate.verification_missing" in codes
+
+
+def test_gate_off_still_records_completion_run(monkeypatch, tmp_path):
+    """门禁关闭只该关掉拦截，不该关掉证据链。"""
+    monkeypatch.setenv("MIO_COMPLETION_GATE", "off")
+    monkeypatch.setenv("MIO_READ_GATE", "0")
+    t = _mk(workspace=str(tmp_path))
+    run, _ = _claim(t["id"])
+    r = _submit(run["id"], {"success": True, "result": "实现了 X 并跑通测试",
+                            "evidence": {"verification": {"artifacts": ["a.py"]}}})
+    assert r.status_code == 200, r.text
+    with Session(engine) as db:
+        assert db.get(Task, t["id"]).completion_run_id == run["id"]

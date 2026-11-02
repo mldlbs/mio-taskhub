@@ -423,6 +423,9 @@ def check_submit(db: Session, task: Task, run: Run, body: dict) -> list[dict]:
     outputs = contract_outputs_for(task)
     if outputs:
         evidence["contract_outputs"] = outputs
+    # warn 模式不阻断，但必须把「为什么本该拦」留在证据里，否则事后无法归因。
+    evidence["gate_mode"] = mode
+    evidence["gate_issues"] = issues
     run.evidence = evidence
     if not issues:
         task.completion_run_id = run.id or ""
