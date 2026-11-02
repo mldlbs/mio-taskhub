@@ -153,6 +153,7 @@
 | T91 | `test_observability_scope.py`（1 项） | 278 当前交付面口径与历史全量分离 |
 | T92 | `test_observability_alerts.py`（2 项） | 队列陈旧/无跃迁/无消费者/调度状态丢失 |
 | T93 | `test_completion_gate.py`（15 项） | 完成门禁；新增 warn/off 写回 completion_run_id 与 gate_issues |
+| T94 | `test_stage.py`（19 项） | 阶段产物门禁；standard 已登记文档必须 approved |
 
 ---
 
@@ -286,7 +287,7 @@ python scripts/materials_audit.py
 python scripts/materials_backfill.py --days 30
 ```
 
-素材库实测：`155 passed`；全量 `1818 passed / 2 skipped / 5 deselected`（2026-11-02，排除 GUI 主循环测试）。
+素材库实测：`155 passed`；全量 `1820 passed / 2 skipped / 5 deselected`（2026-11-02，排除 GUI 主循环测试）。
 
 ---
 

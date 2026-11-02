@@ -1,4 +1,6 @@
 from fastapi.testclient import TestClient
+from fastapi import HTTPException
+import pytest
 from mio_taskhub.main import app
 from mio_taskhub.db import engine
 from mio_taskhub.models import Task, TaskStage
@@ -74,6 +76,26 @@ def test_advance_to_implementing_requires_changelog():
     assert r.status_code == 200
     assert r.json()["stage"] == "implementing"
     assert r.json()["doc_paths"].get("changelog") == "docs/changelog.md"
+
+def test_standard_tier_requires_approved_doc(tmp_path):
+    """standard 档：已登记文档只存在还不够，必须 approved。"""
+    from mio_taskhub.api.task_stages import _check_lifecycle_gate
+
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "s.md").write_text("# spec", encoding="utf-8")
+    t = Task(title="std", stage=TaskStage.DESIGN, workspace=str(tmp_path),
+             gate_tier="standard", gate_tier_reason="spec_registered",
+             doc_paths={"spec": "docs/s.md"})
+
+    with pytest.raises(HTTPException) as ei:
+        _check_lifecycle_gate(t, TaskStage.PLANNING)
+    assert ei.value.status_code == 422
+    assert any(g.get("reason") == "registered_but_not_approved"
+               for g in ei.value.detail["gate"])
+
+    t.doc_statuses = {"spec": {"state": "approved"}}
+    assert _check_lifecycle_gate(t, TaskStage.PLANNING) == []
+
 
 def test_advance_illegal_transition():
     tid = _mk()  # brainstorming

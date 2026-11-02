@@ -147,13 +147,33 @@ def _check_lifecycle_gate(t: Task, dst: TaskStage, force: bool = False):
     if tier_reason and tier == "light":
         return []
     if tier_reason and tier == "standard":
-        missing = [k for k in gate if doc_path_of(t, k) and not _doc_written(t, k)]
-        if missing and not force:
+        # 已登记的文档必须走到 required 状态；只查「文件存在」会让 draft/0 分文档直通。
+        statuses = dict(getattr(t, "doc_statuses", None) or {})
+        blocked = []
+        for kind, required in gate.items():
+            if not doc_path_of(t, kind):
+                continue
+            entry = statuses.get(kind) or {}
+            if not _doc_written(t, kind):
+                blocked.append({
+                    "kind": kind,
+                    "current": entry.get("state"),
+                    "required": required,
+                    "reason": "registered_but_file_missing",
+                })
+            elif not reached_state(kind, entry.get("state"), required):
+                blocked.append({
+                    "kind": kind,
+                    "current": entry.get("state"),
+                    "required": required,
+                    "reason": "registered_but_not_approved",
+                })
+        if blocked and not force:
             raise HTTPException(422, detail={
-                "message": "standard tier requires registered documents to exist",
-                "gate": [{"kind": k, "reason": "registered_but_file_missing"} for k in missing],
+                "message": "standard tier requires registered documents to be approved",
+                "gate": blocked,
             })
-        return []
+        return blocked
     statuses = dict(getattr(t, "doc_statuses", None) or {})
     tracked = bool(statuses)                 # 已进入文档生命周期（显式设过任一状态）
     blocked = []
