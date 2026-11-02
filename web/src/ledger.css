@@ -154,6 +154,90 @@ html[data-theme="dark"] .mission {
     var(--bg);
 }
 
+/* first-screen persistent alert strip (G1) */
+.alert-strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 26px;
+  font-size: 12.5px;
+  border-bottom: 1px solid rgba(239, 68, 68, 0.35);
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.18), rgba(239, 68, 68, 0.06));
+  color: #fecaca;
+  z-index: 25;
+}
+
+.alert-strip--warning {
+  border-bottom-color: rgba(245, 165, 36, 0.4);
+  background: linear-gradient(90deg, rgba(245, 165, 36, 0.16), rgba(245, 165, 36, 0.05));
+  color: #fde68a;
+}
+
+.alert-strip__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55);
+  animation: alert-pulse 1.8s ease-out infinite;
+}
+
+.alert-strip--warning .alert-strip__dot {
+  background: #f5a524;
+  box-shadow: 0 0 0 0 rgba(245, 165, 36, 0.55);
+}
+
+.alert-strip__title {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.alert-strip__msg {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.95;
+}
+
+.alert-strip__btn {
+  margin-left: auto;
+  flex: none;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  padding: 4px 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.alert-strip__btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="light"] .alert-strip {
+  color: #991b1b;
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.03));
+}
+
+html[data-theme="light"] .alert-strip--warning {
+  color: #8f4107;
+  background: linear-gradient(90deg, rgba(245, 165, 36, 0.14), rgba(245, 165, 36, 0.03));
+}
+
+@keyframes alert-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55); }
+  70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alert-strip__dot { animation: none; }
+}
+
 /* Ledger typography: display no longer geometric-wide */
 .mission__name,
 .modal__head h3,

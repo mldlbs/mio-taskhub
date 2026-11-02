@@ -35,6 +35,13 @@ const VIEW_KEY = 'mio.view'
 const CONTRAST_KEY = 'mio.contrast'
 const THEME_KEY = 'mio.theme'
 
+const ALERT_LABELS = {
+  TaskQueueStale: '队列陈旧',
+  NoTaskTransition: '状态无跃迁',
+  NoConsumers: '无消费者在线',
+  SchedulerStateLost: '调度状态丢失',
+}
+
 export default function App() {
   const isEmbed = typeof window !== 'undefined' && window.location.hash === '#/embed'
   if (isEmbed) {
@@ -63,6 +70,7 @@ export default function App() {
       return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'
     } catch { return 'dark' }
   })
+  const [alerts, setAlerts] = useState([])
   const [ws, setWs] = useState(false)
   const [error, setError] = useState(null)  // { message, type, retry? }
   const [modal, setModal] = useState(false)
@@ -101,6 +109,18 @@ export default function App() {
     document.documentElement.dataset.theme = theme
     try { localStorage.setItem(THEME_KEY, theme) } catch { /* ignore */ }
   }, [theme])
+
+  useEffect(() => {
+    let alive = true
+    const load = () => {
+      api.listAlerts()
+        .then(d => { if (alive) setAlerts((d && d.alerts) || []) })
+        .catch(() => { /* 告警拉取失败不阻塞主界面 */ })
+    }
+    load()
+    const timer = setInterval(load, 30000)
+    return () => { alive = false; clearInterval(timer) }
+  }, [])
 
   const toggleContrast = useCallback(() => setContrast(c => !c), [])
   const toggleTheme = useCallback(() => setTheme(t => (t === 'light' ? 'dark' : 'light')), [])
@@ -375,6 +395,10 @@ export default function App() {
     ? ideas.filter(i => i.project === filter.project)
     : ideas
 
+  const activeAlerts = alerts.filter(a => a.active)
+  const alertNames = [...new Set(activeAlerts.map(a => ALERT_LABELS[a.name] || a.name))]
+  const hasCritical = activeAlerts.some(a => a.severity === 'critical')
+
   return (
     <div className="shell">
       <div className="ambient" aria-hidden="true" />
@@ -396,6 +420,19 @@ export default function App() {
           cancelledCount={cancelledCount}
           onToggleCancelled={() => setShowCancelled(s => !s)}
         />
+
+        {activeAlerts.length > 0 && (
+          <div className={`alert-strip alert-strip--${hasCritical ? 'critical' : 'warning'}`} role="alert">
+            <span className="alert-strip__dot" aria-hidden="true" />
+            <strong className="alert-strip__title">{hasCritical ? '系统异常' : '系统警告'}</strong>
+            <span className="alert-strip__msg">
+              {activeAlerts.length} 条活跃告警：{alertNames.join(' · ')}
+            </span>
+            <button className="alert-strip__btn" onClick={() => setView('observability')}>
+              查看观测台 →
+            </button>
+          </div>
+        )}
 
         <ConnectionBanner wsLive={ws} lastSync={lastSync} retryIn={wsRetryIn} />
         <UpdateBanner eventTick={lastSync} onOpenSettings={() => setView('settings')} />
