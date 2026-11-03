@@ -121,7 +121,20 @@ def _doc_written(t: Task, kind: str) -> bool:
         return False
 
 
-def _check_lifecycle_gate(t: Task, dst: TaskStage, force: bool = False):
+def _incoming_doc_kinds(body: dict) -> set:
+    """本次请求将要登记的文档 kind；这些文档不参与本次生命周期校验。"""
+    kinds = set()
+    if isinstance((body or {}).get("doc_paths"), dict):
+        kinds.update(str(k) for k in body["doc_paths"])
+    if (body or {}).get("spec_path"):
+        kinds.add("spec")
+    if (body or {}).get("plan_path"):
+        kinds.add("plan")
+    return kinds
+
+
+def _check_lifecycle_gate(t: Task, dst: TaskStage, force: bool = False,
+                          skip_kinds=None):
     """进入目标阶段前校验文档生命周期状态已达门槛。
 
     豁免：仅 `task.doc_gate_exempt=True`（显式字段，迁移把存量历史任务置 True）时不校验。
@@ -135,6 +148,12 @@ def _check_lifecycle_gate(t: Task, dst: TaskStage, force: bool = False):
         只查目标阶段会让「跳过 design 直进 planning/ready」绕过前序门槛。
     未达门槛且未 force → 抛 HTTPException(422, {message, gate})；
     force 绕过 → 返回被绕过的条目列表（供调用方留痕），否则返回空列表。
+
+    2026-11-03（方案 B）补充：
+      · light/standard 对已登记文档要求 approved；
+      · `skip_kinds` 为本次请求新登记的 kind，不参与本次校验（否则「进 design 时
+        才登记 spec」永远无法满足「spec 必须已 approved」）；
+      · 文档路径不可解析（无 workspace/非法路径）时沿用系统惯例 fail-open。
     """
     gate = _gates_upto(dst)
     if not gate:
@@ -143,15 +162,20 @@ def _check_lifecycle_gate(t: Task, dst: TaskStage, force: bool = False):
         return []
     tier = str(getattr(t, "gate_tier", "light") or "light").lower()
     tier_reason = str(getattr(t, "gate_tier_reason", "") or "")
-    # Phase 1：light 跳过生命周期；standard 只要求已登记且文件存在，不要求 approved。
-    if tier_reason and tier == "light":
-        return []
-    if tier_reason and tier == "standard":
-        # 已登记的文档必须走到 required 状态；只查「文件存在」会让 draft/0 分文档直通。
+    # 2026-11-03：light 与 standard 对「已登记文档」一视同仁，必须 approved；
+    # 未登记仍放行（fail-open）。“所有任务必须有 requirement”属方案 C，单独决策。
+    if tier_reason and tier in ("light", "standard"):
+        from mio_taskhub.read_evidence import resolve_doc_path
+        skip = {str(k) for k in (skip_kinds or ())}
         statuses = dict(getattr(t, "doc_statuses", None) or {})
         blocked = []
         for kind, required in gate.items():
+            if kind in skip:
+                continue
             if not doc_path_of(t, kind):
+                continue
+            if resolve_doc_path(t, kind) is None:
+                # workspace 缺失 / 路径不可解析 → 无法校验，沿用 fail-open
                 continue
             entry = statuses.get(kind) or {}
             if not _doc_written(t, kind):
@@ -170,7 +194,7 @@ def _check_lifecycle_gate(t: Task, dst: TaskStage, force: bool = False):
                 })
         if blocked and not force:
             raise HTTPException(422, detail={
-                "message": "standard tier requires registered documents to be approved",
+                "message": f"{tier} tier requires registered documents to be approved",
                 "gate": blocked,
             })
         return blocked
@@ -461,7 +485,9 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
         if not discussions:
             raise HTTPException(422, f"{dst.value} stage requires at least one discussion record")
     _apply_stage_requirements(t, dst, body)
-    forced_gate = _check_lifecycle_gate(t, dst, force=bool((body or {}).get("force")))
+    forced_gate = _check_lifecycle_gate(t, dst,
+                                        force=bool((body or {}).get("force")),
+                                        skip_kinds=_incoming_doc_kinds(body))
     if dst == TaskStage.DONE:
         _check_done_gate(t, db)
     m1_events = []
@@ -524,7 +550,9 @@ def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
         return {"id": t.id, "stage": t.stage.value, "spec_path": t.spec_path,
                 "plan_path": t.plan_path, "review_result": t.review_result,
                 "state": t.state.value}
-    forced_gate = _check_lifecycle_gate(t, dst, force=bool((body or {}).get("force")))
+    forced_gate = _check_lifecycle_gate(t, dst,
+                                        force=bool((body or {}).get("force")),
+                                        skip_kinds=_incoming_doc_kinds(body))
     if dst == TaskStage.DONE:
         _check_done_gate(t, db)
     m1_events = []

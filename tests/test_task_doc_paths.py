@@ -409,7 +409,10 @@ def test_gate_error_messages_preserved(tmp_path, monkeypatch):
                              'doc_paths': {'changelog': 'docs/changelog.md'}}).status_code == 200
     assert client.post(f'/api/v1/tasks/{tid}/stage',
                        json={'target_stage': 'review', 'force': True}).status_code == 200
-    r = client.post(f'/api/v1/tasks/{tid}/stage', json={'target_stage': 'done'})
+    # 2026-11-03：light/standard 已登记文档必须 approved，到 done 会再次校验累计文档门槛；
+    # 本用例验证完成门禁文案，故 done 也带 force 越过文档门槛。
+    r = client.post(f'/api/v1/tasks/{tid}/stage',
+                    json={'target_stage': 'done', 'force': True})
     assert r.status_code == 422
     assert r.json()['detail']['code'] == 'gate.completion_missing'
 

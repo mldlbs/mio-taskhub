@@ -97,6 +97,74 @@ def test_standard_tier_requires_approved_doc(tmp_path):
     assert _check_lifecycle_gate(t, TaskStage.PLANNING) == []
 
 
+def test_light_tier_registered_doc_must_be_approved(tmp_path):
+    """light 档：登记了文档就不能拿 draft 直通（方案 B）。"""
+    from mio_taskhub.api.task_stages import _check_lifecycle_gate
+
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "s.md").write_text("# spec", encoding="utf-8")
+    t = Task(title="light", stage=TaskStage.DESIGN, workspace=str(tmp_path),
+             gate_tier="light", gate_tier_reason="default",
+             doc_paths={"spec": "docs/s.md"})
+
+    with pytest.raises(HTTPException) as ei:
+        _check_lifecycle_gate(t, TaskStage.PLANNING)
+    assert ei.value.status_code == 422
+    assert any(g.get("reason") == "registered_but_not_approved"
+               for g in ei.value.detail["gate"])
+
+    t.doc_statuses = {"spec": {"state": "approved"}}
+    assert _check_lifecycle_gate(t, TaskStage.PLANNING) == []
+
+
+def test_light_tier_without_docs_still_passes(tmp_path):
+    """未登记文档仍 fail-open；是否强制 requirement 属方案 C。"""
+    from mio_taskhub.api.task_stages import _check_lifecycle_gate
+
+    t = Task(title="light-nodoc", stage=TaskStage.DESIGN, workspace=str(tmp_path),
+             gate_tier="light", gate_tier_reason="default")
+    assert _check_lifecycle_gate(t, TaskStage.PLANNING) == []
+
+
+def test_light_tier_registered_missing_file_blocks(tmp_path):
+    """登记了但文件不在，不能静默放行。"""
+    from mio_taskhub.api.task_stages import _check_lifecycle_gate
+
+    t = Task(title="light-missing", stage=TaskStage.DESIGN, workspace=str(tmp_path),
+             gate_tier="light", gate_tier_reason="default",
+             doc_paths={"spec": "docs/not-there.md"})
+
+    with pytest.raises(HTTPException) as ei:
+        _check_lifecycle_gate(t, TaskStage.PLANNING)
+    assert any(g.get("reason") == "registered_but_file_missing"
+               for g in ei.value.detail["gate"])
+
+
+def test_doc_registered_in_same_move_does_not_gate_that_move(tmp_path):
+    """进 design 时才登记 spec 不能被本次校验拦住（否则永远无法进入 design）。"""
+    from mio_taskhub.api.task_stages import _check_lifecycle_gate
+
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "s.md").write_text("# spec", encoding="utf-8")
+    t = Task(title="chicken-egg", stage=TaskStage.DESIGN, workspace=str(tmp_path),
+             gate_tier="light", gate_tier_reason="default",
+             doc_paths={"spec": "docs/s.md"})
+
+    with pytest.raises(HTTPException):
+        _check_lifecycle_gate(t, TaskStage.PLANNING)
+    assert _check_lifecycle_gate(t, TaskStage.PLANNING, skip_kinds={"spec"}) == []
+
+
+def test_unresolvable_doc_path_fails_open():
+    """workspace 缺失时无法校验文档，沿用系统惯例放行。"""
+    from mio_taskhub.api.task_stages import _check_lifecycle_gate
+
+    t = Task(title="no-ws", stage=TaskStage.DESIGN, workspace="",
+             gate_tier="light", gate_tier_reason="default",
+             doc_paths={"spec": "docs/s.md"})
+    assert _check_lifecycle_gate(t, TaskStage.PLANNING) == []
+
+
 def test_advance_illegal_transition():
     tid = _mk()  # brainstorming
     r = client.post(f"/api/v1/tasks/{tid}/stage", json={"target_stage": "planning"})

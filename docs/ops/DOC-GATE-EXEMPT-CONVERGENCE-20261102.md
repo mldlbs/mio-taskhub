@@ -71,4 +71,4 @@ WHERE id IN (
 
 活跃队列的显式豁免已清零，383 条降到 358 条；剩余 358 条全部是终态任务（CANCELLED 169 / COMPLETED 132 / FAILED 57），不再影响门禁。
 
-下一步是门禁三档：让「登记了文档就必须 approved」覆盖 light，并决定是否要求所有新任务必须先有 requirement 文档。
+下一步是门禁三档：让「登记了文档就必须 approved」覆盖 light，并决定是否要求所有新任务必须先有 requirement 文档。**light 部分已于 2026-11-03 完成**（见 `DOC-GATE-TIER-EVALUATION-20261102.md`）。
