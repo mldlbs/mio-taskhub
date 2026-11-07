@@ -70,9 +70,19 @@ def main() -> int:
     p.add_argument("--repo", required=True)
     p.add_argument("--branch", default="main")
     p.add_argument("--require", action="append", default=[])
+    p.add_argument(
+        "--allow-missing-token", action="store_true",
+        help="没有 token 时不算失败，只打印 GitHub 告警注解。"
+             "给定时审计用：缺 secret 是配置问题，不该让流水线天天红。")
     args = p.parse_args()
     result = audit(_token(), args.repo, args.branch, args.require)
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    if result.get("error") == "token_missing" and args.allow_missing_token:
+        # ::warning:: 会显示成 GitHub 的黄色注解，既不阻断也能被看到
+        print("::warning title=分支保护未审计::BRANCH_PROTECTION_TOKEN 未配置，"
+              "本项目无法校验 main 的必需 status checks。"
+              "请补一个带 Administration 读权限的 PAT，或接受这道门没有开启。")
+        return 0
     return 0 if result["ok"] else 1
 
 

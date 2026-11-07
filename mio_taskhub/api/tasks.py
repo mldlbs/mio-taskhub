@@ -3,7 +3,7 @@ import json
 import os
 from datetime import datetime, timezone
 from mio_taskhub.api.claim import claim_for, should_fallback
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
 
@@ -26,8 +26,41 @@ from mio_taskhub.hierarchy import (
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
+# 能**关掉**质量门控的字段（F-006）。它们不是普通属性：置真就少一道门，
+# 因此单独要求管理员确认，而不是把整个 PATCH 变成管理员端点。
+# 只保护「置为真」这一侧：把豁免改回 false 是收紧，不该拦。
+# `gate_tier` 不在此列——显式降级已强制给 reason 并落 task_gate_tier_changed 事件。
+GATE_EXEMPT_FIELDS = ("doc_gate_exempt", "diff_gate_exempt")
+
+_FALSY = {"", "0", "false", "no", "off", "none", "null"}
+
+
+def _wants_exempt(v) -> bool:
+    if isinstance(v, str):
+        return v.strip().lower() not in _FALSY
+    return bool(v)
+
+
+def _guard_gate_fields(request: Request, body: dict) -> None:
+    """body 里把门控豁免置真时，要求管理员确认（2026-11-07，F-006）。"""
+    touched = [f for f in GATE_EXEMPT_FIELDS if _wants_exempt((body or {}).get(f))]
+    if not touched:
+        return
+    from mio_taskhub.admin_guard import admin_ok
+    if admin_ok(request):
+        return
+    raise HTTPException(403, detail={
+        "code": "admin.required_for_gate_fields",
+        "message": (f"把 {', '.join(touched)} 置为真会关掉质量门控，需要管理员确认："
+                    "未配置 MIO_TASKHUB_ADMIN_TOKEN 时请带 X-TaskHub-Admin: 1"
+                    "（或启用 --auth 后带 Bearer）。"),
+        "fields": touched,
+    })
+
+
 @router.post("", response_model=dict)
-def create_task(body: dict, db: Session = Depends(get_session)):
+def create_task(body: dict, request: Request, db: Session = Depends(get_session)):
+    _guard_gate_fields(request, body)
     due_at = parse_dt(body.get("due_at"), "due_at")
     run_at = parse_dt(body.get("run_at"), "run_at")
     parent_id = (body.get("parent_id") or "").strip() or None
@@ -393,10 +426,12 @@ def list_children(task_id: str, db: Session = Depends(get_session)):
 
 
 @router.patch("/{task_id}")
-def update_task(task_id: str, body: dict, db: Session = Depends(get_session)):
+def update_task(task_id: str, body: dict, request: Request,
+                db: Session = Depends(get_session)):
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404, "task not found")
+    _guard_gate_fields(request, body)
     old_tier = t.gate_tier
     editable = ["title", "description", "priority", "est_duration_min", "max_retries",
                 "acceptance_criteria", "due_at", "labels", "project", "workspace",

@@ -262,3 +262,47 @@ def test_metrics_requires_auth_when_enabled(auth_on):
 def test_logs_requires_auth_when_enabled(auth_on):
     assert client.get("/api/v1/logs").status_code == 401
     assert client.get("/logs").status_code in (401, 404)
+
+
+# ── F-006 门控豁免字段需管理员确认 ──────────────────────────────────────────
+
+def test_gate_exempt_on_create_requires_admin():
+    r = client.post("/api/v1/tasks", json={"title": "exempt", "doc_gate_exempt": True})
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"]["code"] == "admin.required_for_gate_fields"
+
+
+def test_gate_exempt_on_create_with_admin_ok(tmp_path):
+    r = client.post("/api/v1/tasks", headers=ADMIN,
+                    json={"title": "exempt", "workspace": str(tmp_path),
+                          "doc_gate_exempt": True})
+    assert r.status_code in (200, 201), r.text
+    assert r.json()["doc_gate_exempt"] is True
+
+
+def test_gate_exempt_on_patch_requires_admin(tmp_path):
+    tid = _mk_task(tmp_path)
+    r = client.patch(f"/api/v1/tasks/{tid}", json={"doc_gate_exempt": True})
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"]["code"] == "admin.required_for_gate_fields"
+
+    r = client.patch(f"/api/v1/tasks/{tid}", headers=ADMIN,
+                     json={"doc_gate_exempt": True})
+    assert r.status_code == 200, r.text
+    assert r.json()["doc_gate_exempt"] is True
+
+
+def test_gate_reenable_needs_no_admin(tmp_path):
+    """把豁免改回 false 是收紧门控，不该要求管理员。"""
+    tid = _mk_task(tmp_path)
+    client.patch(f"/api/v1/tasks/{tid}", headers=ADMIN, json={"doc_gate_exempt": True})
+    r = client.patch(f"/api/v1/tasks/{tid}", json={"doc_gate_exempt": False})
+    assert r.status_code == 200, r.text
+    assert r.json()["doc_gate_exempt"] is False
+
+
+def test_ordinary_patch_still_works_without_admin(tmp_path):
+    tid = _mk_task(tmp_path)
+    r = client.patch(f"/api/v1/tasks/{tid}", json={"title": "改个标题", "priority": 1})
+    assert r.status_code == 200, r.text
+    assert r.json()["title"] == "改个标题"

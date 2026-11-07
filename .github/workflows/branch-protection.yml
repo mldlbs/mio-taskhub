@@ -21,6 +21,7 @@ jobs:
             --repo "${{ github.repository }}" \
             --branch main \
             --require "test (3.12)" \
-            --require "materials-gate"
+            --require "materials-gate" \
+            --allow-missing-token
         env:
           GH_TOKEN: ${{ secrets.BRANCH_PROTECTION_TOKEN }}

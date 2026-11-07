@@ -59,3 +59,16 @@ def require_admin(request: Request) -> None:
         "message": ("该端点需要管理员确认：未配置 MIO_TASKHUB_ADMIN_TOKEN 时，"
                     "仅接受环回来源且携带 X-TaskHub-Admin: 1 的请求。"),
     })
+
+
+def admin_ok(request: Request) -> bool:
+    """同 `require_admin` 的判定，但不抛异常。
+
+    用于**字段级**保护：整个端点不拦（普通编辑照常），只有能关掉质量门控的
+    那几个字段要求管理员确认。见 `api/tasks.py::_guard_gate_fields`。
+    """
+    try:
+        require_admin(request)
+        return True
+    except HTTPException:
+        return False
