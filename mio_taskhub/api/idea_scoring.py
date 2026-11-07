@@ -5,7 +5,8 @@ from pydantic import BaseModel
 from sqlalchemy import func, or_
 from sqlmodel import Session, select
 from mio_taskhub.db import get_session
-from mio_taskhub.models import (Idea, IdeaStatus, IdeaType, Task, IdeaHistory)
+from mio_taskhub.models import (Idea, IdeaStatus, IdeaType, Task, IdeaHistory,
+                                Discussion, DiscussionMessage)
 from mio_taskhub.utils import _now
 from mio_taskhub.api.ideas import _idea_json, transition_idea_status
 
@@ -144,8 +145,14 @@ def _calculate_idea_score(idea: Idea, db: Session) -> Dict[str, Any]:
         confidence += 0.5
     if idea.review_count > 0:
         confidence += idea.review_count * 0.3
-    if idea.discussions:
-        msg_count = sum(len(d.messages or []) for d in idea.discussions)
+    # 2026-11-07 修复：Idea 没有 `discussions` 关系，此前该分支永远不会执行（/ideas/scores
+    # 被 GET /{idea_id} 遮蔽成 404，谁也没跑到这里）；路由顺序修正后暴露为 500。
+    discs = db.exec(select(Discussion).where(Discussion.idea_id == idea.id)).all()
+    if discs:
+        msg_count = sum(
+            len(db.exec(select(DiscussionMessage)
+                        .where(DiscussionMessage.discussion_id == d.id)).all())
+            for d in discs)
         confidence += min(msg_count * 0.1, 1.0)
     factors["confidence"] = min(confidence, 5.0)
 

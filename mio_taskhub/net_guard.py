@@ -75,6 +75,33 @@ def is_loopback_bind(host: str) -> bool:
     return ip == ipaddress.IPv6Address("::1")
 
 
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def webhook_allow_private(url: str) -> bool:
+    """webhook 内网放行的判定来源：只看部署级配置，不看任务/请求体。
+
+    2026-11-07 修复（F-008）：此前 `action_config.allow_private=true` 由创建 job 的
+    API 调用方自由填写，等于给 SSRF 守卫留了个开关。现在只认：
+
+    - `MIO_WEBHOOK_ALLOW_PRIVATE=1`：全局放行（部署者显式决定）
+    - `MIO_WEBHOOK_ALLOWED_HOSTS=a.example.com,b.example.com`：按主机放行
+    """
+    import os
+
+    if os.environ.get("MIO_WEBHOOK_ALLOW_PRIVATE", "").strip().lower() in _TRUTHY:
+        return True
+    host = (urlparse(url or "").hostname or "").strip().lower()
+    if not host:
+        return False
+    allowed = {
+        h.strip().lower()
+        for h in os.environ.get("MIO_WEBHOOK_ALLOWED_HOSTS", "").split(",")
+        if h.strip()
+    }
+    return host in allowed
+
+
 def check_outbound_url(url: str, allow_private: bool = False) -> tuple[bool, str]:
     """校验出站 URL。返回 (allowed, reason)。"""
     u = urlparse(url or "")

@@ -46,7 +46,7 @@ def test_config_roundtrip(tmp_path):
 
 def test_spawn_and_reap():
     runner = nr.NightRunner(poll_interval=0.1)
-    res = runner._spawn({"agent": "echo-test", "command": "cmd /c exit 0"})
+    res = runner._spawn({"agent": "echo-test", "command": 'python -c "pass"'})
     assert res["ok"] is True
     # 子进程自身退出需要时间，原先固定 sleep(0.3) 在机器有负载时会等不到
     # （历史 flaky 根因：进程还在 _procs 里就被断言）。改为有上限的轮询。
@@ -61,7 +61,7 @@ def test_spawn_and_reap():
 
 def test_tick_disabled_stops_agents():
     runner = nr.NightRunner(poll_interval=0.1)
-    runner._spawn({"agent": "x", "command": "cmd /c timeout /t 30"})
+    runner._spawn({"agent": "x", "command": 'python -c "import time; time.sleep(30)"'})
     with patch.object(nr, "load_config", return_value={"enabled": False, "window_start": "22:00",
                                                        "window_end": "07:00", "agents": []}):
         runner.tick()
@@ -85,6 +85,6 @@ def test_spawn_passes_api_prefixed_url(monkeypatch):
     monkeypatch.delenv("MIO_TASKHUB_URL", raising=False)
     with patch("subprocess.Popen", _fake_popen):
         runner = nr.NightRunner()
-        res = runner._spawn({"agent": "u", "command": "cmd /c exit 0"})
+        res = runner._spawn({"agent": "u", "command": 'python -c "pass"'})
     assert res["ok"] is True
     assert captured["env"]["MIO_TASKHUB_URL"].endswith("/api/v1"), captured["env"].get("MIO_TASKHUB_URL")

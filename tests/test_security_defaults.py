@@ -74,10 +74,29 @@ def test_webhook_blocks_private_url_via_engine():
     assert "SSRF" in str(ei.value) or "blocked" in ei.value.summary.lower()
 
 
-def test_webhook_allow_private_flag_passes_guard(monkeypatch):
-    """allow_private=true 时通过 guard（随后由请求本身决定成败）。"""
+def test_webhook_allow_private_flag_ignored_from_config(monkeypatch):
+    """2026-11-07（F-008）：action_config.allow_private 不再能关掉 SSRF 守卫。"""
+    from mio_taskhub.scheduling import cron_engine as ce
+
+    monkeypatch.delenv("MIO_WEBHOOK_ALLOW_PRIVATE", raising=False)
+    monkeypatch.delenv("MIO_WEBHOOK_ALLOWED_HOSTS", raising=False)
+
+    class _J:
+        timeout_seconds = 5
+        action_config = {"url": "http://127.0.0.1:9999/x", "method": "POST",
+                         "body": {}, "allow_private": True}
+
+    with pytest.raises(ce.WebhookFailed) as ei:
+        ce.CronEngine(poll_interval=999)._fire_webhook(_J())
+    assert "blocked" in ei.value.summary.lower()
+
+
+def test_webhook_allow_private_env_passes_guard(monkeypatch):
+    """部署级 env 显式放行时通过 guard（随后由请求本身决定成败）。"""
     import httpx
     from mio_taskhub.scheduling import cron_engine as ce
+
+    monkeypatch.setenv("MIO_WEBHOOK_ALLOW_PRIVATE", "1")
 
     def fake_request(self, method, url, headers=None, json=None):
         return httpx.Response(200, json={"ok": 1}, request=httpx.Request(method, url))
@@ -85,11 +104,21 @@ def test_webhook_allow_private_flag_passes_guard(monkeypatch):
 
     class _J:
         timeout_seconds = 5
-        action_config = {"url": "http://127.0.0.1:9999/x", "method": "POST",
-                         "body": {}, "allow_private": True}
+        action_config = {"url": "http://127.0.0.1:9999/x", "method": "POST", "body": {}}
 
     out = ce.CronEngine(poll_interval=999)._fire_webhook(_J())
     assert out.startswith("200")
+
+
+def test_webhook_allowed_hosts_env(monkeypatch):
+    """MIO_WEBHOOK_ALLOWED_HOSTS 可按主机放行，不影响其它内网地址。"""
+    from mio_taskhub.net_guard import webhook_allow_private
+
+    monkeypatch.delenv("MIO_WEBHOOK_ALLOW_PRIVATE", raising=False)
+    monkeypatch.setenv("MIO_WEBHOOK_ALLOWED_HOSTS", "intranet.local,10.0.0.5")
+    assert webhook_allow_private("http://intranet.local/hook") is True
+    assert webhook_allow_private("http://10.0.0.5/hook") is True
+    assert webhook_allow_private("http://10.0.0.6/hook") is False
 
 
 # ---------- CLI host 默认/拒绝 ----------

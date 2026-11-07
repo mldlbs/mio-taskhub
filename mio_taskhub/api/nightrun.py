@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session, select
 
+from mio_taskhub.admin_guard import require_admin
 from mio_taskhub.db import get_session
 from mio_taskhub.models import Task, TaskState
 from mio_taskhub.scheduling import night_runner as nr
@@ -54,7 +55,7 @@ def get_cron_tasks(db: Session = Depends(get_session)):
     ]
 
 
-@router.put("/config")
+@router.put("/config", dependencies=[Depends(require_admin)])
 def put_config(body: dict):
     try:
         clean = save_config(body)
@@ -63,7 +64,7 @@ def put_config(body: dict):
     return clean
 
 
-@router.post("/spawn-now")
+@router.post("/spawn-now", dependencies=[Depends(require_admin)])
 def spawn_now(body: dict = None):
     """手动触发：立即按当前配置 spawn（测试用，不受窗口限制）。"""
     runner = nr.get_runner()
@@ -75,12 +76,16 @@ def spawn_now(body: dict = None):
         raise HTTPException(422, "no agents configured")
     results = {}
     for a in agents:
+        try:
+            nr.validate_command(a.get("command") or "")
+        except ValueError as e:
+            raise HTTPException(422, str(e))
         name = a.get("agent") or a.get("agent_type")
         results[name] = runner._spawn(a)
     return {"spawned": results}
 
 
-@router.post("/stop")
+@router.post("/stop", dependencies=[Depends(require_admin)])
 def stop_agents():
     runner = nr.get_runner()
     if not runner:

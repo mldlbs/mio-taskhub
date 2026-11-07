@@ -5,11 +5,12 @@ import mimetypes
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from mio_taskhub.db import get_session
 from mio_taskhub.events import emit_event
 from mio_taskhub.models import Task
+from mio_taskhub import path_guard
 from mio_taskhub.doc_paths import DOC_KINDS, doc_path_of, existing_doc_kinds, merge_doc_paths, sync_legacy_fields
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -17,7 +18,7 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
-def _resolve_doc_path(task, rel, kind):
+def _resolve_doc_path(task, rel, kind, extra_roots=()):
     p = pathlib.Path(rel)
     if not p.is_absolute():
         base = (task.workspace or '').strip()
@@ -25,7 +26,50 @@ def _resolve_doc_path(task, rel, kind):
             return None, (f'任务未设置 workspace，且 {kind} 文档路径为相对路径「{rel}」，无法确定基准目录。'
                           f'请改用绝对路径，或在任务中填写 workspace 后重试。')
         p = pathlib.Path(base) / p
-    return p.resolve(), None
+    target = p.resolve()
+    # 2026-11-07 安全修复（P0-2）：绝对路径此前无任何收敛，可读任意文件（如含明文 apiKey 的
+    # ~/.mio-intelligence/config.json）。现在要求落在 workspace 内，跨目录读取须是库里已知的
+    # 任务 workspace（extra_roots）或显式登记的 MIO_TASKHUB_DOC_ROOTS。
+    err = path_guard.doc_read_error(task.workspace, target, extra_roots=extra_roots)
+    if err:
+        return None, err
+    return target, None
+
+
+_WS_ROOTS_CACHE = {"at": 0.0, "roots": []}
+_WS_ROOTS_TTL = 60.0
+
+
+def _known_workspace_roots(db) -> list:
+    """库里所有任务登记过的 workspace（60s 缓存）。
+
+    用途：老任务的文档常放在自己的工作区之外的兄弟项目目录，读取时把已知项目根
+    加入放行集合，避免「一刀切」把正常文档面板打死。这些根来自数据库，不是请求方
+    现填的路径，攻击面可控。
+    """
+    import time
+    now = time.time()
+    if now - _WS_ROOTS_CACHE["at"] < _WS_ROOTS_TTL:
+        return _WS_ROOTS_CACHE["roots"]
+    roots = []
+    try:
+        rows = db.exec(select(Task.workspace).where(Task.workspace != None)).all()  # noqa: E711
+        seen = set()
+        for w in rows:
+            w = (w or "").strip()
+            if not w or w in seen:
+                continue
+            seen.add(w)
+            try:
+                p = pathlib.Path(w).expanduser().resolve()
+            except OSError:
+                continue
+            if path_guard.workspace_error(str(p)) is None:
+                roots.append(p)
+    except Exception:  # noqa: BLE001 — 兼容性增强，查询失败退回只用 env 白名单
+        roots = []
+    _WS_ROOTS_CACHE.update(at=now, roots=roots)
+    return roots
 
 
 def _read_content(p):
@@ -232,8 +276,11 @@ def get_task_doc(task_id: str, kind: str = Query(...), run_id: str = Query(None)
     rel = doc_path_of(t, kind)
     if not rel:
         raise HTTPException(404, f'task has no {kind} document')
-    p, err = _resolve_doc_path(t, rel, kind)
+    p, err = _resolve_doc_path(t, rel, kind, extra_roots=_known_workspace_roots(db))
     if err:
+        # 越界属策略拒绝（400）；其余（未设 workspace 等）保持软提示行为，前端原样展示。
+        if err.startswith(path_guard.OUT_OF_SCOPE_PREFIX):
+            raise HTTPException(400, detail={"code": "doc.path_out_of_scope", "message": err})
         return {'kind': kind, 'path': rel, 'content': err, 'truncated': False, 'missing': True,
                 'status': (getattr(t, 'doc_statuses', None) or {}).get(kind)}
     text, truncated = _read_content(p)
@@ -317,7 +364,13 @@ def _resolve_within_workspace(base, path):
         rel = target.relative_to(base)
     except ValueError:
         return None, None, 'invalid path: escape workspace'
-    return target, str(rel).replace(os.sep, '/'), None
+    rel_posix = str(rel).replace(os.sep, '/')
+    # 2026-11-07：workspace 是调用方可声明的，仅「在 workspace 内」不足以约束。
+    # /file、/raw、/doc 三条通道都必须挡点目录/点文件（.env、.git/config、.npmrc）。
+    for part in pathlib.Path(rel_posix).parts:
+        if part.startswith('.') and part not in ('.', '..'):
+            return None, None, f'invalid path: 禁止访问点目录/点文件（{part}）'
+    return target, rel_posix, None
 
 
 def _resolve_workspace_file(t, path):
@@ -417,6 +470,12 @@ def write_task_doc(task_id: str, body: dict, kind: str = Query(...),
         from mio_taskhub.doc_chain import task_doc_path
         rel = task_doc_path(t.id, kind)
     target, rel_norm, err = _resolve_within_workspace(base, rel)
+    if err:
+        raise HTTPException(400, err)
+
+    # 2026-11-07 安全修复（P0-3）：workspace 可被 PATCH 成任意目录，配合任意路径写 = 任意文件
+    # 写入（曾可写 ~/.ssh/authorized_keys 做持久化）。限制为文档类后缀且禁止点目录。
+    err = path_guard.doc_write_error(target, rel_norm)
     if err:
         raise HTTPException(400, err)
 
@@ -592,10 +651,28 @@ def set_doc_status(task_id: str, kind: str, body: dict, db: Session = Depends(ge
         raise HTTPException(422, f"task has no '{kind}' document; write it first (PUT /doc or scaffold)")
     err = validate_transition(kind, cur, state)
     if err:
-        raise HTTPException(422, err)
+        # 人话化（E7/P0-2）：最常见的是 draft 直跳 approved——给出合法路径而不是只报错
+        from mio_taskhub.doc_lifecycle import allowed_next
+        legal = allowed_next(kind, cur) if cur else []
+        raise HTTPException(422, f"{err}. 你要做的是：从当前状态 "
+                                 f"「{cur or '未设置'}」走合法转移"
+                                 f"（下一步可选：{', '.join(legal) or '无，已是终态'}），"
+                                 f"调 POST /api/v1/tasks/{task_id}/doc/{kind}/status")
 
     # 系统自动维护「文档信息」的 最后更新 / 状态（approved 时递增文档版本），再跑质量门。
-    # 目的：元信息由机器兜底，人不填也不会缺（2026-09-23）。
+    # 目的：元信息由机器兜底，人不填也不会缺（2026-09-23）；占位符也是 error，先补再校验。
+    # 2026-11-07：补时间戳后若门控拒绝，必须把文件**回滚**——否则 DB 还是 draft、文件里
+    # 却写着 approved，审计口径分叉。
+    _orig_text = None
+    _orig_target = None
+
+    def _restore_info():
+        if _orig_text is not None and _orig_target is not None:
+            try:
+                _orig_target.write_text(_orig_text, encoding='utf-8')
+            except OSError:
+                pass
+
     try:
         from mio_taskhub.doc_chain import update_info_section
         _base, _target = _doc_target(t, kind)
@@ -605,6 +682,7 @@ def set_doc_status(task_id: str, kind: str, body: dict, db: Session = Depends(ge
                                        bump_version=(state == 'approved'))
             if _new != _txt:
                 _target.write_text(_new, encoding='utf-8')
+                _orig_text, _orig_target = _txt, _target
     except OSError:
         pass
 
@@ -624,9 +702,12 @@ def set_doc_status(task_id: str, kind: str, body: dict, db: Session = Depends(ge
                     f"quality score {quality['score']} below required {floor} "
                     f"for '{kind}' (fix warns or pass force=true)")
             if blockers:
+                _restore_info()
                 raise HTTPException(422, detail={
-                    'message': f"quality gate: {kind} has {len(blockers)} blocking issue(s); "
-                               f"fix them or pass force=true",
+                    'message': f"quality gate: {kind} has {len(blockers)} blocking issue(s). "
+                               f"你要做的是：GET /api/v1/tasks/{task_id}/doc/quality?kind={kind} "
+                               f"看问题清单，用 taskhub_write_document 修复（该 kind 质量分需≥{floor}）；"
+                               "确要跳过带 force=true（会留痕）",
                     'quality': quality})
 
     # 棘轮基线：文档质量分 / 用例数等历史最好值只升不降（force 可绕过留痕）
@@ -642,6 +723,7 @@ def set_doc_status(task_id: str, kind: str, body: dict, db: Session = Depends(ge
                        payload=_b)
         db.commit()          # 先落库：部分指标抬高也应生效
         if _blocked and not forced:
+            _restore_info()
             raise HTTPException(422, detail={
                 'message': f"棘轮基线门控：{kind} 指标低于历史最好值，禁止推进"
                            f"（force=true 可绕过）",

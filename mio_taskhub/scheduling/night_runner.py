@@ -33,6 +33,46 @@ DEFAULT_CONFIG = {
     "projects": [],
 }
 
+# 2026-11-07 安全修复：nightrun 命令改为 argv 直执（shell=False）+ 可执行白名单。
+# 审计发现原实现 `subprocess.Popen(cmd, shell=True)` 配合无鉴权的 /nightrun/config
+# 构成任意命令执行（P0-1）。
+DEFAULT_ALLOWED_EXECUTABLES = {
+    "python", "python.exe", "python3", "python3.exe", "py", "py.exe",
+    "node", "node.exe", "npx", "npx.cmd",
+    "mio", "mio.cmd", "mio.exe",
+    "opencode", "opencode.exe", "pnpm", "pnpm.cmd", "uv", "uv.exe",
+}
+
+
+def allowed_executables() -> set:
+    """可执行白名单 = 默认集合 + MIO_NIGHTRUN_ALLOWED_CMDS（逗号分隔）。"""
+    extra = os.environ.get("MIO_NIGHTRUN_ALLOWED_CMDS", "")
+    names = {s.strip().lower() for s in extra.split(",") if s.strip()}
+    return DEFAULT_ALLOWED_EXECUTABLES | names
+
+
+def split_command(cmd: str) -> List[str]:
+    """把命令模板拆成 argv。Windows 下保留引号再剥掉，避免带空格的参数被切开。"""
+    try:
+        parts = shlex.split(cmd or "", posix=(os.name != "nt"))
+    except ValueError as e:
+        raise ValueError(f"命令无法解析：{e}")
+    if os.name == "nt":
+        parts = [p[1:-1] if len(p) >= 2 and p[0] == p[-1] == '"' else p for p in parts]
+    return [p for p in parts if p]
+
+
+def validate_command(cmd: str) -> None:
+    """命令白名单校验。不通过抛 ValueError（路由层转 422）。"""
+    parts = split_command(cmd)
+    if not parts:
+        raise ValueError("command 为空")
+    exe = os.path.basename(parts[0]).lower()
+    if exe not in allowed_executables():
+        raise ValueError(
+            f"命令 {exe} 不在允许列表内；如确需启用，设 MIO_NIGHTRUN_ALLOWED_CMDS={exe}"
+        )
+
 
 def _hm_to_min(s: str) -> int:
     h, m = s.split(":")
@@ -108,6 +148,9 @@ def save_config(cfg: dict) -> dict:
         "agents": [a for a in cfg.get("agents", []) if isinstance(a, dict) and a.get("command")],
         "projects": projects,
     }
+    # 命令白名单在写入前校验：配置落盘即代表运维意图，不能留到 spawn 时才炸。
+    for a in clean["agents"]:
+        validate_command(str(a.get("command") or ""))
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
     return clean
@@ -149,7 +192,14 @@ class NightRunner:
             logger.warning(f"spawn {name} precheck failed: {hint}")
             return {"ok": False, "error": "precheck failed", "hint": hint, "cmd": cmd}
         try:
-            proc = subprocess.Popen(cmd, shell=True, cwd=cwd,
+            validate_command(cmd)
+            argv = split_command(cmd)
+        except ValueError as e:
+            logger.warning(f"spawn {name} rejected: {e}")
+            return {"ok": False, "error": "command not allowed", "hint": str(e), "cmd": cmd}
+        try:
+            # shell=False + argv：不再经过 cmd.exe，命令串里的 `&`/`|`/`%VAR%` 不再被解释。
+            proc = subprocess.Popen(argv, shell=False, cwd=cwd,
                                     env={**os.environ, "MIO_TASKHUB_URL": api_url},
                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             self._procs[name] = proc

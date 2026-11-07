@@ -31,8 +31,8 @@ export class ApiError extends Error {
   }
 }
 
-async function req(method, path, body) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } }
+async function req(method, path, body, extraHeaders) {
+  const opts = { method, headers: { 'Content-Type': 'application/json', ...(extraHeaders || {}) } }
   if (body) opts.body = JSON.stringify(body)
   const url = BASE + path
   const r = await fetch(url, opts)
@@ -98,9 +98,10 @@ export const api = {
   listProjects: () => req('GET', '/plans/projects'),
   nrConfig: () => req('GET', '/nightrun/config'),
   nrLoadFull: () => req('GET', '/nightrun/full-config'),
-  nrSaveConfig: (cfg) => req('PUT', '/nightrun/config', cfg),
-  nrStop: () => req('POST', '/nightrun/stop', {}),
-  nrSpawnNow: (agents) => req('POST', '/nightrun/spawn-now', agents),
+  // 危险端点（拉起/停止本机进程）：后端要求管理员确认头，未配 admin token 时靠它放行。
+  nrSaveConfig: (cfg) => req('PUT', '/nightrun/config', cfg, { 'X-TaskHub-Admin': '1' }),
+  nrStop: () => req('POST', '/nightrun/stop', {}, { 'X-TaskHub-Admin': '1' }),
+  nrSpawnNow: (agents) => req('POST', '/nightrun/spawn-now', agents, { 'X-TaskHub-Admin': '1' }),
   nrStatus: () => req('GET', '/nightrun/full-config'),
   nrCronTasks: () => req('GET', '/nightrun/cron-tasks'),
   // Reviews

@@ -13,12 +13,16 @@ from mio_taskhub.scheduling import cron_engine as ce
 
 # ---------- A：webhook 非 2xx 不再假绿 ----------
 
+@pytest.fixture(autouse=True)
+def _allow_loopback_webhook(monkeypatch):
+    """2026-11-07：内网放行改由部署级 env 控制，job.action_config 不再生效。"""
+    monkeypatch.setenv("MIO_WEBHOOK_ALLOW_PRIVATE", "1")
+
+
 def _fake_job(status_code: int):
     class _J:
-        # allow_private：这些用例测的是 HTTP 响应处理（4xx/2xx），非 SSRF；
-        # 用 loopback URL 需显式放行（task 3b5128b6 起默认拒绝内网地址）。
-        action_config = {"url": "http://127.0.0.1:1/x", "method": "POST", "body": {},
-                         "allow_private": True}
+        # action_config 里的 allow_private 已不生效（F-008）；本模块靠上面的 env fixture 放行。
+        action_config = {"url": "http://127.0.0.1:1/x", "method": "POST", "body": {}}
         timeout_seconds = 5
     return _J()
 

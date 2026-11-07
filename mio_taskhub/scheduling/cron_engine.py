@@ -289,10 +289,12 @@ class CronEngine:
         url = cfg.get("url", "")
         if not url:
             raise ValueError("webhook url is required")
-        # SSRF 防护（评估 round2 P2-A）：默认拒绝环回/私有/链路本地地址；
-        # action_config.allow_private=true 可显式放开（如需内网回调）。
-        from mio_taskhub.net_guard import check_outbound_url
-        allowed, reason = check_outbound_url(url, allow_private=bool(cfg.get("allow_private")))
+        # SSRF 防护（评估 round2 P2-A）：默认拒绝环回/私有/链路本地地址。
+        # 2026-11-07（F-008）：放行只由部署级 env 决定（MIO_WEBHOOK_ALLOW_PRIVATE /
+        # MIO_WEBHOOK_ALLOWED_HOSTS），job.action_config 里的 allow_private 不再生效——
+        # 否则任何能建定时任务的调用方都能自己打开这个开关。
+        from mio_taskhub.net_guard import check_outbound_url, webhook_allow_private
+        allowed, reason = check_outbound_url(url, allow_private=webhook_allow_private(url))
         if not allowed:
             raise WebhookFailed(f"blocked by SSRF guard: {reason}", status_code=0)
         method = cfg.get("method", "POST").upper()

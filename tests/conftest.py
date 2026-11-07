@@ -35,6 +35,9 @@ from mio_taskhub.models import SQLModel, Task, Run, Agent  # noqa: E402
 def _clean_db():
     SQLModel.metadata.drop_all(engine)
     init_db()
+    # 文档读取的「已知 workspace 根」有 60s 缓存，drop_all 后必须失效，否则跨用例串味
+    from mio_taskhub.api import task_documents as _td
+    _td._WS_ROOTS_CACHE.update(at=0.0, roots=[])
     yield
 
 

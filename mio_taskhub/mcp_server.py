@@ -294,6 +294,11 @@ def _read_doc(task: dict, path_str: str, kind: str) -> str:
                     f"请改用绝对路径，或在任务中填写 workspace 后重试。")
         p = pathlib.Path(base) / p
     p = p.resolve()
+    # 2026-11-07 安全修复（P0-2）：与 REST GET /doc 同一套边界，MCP 不再绕过。
+    from mio_taskhub import path_guard
+    scope_err = path_guard.doc_read_error(task.get("workspace") or "", p)
+    if scope_err:
+        return f"读取被拒绝（{kind}）：{scope_err}"
     if not p.exists():
         return (f"任务 {task.get('id', '?')} 的 {kind} 文件不存在：{p}\n"
                 f"（基于 workspace「{base}」解析）")

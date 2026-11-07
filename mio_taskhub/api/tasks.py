@@ -13,6 +13,7 @@ from mio_taskhub.models import (
     Discussion, DiscussionMessage, Agent,
 )
 from mio_taskhub.utils import _now
+from mio_taskhub import path_guard
 from mio_taskhub.doc_paths import DOC_KINDS, doc_path_of, merge_doc_paths, sync_legacy_fields
 from mio_taskhub.dependency import normalize_depends, task_deps
 from mio_taskhub.events import emit_event
@@ -97,6 +98,12 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         doc_paths["spec"] = _spec
     if _plan:
         doc_paths["plan"] = _plan
+    # 2026-11-07 安全修复（P0-3）：workspace 不能是盘根/主目录/系统目录，否则 `PUT /doc`
+    # 的写入范围跟着失控。
+    _ws = (body.get("workspace") or "").strip()
+    _ws_err = path_guard.workspace_error(_ws)
+    if _ws_err:
+        raise HTTPException(400, _ws_err)
     t = Task(
         id=str(uuid.uuid4())[:8],
         title=body.get("title", ""),
@@ -114,7 +121,7 @@ def create_task(body: dict, db: Session = Depends(get_session)):
         due_at=due_at,
         labels=body.get("labels", []),
         project=body.get("project", ""),
-        workspace=body.get("workspace", ""),
+        workspace=_ws,
         files=body.get("files", []),
         deliverables=body.get("deliverables", []),
         spec_path=_spec or None,
@@ -189,10 +196,23 @@ def list_tasks(state: str = None, agent_type: str = None, stage: str = None,
                 ts = TaskState(state)
             except ValueError:
                 ts = None
-        if ts is not None:
-            q = q.where(Task.state == ts)
+        if ts is None:
+            # 2026-11-07：此前非法 state 被静默忽略（200 + 全量结果），与 stage 的 500 语义分叉
+            raise HTTPException(400, detail={
+                "code": "task.invalid_state",
+                "message": f"invalid state: {state}",
+            })
+        q = q.where(Task.state == ts)
     if stage:
-        q = q.where(Task.stage == TaskStage(stage))
+        try:
+            _stage = TaskStage(stage)
+        except ValueError:
+            # 2026-11-07：此前 ValueError 直接冒成 500
+            raise HTTPException(400, detail={
+                "code": "task.invalid_stage",
+                "message": f"invalid stage: {stage}",
+            })
+        q = q.where(Task.stage == _stage)
     if agent_type:
         q = q.where((Task.target_agent_type == agent_type) | (Task.target_agent_type == None))
     rows = db.exec(q).all()
@@ -395,6 +415,10 @@ def update_task(task_id: str, body: dict, db: Session = Depends(get_session)):
                 v = parse_dt(v, "due_at")
             if k in ("grab_mode", "doc_gate_exempt", "diff_gate_exempt"):
                 v = bool(v)
+            if k == "workspace":
+                err = path_guard.workspace_error(str(v or ""))
+                if err:
+                    raise HTTPException(400, err)
             if k == "depends_on":
                 t.depends_on = normalize_depends(v)
                 validate_depends(t, db)

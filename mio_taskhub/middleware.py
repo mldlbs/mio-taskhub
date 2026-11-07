@@ -84,7 +84,10 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 # ---------- Global Rate Limiter ----------
 
 _rate_buckets: dict[str, list[float]] = {}
-_DEFAULT_RATE_LIMIT = 120  # req/min per client IP (global)
+# 2026-11-07：120/min 对单机形态太紧——所有 agent 与前端共享 127.0.0.1 一个桶，
+# 单个前端标签页轮询约 65-70 req/min，开两个标签页或跑一次巡检脚本就把桶打满，
+# 随后连页面 GET 都 429。默认提到 600，可用 MIO_TASKHUB_RATE_LIMIT 覆盖。
+_DEFAULT_RATE_LIMIT = 600  # req/min per client IP (global)
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -108,8 +111,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         if any(x in path for x in ("/healthz", "/readyz", "/metrics")):
             return await call_next(request)
+        # 2026-11-07：agent 生命周期端点不参与全局 IP 限流。
+        # 此前所有 agent 与前端共享 127.0.0.1 一个 120/min 桶，单标签页约 65-70 req/min，
+        # 心跳被 429 → run 被判超时 → 任务重排 → 同一活两份 run 重复干。这些端点自身有
+        # run 所有权 / 幂等校验，不靠限流防滥用。
+        if "/runs/" in path and (path.endswith("/heartbeat") or path.endswith("/result")):
+            return await call_next(request)
+        if path.endswith("/tasks/claim"):
+            return await call_next(request)
 
-        key = f"{client_ip}"
+        # 非生命周期端点：带 agent 的请求单独分桶，避免一个 agent 把其他人打到 429。
+        agent_id = request.query_params.get("agent") or ""
+        key = f"{client_ip}|{agent_id}" if agent_id else f"{client_ip}"
         now = time.time()
         bucket = _rate_buckets.setdefault(key, [])
         # Sliding window: keep only last 60s

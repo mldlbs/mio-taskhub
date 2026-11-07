@@ -27,7 +27,7 @@ def test_save_config_persists_and_cleans_projects(tmp_path, monkeypatch):
     monkeypatch.setattr(nr, "CONFIG_PATH", cfg_path)
     clean = nr.save_config({
         "enabled": True, "window_start": "21:30", "window_end": "06:30",
-        "agents": [{"agent": "w1", "command": "echo hi"}, {"agent": "bad"}],
+        "agents": [{"agent": "w1", "command": "python -c pass"}, {"agent": "bad"}],
         "projects": ["agent-dev", "  csps  ", "", None],
     })
     assert clean["projects"] == ["agent-dev", "csps"]      # 去空白、去空值
@@ -50,7 +50,7 @@ def test_load_config_defaults_projects_empty(tmp_path, monkeypatch):
 def test_spawn_substitutes_project_scope(tmp_path, monkeypatch):
     monkeypatch.setattr(nr, "CONFIG_PATH", tmp_path / "night_runner.json")
     nr.save_config({"enabled": True, "projects": ["agent-dev", "csps"],
-                    "agents": [{"agent": "w1", "command": "x"}]})
+                    "agents": [{"agent": "w1", "command": "python -c pass"}]})
     captured = {}
 
     class _P:
@@ -69,10 +69,13 @@ def test_spawn_substitutes_project_scope(tmp_path, monkeypatch):
     res = runner._spawn({"agent": "w1",
                          "command": "python -c pass {project} {url}"})
     assert res["ok"] is True and res["pid"] == 4242
-    assert "agent-dev,csps" in captured["cmd"]
-    assert "{project}" not in captured["cmd"]
-    assert "{url}" not in captured["cmd"]          # {url} 仍被替换
+    # shell=False 后 Popen 收到的是 argv 列表，断言前先拼回字符串
+    joined = " ".join(captured["cmd"])
+    assert "agent-dev,csps" in joined
+    assert "{project}" not in joined
+    assert "{url}" not in joined          # {url} 仍被替换
     assert captured["kwargs"].get("creationflags") is not None
+    assert captured["kwargs"].get("shell") is False
 
 
 def test_spawn_project_empty_when_no_scope(tmp_path, monkeypatch):
@@ -90,7 +93,7 @@ def test_spawn_project_empty_when_no_scope(tmp_path, monkeypatch):
     runner = nr.NightRunner()
     res = runner._spawn({"agent": "w2", "command": "python -c pass {project}"})
     assert res["ok"] is True
-    assert captured["cmd"].strip().endswith("pass")        # 无范围 → {project} 替换为空串
+    assert " ".join(captured["cmd"]).strip().endswith("pass")   # 无范围 → {project} 替换为空串
 
 
 # ---------- idle_worker ----------

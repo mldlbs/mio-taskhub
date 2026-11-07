@@ -35,7 +35,10 @@ def make_auth_middleware():
         token = getattr(request.app.state, "auth_token", "")
         if not token:
             return await call_next(request)
-        if not request.url.path.startswith("/api/"):
+        # 2026-11-07（F-011）：/logs 与 /metrics 此前不在保护范围，任意调用方可读
+        # 最近 1000 条结构化日志（含异常栈与请求路径）。开鉴权后一并纳入。
+        path = request.url.path
+        if not (path.startswith("/api/") or path == "/metrics" or path == "/logs"):
             return await call_next(request)
         auth = request.headers.get("authorization", "")
         if secrets.compare_digest(auth, f"Bearer {token}"):
@@ -238,9 +241,10 @@ app.include_router(idea_templates.router, prefix="/api/v1", tags=["ideas"])
 app.include_router(ideas_breakdown.router, prefix="/api/v1", tags=["ideas"])
 # ideas.router 含静态路由（/inbox /gate/* /batch-triage），必须先于 ideas_discussion 的 GET /{idea_id}
 app.include_router(ideas.router, prefix="/api/v1", tags=["ideas"])
+# idea_scoring 同样含静态路由（/scores /health /export），一起前移，否则被 /{idea_id} 吞成 404
+app.include_router(idea_scoring.router, prefix="/api/v1", tags=["ideas"])
 app.include_router(ideas_discussion.router, prefix="/api/v1", tags=["ideas"])
 app.include_router(draft.router, prefix="/api/v1", tags=["ideas"])
-app.include_router(idea_scoring.router, prefix="/api/v1", tags=["ideas"])
 app.include_router(cockpit.router, prefix="/api/v1", tags=["ideas"])
 app.include_router(adr.router, prefix="/api/v1", tags=["ideas"])
 app.include_router(discussions.router, prefix="/api/v1", tags=["discussions"])

@@ -1101,18 +1101,33 @@ def test_gui_worker_thread_must_not_touch_tk_variables():
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows 专属")
-def test_gui_install_runs_under_real_mainloop(tmp_path):
+def test_gui_install_runs_under_real_mainloop(tmp_path, monkeypatch):
     """**回归**：GUI 安装在**真 mainloop** 下要能跑完并显示「安装完成」。
 
     验证 GUI 必须用 `root.mainloop()`，用 `root.update()` 手动循环会报
     `main thread is not in main loop`（那是测试脚本的锅，不是程序 bug）。
+
+    ⚠️ 2026-11-06 事故修复：本用例原先在「已安装本 App 的机器」上会**毁掉真实安装**。
+    `InstallerApp.__init__` 里有 `root.after(140, self._detect_existing)`，而测试在 t=0
+    设了目标目录、t=200ms 才启动安装 → 140ms 的自动检测把目标改回真实安装目录，
+    `install()` 先 `force_rmtree` 再 rename，真实安装被换成测试的假 payload。
+    修法：① 本机存在真实安装时直接 skip（不可逆删除，宁可少跑一次）；
+          ② 在 `gui` 命名空间里 patch `detect_install_dir`（`gui.py` 已把名字绑进自己
+             的模块作用域，patch `install` 模块无效）；
+          ③ 断言放在 `_start` **之前**，时序将来再变也是在删除前红。
     """
     import os
     import time
 
     import tkinter as tk
 
-    from mio_taskhub.installer.gui import InstallerApp
+    import mio_taskhub.installer.gui as gui_mod
+    from mio_taskhub.installer.install import detect_install_dir as _real_detect
+
+    # 保险丝：真实安装存在就拒绝跑——这条用例失败可以重跑，用户安装被删不可逆。
+    real_dir = _real_detect()
+    if real_dir and (real_dir / APP_EXE_NAME).exists():
+        pytest.skip(f"本机存在真实安装（{real_dir}），拒绝在真目录上跑 GUI 安装用例")
 
     try:
         root = tk.Tk()
@@ -1121,12 +1136,21 @@ def test_gui_install_runs_under_real_mainloop(tmp_path):
 
     target = tmp_path / "install"
     payload = _build_fake_payload(tmp_path)
+    # 在 gui 的命名空间里替换，_detect_existing 才会看到「没装过」。
+    monkeypatch.setattr(gui_mod, "detect_install_dir", lambda: tmp_path / "no-such-install")
     try:
         app = InstallerApp(root, payload_zip=str(payload))
         app.var_dir.set(str(target))
         app.var_shortcuts.set(False)
         root.update()
-        root.after(200, app._start)
+
+        def _guarded_start():
+            got = app.var_dir.get()
+            assert got == str(target), (
+                f"安装目标被改写为 {got!r}（应为 {str(target)!r}），拒绝启动安装")
+            app._start()
+
+        root.after(200, _guarded_start)
 
         state = {}
 

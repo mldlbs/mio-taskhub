@@ -1,4 +1,5 @@
 import logging
+import threading
 from datetime import timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
@@ -316,6 +317,41 @@ def run_diff_evidence(run_id: str, db: Session = Depends(get_session)):
 @router.post("/{run_id}/result")
 def submit_result(run_id: str, body: dict, agent: str = None,
                   db: Session = Depends(get_session)):
+    """提交 run 结果。
+
+    2026-11-07 修复：此前无并发保护，两个并发提交都会读到 RUNNING、都过
+    `assert_run_submittable`，于是双写 task_result 事件、`_fail_with_retry`
+    retry_count 加两次、`completion_run_id` 被覆盖。
+
+    这里用**进程内 per-run 锁**串行化：uvicorn 单进程部署下即可消除并发窗口，
+    且不改变「迟到结果仍可提交」的既有语义（是否允许仍由 assert_run_submittable
+    依 task.state/exit_code 判定，reaper 超时后的迟到成功依旧 200）。
+    多进程部署需改为 DB 级 CAS，见 `_run_submit_locks` 注释。
+    """
+    lock = _submit_lock(run_id)
+    with lock:
+        # 锁外读到的对象可能已陈旧，先失效再重读，保证判定基于最新状态。
+        db.expire_all()
+        return _submit_result_impl(run_id, body, agent, db)
+
+
+# run_id -> Lock。仅在**单进程**内有效；进程重启后自然清空（幂等由状态判定兜底）。
+# 多 worker 部署时这里不构成互斥，需换成 `UPDATE run SET ... WHERE id=? AND ...` 的 CAS。
+_run_submit_locks: dict[str, threading.Lock] = {}
+_run_submit_locks_guard = threading.Lock()
+
+
+def _submit_lock(run_id: str) -> threading.Lock:
+    with _run_submit_locks_guard:
+        lock = _run_submit_locks.get(run_id)
+        if lock is None:
+            lock = threading.Lock()
+            _run_submit_locks[run_id] = lock
+        return lock
+
+
+def _submit_result_impl(run_id: str, body: dict, agent: str = None,
+                        db: Session = None):
     run = db.get(Run, run_id)
     if not run:
         raise HTTPException(404)
@@ -324,6 +360,20 @@ def submit_result(run_id: str, body: dict, agent: str = None,
     # 顺序要紧——所有权先判，避免把「别人的 run 状态」泄漏给未授权调用方。
     assert_run_owner(run, agent)
     assert_run_submittable(run, task)
+    # 幂等（2026-11-07）：同一 run 只允许落一次 task_result 事件。
+    # 迟到成功纠正（reaper 判超时后 agent 补交成功）仍然放行——判据是「任务未 completed」，
+    # 与 assert_run_submittable 的 late_result_recovery 语义一致。
+    from mio_taskhub.models import Event as _Event
+    prior = db.exec(select(_Event).where(_Event.run_id == run_id,
+                                        _Event.type == "task_result")).first()
+    if prior is not None:
+        _is_late_success = bool(body.get("success", True)) and task is not None \
+            and task.state != TaskState.COMPLETED
+        if not _is_late_success:
+            raise HTTPException(409, detail={
+                "code": "run.result_already_submitted",
+                "message": f"run {run_id} 的结果已提交过，不接受重复提交",
+            })
     success = body.get("success", True)
     # Read Evidence 前置门控：成功提交前，本次 run 必须读过 required 文档（版本一致）。
     if success and task is not None:
