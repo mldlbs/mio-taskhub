@@ -27,6 +27,15 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
+# 本脚本会 print 中文。CI（windows-latest）的 stdout 编码是 cp1252，
+# 直接输出中文会抛 UnicodeEncodeError 并以 rc=1 退出——实测 2026-11-03 起
+# CI 一直红在这行。显式把标准流切到 UTF-8，坏字符降级成占位符即可。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 from mio_taskhub.installer import embedded  # noqa: E402
 
 

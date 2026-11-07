@@ -1139,7 +1139,7 @@ def test_gui_install_runs_under_real_mainloop(tmp_path, monkeypatch):
     # 在 gui 的命名空间里替换，_detect_existing 才会看到「没装过」。
     monkeypatch.setattr(gui_mod, "detect_install_dir", lambda: tmp_path / "no-such-install")
     try:
-        app = InstallerApp(root, payload_zip=str(payload))
+        app = gui_mod.InstallerApp(root, payload_zip=str(payload))
         app.var_dir.set(str(target))
         app.var_shortcuts.set(False)
         root.update()

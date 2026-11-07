@@ -3,6 +3,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 
@@ -21,7 +23,17 @@ def test_installer_bundle_check_is_green():
     回归：新增这项时 release.ps1 里的资产清单是**手抄**的，
     抄两份就会漂移（漏掉 uninstall.exe → 用户拿不到独立卸载器）。
     现在清单的唯一事实源是 mio_taskhub/release_assets.py。
+
+    ⚠️ 这是**出包机器**上的门禁：检查对象是 `dist/` 下的构建产物，而 `dist/`
+    不进版本库。CI 上根本没有这些文件，「产物不一致」的结论没有意义——因此
+    没有产物时跳过，让 CI 只跑能跑的项（实测 2026-11-03 起 CI 一直红在这条）。
     """
+    dist = REPO / "dist"
+    payload = dist / "mio-taskhub-win64.zip"
+    bundle = dist / "mio-taskhub-installer"
+    if not payload.exists() or not bundle.exists():
+        pytest.skip("本机没有构建产物（dist/mio-taskhub-win64.zip 或 dist/mio-taskhub-installer），"
+                    "安装包一致性只在出包机器上校验")
     import release_checklist as rc
     r = rc.check_installer_bundle()
     assert r["status"] == "是", r["detail"]
