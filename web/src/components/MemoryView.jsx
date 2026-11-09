@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../api'
+import { authFetch } from '../auth'
 import { Skeleton, SkeletonField, SkeletonList } from './Skeleton'
 import MemoryObservatoryView from './MemoryObservatoryView'
 
@@ -75,7 +76,7 @@ function QueryPanel() {
       if (keyword) params.set('keyword', keyword)
       if (kind) params.set('kind', kind)
       params.set('limit', '50')
-      const r = await fetch(`/api/v1/memory/query?${params}`)
+      const r = await authFetch(`/api/v1/memory/query?${params}`)
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       setResults(await r.json())
     } catch (e) {

@@ -1,12 +1,27 @@
+// 状态泳道 / 状态点：**唯一**语义映射（phase1 视觉规范 C3）。
+// tone 只表达语义（neutral/info/live/warn/ok/danger/muted），具体色值一律在 CSS 里取，
+// JS 侧永远不写字面色值 —— 这样 light 档与高对比档自动跟着变。
 export const LANES = [
-  { id: 'queued',    label: '待处理', en: 'QUEUED',    tone: 'dim' },
-  { id: 'claimed',   label: '已领取', en: 'CLAIMED',   tone: 'dim' },
+  { id: 'queued',    label: '待处理', en: 'QUEUED',    tone: 'neutral' },
+  { id: 'claimed',   label: '已领取', en: 'CLAIMED',   tone: 'info' },
   { id: 'running',   label: '进行中', en: 'RUNNING',   tone: 'live' },
   { id: 'retrying',  label: '重试中', en: 'RETRYING',  tone: 'warn' },
-  { id: 'completed', label: '已完成', en: 'COMPLETED', tone: 'dim' },
+  { id: 'completed', label: '已完成', en: 'COMPLETED', tone: 'ok' },
   { id: 'failed',    label: '失败',   en: 'FAILED',    tone: 'danger' },
-  { id: 'cancelled', label: '已取消', en: 'CANCELLED', tone: 'danger' },
+  { id: 'cancelled', label: '已取消', en: 'CANCELLED', tone: 'muted' },
 ]
+
+// state → CSS 变量（用于 inline style 注入 --state-color，仍是 var() 不是色值）
+export const STATE_VAR = {
+  queued: 'var(--neutral)',
+  claimed: 'var(--info)',
+  running: 'var(--live)',
+  retrying: 'var(--warn)',
+  completed: 'var(--ok)',
+  failed: 'var(--danger)',
+  cancelled: 'var(--ink-ghost)',
+}
+
 
 export const STATE_META = Object.fromEntries(LANES.map(l => [l.id, l]))
 

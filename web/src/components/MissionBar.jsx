@@ -13,7 +13,8 @@ function useClock() {
 
 export default function MissionBar({ tasks, ws, lastSync, refreshing, onRefresh, onOpenModal,
                                      filter, onFilterChange, projectOptions, workspaceOptions,
-                                     showCancelled, cancelledCount, onToggleCancelled }) {
+                                     showCancelled, cancelledCount, onToggleCancelled,
+                                     showNoise, noiseCount, onToggleNoise }) {
   const now = useClock()
   const total = tasks.length
   const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
@@ -62,6 +63,16 @@ export default function MissionBar({ tasks, ws, lastSync, refreshing, onRefresh,
         </select>
         {filter?.workspace && (
           <button className="filter-clear" onClick={() => onFilterChange({ ...filter, workspace: '' })} title="清除工作区筛选">✕</button>
+        )}
+        {noiseCount > 0 && (
+          <button
+            className={`btn btn--ghost btn--sm${showNoise ? ' is-on' : ''}`}
+            onClick={onToggleNoise}
+            aria-pressed={showNoise}
+            title="机器生成任务（创意引擎的想法评审 / 变更 / 溯因、洞察消费、自测任务）——默认隐藏，避免稀释真实决策"
+          >
+            {showNoise ? `▾ 机器任务（${noiseCount}）` : `▸ 机器任务（${noiseCount}）`}
+          </button>
         )}
         {cancelledCount > 0 && (
           <button

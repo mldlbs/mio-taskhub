@@ -1,5 +1,5 @@
-import { useMemo, useState, useCallback } from 'react'
-import { prio, STATE_META, LANES, fmtDur, fmtDate } from '../constants'
+import { useMemo, useState } from 'react'
+import { prio, STATE_META, STATE_VAR, LANES, fmtDur, fmtDate } from '../constants'
 
 const tone = (s) => STATE_META[s]?.tone || 'dim'
 
@@ -17,12 +17,11 @@ const SORT_LABEL = {
   title: '标题',
 }
 
-export default function ListView({ tasks, onCancel, onOpen }) {
+export default function ListView({ tasks, onCancel, onOpen, onOpenModal, loading }) {
   const [q, setQ] = useState('')
   const [sort, setSort] = useState('created')
   const [stateF, setStateF] = useState('all')
   const [agentF, setAgentF] = useState('all')
-  const [confirmCancel, setConfirmCancel] = useState(null)
 
   const agentTypes = useMemo(() => {
     const set = new Set(tasks.map(t => t.target_agent_type).filter(Boolean))
@@ -44,16 +43,10 @@ export default function ListView({ tasks, onCancel, onOpen }) {
 
   const schedulable = (s) => s === 'queued' || s === 'claimed' || s === 'retrying'
 
-  const handleCancel = useCallback((id) => {
-    setConfirmCancel(id)
-  }, [])
-
-  const confirmCancelTask = useCallback(() => {
-    if (confirmCancel && onCancel) {
-      onCancel(confirmCancel)
-    }
-    setConfirmCancel(null)
-  }, [confirmCancel, onCancel])
+  // 空态分流（R2 C-6）：区分「任务库真的是空的」和「筛选后为空」。
+  // 之前两种情况都显示「没有匹配的任务 + 清除筛选」，任务库为空时点清除毫无变化。
+  const noTasksAtAll = tasks.length === 0
+  const showSkeleton = loading && rows.length === 0
 
   return (
     <div className="list-view">
@@ -134,15 +127,30 @@ export default function ListView({ tasks, onCancel, onOpen }) {
             </tr>
           </thead>
           <tbody>
+            {showSkeleton && [0, 1, 2].map(i => (
+              <tr key={`sk-${i}`} className="ledger__row ledger__row--skeleton" aria-hidden="true">
+                <td colSpan={8}><div className="view-skeleton__row" /></td>
+              </tr>
+            ))}
             {rows.map((t, i) => {
               const p = prio(t.priority)
+              // 状态点语义色（快赢 #3）：色值由 --state-color 注入，见 phase1 C3
               const st = tone(t.state)
+              const stateStyle = { '--state-color': STATE_VAR[t.state] || 'var(--neutral)' }
               return (
-                <tr key={t.id} style={{ '--i': i }} onClick={() => onOpen && onOpen(t)} className="ledger__row">
+                <tr key={t.id} style={{ '--i': i }} onClick={() => onOpen && onOpen(t)} className="ledger__row"
+                    tabIndex={0}
+                    aria-label={`任务 ${t.title}，状态 ${t.state}，回车查看详情`}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        if (onOpen) onOpen(t)
+                      }
+                    }}>
                   <td className="cell-mono cell-id" title={t.id}>{t.id}</td>
                   <td className="cell-title" title={t.title}>{t.title}</td>
                   <td>
-                    <span className={`state-chip${st === 'live' ? ' is-live' : ''}${st === 'warn' ? ' is-warn' : ''}${st === 'danger' ? ' is-danger' : ''}`}>
+                    <span className={`state-chip is-${st}`} style={stateStyle}>
                       <i />{t.state}
                     </span>
                   </td>
@@ -154,7 +162,7 @@ export default function ListView({ tasks, onCancel, onOpen }) {
                   <td className="cell-mono">{fmtDate(t.created_at)}</td>
                   <td className="cell-action" onClick={e => e.stopPropagation()}>
                     {schedulable(t.state) && (
-                      <button className="btn btn--ghost btn--sm" onClick={() => handleCancel(t.id)}>
+                      <button className="btn btn--ghost btn--sm" onClick={() => onCancel && onCancel(t.id)}>
                         取消
                       </button>
                     )}
@@ -166,34 +174,29 @@ export default function ListView({ tasks, onCancel, onOpen }) {
         </table>
       </div>
 
-      {rows.length === 0 && (
+      {rows.length === 0 && !showSkeleton && (
         <div className="list-view__empty">
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
             <circle cx="11" cy="11" r="7" />
             <path d="M21 21l-4.3-4.3" />
           </svg>
-          <p>没有匹配的任务</p>
-          <button className="btn btn--ghost btn--sm" onClick={() => { setQ(''); setStateF('all'); setAgentF('all') }}>
-            清除筛选
-          </button>
-        </div>
-      )}
-
-      {confirmCancel && (
-        <div className="overlay" onClick={() => setConfirmCancel(null)}>
-          <div className="modal modal--sm" role="dialog" aria-modal="true" aria-label="确认取消" onClick={e => e.stopPropagation()}>
-            <div className="modal__head">
-              <h3>确认取消任务</h3>
-              <button className="modal__close" onClick={() => setConfirmCancel(null)} aria-label="关闭">×</button>
-            </div>
-            <div className="modal__body">
-              <p>确定要取消任务 <code>{confirmCancel}</code> 吗？此操作不可撤销。</p>
-            </div>
-            <div className="modal__foot">
-              <button className="btn btn--ghost" onClick={() => setConfirmCancel(null)}>返回</button>
-              <button className="btn btn--danger" onClick={confirmCancelTask}>确认取消</button>
-            </div>
-          </div>
+          {noTasksAtAll ? (
+            <>
+              <p>还没有任务</p>
+              {onOpenModal && (
+                <button className="btn btn--accent btn--sm" onClick={onOpenModal}>
+                  新建任务 <kbd>N</kbd>
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <p>没有匹配的任务</p>
+              <button className="btn btn--ghost btn--sm" onClick={() => { setQ(''); setStateF('all'); setAgentF('all') }}>
+                清除筛选
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

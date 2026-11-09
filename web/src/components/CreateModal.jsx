@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { PRIORITY, parseUtc } from '../constants'
 import { api } from '../api'
+import { useOverlayStack } from '../lib/overlayStack'
 
 const EMPTY = {
   title: '', description: '', priority: 0, est_duration_min: 30, target_agent_type: '',
@@ -20,6 +21,10 @@ export default function CreateModal({ onClose, onCreate }) {
   const [tplFilter, setTplFilter] = useState('')
   const [cronPreview, setCronPreview] = useState([])
   const [cronError, setCronError] = useState('')
+  const [submitErr, setSubmitErr] = useState('')   // 浮层内提交错误（不依赖 App 层 ErrorBar）
+
+  // Esc 关弹窗，且只由栈顶响应（Phase 2 C-2）
+  useOverlayStack(onClose)
 
   useEffect(() => {
     if (showTpl) {
@@ -68,6 +73,7 @@ export default function CreateModal({ onClose, onCreate }) {
     e.preventDefault()
     if (!form.title.trim()) return
     setBusy(true)
+    setSubmitErr('')
     try {
       if (form.schedule_type === 'cron' && form.cron_expr.trim()) {
         const isWebhook = form.webhook_url.trim()
@@ -109,6 +115,10 @@ export default function CreateModal({ onClose, onCreate }) {
           deliverables: form.deliverables ? form.deliverables.split(',').map(s => s.trim()).filter(Boolean) : [],
         })
       }
+    } catch (err) {
+      // 创建失败必须显示在浮层内部：App 层的 ErrorBar 会被本浮层的遮罩盖住，
+      // 用户看到的是「点了没反应」（Phase 2 C-3）。
+      setSubmitErr(err?.userMessage || err?.message || '创建失败，请重试')
     } finally {
       setBusy(false)
     }
@@ -121,6 +131,12 @@ export default function CreateModal({ onClose, onCreate }) {
           <h3>创建任务</h3>
           <button className="modal__close" onClick={onClose} aria-label="关闭">×</button>
         </div>
+
+        {submitErr && (
+          <p className="modal__err" role="alert">
+            <span aria-hidden="true">⚠</span> {submitErr}
+          </p>
+        )}
 
         <form onSubmit={submit}>
           <div className="tpl-bar">

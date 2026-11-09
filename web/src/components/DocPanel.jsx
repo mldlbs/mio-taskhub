@@ -3,8 +3,25 @@ import { api } from '../api'
 import { docStateLabel, docStateTone, stateOfDoc, stateOfStatus, lifecycleTrack } from '../docLifecycle'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import hljs from 'highlight.js'
+// 只按需注册文档里真实出现的语言，避免把 highlight.js 全量 190+ 语言（≈950KB）打进包里。
+// 未注册的语言不会报错，只是不高亮——对代码块以外的内容无影响。
+import hljs from 'highlight.js/lib/core'
+import bash from 'highlight.js/lib/languages/bash'
+import css from 'highlight.js/lib/languages/css'
+import javascript from 'highlight.js/lib/languages/javascript'
+import json from 'highlight.js/lib/languages/json'
+import markdown from 'highlight.js/lib/languages/markdown'
+import python from 'highlight.js/lib/languages/python'
+import sql from 'highlight.js/lib/languages/sql'
+import typescript from 'highlight.js/lib/languages/typescript'
+import xml from 'highlight.js/lib/languages/xml'
+import yaml from 'highlight.js/lib/languages/yaml'
 import 'highlight.js/styles/github-dark.css'
+import { useOverlayStack } from '../lib/overlayStack'
+
+;[['bash', bash], ['css', css], ['javascript', javascript], ['json', json], ['markdown', markdown],
+  ['python', python], ['sql', sql], ['typescript', typescript], ['xml', xml], ['yaml', yaml]]
+  .forEach(([name, lang]) => hljs.registerLanguage(name, lang))
 
 marked.setOptions({ gfm: true, breaks: false, headerIds: false, mangle: false })
 marked.use({ renderer: { heading(token) { const level = token.depth ?? token.level; const id = 'mdh-' + Math.random().toString(36).slice(2, 8); return `<h${level} id="${id}">${token.text}</h${level}>` } } })
@@ -128,13 +145,26 @@ export default function DocPanel({ task, onClose }) {
   const [lightbox, setLightbox] = useState(null)
   // 文档生命周期总览（kind -> {state, states, allowed_next, ...}），缺失不阻塞文档浏览
   const [statusMap, setStatusMap] = useState({})
+  // 状态推进：按钮落 POST /doc/{kind}/status，成功后刷新总览与清单
+  const [advBusy, setAdvBusy] = useState(false)
+  const [advErr, setAdvErr] = useState(null)
   const viewRef = useRef(null)
+  // S-4：启用鉴权时 /raw 的图片与链接改走 blob URL，这里统一登记，组件卸载时回收。
+  // 不在单次 effect cleanup 里 revoke —— 灯箱直接引用 img.src，提前回收会让放大图失效。
+  const rawBlobUrls = useRef([])
+  useEffect(() => () => {
+    rawBlobUrls.current.forEach(u => { try { URL.revokeObjectURL(u) } catch { /* ignore */ } })
+    rawBlobUrls.current = []
+  }, [])
 
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') { if (lightbox) setLightbox(null); else onClose() } }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose, lightbox])
+  // Esc 归属：只有栈顶浮层响应（Phase 2 D1/C-2）。
+  // 图片灯箱是本面板内部的子层，先关灯箱，再关面板。
+  const lightboxRef = useRef(lightbox)
+  lightboxRef.current = lightbox
+  useOverlayStack(() => {
+    if (lightboxRef.current) { setLightbox(null); return }
+    onClose()
+  })
 
   const select = useCallback((doc) => {
     setSelected(doc); setLoading(true); setErr(null); setHtml(''); setRawContent(''); setToc([]); setFindQ(''); setFindHits(0); setProgress(0)
@@ -171,6 +201,9 @@ export default function DocPanel({ task, onClose }) {
   useEffect(() => {
     const root = viewRef.current
     if (!root || !html) return
+    // S-4 通道 ④：启用鉴权时标签请求带不上 Authorization，/raw 改走 fetch + blob URL。
+    // 未启用鉴权时 authed=false，下面两条分支完全保持原行为。
+    const authed = api.hasToken()
     root.querySelectorAll('pre code').forEach(b => { try { hljs.highlightElement(b) } catch {} })
     root.querySelectorAll('a[href]').forEach(a => {
       a.target = '_blank'
@@ -181,6 +214,12 @@ export default function DocPanel({ task, onClose }) {
         const baseDir = selected && selected.dir != null ? selected.dir : dirOf(selected && selected.rel_path)
         const resolved = joinRel(baseDir, decodeMaybe(rawHref))
         a.href = api.rawFileUrl(task.id, resolved)
+        if (authed) {
+          // href 保留 /raw 作为兜底；异步换成 blob URL，点击时浏览器按原语义打开
+          api.rawFileBlobUrl(task.id, resolved)
+            .then(u => { rawBlobUrls.current.push(u); if (a.isConnected) a.href = u })
+            .catch(() => { /* 保留 /raw 兜底 */ })
+        }
         // 相对 .md 链接在面板内直接打开目标文档（拦截点击；href 保留 /raw 作为兜底）
         if (/\.(md|markdown)$/i.test(resolved)) {
           a.addEventListener('click', (e) => {
@@ -199,7 +238,14 @@ export default function DocPanel({ task, onClose }) {
       const rawSrc = img.getAttribute('src') || ''
       if (rawSrc && !ABS_SRC_RE.test(rawSrc)) {
         const baseDir = selected && selected.dir != null ? selected.dir : dirOf(selected && selected.rel_path)
-        img.src = api.rawFileUrl(task.id, joinRel(baseDir, decodeMaybe(rawSrc)))
+        const rel = joinRel(baseDir, decodeMaybe(rawSrc))
+        if (authed) {
+          api.rawFileBlobUrl(task.id, rel)
+            .then(u => { rawBlobUrls.current.push(u); if (img.isConnected) img.src = u })
+            .catch(() => { /* 保留原始 src 作为失败提示 */ })
+        } else {
+          img.src = api.rawFileUrl(task.id, rel)
+        }
       }
       img.loading = 'lazy'; img.style.maxWidth = '100%'; img.style.height = 'auto'
       img.style.cursor = 'zoom-in'
@@ -336,6 +382,36 @@ export default function DocPanel({ task, onClose }) {
   const selStatus = selected ? (stateOfDoc(selected) || stateOfStatus(statusMap[selected.kind])) : null
   const selTrack = selected ? lifecycleTrack((statusMap[selected.kind] || {}).states, selStatus) : []
 
+  // 状态推进：合法后继来自总览接口 allowed_next（与后端 doc_lifecycle 同源）。
+  // 只有链内文档（source=field）且该 kind 有生命周期才可推进；未登记（无落盘文件）时禁用。
+  const selEntry = selected ? statusMap[selected.kind] : null
+  const allowedNext = (selEntry && selEntry.allowed_next) || []
+  const canAdvance = !!(selected && selected.source === 'field' && selEntry)
+  const advDisabled = advBusy || canAdvance === false || selEntry?.has_doc === false
+
+  const advanceDoc = async (target) => {
+    if (!selected || advBusy) return
+    setAdvBusy(true); setAdvErr(null)
+    try {
+      await api.setDocStatus(task.id, selected.kind, { state: target })
+      const [st, docsR] = await Promise.all([
+        api.getDocStatuses(task.id),
+        api.getTaskDocuments(task.id),
+      ])
+      setStatusMap(st.statuses || {})
+      const list = docsR.documents || []
+      setDocs(list)
+      const cur = list.find(d => d.rel_path === selected.rel_path)
+      if (cur) setSelected(cur)
+    } catch (e) {
+      // 质量门 422 的 detail 是 {message, quality}，优先取人话 message
+      const d = e && e.detail
+      setAdvErr((d && d.message) || e.message)
+    } finally {
+      setAdvBusy(false)
+    }
+  }
+
   return (
     <div className="overlay docpanel-overlay" onClick={onClose}>
       <div className="docpanel" role="dialog" aria-modal="true" aria-label="文档浏览" onClick={e => e.stopPropagation()}>
@@ -431,9 +507,23 @@ export default function DocPanel({ task, onClose }) {
                     ))}
                   </span>
                 )}
+                {canAdvance && allowedNext.length > 0 && (
+                  <span className="docpanel__advance">
+                    {allowedNext.map(st => (
+                      <button key={st} className="btn btn--ghost btn--xs" disabled={advDisabled}
+                              title={selEntry?.has_doc === false
+                                ? '文档未登记（没有落盘文件），先登记路径或写入文档后再推进'
+                                : `把「${kindMeta(selected.kind).label}」状态推进到「${docStateLabel(st)}」`}
+                              onClick={() => advanceDoc(st)}>
+                        {advBusy ? '…' : `→ ${docStateLabel(st)}`}
+                      </button>
+                    ))}
+                  </span>
+                )}
                 {truncated && <span className="docpanel__meta-warn">内容已截断</span>}
               </div>
             )}
+            {advErr && <div className="docpanel__notice docpanel__notice--err">推进失败：{advErr}</div>}
             {loading && <div className="docpanel__loading"><span className="spinner" /> 渲染中…</div>}
             {err && <div className="docpanel__notice docpanel__notice--err">{err}</div>}
             {!loading && !err && missing && <div className="docpanel__notice docpanel__notice--warn">文档缺失：{selected && selected.rel_path}</div>}

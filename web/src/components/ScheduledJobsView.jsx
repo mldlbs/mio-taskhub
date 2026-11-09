@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '../api'
 import { fmtAgo, parseUtc } from '../constants'
+import { confirm } from '../confirm'
 
 export default function ScheduledJobsView({ onNavigateToTask }) {
   const [jobs, setJobs] = useState([])
@@ -12,6 +13,7 @@ export default function ScheduledJobsView({ onNavigateToTask }) {
   const [tab, setTab] = useState('list')          // list | exec
   const [execFilter, setExecFilter] = useState('all')  // all | ok | error
   const [expanded, setExpanded] = useState({})    // 结果行展开
+  const [err, setErr] = useState('')
 
   const load = () => {
     setLoading(true)
@@ -30,33 +32,24 @@ export default function ScheduledJobsView({ onNavigateToTask }) {
     }
   }, [execJob])
 
-  const handlePause = async (job) => {
+  // 视图级错误（R2 附加）：行内操作失败改用就近错误条，不再 window.alert（阻塞式原生弹窗，
+  // 会被浏览器拦成「此页面已阻止弹窗」，且不进入任何可访问的播报通道）。
+  const run = async (fn, label, job) => {
+    setErr('')
     try {
-      await api.pauseScheduledJob(job.id)
+      await fn()
       load()
-    } catch (e) { alert('暂停失败: ' + e.message) }
+    } catch (e) { setErr(`${label}失败${job ? `（${job.name}）` : ''}: ${e.userMessage || e.message}`) }
   }
 
-  const handleResume = async (job) => {
-    try {
-      await api.resumeScheduledJob(job.id)
-      load()
-    } catch (e) { alert('恢复失败: ' + e.message) }
-  }
-
-  const handleTrigger = async (job) => {
-    try {
-      await api.triggerScheduledJob(job.id)
-      load()
-    } catch (e) { alert('触发失败: ' + e.message) }
-  }
+  const handlePause   = (job) => run(() => api.pauseScheduledJob(job.id), '暂停', job)
+  const handleResume  = (job) => run(() => api.resumeScheduledJob(job.id), '恢复', job)
+  const handleTrigger = (job) => run(() => api.triggerScheduledJob(job.id), '触发', job)
 
   const handleDelete = async (job) => {
-    if (!confirm(`确认删除定时任务「${job.name}」？`)) return
-    try {
-      await api.deleteScheduledJob(job.id)
-      load()
-    } catch (e) { alert('删除失败: ' + e.message) }
+    if (!(await confirm(`删除定时任务「${job.name}」？该任务的执行记录会一并移除，操作不可撤销。`,
+      { title: '删除定时任务', danger: true, okText: '删除' }))) return
+    run(() => api.deleteScheduledJob(job.id), '删除', job)
   }
 
   return (
@@ -75,6 +68,14 @@ export default function ScheduledJobsView({ onNavigateToTask }) {
           + 新建定时任务
         </button>
       </div>
+
+      {err && (
+        <div className="modal__err sjv__err" role="alert">
+          <span>▲</span>
+          <span>{err}</span>
+          <button className="sjv__err-x" onClick={() => setErr('')} aria-label="关闭错误提示">×</button>
+        </div>
+      )}
 
       {tab === 'list' && (loading ? (
         <div className="sjv__empty">加载中…</div>
@@ -173,6 +174,7 @@ function ScheduledJobModal({ editJob, onClose, onSaved }) {
   const [headersText, setHeadersText] = useState('')
   const [bodyText, setBodyText] = useState('')
   const [jsonErr, setJsonErr] = useState('')
+  const [saveErr, setSaveErr] = useState('')
 
   useEffect(() => {
     setHeadersText(JSON.stringify(editJob?.action_config?.headers || {}, null, 2))
@@ -234,7 +236,8 @@ function ScheduledJobModal({ editJob, onClose, onSaved }) {
       }
       onSaved()
     } catch (e) {
-      alert('保存失败: ' + (e.userMessage || e.message))
+      // 浮层内错误条（与 CreateModal / StageAdvanceDialog 一致），不再 alert
+      setSaveErr('保存失败: ' + (e.userMessage || e.message))
     } finally {
       setBusy(false)
     }
@@ -249,6 +252,12 @@ function ScheduledJobModal({ editJob, onClose, onSaved }) {
         </div>
         <form onSubmit={submit}>
           <div className="modal__body">
+            {saveErr && (
+              <div className="modal__err" role="alert">
+                <span>▲</span><span>{saveErr}</span>
+                <button type="button" className="sjv__err-x" onClick={() => setSaveErr('')} aria-label="关闭错误提示">×</button>
+              </div>
+            )}
             <div className="sj-form__grid">
             <div className="field">
               <label className="field__label">名称 <b>*</b></label>

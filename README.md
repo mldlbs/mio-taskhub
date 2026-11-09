@@ -256,7 +256,7 @@ docker compose up -d
 
 ### 4.1 MCP（推荐）
 
-hub 负责把 HTTP API 包装成 **40 个原生 MCP 工具**，Agent 侧不需要写 curl。
+hub 把 HTTP API 包装成原生 MCP 工具，Agent 侧不需要写 curl。工具数量见顶部「对外能力」表，由 `scripts/gen_readme_stats.py` 从 `mcp_server.py` 派生。
 
 ```bash
 # MCP 服务端启动命令（任选其一）
@@ -734,7 +734,7 @@ mio_taskhub/
 ├── models.py            # 全部 ORM 模型 + 状态机枚举（唯一权威定义）
 ├── db.py                # engine / session / WAL / 连接检查
 ├── migrations.py        # 轻量迁移
-├── mcp_server.py        # 40 个 MCP 工具（_tool 装饰器工厂）
+├── mcp_server.py        # MCP 工具注册（_tool 装饰器工厂；数量见顶部表）
 ├── middleware.py        # RequestID + 限流
 ├── events.py            # 全局事件流 + WebSocket 广播
 ├── background.py        # 心跳扫描 / 调度器 / ThreadRegistry
@@ -747,7 +747,7 @@ mio_taskhub/
 ├── doc_quality.py       # 质量 lint + 追溯 + 修订指令
 ├── seed.py              # 演示数据
 ├── memory_store.py      # 记忆网关客户端与指标
-├── api/                 # 26 个路由模块（119 个端点）
+├── api/                 # REST 路由模块（数量见顶部表）
 ├── workflow/            # state_machine / transitions
 ├── scheduling/          # cron_engine / scheduler / night_runner
 ├── ideas/               # idea_prompts / idea_review
@@ -755,7 +755,7 @@ mio_taskhub/
 └── observability/       # metrics / alerts / dep_metrics / otel / logging_config / report
 
 web/src/                 # React SPA（components/ 含全部视图）
-tests/                   # 1305 个用例
+tests/                   # 用例数量见顶部表
 docs/                    # 规格、ADR、审计报告、HOWTO
 packaging/               # 构建脚本、setup 脚本、Prometheus 配置、WorkBuddy skill
 mio_taskhub/installer/   # 安装 / 卸载子系统（安装器、卸载器、注册表、快捷方式）
@@ -823,7 +823,7 @@ cd web && npm run dev         # 前端热更新开发
 
 - **单用户本地服务**：认证只有单 Bearer token，没有多租户与权限体系
 - **SQLite 并发上限**：WAL + QueuePool 足以支撑单机多 Agent，但规模继续增长需迁移 Postgres
-- **God File 残留**：`mcp_server.py`（643 行）与 `background.py`（580 行）仍是最大的两个文件；MCP 层本质是薄代理，理想方案是从 OpenAPI spec 自动生成
+- **God File 残留**：`mcp_server.py` 与 `background.py` 仍是最大的两个文件；MCP 层本质是薄代理，理想方案是从 OpenAPI spec 自动生成
 - **文档质量 lint 是启发式的**：靠章节标题与表格行数做结构性校验，判断不了内容是否真的对。真正的内容审查仍需人或 Agent 阅读
 - **阶段推进已校验接口契约（2026-09-18 已修复）**：`api` 纳入了 `design` 阶段生命周期门控（`spec` + `api` 都必须 `approved` 才能进 design），`plan` 同理。仅当文档已显式设过状态时校验，旧任务向后兼容；带 `force` 可跳过并留痕。详见 [§6.3](#63-九类生命周期状态机) 与 `LIFECYCLE_GATE`
 - **文档 kind 三处同步点**：新增一类 kind 要同时改 `doc_paths.py` / `DOC_PATTERNS` / `KIND_META`，漏改会导致前端不显示（缺自动一致性测试）

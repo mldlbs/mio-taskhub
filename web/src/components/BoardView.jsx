@@ -40,6 +40,10 @@ export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, fo
 
   const lanes = groupBy === 'stage' ? STAGES : LANES
   const groupField = groupBy === 'stage' ? 'stage' : 'state'
+  // 拖拽只在「按阶段」视图可用：阶段有 POST /tasks/{id}/stage/move 支撑。
+  // 状态（state）由 agent 领取/执行驱动，后端没有置 state 的接口（见 App.moveTask 注释），
+  // 所以「按状态」视图必须禁止跨列拖拽——否则就是一次假成功（Phase 2 C-1）。
+  const canDrag = groupBy === 'stage'
 
   useEffect(() => {
     if (!focus) return
@@ -85,11 +89,13 @@ export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, fo
   const clearDrag = () => { setDragging(null); setOverPos(null) }
 
   const handleDrop = (laneId) => {
+    if (!canDrag) { clearDrag(); return }
     if (dragging && dragging !== laneId) onMove(dragging, laneId)
     clearDrag()
   }
 
   const handleOver = (e, laneId) => {
+    if (!canDrag) return
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
     const cards = e.currentTarget.querySelectorAll('.task')
@@ -117,6 +123,12 @@ export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, fo
           <span className="board-stats__noise"
                 title="带 part-of 标签的工作流成员只在任务详情的“工作流”面板展示；看板只显示主任务">
             已隐藏工作流成员 {hiddenMembers} 个
+          </span>
+        )}
+        {!canDrag && (
+          <span className="board-stats__hint"
+                title="任务状态由 agent 领取/执行驱动，前端没有置 state 的接口；需要调整请切到「按阶段」拖拽，或在详情里「推进阶段」">
+            状态列由 agent 领取驱动 · 拖拽改状态不可用（切「按阶段」可拖）
           </span>
         )}
         <span className="board-stats__bar" aria-hidden="true">
@@ -164,6 +176,7 @@ export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, fo
                 onDragStart={setDragging}
                 onOpen={onOpen}
                 onMove={onMove}
+                canDrag={canDrag}
               />
             )
           })
@@ -182,7 +195,7 @@ export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, fo
               aria-label={`${lane.label}列`}
             >
               <header className="lane__head">
-                <span className={`lane__dot${lane.tone === 'live' ? ' is-live' : ''}${lane.tone === 'warn' ? ' is-warn' : ''}${lane.tone === 'danger' ? ' is-danger' : ''}`} />
+                <span className={`lane__dot${lane.tone ? ` is-${lane.tone}` : ''}`} />
                 <span className="lane__title">{lane.en}</span>
                 <span className="lane__count" aria-live="polite">{items.length}</span>
                 {total > 0 && <span className="lane__sum">· {fmtDur(total)}</span>}
@@ -200,11 +213,11 @@ export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, fo
 
                 {!loading && items.length === 0 && !dragging && (
                   <div className="lane__empty">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
                       <rect x="3" y="4" width="18" height="16" rx="3" />
                       <path d="M12 8v8M8 12h8" />
                     </svg>
-                    <span>拖拽任务到此处</span>
+                    <span>暂无{lane.label}任务</span>
                   </div>
                 )}
               </div>

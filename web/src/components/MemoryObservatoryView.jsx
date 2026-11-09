@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { authFetch } from '../auth'
 import { buildAdjacency, nodeEdges } from '../lib/observatoryAdjacency'
 
 /**
@@ -52,7 +53,7 @@ export default function MemoryObservatoryView() {
     const ac = new AbortController()
     setLoading(true)
     setErr(null)
-    fetch(`/api/v1/memory/observatory/data${showLogs ? '?logs=1' : ''}`, { signal: ac.signal })
+    authFetch(`/api/v1/memory/observatory/data${showLogs ? '?logs=1' : ''}`, { signal: ac.signal })
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return r.json()

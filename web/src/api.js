@@ -1,4 +1,5 @@
 import { confirm } from './confirm'
+import { authHeaders, authFetch, getToken } from './auth'
 
 const BASE = '/api/v1'
 
@@ -32,7 +33,8 @@ export class ApiError extends Error {
 }
 
 async function req(method, path, body, extraHeaders) {
-  const opts = { method, headers: { 'Content-Type': 'application/json', ...(extraHeaders || {}) } }
+  // S-4：启用鉴权时统一注入 Authorization: Bearer；无 token 时 authHeaders 原样返回。
+  const opts = { method, headers: authHeaders({ 'Content-Type': 'application/json', ...(extraHeaders || {}) }) }
   if (body) opts.body = JSON.stringify(body)
   const url = BASE + path
   const r = await fetch(url, opts)
@@ -70,13 +72,28 @@ export const api = {
   advanceStage: (id, body) => req('POST', `/tasks/${id}/stage`, body),
   moveToStage: (id, body) => req('POST', `/tasks/${id}/stage/move`, body),
   getTask: (id) => req('GET', `/tasks/${id}`),
+  // 阻塞源聚合：前置/死结/子任务/待决策/文档门控/偏差，回答「为什么动不了」
+  getTaskBlockers: (id) => req('GET', `/tasks/${id}/blockers`),
+  // 执行就绪度：流程约束 + 输入缺口 + 风险 + 建议处理顺序
+  getTaskReadiness: (id) => req('GET', `/tasks/${id}/readiness`),
   getTaskDoc: (id, kind) => req('GET', `/tasks/${id}/doc?kind=${kind}`),
   getTaskDocuments: (id) => req('GET', `/tasks/${id}/documents`),
   // 文档生命周期总览：各 kind 当前状态 + states 全序列 + 合法后继
   getDocStatuses: (id) => req('GET', `/tasks/${id}/doc/statuses`),
+  // 推进文档生命周期状态（body: {state, note?, force?}）；受质量门约束，422 带缺口明细
+  setDocStatus: (id, kind, body) => req('POST', `/tasks/${id}/doc/${kind}/status`, body),
   getTaskFile: (id, path) => req('GET', `/tasks/${id}/file?path=${encodeURIComponent(path)}`),
-  // 原样返回 workspace 内文件（二进制安全），用于 <img src> 等直接引用
+  // 原样返回 workspace 内文件（二进制安全），用于 <img src> 等直接引用。
+  // 无 token 时保持原行为；启用鉴权时标签请求带不上 header，调用方改用 rawFileBlobUrl。
   rawFileUrl: (id, path) => `${BASE}/tasks/${id}/raw?path=${encodeURIComponent(path)}`,
+  hasToken: () => !!getToken(),
+  // S-4 通道 ④：带 Authorization 取回 /raw 内容，转成 blob URL 供 <img src> / <a href> 使用。
+  // 调用方须在组件卸载或内容替换时 URL.revokeObjectURL，避免泄漏。
+  rawFileBlobUrl: async (id, path) => {
+    const r = await authFetch(`${BASE}/tasks/${id}/raw?path=${encodeURIComponent(path)}`)
+    if (!r.ok) throw new Error(`raw HTTP ${r.status}`)
+    return URL.createObjectURL(await r.blob())
+  },
   getTaskGraph: (id) => req('GET', `/tasks/${id}/graph`),
   getWorkstream: (id) => req('GET', `/tasks/${id}/workstream`),  getFullGraph: () => req('GET', '/tasks/graph'),
   createTask: (t) => req('POST', '/tasks', t),
@@ -143,7 +160,7 @@ export const api = {
   status: (agent) => req('GET', '/status' + (agent ? `?agent=${encodeURIComponent(agent)}` : '')),
   // Memory Gateway (v3)
   memoryHealth: async () => {
-    const r = await fetch('/api/v1/memory/health')
+    const r = await authFetch('/api/v1/memory/health')
     if (!r.ok) throw new Error(`memory/health HTTP ${r.status}`)
     return r.json()
   },
@@ -163,7 +180,7 @@ export const api = {
   listTemplateVersions: (tplId) => req('GET', `/tasks/templates/${tplId}/versions`),
   restoreTemplateVersion: (tplId, version) => req('POST', `/tasks/templates/${tplId}/restore/${version}`, {}),
   async metrics() {
-    const resp = await fetch('/metrics')
+    const resp = await authFetch('/metrics')
     if (!resp.ok) throw new Error('metrics failed')
     const text = await resp.text()
     const lines = text.split('\n').filter(l => l && !l.startsWith('#'))
@@ -234,6 +251,12 @@ export const api = {
   schedulerActivate: () => req('POST', '/mio/scheduler-activate', {}),
   schedulerRestart: () => req('POST', '/mio/scheduler-restart', {}),
   schedulerStop: () => req('POST', '/mio/scheduler-stop', {}),
+
+  // Decision 实体（任务 89a90af6）：待裁决决策
+  listDecisions: (status = 'open', limit = 50) =>
+    req('GET', `/decisions?status=${encodeURIComponent(status)}&limit=${limit}`),
+  resolveDecision: (id, body) => req('POST', `/decisions/${id}/resolve`, body),
+  supersedeDecision: (id, body) => req('POST', `/decisions/${id}/supersede`, body || {}),
 
   // Gate Status
   gateStatus: () => req('GET', '/ideas/gate/status'),

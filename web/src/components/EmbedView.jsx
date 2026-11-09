@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../api'
+import { wsUrl } from '../auth'
 import { STATE_META, STAGE_META, prio, compositeLabel } from '../constants'
 import FlowView from './FlowView'
 
@@ -23,7 +24,7 @@ export default function EmbedView() {
     let closed = false
     const connect = () => {
       if (closed) return
-      try { s = new WebSocket(`ws://${location.host}/ws`) } catch { setTimeout(connect, 3000); return }
+      try { s = new WebSocket(wsUrl('/ws')) } catch { setTimeout(connect, 3000); return }
       s.onmessage = () => load()
       s.onclose = () => { if (!closed) setTimeout(connect, 3000) }
       s.onerror = () => { try { s.close() } catch { /* ignore */ } }

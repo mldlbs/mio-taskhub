@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { useOverlayStack } from '../lib/overlayStack'
 
 const VIEWS = [
   { id: 'workflow', label: '工作流', icon: '⬡' },
@@ -22,6 +23,9 @@ export default function CommandPalette({ open, onClose, onNavigate, tasks = [] }
   const [selected, setSelected] = useState(0)
   const inputRef = useRef(null)
   const listRef = useRef(null)
+
+  // Esc 交给浮层栈（只由栈顶响应）；输入框内不再单独处理 Esc
+  useOverlayStack(onClose, open)
 
   useEffect(() => {
     if (open) {
@@ -87,8 +91,6 @@ export default function CommandPalette({ open, onClose, onNavigate, tasks = [] }
     } else if (e.key === 'Enter') {
       e.preventDefault()
       execute(results[selected])
-    } else if (e.key === 'Escape') {
-      onClose()
     }
   }, [results, selected, execute, onClose])
 
@@ -112,16 +114,25 @@ export default function CommandPalette({ open, onClose, onNavigate, tasks = [] }
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
+            role="combobox"
+            aria-label="搜索视图或任务"
+            aria-autocomplete="list"
+            aria-expanded={results.length > 0}
+            aria-controls="cmd-listbox"
+            aria-activedescendant={results[selected] ? `cmd-opt-${results[selected].type}-${results[selected].id}` : undefined}
           />
           <kbd className="cmd-esc">ESC</kbd>
         </div>
-        <div className="cmd-list" ref={listRef}>
+        <div className="cmd-list" ref={listRef} id="cmd-listbox" role="listbox" aria-label="命令与任务结果">
           {results.length === 0 ? (
-            <div className="cmd-empty">无匹配结果</div>
+            <div className="cmd-empty" role="status">无匹配结果</div>
           ) : (
             results.map((item, i) => (
               <div
                 key={`${item.type}-${item.id}`}
+                id={`cmd-opt-${item.type}-${item.id}`}
+                role="option"
+                aria-selected={i === selected}
                 className={`cmd-item${i === selected ? ' is-selected' : ''}`}
                 onClick={() => execute(item)}
                 onMouseEnter={() => setSelected(i)}

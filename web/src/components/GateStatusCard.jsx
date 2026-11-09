@@ -13,6 +13,7 @@ export default function GateStatusCard({ onForceGenerate }) {
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState(null)
   const [forceLoading, setForceLoading] = useState(false)
+  const [forceErr, setForceErr] = useState('')
 
   const load = async () => {
     setLoading(true)
@@ -36,11 +37,13 @@ export default function GateStatusCard({ onForceGenerate }) {
   const handleForceGenerate = async () => {
     if (!confirm('强制触发每日灵感生成（绕过闸门，留痕审计）。确定？', { title: '强制生成', danger: true })) return
     setForceLoading(true)
+    setForceErr('')
     try {
       await api.forceGenerate('1271eac5', '面板手动触发')
       await load()
     } catch (e) {
-      alert('强制生成失败：' + e.message)
+      // 就近错误条（R2 附加）：这个按钮就在闸门卡里，alert 会盖住卡片本身的状态色
+      setForceErr('强制生成失败：' + (e.userMessage || e.message))
     } finally {
       setForceLoading(false)
     }
@@ -88,6 +91,13 @@ export default function GateStatusCard({ onForceGenerate }) {
           </button>
         )}
       </div>
+
+      {forceErr && (
+        <div className="modal__err gate-status__err-bar" role="alert">
+          <span>▲</span><span>{forceErr}</span>
+          <button type="button" className="sjv__err-x" onClick={() => setForceErr('')} aria-label="关闭错误提示">×</button>
+        </div>
+      )}
 
       <div className="gate-status__metrics">
         <div className="gate-status__metric">

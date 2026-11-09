@@ -1,6 +1,8 @@
 /** 设置面板：应用信息与软件更新。 */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { api } from '../api'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
 const fmtUptime = (s) => {
   if (s == null) return '—'
@@ -43,6 +45,17 @@ export default function SettingsView() {
   }
 
   const state = st?.state || 'idle'
+
+  // 版本说明是 Markdown 源文，必须渲染后再显示（此前直接 <pre> 输出，会露出 ** 与 ##）
+  const html = useMemo(() => {
+    if (!st?.notes) return ''
+    try {
+      return DOMPurify.sanitize(marked.parse(st.notes), { ADD_ATTR: ['target'] })
+    } catch {
+      return ''
+    }
+  }, [st?.notes])
+
   const label = {
     checking: '正在检查更新…',
     up_to_date: `已是最新版本（v${st?.current}）`,
@@ -114,7 +127,13 @@ export default function SettingsView() {
         )}
       </div>
 
-      {st && st.notes && (
+      {st && st.notes && html && (
+        <>
+          <h3 className="mio-sec">版本说明</h3>
+          <div className="md settings-notes" dangerouslySetInnerHTML={{ __html: html }} />
+        </>
+      )}
+      {st && st.notes && !html && (
         <>
           <h3 className="mio-sec">版本说明</h3>
           <pre className="settings-notes">{st.notes}</pre>

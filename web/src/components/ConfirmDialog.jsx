@@ -1,18 +1,19 @@
 import { useEffect, useState } from 'react'
 import { subscribeConfirm } from '../confirm'
+import { useOverlayStack } from '../lib/overlayStack'
 
 /** 通用确认弹窗（.overlay + .modal--sm，与 ListView 取消确认同款样式）。
- *  由 App 挂载一次；调用方走 confirm()（见 src/confirm.js）。 */
+ *  由 App 挂载一次；调用方走 confirm()（见 src/confirm.js）。
+ *
+ *  Phase 2 B1：危险操作的默认焦点必须落在「取消」上——原来 autoFocus 在确认键，
+ *  用户按 Enter 会直接执行不可逆操作。现在只有 danger !== true 时才聚焦确认键。
+ */
 export default function ConfirmDialog() {
   const [data, setData] = useState(null)
   useEffect(() => subscribeConfirm(setData), [])
 
-  useEffect(() => {
-    if (!data) return undefined
-    const onKey = (e) => { if (e.key === 'Escape') data.resolve(false) }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [data])
+  // Esc = 取消，且只由栈顶响应（确认弹窗永远是最顶层）
+  useOverlayStack(() => data && data.resolve(false), !!data)
 
   if (!data) return null
   const close = (v) => data.resolve(v)
@@ -28,9 +29,10 @@ export default function ConfirmDialog() {
           <p style={{ whiteSpace: 'pre-line' }}>{data.message}</p>
         </div>
         <div className="modal__foot">
-          <button className="btn btn--ghost" onClick={() => close(false)}>{data.cancelText}</button>
+          <button className={`btn btn--ghost${data.danger ? ' confirm-default' : ''}`}
+                  autoFocus={!!data.danger} onClick={() => close(false)}>{data.cancelText}</button>
           <button className={`btn ${data.danger ? 'btn--danger' : 'btn--primary'}`}
-                  autoFocus onClick={() => close(true)}>{data.okText}</button>
+                  autoFocus={!data.danger} onClick={() => close(true)}>{data.okText}</button>
         </div>
       </div>
     </div>

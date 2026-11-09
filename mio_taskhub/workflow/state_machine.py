@@ -244,6 +244,16 @@ _EXPLICIT: list = [
     # 导致 RUNNING 任务超时重入抛 IllegalTransition，run 连带回滚）。
     Transition("T23", State.RUNNING, Stage.IMPLEMENTING, State.QUEUED, Stage.READY,
                {ActorType.SYSTEM}, event_type="requeued"),
+    # T25 manual_accept_failed：人审推翻失败判定（人工验收）。
+    # 场景：agent/看门狗把任务判成 failed（超时、心跳丢失、run 报错），人看过产出物
+    # 认为合格，要直接验收进 done。此前 (FAILED, REVIEW) → (COMPLETED, DONE) 无任何边，
+    # 人工推进只得到「未定义的转换: (failed,review) -> (completed,done)」（2026-11-04 实测）。
+    # 严格限定 REVIEW → DONE 单跳：done 的合法前置只有 review（TaskStage.can_advance），
+    # 其它阶段的人工诉求仍走 retry / reopen / cancel，不在这里放行。
+    # 不复用 T22 两跳（FAILED→COMPLETED 同阶段 + T6 finalize），因为 T22 只给 SYSTEM/AGENT，
+    # 它是「迟到成功纠正」的通道，语义上不该由人触发。
+    Transition("T25", State.FAILED, Stage.REVIEW, State.COMPLETED, Stage.DONE,
+               {ActorType.USER}, requires_reason=True, event_type="completed"),
 ]
 
 # T24 late_success_after_requeue：看门狗回队列（T20/T21/T23 → (QUEUED,*)）后，

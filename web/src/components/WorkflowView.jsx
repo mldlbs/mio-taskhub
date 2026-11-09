@@ -8,7 +8,7 @@ const MODES = [
   { id: 'flow', label: '依赖图' },
 ]
 
-export default function WorkflowView({ tasks, onMoveState, onMoveStage, onCancel, onOpen, onAdvance, loading, focus }) {
+export default function WorkflowView({ tasks, onMoveState, onMoveStage, onCancel, onOpen, onAdvanceTask, loading, focus }) {
   const [mode, setMode] = useState('state')
 
   return (
@@ -43,7 +43,7 @@ export default function WorkflowView({ tasks, onMoveState, onMoveStage, onCancel
         <FlowView
           tasks={tasks}
           onOpen={onOpen} onCancel={onCancel}
-          onAdvance={onAdvance} onMoveToStage={onMoveStage}
+          onAdvanceTask={onAdvanceTask}
         />
       )}
     </div>

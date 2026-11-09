@@ -228,10 +228,28 @@ app.include_router(task_subtasks.router, prefix="/api/v1", tags=["tasks"])
 # hall 必须在 tasks 之前注册：两者同前缀 /tasks，顺序决定 /tasks/hall 会不会
 # 被 /tasks/{task_id} 抢先匹配（FastAPI 按注册顺序匹配路由）。
 app.include_router(hall.router, prefix="/api/v1", tags=["tasks"])
+# 决策收件箱（E7 产品化）：待决策 / 待验收 / 失败待处置。
+# ⚠️ 必须在 tasks.router 之前注册：/tasks/inbox 会被 /tasks/{task_id} 抢先匹配（404）
+from mio_taskhub.api import inbox
+app.include_router(inbox.router, prefix="/api/v1", tags=["tasks"])
+# 阻塞源聚合（GET /tasks/{id}/blockers）：回答「这个任务为什么动不了」。
+# 与 tasks.router 同前缀，注册在其之前——避免将来有人在 tasks 里加同路径时被抢先匹配。
+from mio_taskhub.api import blockers
+app.include_router(blockers.router, prefix="/api/v1", tags=["tasks"])
+# 执行就绪度（GET /tasks/{id}/readiness）：在流程约束之上回答
+# 「能不能开工 / 缺什么输入 / 风险在哪 / 先解哪个」，内部复用 blockers 的流程层结果。
+from mio_taskhub.api import readiness
+app.include_router(readiness.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(tasks.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(decompose.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(deviations.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(task_documents.router, prefix="/api/v1", tags=["tasks"])
+# FR-07（任务 c8316737）：任务级只读 diff 路由
+from mio_taskhub.api import task_diff
+app.include_router(task_diff.router, prefix="/api/v1", tags=["task-diff"])
+# Decision 一等公民实体（任务 89a90af6，FR-02）
+from mio_taskhub.api import decisions
+app.include_router(decisions.router, prefix="/api/v1", tags=["decisions"])
 app.include_router(agents.router, prefix="/api/v1", tags=["agents"])
 app.include_router(runs.router, prefix="/api/v1", tags=["runs"])
 app.include_router(plans.router, prefix="/api/v1", tags=["plans"])

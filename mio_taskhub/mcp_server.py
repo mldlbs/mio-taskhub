@@ -34,6 +34,8 @@ mcp = FastMCP(
     instructions=(
         "mio-taskhub 是一个本地跨 agent 任务中心，通过本服务以工具调用的方式使用。\n"
         "对话使用规范：\n"
+        "- **会话开始先调 taskhub_my_inbox**：它会告诉你有哪些事只有用户能决策（依赖阻塞/open 决策/待验收/失败待处置），把入口交给用户，别让决策沉在看板里。\n"
+        "- **遇到只有用户能决策的问题，用 taskhub_add_decision 登记**（question + options + recommendation），呈现给用户等裁决；用户明示选择后才能调 taskhub_resolve_decision，把用户原话放进 rationale。不要替用户选。\n"
         "- 用户提到 任务/看板/派活/进度/待办/活干完没/安排 时，优先调用 taskhub_status 获取全局上下文。\n"
         "- 看板渲染：把 taskhub_status 结果渲染成 markdown 表格（阶段|数量|任务列表），不要贴原始 JSON。\n"
         "- 只读询问（看进度/看板）时只调 taskhub_status / taskhub_get_task / taskhub_list_tasks，不创建不修改。\n"
@@ -140,6 +142,47 @@ async def taskhub_status(
 ) -> str:
     params = {"agent": agent} if agent else None
     return _fmt(await _request("GET", "/board/summary", params=params))
+
+
+@_tool(name="taskhub_my_inbox", title="待我处理决策收件箱", method="GET", path="/tasks/inbox", read_only=True, destructive=False, desc="**会话开始先调这个**：三个只有用户能解的决策队列——待决策（依赖阻塞 + open 决策，最老的在前）/ 待你验收（Run 完成等采纳，最老的在前）/ 失败待处置（重试/放弃，最新的在前）。机器噪声恒过滤（idea-reviewer/insight/变更/溯因/自测）。每条带 action 提示（要做什么、调哪个接口）。把结果渲染成三段 markdown 列表交给用户决策，不要自己替用户批量处置。")
+async def taskhub_my_inbox() -> str:
+    return _fmt(await _request("GET", "/tasks/inbox"))
+
+
+@_tool(name="taskhub_add_decision", title="登记一条待用户裁决的决策", method="POST", path="/decisions", read_only=False, destructive=False, desc="把一个「需要用户决策的问题」登记为一等公民 Decision 实体：question 必填；options 建议传 [{label, note}]（方案+理由）；可带 recommendation（agent 倾向）、task_id（关联任务）、deadline、source（登记来源，如 'agent:opencode'）。登记后会出现在 taskhub_my_inbox 的 decide 队列和 Web 决策面板，等用户裁决。⚠️ 你只负责登记和给建议，不要自己替用户选。")
+async def taskhub_add_decision(
+    question: str = Field(description="需要用户决策的问题（一句话，如：大屏骨架依赖已取消，G1 是换前置还是整条放弃？）", min_length=1, max_length=512),
+    options: str = Field(default="", description='选项数组 JSON 字符串，如 [{"label":"换前置","note":"保住大屏线"}]；不需要选项就传空串', max_length=4096),
+    recommendation: str = Field(default="", description="agent 的倾向性建议（只是建议，最终用户裁决）", max_length=512),
+    task_id: str = Field(default="", description="关联任务 id（8 位十六进制，可选）", max_length=32),
+    context: str = Field(default="", description="背景说明（可选）", max_length=2048),
+    deadline: str = Field(default="", description="截止时间 ISO 8601（可选，如 2026-11-14T12:00）", max_length=32),
+    source: str = Field(default="", description="登记来源标识（如 agent:codex）", max_length=64),
+) -> str:
+    import json as _json
+    body: dict = {"question": question}
+    if options.strip():
+        try:
+            body["options"] = _json.loads(options)
+        except _json.JSONDecodeError as e:
+            return _fmt({"error": 'options 不是合法 JSON：%s。你要做的是：传 JSON 数组字符串，'
+                                  '如「[{"label":"方案A"}]」，或留空' % e})
+    for k, v in (("recommendation", recommendation), ("task_id", task_id),
+                 ("context", context), ("deadline", deadline), ("source", source)):
+        if str(v).strip():
+            body[k] = v
+    return _fmt(await _request("POST", "/decisions", body=body))
+
+
+@_tool(name="taskhub_resolve_decision", title="裁决一条决策（须用户已明示选择）", method="POST", path="/decisions/{id}/resolve", read_only=False, destructive=False, desc="对一条 open 决策落裁决：decision_id 必填；choice 必填（用户选的方案，来自 options.label 或用户自由作答）；rationale 记录用户给的理由。⚠️ 只有当用户在对话里明确做出选择后才能调用——把用户原话放 rationale，不要自己编。裁决后决策从 decide 队列消失，choice/rationale 永久留档（审计只增不改）。终态再裁决返 409。")
+async def taskhub_resolve_decision(
+    decision_id: str = Field(description="决策 id（从 taskhub_my_inbox decide 队列或 GET /decisions 拿）", min_length=1, max_length=64),
+    choice: str = Field(description="用户选择的结论（如 options 里的 label，或用户原话）", min_length=1, max_length=512),
+    rationale: str = Field(default="", description="用户给出的理由/原话（留档审计）", max_length=2048),
+    decider: str = Field(default="user", description="裁决人标识（默认 user）", max_length=64),
+) -> str:
+    return _fmt(await _request("POST", f"/decisions/{decision_id}/resolve",
+                               body={"choice": choice, "rationale": rationale, "decider": decider}))
 
 
 @_tool(name="taskhub_register", title="注册 Agent 到任务中心", method="POST", path="/agents/register", read_only=False, destructive=False, desc="将当前 agent 注册到 mio-taskhub，使其在 Web 看板显示为在线。重复注册会刷新在线状态，幂等安全。所有 agent 执行任务前应先注册。")

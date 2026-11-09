@@ -48,14 +48,30 @@ export const STAGE_ARTIFACT = {
 
 export const artifactOf = (stage) => STAGE_ARTIFACT[stage] || null
 
+// 审查结论模板选项（done 阶段 text 模式）：点选即填入输入框，可再编辑。
+// 覆盖最常见的四种结论形态；带「…」的需要用户补一句细节才算完整结论。
+export const REVIEW_PRESETS = [
+  { label: '通过·按计划完成', text: '验收通过：已按计划完成，关键验收点全部实跑通过，无遗留问题。' },
+  { label: '通过·已上线运行', text: '验收通过：功能已上线运行一段时间，期间无异常，结论成立。' },
+  { label: '通过·基本完成', text: '验收通过：主体完成，遗留小问题不影响使用——遗留：' },
+  { label: '退回·需返工', text: '验收不通过：未完成预期目标，需返工——原因：' },
+]
+
 const looksLikePath = (v) => /[\\/]/.test(v) || /\.(md|markdown|txt|pdf)$/i.test(v)
 
 // 把用户输入转成阶段推进请求体：done 阶段允许纯文本结论，其余写进 doc_paths。
 // 兼容旧的 spec_path / plan_path 由后端负责，这里统一走 doc_paths。
-export function artifactBody(stage, value) {
+//
+// mode（可选，显式模式，来自弹窗的「写结论 / 填路径」切换）：
+//   'text' → 一律按审查结论写 textField（即使内容里带 / 或 .md）
+//   'path' → 一律写 doc_paths[kind]
+//   不传则沿用旧启发式（looksLikePath 判断），保持兼容。
+export function artifactBody(stage, value, mode) {
   const spec = artifactOf(stage)
   const v = (value || '').trim()
   if (!spec || !v) return {}
+  if (mode === 'text') return { [spec.textField || 'review_result']: v }
+  if (mode === 'path') return { doc_paths: { [spec.kind]: v } }
   if (spec.acceptsText && !looksLikePath(v)) {
     return { [spec.textField || 'review_result']: v }
   }

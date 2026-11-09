@@ -27,15 +27,37 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]" 2>/dev/null || pip install -e .
-          pip install pytest
+          pip install -e ".[dev]"
+
+      - name: Check README stats
+        shell: bash
+        run: python scripts/gen_readme_stats.py --check
 
       - name: Run tests
+        shell: bash
         run: |
-          # known-red (T0.2/4d2cd35d): 4 个 webhook_guard 测试引用已改名的 CronEngine._should_skip_webhook_generation，迁移/删除前暂排除
-          python -m pytest tests/ -v --tb=short -k "not test_two_agents_race and not test_webhook_guard"
+          # 2026-11-07 清理 -k 排除项：test_webhook_guard 在 tests/ 全目录无匹配
+          # （4 个失败用例已删除）；test_assign.py::test_two_agents_race_one_task_single_run
+          # 单跑 1 passed。e2e 仍由 pyproject.toml 的 addopts="-m 'not e2e'" 排除。
+          # basetemp 放仓库外：仓库内会让 git 向上发现父仓库使部分用例假红，
+          # 且 pytest 清理 garbage-* 会触发 safe-delete 保护。
+          # 覆盖率显式传参、不写进 addopts，避免拖慢本地常规全量。
+          python -m pytest tests/ -v --tb=short \
+            --basetemp="${{ runner.temp }}/pytest-basetemp" \
+            --cov=mio_taskhub \
+            --cov-report=xml:"${{ runner.temp }}/coverage.xml" \
+            --cov-report=term-missing:skip-covered
         env:
-          MIO_TASKHUB_DB: "${{ runner.temp }}/test_taskhub.db"
+          # conftest.py:11 无条件覆盖 MIO_TASKHUB_DB；测试隔离实际读 MIO_TEST_DB_PATH。
+          MIO_TEST_DB_PATH: "${{ runner.temp }}/test_taskhub.db"
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: "${{ runner.temp }}/coverage.xml"
+          if-no-files-found: warn
 
       - name: Upload test results
         if: failure()
@@ -59,10 +81,8 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]" 2>/dev/null || pip install -e .
-          pip install pytest
+          pip install -e ".[dev]"
 
       - name: Materials gate tests
         run: |
           python -m pytest tests/test_materials_gate.py tests/test_materials_validate.py tests/test_gate_attestation.py tests/test_release_entry.py -q
-

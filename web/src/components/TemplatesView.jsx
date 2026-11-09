@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../api'
+import { confirm } from '../confirm'
 import { fmtAgo } from '../constants'
 
 function emptyForm() {
@@ -99,7 +100,7 @@ export default function TemplatesView() {
   }
 
   const remove = async (id) => {
-    if (!confirm('确认删除此模板？')) return
+    if (!(await confirm('确认删除此模板？删除后无法在列表中恢复。', { title: '删除模板', danger: true, okText: '删除' }))) return
     try { await api.deleteTemplate(id); load() } catch (e) { setErr(e.message) }
   }
 
@@ -139,7 +140,7 @@ export default function TemplatesView() {
   }
 
   const restore = async (t, version) => {
-    if (!confirm(`确认回滚到 v${version}？当前内容将作为新版本保存。`)) return
+    if (!(await confirm(`确认回滚到 v${version}？当前内容将作为新版本保存。`, { title: '回滚模板版本', okText: '回滚' }))) return
     setVerBusy(true)
     try {
       await api.restoreTemplateVersion(t.id, version)

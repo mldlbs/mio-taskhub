@@ -3,6 +3,7 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { api } from '../api'
 import { confirm } from '../confirm'
+import { promptInput } from '../promptInput'
 import { fmtAgo, fmtDate, parseUtc } from '../constants'
 import GateStatusCard from './GateStatusCard'
 import InboxView from './InboxView'
@@ -529,7 +530,7 @@ export default function IdeasView({ ideas, onReload, onOpenTask }) {
   }
 
   const handleGenDraft = async () => {
-    if (draftOverwrite && !window.confirm('生成草稿将覆盖已填的目标/成功标准等字段，确定继续？')) return
+    if (draftOverwrite && !(await confirm('生成草稿将覆盖已填的目标/成功标准等字段，确定继续？', { title: '重新生成草稿' }))) return
     await genDraftFields(draftOverwrite)
   }
 
@@ -604,7 +605,7 @@ export default function IdeasView({ ideas, onReload, onOpenTask }) {
   // FR-14：断链解除关联——从 hypotheses 移除（进 IdeaChange diff，可重新导入）
   const unlinkHyp = async (hid) => {
     if (!detail) return
-    if (!window.confirm(`解除与假设 ${hid} 的关联？（可随时重新导入）`)) return
+    if (!(await confirm(`解除与假设 ${hid} 的关联？（可随时重新导入）`, { title: '解除假设关联' }))) return
     try {
       const cur = Array.isArray(detail.hypotheses) ? detail.hypotheses : []
       await api.updateIdea(detail.id, { hypotheses: cur.filter(x => x !== hid) })
@@ -619,7 +620,7 @@ export default function IdeasView({ ideas, onReload, onOpenTask }) {
 
   const saveHypWrite = async () => {
     if (!detail || !hypWrite || !hypWrite.hid) return
-    if (!window.confirm(`人工确认回写假设「${hypWrite.hid}」→ ${hypWrite.status}？`)) return
+    if (!(await confirm(`人工确认回写假设「${hypWrite.hid}」→ ${hypWrite.status}？`, { title: '回写假设状态' }))) return
     setHypWriteSaving(true)
     try {
       await api.patchIdeaAssumption(detail.id, hypWrite.hid, {
@@ -740,7 +741,13 @@ export default function IdeasView({ ideas, onReload, onOpenTask }) {
       setRvClosing(d.id); initRvForm(d)
       return
     }
-    const conclusions = window.prompt(`关闭讨论「${d.topic}」——写下结论：`, d.conclusions || '')
+    const conclusions = await promptInput(`关闭讨论「${d.topic}」——写下结论：`, {
+      title: '关闭讨论',
+      defaultValue: d.conclusions || '',
+      placeholder: '本次讨论的结论、决议与后续动作',
+      hint: '结论会写入讨论记录，关闭后仍可在历史中查看。Ctrl+Enter 提交。',
+      okText: '关闭讨论',
+    })
     if (conclusions === null) return
     try {
       await api.closeDiscussion(d.id, { conclusions, summary: d.summary })

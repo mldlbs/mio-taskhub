@@ -619,3 +619,28 @@ class MioOutbox(SQLModel, table=True):
     next_at: datetime = Field(default_factory=_now, index=True)
     last_error: Optional[str] = None
     at: datetime = Field(default_factory=_now)
+
+
+class Decision(SQLModel, table=True):
+    """决策记录（FR-01，任务 89a90af6）：把「需要人决策的问题」提升为一等公民。
+
+    与 Discussion（对话流）的分工：Discussion 记录过程，Decision 记录结论——
+    问题、选项、建议、裁决（choice+rationale）全部结构化，可检索可回溯。
+    状态机严格向前：open → resolved / open → superseded，终态不可回退。
+    未裁决（open）的决策会进入收件箱 decide 队列（api/inbox.py FR-03）。
+    """
+    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    question: str = Field(index=True)                # 必填：要决策的问题
+    context: str = ""                                # 背景：为什么需要决策
+    options: Optional[list] = Field(default=None, sa_column=Column(JSON))   # [{label, note}]
+    recommendation: str = ""                         # 建议选项 label（登记方给出）
+    status: str = Field(default="open", index=True)  # open / resolved / superseded
+    choice: str = ""                                 # 裁决结果（resolved 时必填）
+    rationale: str = ""                              # 裁决理由（resolved 时必填）
+    decider: str = ""                                # 裁决人
+    deadline: Optional[datetime] = None              # 可选截止
+    task_id: str = Field(default="", index=True)     # 可选关联任务
+    successor_id: str = ""                           # superseded 时指向替代决策
+    source: str = ""                                 # 登记来源（agent 名 / "user"）
+    created_at: datetime = Field(default_factory=_now, index=True)
+    resolved_at: Optional[datetime] = None

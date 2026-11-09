@@ -63,6 +63,7 @@ export default function ReviewPanel({ task, onSubmit }) {
   const [reviews, setReviews] = useState([])
   const [loading, setLoading] = useState(false)
   const [loadBusy, setLoadBusy] = useState(true)
+  const [submitErr, setSubmitErr] = useState('')
 
   useEffect(() => {
     if (!task?.id) return
@@ -86,6 +87,7 @@ export default function ReviewPanel({ task, onSubmit }) {
       }
     }
     setLoading(true)
+    setSubmitErr('')
     try {
       await api.submitReview(task.id, {
         decision,
@@ -102,7 +104,8 @@ export default function ReviewPanel({ task, onSubmit }) {
       setComments('')
       onSubmit && onSubmit(task.id, decision)
     } catch (e) {
-      alert('提交失败: ' + e.message)
+      // 就近错误条：审阅面板在任务详情抽屉里，alert 会打断并盖住上下文（R2 附加）
+      setSubmitErr('提交失败: ' + (e.userMessage || e.message))
     } finally {
       setLoading(false)
     }
@@ -142,6 +145,13 @@ export default function ReviewPanel({ task, onSubmit }) {
           </label>
         ))}
       </div>
+
+      {submitErr && (
+        <div className="modal__err rp__err" role="alert">
+          <span>▲</span><span>{submitErr}</span>
+          <button type="button" className="sjv__err-x" onClick={() => setSubmitErr('')} aria-label="关闭错误提示">×</button>
+        </div>
+      )}
 
       <div className="rp__fields">
         <div className="field">

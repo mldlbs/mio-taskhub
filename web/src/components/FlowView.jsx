@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { prio, fmtDur, agMono, agColor } from '../constants'
-import { artifactOf, artifactBody, currentArtifact } from '../stageDocs'
 
 const STAGES = [
   { id: 'brainstorming', label: '需求理解', en: 'BRAINSTORM' },
@@ -38,9 +37,17 @@ const depState = (t, tasks) => {
   return { count: deps.length, done, blocked }
 }
 
-export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToStage }) {
-  const [advancing, setAdvancing] = useState(null)
-  const [artifact, setArtifact] = useState('')
+/**
+ * 依赖图视图。
+ *
+ * 推进（R2 C-4）：本组件**不再自带任何推进 UI / 输入**。
+ * 拖拽落点与卡片上的「→ 下一阶段」按钮都只做一件事 —— 回调 `onAdvanceTask(task, targetStage)`，
+ * 由 App.advanceTaskStage 决定：需要产出物的阶段弹统一的 StageAdvanceDialog 收集，
+ * 不需要的直接推进并给成功 toast。原先这里的 `window.prompt` + 3 处 `alert()`
+ * 是原生阻塞式弹窗（无法键盘 Esc 仲裁、无法显示在浮层内、样式与产品脱节），已全部删除；
+ * 错误由 advanceStage 的返回值 / 对话框内错误条承接。
+ */
+export default function FlowView({ tasks, onOpen, onCancel, onAdvanceTask }) {
   const [expanded, setExpanded] = useState(STAGES[0].id)
   const [draggingId, setDraggingId] = useState(null)
   const [hoveredId, setHoveredId] = useState(null)
@@ -55,25 +62,12 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToS
     e.dataTransfer.effectAllowed = 'move'
   }
 
-  const onColumnDrop = async (stageId) => {
+  const onColumnDrop = (stageId) => {
     if (!draggingId) return
     const task = tasks.find(t => t.id === draggingId)
     setDraggingId(null)
     if (!task || task.stage === stageId) return
-    const body = { target_stage: stageId }
-    // 产出物要求查表（stageDocs.js，与后端一致）
-    const spec = artifactOf(stageId)
-    if (spec) {
-      const val = window.prompt(`移动到 ${stageId} 需提供${spec.label}：`, currentArtifact(task, stageId))
-      if (val === null) return
-      if (!val.trim()) return
-      Object.assign(body, artifactBody(stageId, val))
-    }
-    try {
-      await onMoveToStage(task.id, body)
-    } catch (e) {
-      alert('移动失败: ' + (e.message || '阶段不合法'))
-    }
+    if (onAdvanceTask) onAdvanceTask(task, stageId)
   }
 
   const flowTasks = useMemo(() => tasks.filter(t => t.stage !== 'cancelled'), [tasks])
@@ -163,31 +157,9 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToS
     return () => { ro.disconnect(); mo.disconnect() }
   }, [computeGlobalEdges, expanded])
 
-  useEffect(() => {
-    if (!advancing) return
-    const onKey = (e) => { if (e.key === 'Escape') { setAdvancing(null); setArtifact('') } }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [advancing])
-
   const nextStage = (stage) => {
     const i = STAGES.findIndex(s => s.id === stage)
     return i >= 0 && i < STAGES.length - 1 ? STAGES[i + 1].id : null
-  }
-
-  const confirmAdvance = async () => {
-    if (!advancing) return
-    const { task, target } = advancing
-    const spec = artifactOf(target)
-    const body = { target_stage: target }
-    if (spec) {
-      if (!artifact.trim()) { alert('请填写产出物'); return }
-      Object.assign(body, artifactBody(target, artifact))
-    }
-    try {
-      await onAdvance(task.id, body)
-      setAdvancing(null); setArtifact('')
-    } catch (e) { alert('推进失败: ' + e.message) }
   }
 
   return (
@@ -287,7 +259,7 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToS
                   <div className="flow-card__foot">
                     <span>{fmtDur(t.est_duration_min)}</span>
                     {next && (
-                      <button className="btn btn--ghost flow-card__adv" onClick={e => { e.stopPropagation(); setAdvancing({ task: t, target: next }); setArtifact('') }}>
+                      <button className="btn btn--ghost flow-card__adv" onClick={e => { e.stopPropagation(); if (onAdvanceTask) onAdvanceTask(t, next) }}>
                         → {labelOf(next)}
                       </button>
                     )}
@@ -314,34 +286,6 @@ export default function FlowView({ tasks, onOpen, onCancel, onAdvance, onMoveToS
           ))}
         </div>
       </div>
-
-      {advancing && (
-        <div className="overlay" onClick={() => setAdvancing(null)}>
-          <div className="modal" role="dialog" aria-modal="true" aria-label="推进阶段" onClick={e => e.stopPropagation()}>
-            <div className="modal__head">
-              <h3>推进到「{labelOf(advancing.target)}」</h3>
-              <button className="modal__close" onClick={() => setAdvancing(null)} aria-label="关闭">×</button>
-            </div>
-            <div className="modal__body">
-              <p style={{ fontSize: 13, color: 'var(--ink-dim)' }}>{advancing.task.title}</p>
-              {artifactOf(advancing.target) ? (
-                <div className="field">
-                  <label className="field__label">{artifactOf(advancing.target).label}</label>
-                  <input autoFocus value={artifact}
-                    onChange={e => setArtifact(e.target.value)}
-                    placeholder={artifactOf(advancing.target).ph} />
-                </div>
-              ) : (
-                <p style={{ fontSize: 13 }}>确认推进？</p>
-              )}
-              <div className="modal__foot">
-                <button className="btn btn--ghost" onClick={() => setAdvancing(null)}>取消</button>
-                <button className="btn btn--accent" onClick={confirmAdvance}>推进</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

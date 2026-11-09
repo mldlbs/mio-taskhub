@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { LANES, STATE_META, STAGE_META, prio, fmtDur, fmtDate, compositeLabel, parseUtc } from '../constants'
+import { STATE_META, STAGE_META, prio, fmtDur, fmtDate, compositeLabel, parseUtc } from '../constants'
 import { api } from '../api'
 import DependencyGraph from './DependencyGraph'
 import WorkstreamPanel from './WorkstreamPanel'
+import { useOverlayStack } from '../lib/overlayStack'
 
 const tone = (s) => STATE_META[s]?.tone || 'dim'
 const ACTIVE = ['queued', 'claimed', 'running', 'retrying']
@@ -129,11 +130,19 @@ function completionOf(task) {
 }
 
 const TAB_DEFS = [
+  { id: 'blockers', label: '就绪度' },
   { id: 'workstream', label: '工作流' },
   { id: 'deps',     label: '依赖' },
   { id: 'subtasks', label: '清单' },
   { id: 'disc',     label: '讨论' },
   { id: 'activity', label: '动态' },
+]
+
+// 就绪度三层：流程约束（推不动）/ 执行输入（做了也白做）/ 执行风险（知道再决定）
+const READY_LAYERS = [
+  { id: 'flow',  label: '流程约束', hint: '这些不解决，任务根本动不了' },
+  { id: 'input', label: '执行输入', hint: '数据、参数、规则没齐，干出来大概率要返工' },
+  { id: 'risk',  label: '执行风险', hint: '不挡流程，但会影响怎么做' },
 ]
 
 // 单条执行历史：类型标签 + 时间 + 解码后的正文（过长折叠可展开）
@@ -178,19 +187,70 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
   const [depPick, setDepPick] = useState('')
   const [depBusy, setDepBusy] = useState(false)
   const [depErr, setDepErr] = useState(null)
+  const [readiness, setReadiness] = useState(null)  // { items, counts, plan, ready, computed_at }
+  const [readyTick, setReadyTick] = useState(0)     // 手动/自动刷新计数
+  const readyTaskRef = useRef(null)
   const [tab, setTab] = useState('disc')
+  // 新建讨论：详情页此前只能「看」讨论、没有创建入口，而阶段门控要求至少一条记录，
+  // 面板指引「去新建」却无处可点（用户 2026-11-05 问「这个讨论要怎么进行」）。
+  // discList 是本地覆盖层：新建成功后立即生效，换任务时清空回落到 task.discussions。
+  const [discList, setDiscList] = useState(null)
+  const [discFormOpen, setDiscFormOpen] = useState(false)
+  const [discTopic, setDiscTopic] = useState('')
+  const [discAgent, setDiscAgent] = useState('用户')
+  const [discConcl, setDiscConcl] = useState('')
+  const [discBusy, setDiscBusy] = useState(false)
+  const [discErr, setDiscErr] = useState(null)
 
   useEffect(() => {
     closeRef.current?.focus()
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [])
+
+  useEffect(() => {
+    setDiscList(null)
+    setDiscFormOpen(false)
+    setDiscErr(null)
+  }, [task?.id])
+
+  // Esc 只归栈顶浮层（Phase 2 D1/C-2）：详情开着时若文档面板也在栈顶，Esc 先关文档。
+  useOverlayStack(onClose)
 
   useEffect(() => {
     if (!task?.id) return
     setEventsLoading(true)
     api.getTaskEvents(task.id, 30).then(r => setEvents(r.events || [])).catch(() => setEvents([])).finally(() => setEventsLoading(false))
+    // 带上 state：面板内重试/推进后 task 快照会被替换（不关面板），执行历史要跟着重拉，
+    // 否则刚发生的 task_retry_manual 事件在列表里看不到。
+  }, [task?.id, task?.state])
+
+  // 就绪度：随 state / stage 变化重算——推进、重试、裁决、补文档都会改变结果
+  useEffect(() => {
+    if (!task?.id) return
+    let alive = true
+    // 换任务才清空（显示「正在检查」）；同一任务刷新时保留旧结论，避免每 30 秒闪一次
+    if (readyTaskRef.current !== task.id) {
+      readyTaskRef.current = task.id
+      setReadiness(null)
+    }
+    api.getTaskReadiness(task.id)
+      .then(d => { if (alive) setReadiness(d) })
+      .catch(() => {
+        if (alive) setReadiness({
+          items: [], plan: [], ready: true,
+          counts: { flow: 0, input: 0, risk: 0, blocking: 0, warning: 0, info: 0 },
+        })
+      })
+    return () => { alive = false }
+  }, [task?.id, task?.state, task?.stage, task?.updated_at, readyTick])
+
+  // 结论是后端每次现算的，但只有在拉取时才刷新：详情开着时每 30 秒拉一次，
+  // 切回窗口再拉一次——否则别人改了文档/子任务，这个面板会一直停在旧结论上。
+  useEffect(() => {
+    if (!task?.id) return
+    const tick = () => setReadyTick(n => n + 1)
+    const timer = setInterval(tick, 30000)
+    window.addEventListener('focus', tick)
+    return () => { clearInterval(timer); window.removeEventListener('focus', tick) }
   }, [task?.id])
 
   // 有数据时自动选到最相关的 Tab
@@ -221,11 +281,12 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
   const spct = sidx >= 0 ? Math.round((sidx + 1) / STAGE_FLOW.length * 100) : 0
   const comp = completionOf(task)
   const p = prio(task.priority)
-  const i = LANES.findIndex(l => l.id === task.state)
-  const prev = i > 0 ? LANES[i - 1] : null
-  const next = i < LANES.length - 1 ? LANES[i + 1] : null
   const st = tone(task.state)
-  const cancellable = task.state === 'queued' || task.state === 'claimed' || task.state === 'retrying'
+  // failed 任务同样可以「取消任务」：后端 T14 对 (failed,*)→cancelled 是放行的，
+  // 之前只有 queued/claimed/retrying 显示按钮，导致失败任务在详情里只剩「重试」一条路
+  // （用户 2026-11-04 提问「失败的只有重试吗」）。失败任务想彻底结束就该能一键关闭。
+  const cancellable = task.state === 'queued' || task.state === 'claimed'
+    || task.state === 'retrying' || task.state === 'failed'
   const movable = ACTIVE.includes(task.state)
   const retryable = task.state === 'failed' || task.state === 'retrying'
   const [retryCountdown, setRetryCountdown] = useState(task.retry_countdown ?? null)
@@ -246,9 +307,33 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
   const due = task.due_at ? parseUtc(task.due_at) : null
   const overdue = !!due && !Number.isNaN(+due) && due < new Date()
   const hasCtx = task.project || task.workspace || (task.files && task.files.length) || (task.deliverables && task.deliverables.length)
-  const discGroups = task.discussions
-    ? DISC_GROUPS.map(g => ({ ...g, items: task.discussions.filter(d => discGroupId(d.stage) === g.id) })).filter(g => g.items.length > 0)
+  const discussionsNow = discList ?? task.discussions
+  const discGroups = discussionsNow
+    ? DISC_GROUPS.map(g => ({ ...g, items: discussionsNow.filter(d => discGroupId(d.stage) === g.id) })).filter(g => g.items.length > 0)
     : []
+
+  const submitDiscussion = async () => {
+    if (!discTopic.trim() || discBusy) return
+    setDiscBusy(true)
+    setDiscErr(null)
+    try {
+      await api.addDiscussion(task.id, {
+        topic: discTopic.trim(),
+        agent: discAgent.trim() || '用户',
+        stage: task.stage,
+        conclusions: discConcl.trim(),
+      })
+      const r = await api.getTask(task.id)
+      setDiscList(r.discussions || [])
+      setDiscFormOpen(false)
+      setDiscTopic('')
+      setDiscConcl('')
+    } catch (e) {
+      setDiscErr(e.message)
+    } finally {
+      setDiscBusy(false)
+    }
+  }
   const discCount = (task.discussions || []).length
   const runCount = (task.runs || []).length
   const docKinds = docKindList(task)
@@ -257,11 +342,12 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
   const stageMeta = task.stage ? STAGE_META[task.stage] : null
 
   const tabCounts = useMemo(() => ({
+    blockers: readiness ? (readiness.counts.blocking || 0) + (readiness.counts.warning || 0) : 0,
     deps: (task.depends_on || []).length,
     subtasks: (task.subtasks || []).length,
     disc: discCount,
     activity: (task.history || []).length + events.length + runCount,
-  }), [task, discCount, events.length, runCount])
+  }), [task, discCount, events.length, runCount, readiness])
 
   return (
     <div className="overlay drawer-overlay" onClick={onClose}>
@@ -293,6 +379,18 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
                 <span className={`td-dash__stage chip chip--${stageMeta?.tone || 'dim'}`}>
                   {stageMeta?.label || task.stage}
                 </span>
+              )}
+              {readiness && (
+                readiness.ready
+                  ? <span className="td-dash__ready" title="流程、输入、风险三层都没有硬阻塞">可开工</span>
+                  : (
+                    <button
+                      type="button"
+                      className="td-dash__blocker"
+                      onClick={() => setTab('blockers')}
+                      title="点击查看要先解哪几项，以及建议顺序"
+                    >先解 {readiness.counts.blocking} 项</button>
+                  )
               )}
             </div>
           </div>
@@ -494,6 +592,175 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
               <WorkstreamPanel task={task} onOpen={onOpenTask} />
             )}
 
+            {tab === 'blockers' && (
+              !readiness ? (
+                <p className="detail-muted">正在检查就绪度…</p>
+              ) : readiness.items.length === 0 ? (
+                <p className="detail-muted">可开工：流程约束、执行输入、执行风险均无未解决项。</p>
+              ) : (
+                <>
+                  <p className="ready-intro">
+                    这里列的是这条任务现在开不了工的原因。每条给五段：问题（现象与机制）、依据（可核查的字段与期望值）、
+                    影响、处理步骤、责任方；标题右侧的标签是性质分类（门控 / 输入缺口 / 记录缺失 / 外部条件 / 执行顺序）。
+                    就绪度本身只是检查结果，不拦任何操作；真正会拦你的是阶段推进（返回 422）和收尾检查。
+                  </p>
+                  <p className="ready-hint">
+                    <span>按序号依次处理；「阻塞」项未解除前，阶段推进会返回 422。</span>
+                    <span className="ready-hint__meta">
+                      {readiness.computed_at && (
+                        <>数据截至 {new Date(readiness.computed_at).toLocaleTimeString('zh-CN', { hour12: false })}</>
+                      )}
+                      <button type="button" className="ready-hint__refresh"
+                        onClick={() => setReadyTick(n => n + 1)}>刷新</button>
+                    </span>
+                  </p>
+                  <section className="ready-table-wrap">
+                    <div className="ready-table__cap">
+                      <span className="ready-table__title">问题总览</span>
+                      <span className="ready-table__hint">先用这张表定位，点行跳到下面的详情；「依据」是可核查的字段与期望值。</span>
+                    </div>
+                    <table className="ready-table">
+                      <thead>
+                        <tr><th>#</th><th>问题</th><th>性质</th><th>依据</th><th>责任方</th></tr>
+                      </thead>
+                      <tbody>
+                        {readiness.items.map(b => (
+                          <tr key={`ov-${b.order}-${b.kind}`} className={`is-${b.severity}`}
+                              onClick={() => document.getElementById(`ready-item-${b.order}`)
+                                ?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>
+                            <td className="ready-table__n">{b.order}</td>
+                            <td className="ready-table__name">
+                              {b.severity === 'blocking' && <span className="ready-table__sev">阻塞</span>}
+                              {b.title}
+                            </td>
+                            <td className="ready-table__nature">{b.nature || '—'}</td>
+                            <td className="ready-table__ev">{b.evidence || '—'}</td>
+                            <td className="ready-table__owner">{b.owner || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </section>
+                  {READY_LAYERS.map(layer => {
+                    const rows = readiness.items.filter(i => i.layer === layer.id)
+                    if (!rows.length) return null
+                    return (
+                      <section key={layer.id} className="ready-group">
+                        <div className="ready-group__head">
+                          <span className="ready-group__title">{layer.label}</span>
+                          <span className="ready-group__count">{rows.length}</span>
+                          <span className="ready-group__hint">{layer.hint}</span>
+                        </div>
+                        <ul className="blocker-list">
+                          {rows.map((b, i) => (
+                            <li key={`${b.kind}-${i}`} id={`ready-item-${b.order}`} className={`blocker-row is-${b.severity}`}>
+                              <div className="blocker-row__head">
+                                <span className="blocker-row__order">{b.order}</span>
+                                <span className={`chip chip--${b.severity === 'blocking' ? 'danger' : b.severity === 'info' ? 'info' : 'warn'}`}>
+                                  {b.severity === 'blocking' ? '阻塞' : b.severity === 'info' ? '排队' : '注意'}
+                                </span>
+                                {b.nature && <span className="blocker-row__nature">{b.nature}</span>}
+                                <span className="blocker-row__title">{b.title}</span>
+                              </div>
+                              {b.because && (
+                                <p className="blocker-row__line is-because">
+                                  <span className="blocker-row__tag">问题</span>{b.because}
+                                </p>
+                              )}
+                              {b.evidence && (
+                                <p className="blocker-row__line is-evidence">
+                                  <span className="blocker-row__tag">依据</span><code>{b.evidence}</code>
+                                </p>
+                              )}
+                              {(b.members || []).length > 1 && (
+                                <ul className="blocker-row__members">
+                                  {b.members.map((m, mi) => {
+                                    if (typeof m === 'string') return <li key={mi}>{m}</li>
+                                    return (
+                                      <li key={m.code || mi}>
+                                        <span className="bm-code">{m.code || '·'}</span>
+                                        <span className="bm-name">{m.name}</span>
+                                        {m.mins ? <span className="bm-meta">{m.mins}min</span> : null}
+                                        {(m.dep_open_txt || (m.dep_open || []).length > 0) && (
+                                          <span className="bm-dep">待前置 {m.dep_open_txt || m.dep_open.join('、')}</span>
+                                        )}
+                                        {m.status === 'blocked' && !(m.dep_open || []).length && (
+                                          <span className="bm-dep">受阻</span>
+                                        )}
+                                        {(m.blocks || []).length > 0 && (
+                                          <span className="bm-blocks">阻塞 {m.blocks.join('、')}</span>
+                                        )}
+                                        {m.note ? <span className="bm-note">{m.note}</span> : null}
+                                        {m.desc ? <span className="bm-note">{m.desc}</span> : null}
+                                        {(m.blocks_items || []).length > 0 ? (
+                                          <span className="bm-blocks-line">
+                                            <span className="bm-fix__tag">阻塞条目</span>
+                                            {(m.blocks_items).map(bi => (
+                                              <span key={bi.code || bi.name} className="bm-block-item">
+                                                {bi.code ? <b>{bi.code}</b> : null}
+                                                {bi.name ? <span className="bm-bi-name">{bi.name}</span> : null}
+                                                {bi.action ? <span className="bm-bi-act">→ {bi.action}</span> : null}
+                                              </span>
+                                            ))}
+                                          </span>
+                                        ) : m.blocks_txt ? (
+                                          <span className="bm-blocks-line">
+                                            <span className="bm-fix__tag">阻塞条目</span>{m.blocks_txt}
+                                          </span>
+                                        ) : null}
+                                        {m.fix_action && (
+                                          <span className="bm-fix">
+                                            <span className="bm-fix__tag">{m.fix_label || '下一步'}</span>
+                                            {(m.fix_steps || []).length === 0 ? <span>{m.fix_action}</span> : null}
+                                            {m.fix_owner ? <span className="bm-owner">责任方 {m.fix_owner}</span> : null}
+                                          </span>
+                                        )}
+                                        {(m.fix_steps || []).length > 0 ? (
+                                          <ol className="bm-steps">
+                                            {m.fix_steps.map((x, xi) => <li key={xi}>{x}</li>)}
+                                          </ol>
+                                        ) : null}
+                                      </li>
+                                    )
+                                  })}
+                                </ul>
+                              )}
+                              {(b.steps || []).length > 0 ? (
+                                <div className="blocker-row__line is-todo">
+                                  <span className="blocker-row__tag">处理步骤</span>
+                                  <ol className="blocker-row__steps">
+                                    {b.steps.map((s, si) => <li key={si}>{s}</li>)}
+                                  </ol>
+                                  {b.owner ? (
+                                    <div className="blocker-row__owner">责任方：{b.owner}</div>
+                                  ) : null}
+                                </div>
+                              ) : b.todo ? (
+                                <p className="blocker-row__line is-todo">
+                                  <span className="blocker-row__tag">处理方式</span>{b.todo}
+                                </p>
+                              ) : null}
+                              {(b.consequence || b.api) && (
+                                <details className="blocker-row__more">
+                                  <summary>影响与接口</summary>
+                                  {b.consequence && (
+                                    <p className="blocker-row__line">
+                                      <span className="blocker-row__tag">后果</span>{b.consequence}
+                                    </p>
+                                  )}
+                                  {b.api && <code className="blocker-row__api">{b.api}</code>}
+                                </details>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    )
+                  })}
+                </>
+              )
+            )}
+
             {tab === 'deps' && (
               <>
                 {(task.depends_on || []).length === 0 ? (
@@ -592,8 +859,49 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
             )}
 
             {tab === 'disc' && (
-              discGroups.length === 0 ? (
-                <p className="detail-muted">暂无讨论</p>
+              <>
+              <div className="disc-newbar">
+                <button className="btn btn--ghost btn--xs"
+                  onClick={() => setDiscFormOpen(o => !o)}>
+                  {discFormOpen ? '收起' : '新建讨论'}
+                </button>
+                <span className="detail-muted">
+                  阶段门控只看这条任务上有没有讨论记录；有结论就填 conclusions，保存后即为「已结束」。
+                </span>
+              </div>
+              {discFormOpen && (
+                <div className="disc-form">
+                  <input
+                    className="disc-form__topic"
+                    placeholder="topic：这次要做什么、为什么这么做"
+                    value={discTopic}
+                    onChange={e => setDiscTopic(e.target.value)}
+                  />
+                  <input
+                    className="disc-form__agent"
+                    placeholder="发起人（agent 名或「用户」）"
+                    value={discAgent}
+                    onChange={e => setDiscAgent(e.target.value)}
+                  />
+                  <textarea
+                    className="disc-form__concl"
+                    rows={3}
+                    placeholder="conclusions：讨论出的结论；留空则保持「进行中」，之后可在讨论里补结论再结束"
+                    value={discConcl}
+                    onChange={e => setDiscConcl(e.target.value)}
+                  />
+                  {discErr && <p className="detail-err">保存失败：{discErr}</p>}
+                  <div className="disc-form__actions">
+                    <button className="btn btn--primary btn--xs"
+                      disabled={discBusy || !discTopic.trim()}
+                      onClick={submitDiscussion}>
+                      {discBusy ? '保存中…' : '保存'}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {discGroups.length === 0 ? (
+                <p className="detail-muted">暂无讨论。点上面的「新建讨论」补一条，阶段推进就能过。</p>
               ) : (
                 discGroups.map(g => (
                   <div key={g.id} className="disc-group">
@@ -621,7 +929,8 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
                     ))}
                   </div>
                 ))
-              )
+              )}
+              </>
             )}
 
             {tab === 'activity' && (
@@ -674,25 +983,38 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
           {retryable && onRetry && (
             <button
               className="btn btn--primary"
-              onClick={async () => { try { await onRetry(task.id); onClose() } catch (e) { /* error handled by App */ } }}
+              // 重试后保持面板打开：任务已回队列，用户往往要继续看阶段/改字段（用户 2026-11-04）
+              onClick={async () => { try { await onRetry(task.id) } catch (e) { /* error handled by App */ } }}
             >重试</button>
           )}
           {task.state === 'retrying' && retryCountdown !== null && (
             <span className="mono" style={{ fontSize: 12, opacity: .7 }}>{retryCountdown}s 后自动重入队列</span>
           )}
           {task.stage && !['done','cancelled'].includes(task.stage) && onAdvance && (
-            <button className="btn btn--ghost" onClick={() => onAdvance(task)}>推进阶段 →</button>
+            task.state === 'failed'
+              // 失败任务只有「人审推翻失败判定」这一条阶段出路（后端 T25，仅 review→done）。
+              // 其它阶段推进必 422（failed 不在流程里），所以不给按钮，免得点了才报错；
+              // 想让失败任务继续干活的动作是重试（上方主按钮）。
+              ? task.stage === 'review' && (
+                  <button className="btn btn--ghost" onClick={() => onAdvance(task)}>人工验收 →</button>
+                )
+              : (
+                  <button className="btn btn--ghost" onClick={() => onAdvance(task)}>推进阶段 →</button>
+                )
           )}
-          {movable && prev && (
-            <button className="btn btn--ghost" onClick={() => onMove(task.id, prev.id)}>← {prev.label}</button>
-          )}
-          {movable && next && (
-            <button className="btn btn--ghost" onClick={() => onMove(task.id, next.id)}>{next.label} →</button>
+          {/* 这里原有「← 上一状态 / 下一状态 →」两个按钮，点击只改本地 state（无 API），
+              属于 Phase 2 C-1 记录的「假成功」：刷新后弹回。后端没有置 state 的接口
+              （api/tasks.py 的 PATCH 白名单不含 state），故移除，改为一行说明。 */}
+          {movable && (
+            <span className="td-state-hint" title="状态由 agent 领取与执行驱动；人工可改的是阶段（阶段推进 / 按阶段拖拽）">
+              状态由 agent 领取驱动
+            </span>
           )}
           {cancellable && (
             <button
               className="btn btn--ghost btn--danger"
-              onClick={() => { onCancel(task.id); onClose() }}
+              // 确认成功后才关面板；用户在 ConfirmDialog 里点「取消」/按 Esc 时面板保持打开（R2 C-1）
+              onClick={async () => { if (await onCancel(task.id)) onClose() }}
             >取消任务</button>
           )}
           <button className="btn btn--ghost" onClick={() => setSaveAsTpl({ title: `模板：${task.title}`, category: '' })}>另存为模板</button>

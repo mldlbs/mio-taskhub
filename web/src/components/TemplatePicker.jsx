@@ -9,6 +9,7 @@ export default function TemplatePicker({ onGenerate, onClose, initialTemplate })
   const [numIdeas, setNumIdeas] = useState(3)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [notice, setNotice] = useState('')
   const [results, setResults] = useState([])
   const [syncing, setSyncing] = useState(false)
 
@@ -81,7 +82,8 @@ export default function TemplatePicker({ onGenerate, onClose, initialTemplate })
           console.warn('Sync failed for', idea.title, e)
         }
       }
-      alert(`已同步 ${created} 个想法到 taskhub`)
+      // 成功也是反馈：原来用 alert 弹一句阻塞提示（R2 附加顺手项）
+      setNotice(`已同步 ${created} 个想法到 taskhub`)
     } catch (e) {
       setError('同步失败: ' + e.message)
     } finally {
@@ -204,6 +206,7 @@ export default function TemplatePicker({ onGenerate, onClose, initialTemplate })
             >
               {loading ? '生成中…' : `生成 ${numIdeas} 个想法`}
             </button>
+            {notice && <span className="template-picker__notice">{notice}</span>}
             {error && <span className="error-msg">{error}</span>}
           </div>
 

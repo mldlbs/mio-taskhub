@@ -193,8 +193,14 @@ def _check_lifecycle_gate(t: Task, dst: TaskStage, force: bool = False,
                     "reason": "registered_but_not_approved",
                 })
         if blocked and not force:
+            # 人话化（E7/P0-2）：被门控拦住时直接告诉调用方「要做什么」，不用去翻文档猜
+            steps = "；".join(
+                f"{b['kind']}: {b['current'] or '未设置'} → {b['required']}" for b in blocked)
             raise HTTPException(422, detail={
-                "message": f"{tier} tier requires registered documents to be approved",
+                "message": f"{tier} tier requires registered documents to be approved. "
+                           f"你要做的是：{steps}"
+                           f"（POST /api/v1/tasks/{t.id}/doc/{{kind}}/status，质量分需≥80；"
+                           "确要跳过带 force=true，会留痕）",
                 "gate": blocked,
             })
         return blocked
@@ -224,9 +230,14 @@ def _check_lifecycle_gate(t: Task, dst: TaskStage, force: bool = False,
             "has_doc": bool(doc_path_of(t, kind)),
         })
     if blocked and not force:
+        # 人话化（E7/P0-2）：门控拦路时给出可执行的下一步，而不是让调用方撞错后去翻手册
+        steps = "；".join(
+            f"{b['kind']}: {b['current'] or '未设置'} → {b['required']}" for b in blocked)
         raise HTTPException(422, detail={
-            "message": "文档生命周期门控：以下文档未达进入该阶段所需状态，"
-                       "请先把它们推进到 required 状态，或带 force=true 跳过",
+            "message": "文档生命周期门控：以下文档未达进入该阶段所需状态。"
+                       f"你要做的是：{steps}"
+                       f"（POST /api/v1/tasks/{t.id}/doc/{{kind}}/status，推进顺序 draft→review→approved，"
+                       "质量分需≥80；确要跳过带 force=true，会留痕）",
             "gate": blocked,
         })
     return blocked
@@ -236,6 +247,18 @@ def _stage_requirement(dst) -> dict:
     """取目标阶段的要求（TaskStage 或字符串均可）。"""
     value = getattr(dst, "value", dst)
     return STAGE_ARTIFACT_REQUIREMENTS.get(value, {})
+
+
+def _requirement_approved(t: Task) -> bool:
+    """进设计的讨论门豁免条件：需求文档已推进到「已批准」。
+
+    方向确认这件事本来就有需求文档这道门承担（构思→设计要求 requirement 到 approved），
+    再单独要求一条讨论记录属于重复收费（用户 2026-11-05 拍板）。
+    requirement 未登记或未批准时，讨论门照常生效。
+    """
+    entry = (t.doc_statuses or {}).get("requirement")
+    state = entry.get("state") if isinstance(entry, dict) else entry
+    return str(state or "") == "approved"
 
 
 def _required_kinds(req: dict):
@@ -480,10 +503,14 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
     if not TaskStage.can_advance(src, dst):
         raise HTTPException(400, f"cannot advance from {src.value} to {dst.value}")
     _check_child_stage(t, dst)
-    if _stage_requirement(dst).get("requires_discussion"):
+    if _stage_requirement(dst).get("requires_discussion") and not _requirement_approved(t):
         discussions = db.exec(select(Discussion).where(Discussion.task_id == task_id)).all()
         if not discussions:
-            raise HTTPException(422, f"{dst.value} stage requires at least one discussion record")
+            raise HTTPException(422, f"{dst.value} stage requires at least one discussion record "
+                                     f"(exempted when the requirement doc is approved). "
+                                     f"你要做的是二选一：POST /api/v1/tasks/{task_id}/discussions "
+                                     "写一条讨论（topic+conclusions）；或把需求文档推进到「已批准」，"
+                                     "方向确认由需求文档承担，讨论要求自动豁免")
     _apply_stage_requirements(t, dst, body)
     forced_gate = _check_lifecycle_gate(t, dst,
                                         force=bool((body or {}).get("force")),
@@ -491,17 +518,38 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
     if dst == TaskStage.DONE:
         _check_done_gate(t, db)
     m1_events = []
+    cur_s = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
+    # 失败任务的人工阶段推进只有两条合法出路，其余一律给人话而不是状态机天书：
+    #   · 到 done：人审否决失败判定，走 T25 单跳（done 的合法前置只有 review）
+    #   · 到 cancelled：T14 关闭
+    # 中间阶段（implementing→review 等）在 FAILED 下没有边——失败任务不在流程里，
+    # 想继续干活必须先 retry / reopen，这也是真实语义。
+    if cur_s == TaskState.FAILED and dst not in (TaskStage.DONE, TaskStage.CANCELLED):
+        raise HTTPException(
+            422,
+            f"该任务处于失败状态（stage={src.value}），不能直接推进到 {dst.value}。你要做的是："
+            f"① POST /api/v1/tasks/{task_id}/retry 重新排队执行；"
+            f"② 或 POST /api/v1/tasks/{task_id}/stage {{\"target_stage\":\"cancelled\"}} 关闭；"
+            f"③ 若人审认为产出合格，推进到 done 即人工验收（仅 review 阶段可走）",
+        )
     try:
-        cur_s = t.state if isinstance(t.state, TaskState) else TaskState(t.state)
         from_st = _orm_to_status_stage(src)
         if dst == TaskStage.DONE:
-            if cur_s in (TaskState.CLAIMED, TaskState.QUEUED):
-                _transition_to_stage(t, State.COMPLETED, from_st,
+            if cur_s == TaskState.FAILED:
+                # 人审推翻失败判定：FAILED(REVIEW) → COMPLETED(DONE) 单跳（T25）。
+                # 不能复用下面「同阶段 completed + T6 finalize」两跳，因为
+                # (FAILED,REVIEW)→(COMPLETED,REVIEW) 的 T22 只授权给 SYSTEM/AGENT。
+                _transition_to_stage(t, State.COMPLETED, M1Stage.DONE,
                                      ActorType.USER, "api:advance_stage",
-                                     "advance→done: review pass", m1_events)
-            _transition_to_stage(t, State.COMPLETED, M1Stage.DONE,
-                                  ActorType.SYSTEM, "auto:finalize",
-                                  "T6 finalize", m1_events)
+                                     "advance→done: 人工验收推翻失败判定", m1_events)
+            else:
+                if cur_s in (TaskState.CLAIMED, TaskState.QUEUED):
+                    _transition_to_stage(t, State.COMPLETED, from_st,
+                                         ActorType.USER, "api:advance_stage",
+                                         "advance→done: review pass", m1_events)
+                _transition_to_stage(t, State.COMPLETED, M1Stage.DONE,
+                                      ActorType.SYSTEM, "auto:finalize",
+                                      "T6 finalize", m1_events)
         elif dst == TaskStage.CANCELLED:
             _transition_to_stage(t, State.CANCELLED, from_st,
                                   ActorType.USER, "api:advance_stage",
