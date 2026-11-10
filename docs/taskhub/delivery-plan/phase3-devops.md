@@ -128,7 +128,7 @@ pip install -e ".[dev]"
 | 产物 | `if: failure()` → `actions/upload-artifact@v4`，`path: .pytest_cache/` | 只上传 pytest 缓存，无 junit / coverage / 构建产物归档 |
 | job `materials-gate` | `windows-latest` + py3.12；同样安装步；`python -m pytest tests/test_materials_gate.py tests/test_materials_validate.py tests/test_gate_attestation.py tests/test_release_entry.py -q` | 素材门禁 4 个专项文件，独立 job |
 | 分支保护审计 | `.github/workflows/branch-protection.yml`：`schedule: cron "0 6 * * *"` + `workflow_dispatch`，`ubuntu-latest`；`python scripts/check_required_checks.py --repo ... --branch main --require "test (3.12)" --require "materials-gate"`；`env: GH_TOKEN: ${{ secrets.BRANCH_PROTECTION_TOKEN }}` | 每天一次审计 required checks 是否配置，不是发布卡点；依赖 `BRANCH_PROTECTION_TOKEN` secret |
-| 本地发布门 | `scripts/release_checklist.py --ci` 7 项（CI 全绿 / 0 红 / LICENSE / README 一致 / 首跑达标 / 有 Release / 已知限制） | t43 报告（2026-10-14，commit `d677782`）结论：6 项「是」+ ⑤ 首跑「部分」，`all_green = false`，**暂不对外发布** |
+| 本地发布门 | `scripts/release_checklist.py --ci` **8 项**（源码 `main()` 为 8 项：CI 全绿 / 0 红 / LICENSE / README 一致 / 首跑达标 / 有 Release / 已知限制 / 安装器产物一致；docstring 写 7 项属工具缺陷） | t43 报告（2026-10-14，commit `d677782`）历史结论：6 项「是」+ ⑤ 首跑「部分」，`all_green = false`；**W-10 当前实测（2026-11-08，`093869b`）：7 项「是」+ ⑤「部分」，`all_green=false` / EXIT=1，仍不对外发布** |
 
 **质量门禁现状**：`addopts = "-m 'not e2e'"` 默认排除 4 个 e2e；覆盖率按需执行 `python -m pytest -q --cov=mio_taskhub --cov-report=term-missing --cov-report=xml`，未进 `addopts`、未进 CI。事实包与 `04-review-20261014.md` 的「覆盖率 80.0%」是 G0 本地冻结基线数值，不是 CI 门禁阈值。全量 pytest 基线按任务书口径：1235 passed / 1 skipped / 4 deselected + 4 个 pre-existing 失败。
 
@@ -171,7 +171,7 @@ $env:MIO_TEST_DB_PATH = "$env:TEMP\mio_release_full.db"
 # README 数字一致性
 .\.venv\Scripts\python.exe scripts\gen_readme_stats.py --check
 
-# 发布门 7 项
+# 发布门 8 项（main() 实为 8 项；脚本 docstring 写 7 项）
 .\.venv\Scripts\python.exe scripts\release_checklist.py --ci
 ```
 
@@ -321,6 +321,10 @@ curl -s --noproxy '*' http://127.0.0.1:48620/ | grep -o 'index-[A-Za-z0-9_-]*\.j
 
 现状基线：`docs/roadmap/t43-release-checklist-report.md`（2026-10-14，commit `d677782`，CI run `38684036460`）结论为 6 项「是」+ 1 项「部分」，`all_green = false`，**暂不对外发布**；缺的是 ⑤ 外部 3 台干净机人工取证，不得由 Agent 代跑、不得宣称「3 台干净机验证通过」。
 
+W-10 冻结复核（2026-11-08，HEAD `093869b`，`git status --short` = 0）在冻结 commit 上重跑 `release_checklist.py --ci --json`：8 项 = 7「是」+ ⑤「部分」，`all_green=false` / EXIT=1。① CI 全绿绑定 run `42556118972`（`headSha` 与冻结 commit 一致）、② 无已知红 `failed=0`、③ / ④ / ⑥ / ⑦ / ⑧ 均为「是」；唯一缺口仍是 ⑤ 外部 3 台干净机人工取证（`t35-coldstart-report.md:54`「待人工取证」）。另：`build.ps1:66/:180` 两处硬编码仍在、`t42-repro-build-report.md` 的两次干净构建基于 `d916a20` / v0.6.0，W-9 未关闭，两项合计构成 G4 确定阻塞。脚本四处工具缺陷（无 argparse / `check_no_red()` 弱判据且不隔离 / `check_ci()` 不校验 headSha / docstring 7 项与 8 项不符）见主方案 §4.4.1「第六次取证」。
+
+**2026-11-09 范围裁决**：作者确认外部 3 台干净机取证不可执行，当前不做对外分发，⑤ 与 W-9 转条件形态；本节发布门结论 `all_green=false` / EXIT=1 与 P-3 / P-10 判据原文均不改，`release_checklist.py` 与 `t35-coldstart-report.md` 不回填。G4 记为「不适用（本机自用）」，不是通过。见主方案 §0.3 裁决段。
+
 | # | 前置项 | 判据（可勾选的完成条件） | 现状 |
 |---|---|---|---|
 | P-1 | LICENSE | `git ls-files LICENSE` 输出 `LICENSE`，且文件含 `MIT License` 字面串（`scripts/release_checklist.py::check_license`） | 已核实：LICENSE 已跟踪、含 MIT；**通过** |
@@ -328,11 +332,11 @@ curl -s --noproxy '*' http://127.0.0.1:48620/ | grep -o 'index-[A-Za-z0-9_-]*\.j
 | P-3 | 干净机首跑 | ≥3 台无 Python / 无 Node 的 Windows x64 干净机，各自完成：解压绿色版 → 启动 → `GET /api/v1/status` 200 → `register → claim → submit_result` 闭环；逐台留 OS 版本、踩坑、耗时记录；`scripts/coldstart_timing.py` 输出留档 | **未通过**：t43 报告 ⑤ 为「部分」，本机冷启 n=5 PASS（3.9s / 0.13s），外部 3 台待人工取证 |
 | P-4 | Quickstart 计时 | n≥5 名陌生用户，各自从下载到完成一次闭环 ≤5 分钟（`docs/roadmap/05` M4 / T3.5），逐人计时记录；不得用作者本机计时替代 | 待取证 |
 | P-5 | 可复现构建 | 同 commit 两次干净构建，`python scripts/repro_build.py compare-norm <dir_a> <dir_b>` 差异为 0；原始差异逐条可解释（PE 时间戳 / zip mtime）；`Get-FileHash dist\mio-taskhub-win64.zip -Algorithm SHA256` 记录并写进 Release 说明 | t42 报告（v0.6.0 / `d916a20`）已验证 807/807；**当前版本需重跑** |
-| P-6 | changelog | `CHANGELOG.md` 含与本次发布版本对应的版本段落（非停留在 `## Unreleased`）；`git tag -l` 存在对应 tag 且指向发布 commit；段落内容含本周期改动摘要 | 部分：`CHANGELOG.md` 顶部为 `## Unreleased`，注释写明「版本号在发版提交（`chore(release)`）统一抬升并打 tag —— 本节保持 Unreleased」；tag 已有 `v0.6.1`，但 changelog 未收口到版本段落【待确认】⑤ |
+| P-6 | changelog | `CHANGELOG.md` 含与本次发布版本对应的版本段落（非停留在 `## Unreleased`）；`git tag -l` 存在对应 tag 且指向发布 commit；段落内容含本周期改动摘要 | 部分：`CHANGELOG.md` 顶部 `:3` 为 `## Unreleased`、`:6` 注释写明「版本号在发版提交（`chore(release)`）统一抬升并打 tag —— 本节保持 Unreleased」，tag 已有 `v0.6.1`。**W-10 更正**：`:204` 已有 `## v0.6.1 (2026-10-20)` 版本段，「缺版本段」不成立；未收口的是版本号 / tag / Unreleased 三者的发布口径【待确认】⑤ |
 | P-7 | docs/ 是否入库 | 见 §5.1 专项结论 | **未通过**（本次交付文档未跟踪） |
 | P-8 | 冻结域入口是否统一下线 | ① 冻结清单 8 项对外宣称已改为「冻结 / 停投入」，README §8 / §5.6 / §5.7 标注到位；② `MIO_OBSERVER_AUTOSTART` / `MIO_IDEA_REVIEW_ENABLED` 默认 `off`（`frozen-scope-20261021.md` §本轮实际关掉的两个调度）；③ `MioDigestJob` / `ContractJob` 默认仍开且不被误列入冻结；④ 若执行 `feature-prune-inventory-20261028.md` 阶段 1，则 `web/src/components/Rail.jsx` 导航项由 13 项收敛为 9 项（隐藏 想法 / 定时 / 观测台 / 记忆，路由与组件保留、`#/ideas` 仍可访问），并留一行可回滚的数组改动记录 | 部分：①②③ 成立；阶段 1 是「修订提案，需确认后才执行」，是否执行【待确认】⑨ |
 | P-9 | 前端独立错误码收尾 | ① `web/src/api.js::req()` 对结构化 `detail` 优先取 `detail.message`，回退顺序覆盖 `detail.detail` / `detail.error` / `JSON.stringify(detail)`；② `ApiError` 能暴露 `detail.code`（后端 `code` 位于 `detail` 内部，不是响应顶层）与 `detail.hint`；③ `gated()` 中 `e.error_code === 'policy_risk_high'` 的 409 确认分支不回归；④ 4 类门控 422 detail（`{message,quality}` / `{message,ratchet,hint}` / `{message,required_reads,missing,stale,hint}` / `{code,message,hint,files_changed,rejections,max_rejections}`）逐类在 UI 上显示可执行文案而非整段 JSON；⑤ 该改动属纯前端，按 §4.3 热更新并做前端 hash 校验，不重建 exe | **未通过**：现状 `ApiError` 第 29 行只读 `detail.error` 填 `error_code`；`req()` 第 43 行取 `detail?.detail \|\| detail?.error \|\| JSON.stringify(detail)`，未优先取 `detail.message`【待确认】⑩ |
-| P-10 | CI 全绿 + 无已知红 | 发布 commit 的 `CI` workflow `conclusion=success` 且 `Run tests` 实际执行；`scripts/release_checklist.py --ci` 7 项全为「是」；任何 `-k` 排除项已在发布说明中显式列出 | t43 时点 CI 绿（run `38684036460`），但 `-k` 排除项与 C-1~C-6 未收口 |
+| P-10 | CI 全绿 + 无已知红 | 发布 commit 的 `CI` workflow `conclusion=success` 且 `Run tests` 实际执行；`scripts/release_checklist.py --ci` **8 项**全为「是」；任何 `-k` 排除项已在发布说明中显式列出 | t43 时点 CI 绿（run `38684036460`），但 `-k` 排除项与 C-1~C-6 未收口。**W-10 实测**：W-4 已删整个 `-k` 排除项，冻结 commit `093869b` 全量 `1947 passed / 0 failed / EXIT=0`、CI run `42556118972` = `success`；但发布门仍 `all_green=false`（⑤ 部分），P-10 未通过 |
 | P-11 | 发布资产与 SHA256 | `mio_taskhub/release_assets.py::all_release_assets()` 的两项资产均存在且可下载；`scripts/check_installer_bundle.py` 返回 `[OK]`；静默装/卸端到端通过（§4.2） | 待逐项核验 |
 | P-12 | 回滚材料就绪 | 部署前运行目录副本、`taskhub.db` 备份（含 `integrity_check=ok`）、新旧 exe sha256 三者齐备，且写入部署记录（格式参照 `docs/ops/DEPLOYMENT-20261029.md` §2） | 历史部署有此惯例；本次发布需重新生成 |
 
@@ -495,7 +499,7 @@ curl -s --noproxy '*' http://127.0.0.1:48620/ | grep -o 'index-[A-Za-z0-9_-]*\.j
 | T7-09 | 冻结域入口统一下线核验 | 无 | `web/src/components/Rail.jsx`、`README.md`、`feature-prune-inventory-20261028.md` | P-8 四条判据逐条留证；若执行阶段 1，则导航 13→9 且留一行可回滚的数组改动 | 阶段 1 是修订提案，需先确认是否执行【待确认】⑨；纯前端改动走 §4.3 热更新 | 0.5–1 天 |
 | T7-10 | 前端独立错误码收尾 | 无（需前端/后端确认字段映射） | `web/src/api.js` | P-9 五条判据逐条验证；4 类门控 422 逐类在 UI 显示 `message` / `hint`；`gated()` 的 409 分支不回归；按 §4.3 覆盖并做前端 hash 校验 | 后端 4 类 detail 结构不统一、`code` 在 detail 内部；统一字段映射需与前端/后端工程师确认【待确认】⑩ | 1–2 天 |
 | T7-11 | SQLite 恢复流程脚本化（条件性） | T7-07（备份机制不需改） | `mio_taskhub/ops/backup.py` 或新增 `scripts/restore_backup.py`、运维手册 | §6.1 六步有一条可复现命令；在临时库上演练一次恢复并校验 `Event.seq` 水位 | `restore` 现无实现；WAL 伴生文件处理未验证；本期是否补脚本【待确认】⑫ | 1–3 天（`conditional`） |
-| T7-12 | 回滚演练与发布门全绿 | T7-01 ~ T7-10 | 部署记录、`scripts/release_checklist.py` | 隔离端口 48621 + 临时库预演「替换 → 回退 → 200」；`release_checklist.py --ci` 7 项全为「是」；§11 上线检查单全勾 | 任一发布门项不达标即阻断发布，不可「带病发布」 | 1–2 天（核验） |
+| T7-12 | 回滚演练与发布门全绿 | T7-01 ~ T7-10 | 部署记录、`scripts/release_checklist.py` | 隔离端口 48621 + 临时库预演「替换 → 回退 → 200」；`release_checklist.py --ci` **8 项**全为「是」；§11 上线检查单全勾 | 任一发布门项不达标即阻断发布，不可「带病发布」 | 1–2 天（核验） |
 
 **关键路径**：T7-01 → T7-02 → T7-05；T7-03 → T7-04 → T7-07；T7-06 与 T7-12 依赖外部取证墙钟，与其余任务并行。T7-11 为条件性任务，前置结论未出不得进 `ready`。
 
@@ -518,7 +522,7 @@ curl -s --noproxy '*' http://127.0.0.1:48620/ | grep -o 'index-[A-Za-z0-9_-]*\.j
 - [ ] P-8 冻结域入口四条判据留证（T7-09）
 - [ ] P-9 前端错误码五条判据留证，前端 hash 比对一致（T7-10）
 - [ ] ≥3 台干净机首跑记录 + n≥5 Quickstart ≤5 分钟计时记录齐备（P-3 / P-4）
-- [ ] `scripts/release_checklist.py --ci` 7 项全为「是」（P-10）
+- [ ] `scripts/release_checklist.py --ci` **8 项**全为「是」（P-10；W-10 实测 7「是」+ ⑤「部分」，当前未通过）
 - [ ] 部署前三件套齐备：旧运行目录副本、`taskhub.db` 备份（`integrity_check=ok`）、新旧 exe sha256（§6.3 / P-12）
 - [ ] 隔离端口 48621 + 临时库完成一次回滚预演（T7-12）
 
@@ -550,7 +554,7 @@ curl -s --noproxy '*' http://127.0.0.1:48620/ | grep -o 'index-[A-Za-z0-9_-]*\.j
 2. **覆盖率 80.0% 是否设为 CI 门禁阈值**：该数值是 G0 本地冻结基线（`04-review-20261014.md` 的 `g0_manifest.json`），CI 当前不跑覆盖率。未定阈值前不得对外宣称 CI 覆盖率达标。
 3. **`-k "not test_two_agents_race and not test_webhook_guard"` 排除项是否本期修复**：4 个 `webhook_guard` 用例引用已改名方法（`CronEngine._should_skip_webhook_generation`），与「发布门无已知红」冲突。修复用例还是书面列为「已知红例外」需确认。
 4. **`uv.lock` 是否作为 CI / 打包机唯一依赖源**：`uv.lock` 与 `web/package-lock.json` 已入库但当前安装绕过；改用 `uv sync --locked` / `--require-hashes` 需 Windows py3.12 回归。
-5. **CHANGELOG 收口方式**：`CHANGELOG.md` 顶部为 `## Unreleased`，注释规定「版本号在发版提交统一抬升并打 tag —— 本节保持 Unreleased」，而 `git tag -l` 已有 `v0.6.1`。需确认是新增 `## v0.6.1` 段落还是保持 Unreleased 并在 Release Notes 里写版本。
+5. **CHANGELOG 收口方式**：`CHANGELOG.md` 顶部 `:3` 为 `## Unreleased`、`:6` 注释规定「版本号在发版提交统一抬升并打 tag —— 本节保持 Unreleased」，`git tag -l` 已有 `v0.6.1`。**W-10 补正**：`:204` 已有 `## v0.6.1 (2026-10-20)`，无需新增段落；仍需作者确认的是发版时「把顶部 Unreleased 内容归入版本段 / 保持 Unreleased 并在 Release Notes 写版本」这一口径，以及 tag 指向的 commit。对应主方案 §7.2 #30。
 6. **`BRANCH_PROTECTION_TOKEN` secret 是否已配置、required check 名是否稳定**：`branch-protection.yml` 依赖该 secret 且 `--require "test (3.12)"` 绑定 matrix 命名；改 matrix 会让审计失效。
 7. **GitHub Actions 是否加人工审批卡点 / 制品归档 / SHA256 上传**：当前无卡点，Release 由人工执行 `packaging/release.ps1`（支持 `-DryRun`）。本地单用户分发是否需要额外卡点需确认。
 8. **Docker 路径是否保留在发布面**：`Dockerfile:5` 使用 `npm install --frozen-lockfile`（非 npm 参数）与 `2>/dev/null || ...` 静默降级；README 部署栏列「Docker 多阶段」。修 `npm ci` 还是从发布面移除该路径需确认。

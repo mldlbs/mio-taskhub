@@ -1,6 +1,6 @@
 # mio-taskhub 项目交付方案
 
-> 版本：v0.6.1 ｜ 取证日：2026-11-06（2026-11-07 续接复核，末次取证时 HEAD=`724601b`）｜ 对象：`E:\work\code\agent-dev\mio-taskhub` 现有代码库
+> 版本：v0.6.1 ｜ 取证日：2026-11-06（2026-11-07 续接复核；2026-11-08 W-10 冻结复核，冻结基线 HEAD=`093869b`；2026-11-09 范围裁决：当前不做对外分发）｜ 对象：`E:\work\code\agent-dev\mio-taskhub` 现有代码库
 > 覆盖：需求拆解 / 架构设计 / 技术选型 / 开发排期 / 验收标准
 > 定位：本地单用户、零联网、零外部依赖的跨 Agent 任务协调中枢。本方案描述的是已落地项目的**剩余交付**，不是新建系统计划。
 > 表达口径：工程汇报陈述句，给字段名 / 阈值 / 状态。文档门控只称「结构完整性校验」与「服务端强制」。不确定处标【待确认】。
@@ -33,6 +33,8 @@
 
 当前工作树 `--check` 仍报 4 处漂移（`MCP工具 53→56`、`测试用例 1635→1643`、`后端行数 33,928`、`前端行数 12,935`），原因是脚本按工作树全部文件统计，而工作树含 5 个未跟踪测试文件与并行 agent 的新模块——这是移动目标，不是 README 写错。W-10 须在冻结且停止并行写入的 commit 上跑 `--write` + `--check`，顶层数字一律以该次结果为准，不得沿用本方案 §0.1 的 2026-11-06 快照。
 
+**W-10 冻结基线实测（2026-11-08，本节当前口径以本段为准）**：HEAD `093869b`，`git status --short` 计数 0，`git ls-files docs/taskhub/delivery-plan/` = 9，近 90 分钟无写入。README 顶部表为 `35,974 行 / 185 REST / 56 MCP / 13,833 行 / 1726 用例`，`python scripts/gen_readme_stats.py --check` 输出 `README stats OK (no drift)` / EXIT=0；正文 5 处历史手工数字已删除。因此上表与第 26 / 28 / 30 / 32 / 34 段所记的端点差、正文残留、工作树漂移、W-5 两次顶部表对齐，均为各自取证日的历史快照，**不再作为当前状态引用**；本方案发布判据一律以 `093869b` 上的实测值为准。W-5 的「提交前复核顶部表」动作已完成，当前无未提交的 README 修复。
+
 ### 0.2 六条裁决（文档与源码冲突时）
 
 | # | 冲突点 | 文档口径 | 源码 / 实测口径 | 裁决 |
@@ -42,7 +44,7 @@
 | 3 | 采集函数名 | 需求 / implementation plan 用 `collect()` | `diff_gate.py` 无 `collect()`；采集由 `snapshot()` + `_numstat()` + `check_diff_gate()` 完成 | 以源码为准 |
 | 4 | `diff_summary.after` | 需求写 before/after 同为 `Snapshot.brief()` 6 字段 | `before` 为 6 字段；`after` 只有 `{files, insertions, deletions}`；`changed` / `reason` / `mode` 平铺顶层 | 以源码为准 |
 | 5 | 门控插入点 | FR-B02 写「约 `:288` 后、`:289` 前」 | 实测 `runs.py:336-337`（文件现 636 行） | 以源码为准 |
-| 6 | `docs/` 是否入库 | 旧笔记写「`docs/` 被 .gitignore 第 31 行忽略」 | 第 31/32 行是注释，实际规则在第 33 行 `docs/*` + `:34-41` 白名单反选（`!docs/taskhub/` 等）；「整体忽略」是 2026-10-10 历史态，G0/T0.4 已改白名单。`git check-ignore` 对本文件无输出（不被忽略），`git ls-files docs/taskhub/` 已跟踪 168 个文件 | **不被忽略，但需显式 `git add`**：`git status --short` 实测 `_delivery-fact-pack.md` 与 `delivery-plan/` 均为 `??`。不被忽略 ≠ 已跟踪，见 W-10 |
+| 6 | `docs/` 是否入库 | 旧笔记写「`docs/` 被 .gitignore 第 31 行忽略」 | 第 31/32 行是注释，实际规则在第 33 行 `docs/*` + `:34-41` 白名单反选（`!docs/taskhub/` 等）；「整体忽略」是 2026-10-10 历史态，G0/T0.4 已改白名单。`git check-ignore` 对本文件无输出（不被忽略），`git ls-files docs/taskhub/` 已跟踪 168 个文件 | **不被忽略，需显式 `git add`**：取证当时 `git status --short` 实测 `_delivery-fact-pack.md` 与 `delivery-plan/` 均为 `??`；**2026-11-08 W-10 已入库**（`git ls-files docs/taskhub/delivery-plan/` = 9，冻结 commit `093869b`）。不被忽略 ≠ 已跟踪 |
 
 配套结论：`GET /api/v1/board/diff-gate-stats` 的确切 schema 已由 `api/board.py:371-386` 逐行复核为 **12 个顶层键**：`mode` / `scanned_runs` / `judged_runs` / `unjudged_runs` / `by_reason` / `blocked_run_count` / `blocked_runs` / `warned_run_count` / `skipped_run_count` / `suspected_false_positive_count` / `suspected_false_positive` / `note`。后端分册记「13 字段」属误数，验收按 12 键逐键断言、不按总数判定，需求 §8.2 第 3 条【待确认】收口。
 
@@ -73,6 +75,29 @@
 | 19 | 启用 token 后 Web UI 的实际失效面（2026-11-07 19:15，`TestClient` 设 `app.state.auth_token="probe-secret"` 实测）：静态页 `/`=200、`/docs`=200；`/api/v1/tasks`、`/api/v1/memory/health`、`/api/v1/memory/observatory/data`、`/metrics`、`/api/v1/logs` **全部 401**；WS 裸连 `WebSocketDisconnect`；`PUT /api/v1/nightrun/config` 带 `X-TaskHub-Admin: 1` 仍 **401**（`main.py:33-47` 全局中间件先于 `admin_guard.require_admin` 拦截，不会走到 403）。根因是 `api.js:34-47` 的 `req()` 只带 `Content-Type`，无 `Authorization`；另有 5 处绕过 `req()` 的裸 `fetch`（`api.js:152,172`、`App.jsx:631`、`MemoryObservatoryView.jsx:55`、`MemoryView.jsx:78`）与 `rawFileUrl` 生成的 `<img src>` / `<a href>`（`DocPanel.jsx:206,225`，标签请求无法带 header）。`tests/test_auth.py` 实测 9 passed。`web/index.html` 无注入点、`vite.config.js` 无 `define`，token 来源只有 `MIO_TASKHUB_TOKEN` / `--token` / `--auth` 时 `generate_token()` 打印 stdout | 只读探针 + `pytest tests/test_auth.py -q`（隔离库 + 仓库外 basetemp） | **S-4 从「两处 WS 注入 token」扩为四条通道**：① `req()` 统一注入 `Authorization` ② 5 处裸 `fetch` ③ 2 处 WS URL 带 `?token=` ④ `rawFileUrl` 的图片/下载改用 fetch→blob。**19:40–19:50 四条通道已落地并端到端验证**，见 §4.4.1「第四次取证」；AC-26 判据按实现细化，见 §5.2 |
 
 **2026-11-08 10:25 产品裁决（取代 19:15 / 19:50 对 S-4 的前置口径）**：当前定位（本地单用户、默认绑定 `127.0.0.1`、零联网）**不做默认 auth**。依据：① `main.py:475` 默认 host 为环回，`:488-502` 对「非环回 + 无 token」直接拒绝启动，这已是安全默认；② `packaging/agent_wrapper.py:14` 显示 token 原用途是给 Agent CLI 的 REST 调用加 `Authorization: Bearer`，浏览器同源静态页不在原鉴权模型内，因此「浏览器没有取 token 通道」不是缺陷；③ 上线前全检报告第 34 行判定对外分发 No-Go 的根因是「没有身份概念」（F-004/F-005/F-006），单 token 不足以翻案，账号 / 签名体系属 8 项冻结明确不做。裁决结果：不做「打包默认生成 `MIO_TASKHUB_TOKEN` 强制鉴权 / 每 agent 独立 token / token 走环境变量不进命令行」三项部署动作；S-4 已落地的四条通道代码保留（无 token 时零行为变化）；§7.2 #28 从 G4 硬前置降为**按部署形态条件化**，仅当决定支持非环回 / 多机访问时才需定来源策略；AC-26 与 G4 判据按默认 / 条件两形态分列（§5.2、§4.5）。
+
+**W-10 冻结基线对 §0.3 的六处口径更正（2026-11-08，HEAD `093869b`）**：下表左列为分册编制日的取证事实，保留不删；右列为 W-10 复核后的当前口径，冲突处以右列为准。
+
+| 原 # | 原事实（取证日） | W-10 复核结论 | 当前口径 |
+|---|---|---|---|
+| 2 | 「发布时补 `## v0.6.1` 版本段即可」 | `CHANGELOG.md:204` 已有 `## v0.6.1 (2026-10-20)`；顶部 `:3` 仍 `## Unreleased`、`:6` 写「本节保持 Unreleased」 | 不是缺版本段，而是版本号 / tag / Unreleased 三者的发布口径未裁决，列【待确认】#30 |
+| 5 | 「统计脚本未接入 CI 校验」 | W-4 已把 `Check README stats` 接进 `.github/workflows/test.yml`；冻结 commit 上 `--check` EXIT=0 | 已满足，G3 前半判据不再有缺口 |
+| 9 | t43 报告（v0.6.0 / `d677782`）「6 项是 + ⑤ 部分」 | W-10 重跑 `release_checklist.py --ci --json`：8 项 = 7「是」+ ⑤「部分」，`all_green=false` / EXIT=1 | t43 仍为历史快照；当前结论见 §4.4.1「第六次取证」 |
+| 11 | `build.ps1:66/:180` 两处硬编码 | 复核仍在；`t42-repro-build-report.md` 两次干净构建基于 HEAD `d916a20` / tag v0.6.0，不是 `093869b` | W-9 未关闭，G4 确定阻塞之一 |
+| 16 | 「README 修复未提交」；「installer 用例隔离须随 W-10 提交」 | 冻结 commit 上 `git status --short` = 0，两项均已入库 | 动作已完成，不再是 W-10 待办 |
+| 18 | 「W-4 的 `test.yml` 与 W-5 的 `README.md` 仍是工作树未提交改动」 | 已随 `dd09214` / `093869b` 入库，九份交付文档同时入库 | 动作已完成 |
+
+**2026-11-09 16:59 范围裁决（作者确认：无外部取证条件）**：作者确认「外部 3 台干净机人工取证不可执行」，因此**当前交付范围不含对外分发**。依据：① 项目定位为本地单用户、默认绑定 `127.0.0.1`、零联网，对外分发不是交付目标；② `docs/roadmap/t35-coldstart-report.md:54` 要求 3 台无 Python 干净 VM 人工执行，不得由 Agent 代跑；③ 与 2026-11-08「不做默认 auth」裁决同向，均按部署形态收敛范围。
+
+| # | 项 | 处理 |
+|---|---|---|
+| 1 | G4 及 G3 中依赖外部机器 / 分发产物的判据：W-7 / W-8 / W-9 / W-10、AC-17 / AC-18 / AC-20 | 转为**条件形态**：仅当决定对外分发且已具备外部干净机时启用，不列入当前剩余工作。§4.3 排期表、§4.5 Gate 表、§5.2 AC 表的原文保留，作为条件形态的判据参考 |
+| 2 | `scripts/release_checklist.py`、`check_first_run()`、`t35-coldstart-report.md:54` 的「待人工取证」文本 | **一律不改**。发布门权威输出仍为 `all_green=false` / EXIT=1；⑤ 保持「部分」 |
+| 3 | G4 当前状态 | 记为「**不适用（本机自用）**」。不是「通过」，不是「已取消」，也不是「待办中的 No-Go」；条件形态启用时按原判据重新执行，本裁决不构成豁免 |
+| 4 | `build.ps1:66/:180` 两处硬编码、`release_checklist.py` 四处工具缺陷 | 登记为技术债，本轮不排期；不做对外分发时不产生当前影响 |
+| 5 | 当前剩余工作 | ① 提交本次文档改动；② W-1 窄门禁灰度观察（本机可执行，是唯一成功判据 M2 的关键路径）；③ §4.3 表中 W-2 / W-3 / W-6 三项本轮未核完成状态，排期不变 |
+
+明确禁止：不以「删除 ⑤ 项」「把 ⑤ 判为是」「修改 `check_first_run()` 阈值」「回填报告文本」等方式换取 `all_green=true`。本节调整的是交付范围，不是验收标准。
 
 ### 0.4 分册索引
 
@@ -165,8 +190,8 @@ M1~M5：`blocked_run_count`（M1 代理）、M2 人工回看、M3 零误伤、M4
 | 级别 | 内容 |
 |---|---|
 | M | FR-A01–A14 已交付能力；FR-B01–B07 窄门禁（代码已落地，剩余是灰度观察与收尾） |
-| M（仅对外分发） | S-1~S-3：三个安全 P0 清零，是 G4 硬前置（§4.2.1）。S-4 前端四条通道已落地但**不做默认 auth**；#28 降为按部署形态条件化（§0.3 裁决段）。本机自用不受阻塞 |
-| S | G3/G4 发布前置：CI 补校验、文档口径修订、干净机首跑、Quickstart 计时、可复现构建、口径冻结 |
+| M（仅对外分发） | S-1~S-3：三个安全 P0 清零，是 G4 硬前置（§4.2.1）。S-4 前端四条通道已落地但**不做默认 auth**；#28 降为按部署形态条件化（§0.3 裁决段）。本机自用不受阻塞。**2026-11-09 裁决**：当前不做对外分发，S-1~S-3 已在冻结 commit 复验清零，本行转为条件形态 |
+| S | G3/G4 发布前置：CI 补校验、文档口径修订、干净机首跑、Quickstart 计时、可复现构建、口径冻结。**2026-11-09 裁决**：干净机首跑 / Quickstart 计时 / 可复现构建 / 口径冻结（W-7~W-10）转条件形态，当前 S 组剩余为文档提交与 W-1 观察 |
 | C | FR-C01–C03、C08（条件性，触发条件见 §1.3） |
 | W | FZ-1–FZ-8、FR-C04–C07/C09、N1–N10、A-1–A-7 |
 
@@ -379,7 +404,9 @@ S-1~S-3 是**对外分发**的硬前置，优先级高于 C 块；S-4 前端通�
 | W-7 | 干净 Windows 机零依赖首跑 ≥3 台 | W-2、W-3、W-4 | `Get-FileHash mio-taskhub-win64.zip -Algorithm SHA256`；3 台解压双击 `TaskHub.exe` + `setup-agent.bat` 成功；记录踩坑 | 2–4 人日 + 墙钟（干净机可得） | 依赖 C |
 | W-8 | Quickstart ≤5 分钟计时 n≥5 | W-7 | 陌生用户 register→claim→submit 计时记录 5 份，≤5 分钟 | 1–2 人日 | 依赖 C |
 | W-9 | 同 commit 可复现构建 + SHA256；消除 `build.ps1:66` 解释器绝对路径与 `:180` 日志路径硬编码用户名 | W-4 | `powershell -NoProfile -ExecutionPolicy Bypass -File packaging/build.ps1` 同 commit 跑两次，产物 SHA256 一致；`scripts/repro_build.py compare-norm` 归一化差异为 0（v0.6.0 实测 807/807）；`scripts/check_installer_bundle.py` 返回 `[OK]`；`Get-FileHash` 记录 2 项资产 | 1–2 人日 | 依赖 C |
-| W-10 | G4 口径冻结与发布门；交付文档显式 `git add`（当前 `??`）；`CHANGELOG.md` 补 v0.6.1 版本段；确认 `tests/test_installer.py` GUI 用例隔离修复随发版提交（工作树已落地，见 §4.4.1）；在冻结 commit 上重跑全量取发布基线 | W-1、W-7、W-8、W-9、**S-1~S-3** | `python scripts/release_checklist.py --ci --json` 的 `all_green=true`（t43 报告 ⑤ 外部取证补齐后重跑）；三个安全 P0 的回归用例全绿（AC-23~AC-25）；AC-26 默认形态护栏 5 passed；`git ls-files docs/taskhub/delivery-plan/` 非空；**对外发布物**检索禁用词无命中；Star/Trending 未出现在任何 Gate 判据；全量测试在仓库外 basetemp 上跑且 0 新增回归 | 1–2 人日 | 终点（**仅对外分发**；S-1~S-3 未清零即 No-Go） |
+| W-10 | G4 口径冻结与发布门。**已完成（2026-11-08，冻结基线 `093869b`）**：九份交付文档显式 `git add` 入库；W-4 / W-5 / S-4 改动随 `dd09214` / `093869b` 入库；`tests/test_installer.py` GUI 隔离保险丝确认仍在；冻结 commit 上重跑全量取发布基线；禁用词与 Star/Trending 检索。**剩余**：⑤ 外部 3 台干净机人工取证（W-7）；W-9 两处硬编码与同 commit 构建重跑；`CHANGELOG.md` 版本号 / tag 口径裁决；两个阻塞清零后重跑发布门 | W-1、W-7、W-8、W-9、**S-1~S-3** | 已完成部分：全量 `1947 passed / 3 skipped / 4 deselected / 0 failed / EXIT=0`、覆盖率 80%；`gen_readme_stats.py --check` EXIT=0；AC-23~AC-25 与 AC-26 默认形态定点复验全绿；`git ls-files docs/taskhub/delivery-plan/` = 9；对外发布物禁用词 0 命中、Star/Trending 未进任何 Gate 判据。**放行仍需**：`release_checklist.py --ci --json` 的 `all_green=true`（当前实测 `false`）、⑤ 外部取证回填、W-9 在冻结 commit 上两次 SHA256 一致 | 1–2 人日（已完成约 1 人日；剩余为两个阻塞的收尾 + 一次发布门重跑，不含干净机等待） | 终点（**仅对外分发**；当前 No-Go，见 §4.4.1「第六次取证」） |
+
+**2026-11-09 裁决对 §4.3 的调整**：W-7 / W-8 / W-9 / W-10 四行转条件形态，不列入当前剩余工作；表内 DoD、工期与依赖关系原样保留，供决定对外分发时复用。当前关键路径只剩 W-1（本机灰度观察）。W-1~W-6 的排期不受本次裁决影响。
 
 ### 4.4.1 2026-11-07 执行状态（W-4 / W-5）
 
@@ -479,7 +506,41 @@ S-1~S-3 是**对外分发**的硬前置，优先级高于 C 块；S-4 前端通�
 
 **两处口径修正**：① W-5 陷阱因 HEAD 前进二次出现，已再次对齐顶部表（§0.1）；② 提交隔离约束从「按 `@@` 切分」更正为「存在 3 个混合 hunk，须行级拆分或等并行线先提交」（§8）。
 
-**合计**：纯工时约 10–18 人日（W-1~W-10 约 9–16 人日，S 组剩余约 1–2 人日；两组可并行）；不含 W-1 的观察墙钟与 W-7 的干净机等待。墙钟 2–6 周，主要消耗在 W-1 的真实使用周期与 W-7 的干净机可得性。按 2026-11-08 裁决，S-4 部署动作不做，S 组只剩冻结 commit 复验；S 组只阻塞「对外分发」，本机自用不受其阻塞。W-4 / W-5 的上表已执行部分不再计入剩余工时。
+#### 第六次取证：W-10 冻结复核与发布门（2026-11-08）
+
+工作树首次满足 W-10 的「冻结且停止并行写入」条件。本轮由测试验收与发布门两条线并行取证，主理人汇编裁决。
+
+**冻结基线**：HEAD `093869b`，`git status --short` 计数 0（取证前 / 跑测中 / 跑测后三次复核一致），`git ls-files docs/taskhub/delivery-plan/` = 9，`web/dist/`、`.pytest_cache`、`.coverage` 均被忽略，近 90 分钟无写入。README 顶部表 `35,974 / 185 REST / 56 MCP / 13,833 / 1726`，`gen_readme_stats.py --check` EXIT=0。
+
+| 层次 | 命令 / 方法 | 结果 |
+|---|---|---|
+| 全量测试 | CI 同参数、仓库外 `--basetemp` + 独立 `MIO_TEST_DB_PATH` | **1947 passed / 3 skipped / 4 deselected / 0 failed / EXIT=0**，覆盖率 80%。**第十份**用例数快照，见 §5.4 |
+| AC-23~AC-25 | `tests/test_security_p0.py`、`tests/test_launch_fixes.py` | **26 passed + 11 passed**；`grep -rn "Popen(.*shell=True"` 仅命中 `night_runner.py:37` 注释，实际调用点 `:202` 为 `shell=False` |
+| AC-26 默认形态 | `test_frontend_auth_wiring.py` / `test_auth.py` / `npm run build` | **5 passed / 9 passed / ✓ built in 2.84s**（`index-Dn6jiIPC.js` 263.54 kB，与第五次取证一致） |
+| CI | `gh run list --limit 1 --json conclusion,databaseId,headSha` | run `42556118972` = `success`，`headSha` = `093869b809…`，与冻结 commit 一致 |
+| 发布门 | `python scripts/release_checklist.py --ci --json` | **8 项 = 7「是」+ ⑤「部分」，`all_green=false` / EXIT=1** |
+| 口径冻结 | 对外发布物禁用词检索 + Star/Trending 检索 | README / CHANGELOG 禁用词 0 命中；Star/Trending 未出现在任何 Gate 判据 |
+
+发布门 8 项实测（权威输出为无并发复核那次，9m37s）：① CI 全绿「是」、② 无已知红「是」(`failed=0`)、③ 许可合规「是」、④ README 一致「是」、⑤ 首跑达标「部分」(`本机n=5=PASS; 外部3台=待人工取证`)、⑥ 有 Release「是」、⑦ 已知限制「是」、⑧ 安装器产物一致「是」。
+
+**② 的冲突口径**：同脚本第一次实跑（与 QA 全量并发，12m24s）输出 ②「否」/`failed=3`，其余 7 项完全一致，`all_green=false`。无并发复核与 QA 独立全量两次均未复现该 3 个失败；但 `check_no_red()`（`release_checklist.py:52-59`）只用 `re.search(r"(\d+) failed", out)` 且不打印失败用例名，具体用例与机制不可考。裁定：以无并发复核的 JSON 为发布门权威输出，② 记为「两次独立取证均未复现」，**不写「确系假红」，不列确定阻塞，也不列确定通过，保留【待确认】**。⑤ 由 `check_first_run()` 读 `t35-coldstart-report.md:54`「待人工取证」文本硬编码判定（`release_checklist.py:86-88`），不依赖测试环境，因此 `all_green=false` 在两次实跑中稳定不变，G4 的 No-Go 与 ② 无关。
+
+**`release_checklist.py` 四处工具缺陷（本轮只读复核，未改脚本）**：① 无 argparse，`--help` 会触发全量 pytest；② `check_no_red()` 判据弱（pytest 崩溃时输出无 `failed` 字样会按 0 判「是」），且不传 `--basetemp`、不设 `MIO_TEST_DB_PATH`；③ `check_ci()` 只取 `--limit 1` 且不校验 `headSha`，本次一致属巧合，不构成可复用证据链；④ docstring 写「7 项」而 `main()` 实为 8 项（含 ⑧ 安装器产物一致）。
+
+**发布门两项未关闭判据（2026-11-08 当时口径）**：按 §0.3 的 2026-11-09 裁决，下列两项随「对外分发」一并转条件形态，不再是当前待办；判据原文与脚本均不改。
+
+| # | 阻塞 | 证据 | 关闭动作 |
+|---|---|---|---|
+| 1 | ⑤ 外部 3 台干净机取证未补齐 | `t35-coldstart-report.md:54`「待人工取证」；`t43-release-checklist-report.md` 同一缺口 | W-7：3 台无 Python 干净 VM 上执行绿色版，回填每台冷启耗时与 §3 命中项；不得由 Agent 代跑、不得提前宣称 |
+| 2 | W-9 未关闭 | `build.ps1:66` 解释器绝对路径、`:180` 日志路径硬编码用户名仍在；`t42-repro-build-report.md` 两次干净构建基于 HEAD `d916a20` / tag v0.6.0，不是 `093869b` | 改两处硬编码；在冻结 commit 上重跑两次 `build.ps1`，比对 SHA256 与 `repro_build.py compare-norm` |
+
+安全 P0（AC-23~AC-25）与 AC-26 默认形态已由本轮定点复验排除，不再构成阻塞；发布门 ② 也不列确定阻塞。`CHANGELOG.md:204` 已有 `## v0.6.1 (2026-10-20)` 段落，顶部 `:3` 仍为 `## Unreleased`、`:6` 写「本节保持 Unreleased」，因此「补版本段」不是缺文件，版本号 / tag / Unreleased 三者的发布口径仍【待确认】（§7.2 #30）。
+
+**结论（2026-11-08 当时）**：本机自用不受上述两项阻塞影响；**对外分发 No-Go**，直到 ⑤ 取证回填、W-9 在冻结 commit 上关闭、发布门重跑得到 `all_green=true`。测试全绿不构成发布依据。
+
+**2026-11-09 更正**：作者确认外部 3 台干净机取证不可执行，当前不做对外分发。上表两项不再是待办，`all_green=false` 保持原值不改；G4 记为「不适用（本机自用）」，见 §0.3 裁决段。本轮不修改 `release_checklist.py`、不回填 `t35-coldstart-report.md`、不删改 §4.5 Gate 判据。
+
+**合计**：纯工时约 10–18 人日（W-1~W-10 约 9–16 人日，S 组剩余约 1–2 人日；两组可并行）；不含 W-1 的观察墙钟与 W-7 的干净机等待。墙钟 2–6 周，主要消耗在 W-1 的真实使用周期与 W-7 的干净机可得性。按 2026-11-08 裁决，S-4 部署动作不做，S 组只剩冻结 commit 复验；S 组只阻塞「对外分发」，本机自用不受其阻塞。W-4 / W-5 的上表已执行部分不再计入剩余工时。**W-10 冻结复核（第六次取证）已执行完毕**：S 组仅剩的冻结 commit 复验也已完成，S 组剩余降为 0；剩余工作收敛为 W-1 观察周期、W-7 干净机取证、W-9 构建修复与同 commit 重跑、两个阻塞清零后的发布门重跑，不含干净机等待。**2026-11-09 调整**：W-7~W-10 转条件形态后，上句中依赖外部机器的四项不再计入当前剩余；当前剩余为文档提交与 W-1 观察，原工期区间不再覆盖条件形态部分。
 
 ### 4.5 里程碑与依赖
 
@@ -487,11 +548,15 @@ S-1~S-3 是**对外分发**的硬前置，优先级高于 C 块；S-4 前端通�
 |---|---|---|---|---|
 | G2（已过，结论部分成立） | G1 实验可运行 | M/B/P/D1 各有三态结论并回写 `01`/`03` | G2 回写 2026-10-14；V1 证据不足、V2 观测支持非对照、D1 部分成立 81.9% | Star/Trending 不得入判据 |
 | G3 | W-2、W-3、W-4、W-5 完成 | W-7 ≥3 台首跑成功 + W-8 n≥5 计时 + D1 诊断可读化 + 能力地图无「接线未用」 | 首跑记录、计时表、CI 绿、`gen_readme_stats.py --check` EXIT=0 | G2 结论不成立时不得启动 D2-b |
-| G4 | G3 全绿 + W-1 有 M2 结论 + **S-1~S-3 全部清零** + AC-26 默认形态通过 | W-9 可复现构建 + W-10 口径冻结 + changelog 版本段 + `release_checklist.py --ci --json` 的 `all_green=true` | 两次 SHA256 一致、`scripts/repro_build.py compare-norm` 归一化差异 0、发布 checklist 七项全绿、禁用词检索、三个 P0 的回归用例全绿 | M2 未成立不得对外宣称门控效应；t43 报告 ⑤ 外部 3 台干净机取证未补齐前不得对外发布；**3 个安全 P0 未清零即 No-Go（对外分发）**，测试全绿不构成发布依据 |
+| G4 | G3 全绿 + W-1 有 M2 结论 + **S-1~S-3 全部清零** + AC-26 默认形态通过 | W-9 可复现构建 + W-10 口径冻结 + changelog / tag 口径裁决 + `release_checklist.py --ci --json` 的 `all_green=true` | 两次 SHA256 一致、`scripts/repro_build.py compare-norm` 归一化差异 0、发布 checklist **8 项**全绿（脚本 `main()` 实为 8 项，docstring 写 7 项属工具缺陷）、禁用词检索、三个 P0 的回归用例全绿 | **条件形态（2026-11-09 裁决，当前不适用）**：前三列判据原文全部保留；冻结基线 `093869b` 实测 `all_green=false` / EXIT=1（8 项 = 7「是」+ ⑤「部分」）保持不变。因作者确认无外部取证条件、当前不做对外分发，G4 记为「不适用（本机自用）」，**不是通过**，也不是待办中的 No-Go。M2 未成立不得对外宣称门控效应；3 个安全 P0 已在冻结 commit 复验清零；测试全绿不构成发布依据。若将来决定对外分发，须按原判据补齐 ⑤ 与 W-9 后重新裁决 |
 
 依赖链：`W-1`（观察）与 `W-2/3/4/5`（工程收尾）并行 → `W-6`（断言）→ `W-7`（干净机）→ `W-8`（计时）→ `W-9`（可复现构建）→ `W-10`（发布门）。关键路径是 `W-1 → G4 裁决 → W-9 → W-10`。
 
+**2026-11-09 调整**：依赖链中 `W-7 → W-8 → W-9 → W-10` 四段随对外分发转条件形态，当前关键路径为 `W-1`（观察）→ M2 结论；`W-1 → G4 裁决` 一段仅在条件形态启用时生效。
+
 `t43-release-checklist-report.md` 是 2026-10-14 / v0.6.0 口径的历史快照，判定 `all_green=false`（6 项「是」+ ⑤「部分」→ 暂不对外发布），唯一缺口是外部 3 台干净机人工取证。该报告的端点/用例数字不得当当前状态引用；⑤ 缺口对应本方案 W-7 / AC-17。
+
+W-10 在冻结 commit `093869b` 上重跑 `release_checklist.py --ci --json` 得到当前结论：8 项 = 7「是」+ ⑤「部分」，`all_green=false` / EXIT=1。与 t43 相比，① CI 全绿已绑定 `093869b`（run `42556118972`，`headSha` 一致）、② 无已知红为 `failed=0`、⑧ 安装器产物一致新增为「是」；⑤ 缺口与 t43 相同，仍是外部 3 台干净机人工取证。脚本自身四处工具缺陷见 §4.4.1「第六次取证」。
 
 ### 4.6 排期纪律
 
@@ -523,7 +588,7 @@ S-1~S-3 是**对外分发**的硬前置，优先级高于 C 块；S-4 前端通�
 
 | 编号 | 验收项 | 命令 / 证据 | 判定 |
 |---|---|---|---|
-| AC-01 | 全量测试与基线 | `pytest -q`（`addopts = "-m 'not e2e'"`）；覆盖率 `pytest --cov=mio_taskhub --cov-report=term-missing --cov-report=xml -q`；全量跑用 `--basetemp=<仓库外独立目录>` | 0 红、0 新增回归。同日 gstack 基线 1901 passed / 1 failed（README 统计漂移，已修未提交）/ 2 skipped / 4 deselected；原 4 个 webhook_guard 失败用例已删除，口径见 §5.4 |
+| AC-01 | 全量测试与基线 | `pytest -q`（`addopts = "-m 'not e2e'"`）；覆盖率 `pytest --cov=mio_taskhub --cov-report=term-missing --cov-report=xml -q`；全量跑用 `--basetemp=<仓库外独立目录>` | 0 红、0 新增回归。同日 gstack 基线 1901 passed / 1 failed（README 统计漂移，已修未提交）/ 2 skipped / 4 deselected；原 4 个 webhook_guard 失败用例已删除，口径见 §5.4；**W-10 冻结基线（2026-11-08，`093869b`）实测 1947 passed / 3 skipped / 4 deselected / 0 failed / EXIT=0、覆盖率 80%，见 §4.4.1「第六次取证」** |
 | AC-02 | 窄门禁单测 | `pytest tests/test_run_diff_gate.py -q --basetemp=<独立目录>`（18 个 test 函数） | 全绿；`block` 档 `success + 零改动` → 422 `code=run.empty_diff`；`test_tc8_rejection_visible_in_db` 覆盖 AC-03 的落库断言 |
 | AC-03 | 拦截事件落库 | `SELECT * FROM event WHERE type='run.result_rejected' AND entity='task'` | 能查到记录，证明抛 422 前已 `db.commit()`；仅看界面不算通过 |
 | AC-04 | 只读统计端点 | `curl -s http://127.0.0.1:48620/api/v1/board/diff-gate-stats \| python -m json.tool` | 返回 12 个顶层键统计；该端点不参与流程判定 |
@@ -539,6 +604,8 @@ S-1~S-3 是**对外分发**的硬前置，优先级高于 C 块；S-4 前端通�
 
 AC-23~AC-25 来自 2026-11-06 上线前全检的 3 个安全 P0，是**对外分发**的硬前置（§4.2.1）。本机自用不受其阻塞。按 2026-11-08 裁决，AC-26 改为按部署形态条件化：默认形态（仅环回）只验「无 token 零变化」，条件形态（决定非环回 / 多机访问）才验带 token 全通道，后者不在当前 G4 判据内。
 
+**2026-11-09 范围裁决对 AC 的影响**：AC-17 / AC-18 / AC-20 及 G4 相关 AC 依赖外部干净机或对外分发产物，随「不做对外分发」转为条件形态，当前不验收、不标注通过，判据原文不删不改。AC-23~AC-25 已在冻结 commit 复验清零，AC-26 默认形态已复验，§5.5 的禁用词检索已按本机口径执行完毕。
+
 | 编号 | 验收项 | 前置条件 | 判定 |
 |---|---|---|---|
 | AC-12 | 唯一成功判据 M2 ≥ 1 | W-1 完成一个真实使用周期、≥3 个真实 run、切 `block` | 能指着一例本会被放过的假完成被 422 拦下 |
@@ -549,13 +616,13 @@ AC-23~AC-25 来自 2026-11-06 上线前全检的 3 个安全 P0，是**对外分
 | AC-17 | G3：干净 Windows 机零依赖首跑 ≥3 台 | 有可分发 Release + 干净机可得 | ≥3 台成功 |
 | AC-18 | G3：Quickstart ≤5 分钟 | 同上 | 陌生用户计时 n≥5，≤5 分钟 |
 | AC-19 | G3：LICENSE(MIT) 与 README 单一事实源 | W-4、W-5 | `LICENSE` 存在且 CI 校验 `--check` 绿（前半本轮已实测满足） |
-| AC-20 | G4：同 commit 可复现构建 | 发布门 checklist 全绿 | 两次 SHA256 一致；changelog 齐 |
+| AC-20 | G4：同 commit 可复现构建 | 发布门 checklist 全绿 | 两次 SHA256 一致；changelog 齐。**W-10 实测未通过**：`build.ps1:66/:180` 硬编码仍在，t42 两次构建基于 `d916a20` / v0.6.0 而非冻结 commit `093869b`，属 G4 确定阻塞之一 |
 | AC-21 | V1 门控效应结论（FR-C01） | 真实 Agent 可用 + P4 额度审批 + n≥30/组 | 未满足前置前不得验收，也不得对外宣称 |
 | AC-22 | D2-b / SLO 解冻 / 冻结项解冻 | 对应 FR-C02/C04/C05 触发条件 | 未触发即不验收 |
 | AC-23 | 安全 P0-1 清零（未鉴权 RCE） | S-1 | `grep -rn "Popen(.*shell=True" mio_taskhub/` 无命中；`command` 含 shell 元字符 → 422；`tests/test_security_p0.py` 回归全绿。**鉴权判据按模式分列**（19:26 实测）：启用 `--auth` 时不带 Bearer → 401、带合法 Bearer → 200；未启用 auth 时不带头 → 403、环回带 `X-TaskHub-Admin: 1` → 200。源码层已随 `2e42305` 满足，冻结 commit 上复验即可，不再作为待开发项 |
 | AC-24 | 安全 P0-2 清零（任意路径读 / 密钥外泄） | S-2 | 绝对路径、`..`、符号链接三类 `doc_paths` 越界读均 → 400；workspace 内正常读仍 200 |
 | AC-25 | 安全 P0-3 清零（任意文件写） | S-3 | PATCH `workspace` 到 `MIO_TASKHUB_WORKSPACE_ROOTS` 白名单外 → 400；`PUT /doc` 写白名单外 → 400 |
-| AC-26 | 前端鉴权联动按部署形态可用 | S-4 | **默认形态（当前口径，仅环回）**：不启用 `--auth`，token 为空，中间件放行；`pytest tests/test_frontend_auth_wiring.py -q` 5 passed；四条通道行为与改造前一致；`npm run build` 通过。**条件形态（决定非环回 / 多机访问时才启用，不在当前 G4 判据内）**：干净机首跑 `--auth` 生效、`/api/*` 不带 token → 401、token 不出现在进程命令行；**带 token 起 hub 后逐条验证四条通道**：`/api/v1/tasks` 与 `/metrics` 返回 200（① `req()`、② 5 处裸 `fetch`）、`GET /ws?token=` 建连并收到广播（③ 两处 WS）、文档内嵌 `<img>` 与下载 `<a>` 可加载（④ `rawFileBlobUrl`）；nightrun 危险端点带合法 `Authorization: Bearer` 返回非 401；**无 token 时四条通道行为与改造前一致**（`pytest tests/test_frontend_auth_wiring.py -q` 5 passed 为静态护栏）。19:50 本地实测四条通道均 200、反面均 401、构建通过，见 §4.4.1「第四次取证」；冻结 commit 上仍须复验默认形态。条件形态须先定 §7.2 #28 来源策略，不在当前 G4 判据内 |
+| AC-26 | 前端鉴权联动按部署形态可用 | S-4 | **默认形态（当前口径，仅环回）**：不启用 `--auth`，token 为空，中间件放行；`pytest tests/test_frontend_auth_wiring.py -q` 5 passed；四条通道行为与改造前一致；`npm run build` 通过。**条件形态（决定非环回 / 多机访问时才启用，不在当前 G4 判据内）**：干净机首跑 `--auth` 生效、`/api/*` 不带 token → 401、token 不出现在进程命令行；**带 token 起 hub 后逐条验证四条通道**：`/api/v1/tasks` 与 `/metrics` 返回 200（① `req()`、② 5 处裸 `fetch`）、`GET /ws?token=` 建连并收到广播（③ 两处 WS）、文档内嵌 `<img>` 与下载 `<a>` 可加载（④ `rawFileBlobUrl`）；nightrun 危险端点带合法 `Authorization: Bearer` 返回非 401；**无 token 时四条通道行为与改造前一致**（`pytest tests/test_frontend_auth_wiring.py -q` 5 passed 为静态护栏）。19:50 本地实测四条通道均 200、反面均 401、构建通过，见 §4.4.1「第四次取证」；**W-10 冻结 commit `093869b` 上默认形态复验通过**：`test_frontend_auth_wiring.py` 5 passed、`test_auth.py` 9 passed、`npm run build` ✓ built in 2.84s。条件形态须先定 §7.2 #28 来源策略，不在当前 G4 判据内 |
 
 ### 5.3 唯一成功判据 M2 的可执行步骤
 
@@ -573,9 +640,9 @@ AC-23~AC-25 来自 2026-11-06 上线前全检的 3 个安全 P0，是**对外分
 
 | 项 | 口径 |
 |---|---|
-| 数量 | **九个快照分属多个文件、不同取证日**，按「文件名 + 日期 + 输出行」标注，单一数字不作门禁，不可直接比较：① `docs/roadmap/02-current-state-audit.md` §4.1 实测 **1269 collected / 1260 passed / 4 failed / 1 skipped / 4 deselected**（2026-10-10 审计当时，393.28s；4 failed 即 F4 的 `test_spinning_guard.py` 死引用用例，已随 `ba290e6` 删除）② `t43-release-checklist-report.md:10` **1372+ passed / failed=0**（2026-10-14，v0.6.0 前，属另一快照）③ 工作树备注 1235 passed / 1 skipped / 4 deselected + 4 个 pre-existing 失败（2026-10-11 @`1e7d00e`，本方案任务书主口径）④ G0 冻结基线 `g0_manifest.json`（HEAD `ac21dfc0`）：**1284 passed / 1 skipped / 4 deselected / 0 failed**（458.15s）、coverage **80.0%**（`04-review-20261014.md:10`、`04-experiment-design.md:8/188/196`）⑤ `README.md:14` 1609 用例（脚本派生，2026-11-06）⑥ 同日 gstack QA 全量 **1904 collected / 1901 passed / 1 failed / 2 skipped / 4 deselected，12m28s**（仓库外 basetemp，main @`fde54c4`）⑦ 第一次非冻结全量（2026-11-07 13:34–13:49，按 CI 同参数）**1 failed / 1924 passed / 3 skipped / 4 deselected，13m19s**，唯一失败为 `inspect.getsource` 行号漂移假红 ⑧ 第二次非冻结全量（17:42–17:57）**2 failed / 1927 passed / 3 skipped / 4 deselected，14m11s**，两失败均为窗口内工作树被写造成的静态态漂移，干净 `git archive HEAD` 快照复验 2 passed ⑨ 冻结提交 `2e42305` 自述全量 **1935 passed / 3 skipped / 4 deselected / 0 failed，11m20s**（19:07）与本轮 `--collect-only -q` 实测 **1938/1942 collected (4 deselected)**（19:15，含提交后新增 5 个测试文件）互证，两者差额来自新增用例。**裁定**：「1372 passed / 3 skipped」在仓库内无源——`3 skipped` 在 `docs/roadmap/` 全目录无匹配，`1372+` 唯一出处是 `t43:10`；该组合不是「同一文件的不同版本快照」，是分册间误引，已从本方案删除。README 数字是脚本正则统计，pytest collected 是实际收集，统计方式不同；统一口径见 §7 第 2 项 |
+| 数量 | **九个快照分属多个文件、不同取证日**，按「文件名 + 日期 + 输出行」标注，单一数字不作门禁，不可直接比较：① `docs/roadmap/02-current-state-audit.md` §4.1 实测 **1269 collected / 1260 passed / 4 failed / 1 skipped / 4 deselected**（2026-10-10 审计当时，393.28s；4 failed 即 F4 的 `test_spinning_guard.py` 死引用用例，已随 `ba290e6` 删除）② `t43-release-checklist-report.md:10` **1372+ passed / failed=0**（2026-10-14，v0.6.0 前，属另一快照）③ 工作树备注 1235 passed / 1 skipped / 4 deselected + 4 个 pre-existing 失败（2026-10-11 @`1e7d00e`，本方案任务书主口径）④ G0 冻结基线 `g0_manifest.json`（HEAD `ac21dfc0`）：**1284 passed / 1 skipped / 4 deselected / 0 failed**（458.15s）、coverage **80.0%**（`04-review-20261014.md:10`、`04-experiment-design.md:8/188/196`）⑤ `README.md:14` 1609 用例（脚本派生，2026-11-06）⑥ 同日 gstack QA 全量 **1904 collected / 1901 passed / 1 failed / 2 skipped / 4 deselected，12m28s**（仓库外 basetemp，main @`fde54c4`）⑦ 第一次非冻结全量（2026-11-07 13:34–13:49，按 CI 同参数）**1 failed / 1924 passed / 3 skipped / 4 deselected，13m19s**，唯一失败为 `inspect.getsource` 行号漂移假红 ⑧ 第二次非冻结全量（17:42–17:57）**2 failed / 1927 passed / 3 skipped / 4 deselected，14m11s**，两失败均为窗口内工作树被写造成的静态态漂移，干净 `git archive HEAD` 快照复验 2 passed ⑨ 冻结提交 `2e42305` 自述全量 **1935 passed / 3 skipped / 4 deselected / 0 failed，11m20s**（19:07）与本轮 `--collect-only -q` 实测 **1938/1942 collected (4 deselected)**（19:15，含提交后新增 5 个测试文件）互证，两者差额来自新增用例。**裁定**：「1372 passed / 3 skipped」在仓库内无源——`3 skipped` 在 `docs/roadmap/` 全目录无匹配，`1372+` 唯一出处是 `t43:10`；该组合不是「同一文件的不同版本快照」，是分册间误引，已从本方案删除。README 数字是脚本正则统计，pytest collected 是实际收集，统计方式不同；统一口径见 §7 第 2 项。⑩ **W-10 冻结基线（2026-11-08，HEAD `093869b`，`git status --short` = 0）全量 `1947 passed / 3 skipped / 4 deselected / 0 failed / EXIT=0`、覆盖率 80%**（仓库外 basetemp + 独立 `MIO_TEST_DB_PATH`），是唯一可作为发布基线的快照；①~⑨ 均为非冻结工作树或历史文件的取证日快照，不得与 ⑩ 互换或直接相减 |
 | 已知失败 | **旧口径作废**：原 4 个 `test_spinning_guard` webhook_guard 失败用例已删除（`tests/test_spinning_guard.py:6-9` 注释：生成守卫下线、无迁移目标），gstack 全量 0 新增回归。CI `test.yml:36` 的 `-k "not test_webhook_guard"` 属过期排除项，W-4 需清理 |
-| 唯一真实失败（同日 QA） | README 统计漂移：工作树已修、`--check` 通过但**未提交**。**已更正**：`git archive HEAD` 干净快照实测 `--check` EXIT=0，「干净检出 HEAD 红 CI」不成立；19:15 当前工作树 `--check` 仍报漂移（1611→1643 用例、后端行数）。`724601b` 已用干净 worktree 重算并提交顶部表，`2acad69` 另修了 CI 上两条长期红的用例（GUI `NameError` / `make_setup.py` cp1252 中文 print）与「无 `dist/` 产物即 skip」。CI 自 11-02 起连红 5 次的口径须按新提交重判 → W-5 / W-10 在冻结 commit 上 `--write` + `--check` |
+| 唯一真实失败（同日 QA） | README 统计漂移：工作树已修、`--check` 通过但**未提交**。**已更正**：`git archive HEAD` 干净快照实测 `--check` EXIT=0，「干净检出 HEAD 红 CI」不成立；19:15 当前工作树 `--check` 仍报漂移（1611→1643 用例、后端行数）。`724601b` 已用干净 worktree 重算并提交顶部表，`2acad69` 另修了 CI 上两条长期红的用例（GUI `NameError` / `make_setup.py` cp1252 中文 print）与「无 `dist/` 产物即 skip」。CI 自 11-02 起连红 5 次的口径须按新提交重判 → W-5 / W-10 在冻结 commit 上 `--write` + `--check`。**W-10 已关闭**：冻结 commit `093869b` 上 `--check` = no drift / EXIT=0，全量 0 failed；CI run `42556118972` = `success` 且 `headSha` 指向同一 commit |
 | 测试隔离事故 | `tests/test_installer.py::test_gui_install_runs_under_real_mainloop` 曾无目录隔离，在已装机器上把真实 `TaskHub.exe` 换成 8 字节假 exe；已用合并版安装包恢复（825 文件 / 82MB，合法 x64 PE）。**用例修复已随 `2e42305` 提交**（三层隔离：真实安装存在即 skip / patch `gui` 命名空间 / 目标断言前置），W-10 只需确认冻结 commit 上仍在 |
 | flaky | `test_night_runner::test_spawn_and_reap`（单跑必过） |
 | 全量跑防护 | 必须加 `--basetemp=<独立目录>`，否则 pytest 清理 `pytest-of-admin/garbage-*` 触发 safe-delete 批量删除保护（87 项 > 阈值 50），进程在 teardown 被杀、拿不到汇总行 |
@@ -587,6 +654,10 @@ AC-23~AC-25 来自 2026-11-06 上线前全检的 3 个安全 P0，是**对外分
 ### 5.5 口径冻结（G4）
 
 W-10 需确认**对外发布物**（README / CHANGELOG / Release Notes / 项目简介）中禁用词无命中：「提升质量」「形成闭环」「生产级可靠」「首创/突破」。检查范围不含本方案与分册里的纪律声明引用，这类引用是规则本身、不是对外主张。文档门控对外只称「结构完整性校验」与「服务端强制」。V1 证据不足前不得对外宣称门控效应；「门控位置差异的唯一性」是推断档，不得写成已验证结论。
+
+**W-10 实测（2026-11-08，`093869b`）**：README / CHANGELOG 禁用词检索 0 命中；Star / Trending / fork / 转发数未出现在 §4.5 Gate 表或任何 AC 判定列。此项已执行，不再待确认。其余 G4 口径冻结项（V1 证据不足、推断档表述）随发布门重跑一并复核。
+
+**2026-11-09 调整**：G4 口径冻结整体转条件形态，但本节已执行的禁用词与 Star/Trending 检索结果保留，不因范围裁决作废。
 
 ---
 
@@ -616,6 +687,12 @@ W-10 需确认**对外发布物**（README / CHANGELOG / Release Notes / 项目�
 | `dashboard` fallback 与 `web/index.html` 引外部 CDN / Google Fonts | 高（现状确定） | 与「零联网」主张存在张力 | 登记【待确认】；正式产物是否保留外链未核 |
 | 过度建设回潮 / 冻结项被擅自重启 | 中 | 违背现行最高约束 | 冻结清单 + 勿擅自扩大范围；按 4 条复审条件裁决 |
 | 同一工作树存在并行任务写入，发布基线不可复用 | 已确定（2026-11-07） | 19:07–19:23 内 HEAD 连续前进三次（`2e42305` P0 加固 → `2acad69` CI 用例修复 → `724601b` README 统计）。工作树同时压着四条工作流：安全加固、E7 收件箱/决策（5 个新 api 模块 + 5 个测试）、前端账本改版（26 个 web 文件）、W-4/W-5。34 个已跟踪文件 2802 插入 / 617 删除，README 顶部表与 `--check` 立即再次漂移。任何「当前工作树」上的全量结果、`--check` 结论、端点/用例数都不能作为发布基线 | W-10 在**冻结且停止并行写入**的 commit 上重跑全量 + `--write` + `--check` + AC-23~AC-25 + AC-26 默认形态；本方案所有数字标注取证日与口径，见 §0.1、§5.4；W-5 禁止整文件提交（§4.4.1） |
+| 发布门脚本判据弱，② 结论不可复用 | 已确定（W-10 两次实跑对照） | 第一次并发跑 ②「否」/`failed=3`，无并发复核 ②「是」/`failed=0`，两次 `all_green` 均为 false；`check_no_red()` 不打印失败用例名，机制不可考 | 以无并发复核 JSON 为权威输出；② 保留【待确认】，不写「确系假红」；修脚本时把 `--basetemp` / `MIO_TEST_DB_PATH` 写进脚本、改用 pytest 退出码 + `N passed` 判定、`check_ci()` 加 `headSha` 一致性校验 |
+| W-9 未关闭，当前无可复现构建证据 | 已确定（W-10 复核） | `build.ps1:66/:180` 硬编码仍在；`t42-repro-build-report.md` 两次干净构建基于 `d916a20` / v0.6.0，与冻结 commit `093869b` 无关 | G4 确定阻塞；在冻结 commit 上改两处硬编码并重跑两次构建 + `compare-norm`；⑤ 外部 3 台干净机取证同步补齐 |
+
+**W-10 对上表的更新（2026-11-08，冻结基线 `093869b`）**：「README 统计修复在工作树但未提交」已关闭（冻结 commit 上 `--check` EXIT=0、`git status` = 0）；「全量取证期间工作树被并行写入」已首次达成冻结条件，第十份全量快照 0 failed；「同一工作树存在并行任务写入，发布基线不可复用」的应对动作已完成，当前九份交付文档与 W-4 / W-5 / S-4 改动均已入库；「3 个安全 P0 的发布阻断」与「启用 token 鉴权后 Web UI 整体不可用」两项，AC-23~AC-25 与 AC-26 默认形态已在冻结 commit 上定点复验通过，不再列为当前阻塞。新增的两项风险即本表最后两行。
+
+**2026-11-09 调整**：最后两行风险（发布门脚本判据弱、W-9 未关闭）随「不做对外分发」转为条件形态技术债，不再产生当前影响；表内风险描述与证据保留，不删改。若将来决定对外分发，⑤ 取证能力缺口需先解决，见 §0.3 裁决第 3 条的边界。
 
 ---
 
@@ -674,6 +751,14 @@ W-10 需确认**对外发布物**（README / CHANGELOG / Release Notes / 项目�
 | 26 | 8 项 P1（限流维度 / 3 个 ideas 路由 404 / 状态分叉 / `submit_result` 无 CAS / SSRF `allow_private` 等）的处置排期 | gstack 报告 §综合审查发现，本轮登记延后不排期；若对外分发前需清零，须另扩决策清单 |
 | 27 | 上线前全检报告与当前冻结基线的对齐（剩余动作） | 当前 HEAD `724601b`（19:23），报告基于 `fde54c4`；三个 P0 已提交，S-4 四条通道已落地（19:50，工作树未提交）。**剩余动作**：在冻结 commit 上重跑全量 + AC-23~AC-25 + AC-26 默认形态 + `--write`/`--check`，并重跑 `scripts/release_checklist.py --ci --json` 取当前结论；报告所记「34 改 + 27 未跟踪」与 `2e42305` 自述的 1935 passed 均不可直接当发布依据。另需确认 `2acad69` 修的三条 CI 用例在冻结 commit 上真绿（此前 CI 自 11-02 连红 5 次） |
 | 28 | 浏览器侧 token 来源（已裁决 2026-11-08：按部署形态条件化，不阻塞 G4） | 19:50 已把「前端如何读取 token」收敛到 `web/src/auth.js` 的 `getToken()` 一处，四条注入通道不再依赖来源策略；当前默认实现支持启动 URL 带 `?token=` 一次性注入（读完立即 `replaceState` 从地址栏移除并落 sessionStorage）与 sessionStorage 复用。**裁决（2026-11-08 10:25）**：当前定位不做默认 auth，本项降为条件项——仅当决定支持非环回 / 多机访问时才需选定来源策略；三条候选的安全边界与「零联网、本地单用户」定位的适配届时再定：① 启动脚本生成 token 并拼进打开页面的 URL（token 会短暂经过命令行 /  launcher 参数）② hub 在静态页注入 `window.__TOKEN__`（静态页本身不鉴权，等于任何能打开页面的人都能拿到 token，鉴权意义需重新评估）③ 同源 cookie 免前端携带（需服务端新增 Set-Cookie 与中间件改动）。替换策略只需改 `getToken()` 或加一段部署脚本，四条通道不受影响；账号 / 签名体系属 8 项冻结不做，单 token 不解决身份冒充（报告 F-004/F-005/F-006） |
+| 29 | 发布门 ② `failed=3` 的冲突口径（W-10 新增） | 第一次 `release_checklist.py --ci --json` 并发实跑输出 ②「否」/`failed=3`，无并发复核转「是」/`failed=0`，QA 独立全量 0 failed；两次均未复现，但 `check_no_red()` 不打印失败用例名，机制不可考。**裁定**：以无并发复核 JSON 为权威输出，② 记为「两次独立取证均未复现」，不写「确系假红」，不列确定阻塞，也不列确定通过；`all_green=false` 由 ⑤ 硬编码判定稳定决定，与 ② 无关 |
+| 30 | `CHANGELOG.md` 版本号 / tag 口径（W-10 新增） | `:204` 已有 `## v0.6.1 (2026-10-20)`，顶部 `:3` 仍 `## Unreleased`、`:6` 规定「本节保持 Unreleased」；`git tag -l` 已有 `v0.6.1`。W-10 的「补版本段」不是缺文件，需作者裁决发版时「新增版本段 / 保持 Unreleased + Release Notes 写版本」二选一，并确认 tag 指向的 commit |
+
+**W-10 对 7.2 表的增量裁定（2026-11-08，冲突处以本节为准）**：#21 已执行——冻结 commit 上重跑发布门得 7「是」+ ⑤「部分」，`all_green=false`，t43 的历史结论不再当现状；#23 复核 `t42-repro-build-report.md` 仍为 v0.6.0 / `d916a20` 口径，`compare-norm` 在 `093869b` 上未重跑，仍待 W-9；#25 / #27 的「W-10 在冻结 commit 上确认无回归」已完成，全量 0 failed、CI run `42556118972` 绑定 `093869b`；#17 的覆盖率已有冻结基线 80% 实测，是否以 G0 的 80.0% 为硬基线仍属作者决策。新增 #29 / #30 两项如上表。禁用词与 Star/Trending 检索已由 W-10 补做，0 命中，不新增待确认项。
+
+**2026-11-09 调整（冲突处以本段为准）**：#21 / #23 / #30 随对外分发转条件形态，不再是当前待办；#29（② 冲突口径）因发布门不再作为当前门禁，降为历史取证记录，仍保留【待确认】标注。
+
+**新增 #31（2026-11-09）｜外部取证不可执行与交付范围裁决**：作者确认无外部 3 台干净机取证条件，当前不做对外分发；W-7 / W-8 / W-9 / W-10、AC-17 / AC-18 / AC-20、G4 整体转条件形态。`all_green=false` 与 `t35-coldstart-report.md:54`「待人工取证」保持原样；不修改脚本、不回填报告、不降低判据。剩余待确认仅「将来是否恢复对外分发」这一产品决策，不排期。
 
 ---
 
@@ -698,3 +783,7 @@ W-10 需确认**对外发布物**（README / CHANGELOG / Release Notes / 项目�
 「已落地」结论按三批取证日标注，不得混用：① 2026-11-06 初版取证（§0.3 第 1–17 条）；② 2026-11-07 两次非冻结全量与 W-4/W-5（§4.4.1）；③ 2026-11-07 19:07–19:30 的三次连续提交（`2e42305` / `2acad69` / `724601b`）、S-4 全通道实测与 W-5 陷阱裁定（§0.3 第 18–19 条、§4.4.1「第三次取证」、§0.1、§6）。引用历史数字一律标注口径与日期。HEAD 在本轮取证窗口内是移动目标，本方案**不逐次追写 commit**；发布前所有判据须在 W-10 冻结且停止并行写入的 commit 上重取。
 
 **已知文档瑕疵（不影响判据，本轮未擅自补内容）**：`phase2-backend.md:690-704` 的审计表表头为 5 列（编号 / 项 / 实测口径 / 处置 / 依据），其中 `God File` 起 7 行只填了 4 列，缺「依据」列且「登记延后」被放进第 3 列。属分册编制期遗留，不是本轮修订引入；本轮只转义了 4 处会破坏表格渲染的单元格内管道符（主方案 W-5 行、`phase2-frontend.md:49,256`、`phase3-devops.md:105,274`）。这 7 行的补齐需回查原审计取证记录，登记为【待确认】，不影响主方案任何 Gate 判据。
+
+**W-10 入库与取证批次 ④（2026-11-08）**：九份交付文档已显式 `git add` 并随冻结 commit `093869b` 入库（`git ls-files docs/taskhub/delivery-plan/` = 9，`git status --short` = 0）；上面「提交隔离约束」记录的三处混合 hunk 已由并行线各自提交后整文件合入解决，不再是待办。§4.4.1「第六次取证」为本方案第四次取证批次，其中全量测试、发布门、AC-23~AC-26 默认形态、禁用词检索均在冻结基线上完成。前 ③ 批与 ④ 批的取证条件不同（前 ③ 批为移动工作树，④ 为冻结且停止并行写入），数字与结论不得互换。
+
+**2026-11-09 范围裁决的文档影响**：本轮按作者「无外部取证」的约束，把 G4 及依赖外部机器的 W / AC 判据标为条件形态；判据原文、脚本与取证报告一律未改。本次改动仍为 3 份文档的工作树修改，需单独一次提交，冻结基线 `093869b` 的取证结论不变。
