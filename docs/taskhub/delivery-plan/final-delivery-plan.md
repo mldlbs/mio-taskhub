@@ -1,6 +1,6 @@
 # mio-taskhub 项目交付方案
 
-> 版本：v0.6.1 ｜ 取证日：2026-11-06（2026-11-07 续接复核；2026-11-08 W-10 冻结复核，冻结基线 HEAD=`093869b`；2026-11-09 范围裁决：当前不做对外分发）｜ 对象：`E:\work\code\agent-dev\mio-taskhub` 现有代码库
+> 版本：v0.6.1 ｜ 取证日：2026-11-06（2026-11-07 续接复核；2026-11-08 W-10 冻结复核，冻结基线 HEAD=`093869b`；2026-11-09 范围裁决：当前不做对外分发；2026-11-10 剩余工作项状态复核、consult 前置核查与文档提交）｜ 对象：`E:\work\code\agent-dev\mio-taskhub` 现有代码库
 > 覆盖：需求拆解 / 架构设计 / 技术选型 / 开发排期 / 验收标准
 > 定位：本地单用户、零联网、零外部依赖的跨 Agent 任务协调中枢。本方案描述的是已落地项目的**剩余交付**，不是新建系统计划。
 > 表达口径：工程汇报陈述句，给字段名 / 阈值 / 状态。文档门控只称「结构完整性校验」与「服务端强制」。不确定处标【待确认】。
@@ -43,7 +43,7 @@
 | 2 | 拒绝上限 | FR-B06 / `d468e633/api.md` 写「≥2 判失败」 | `runs.py:480` 为 `run.rejections > MAX_REJECTIONS`（`MAX_REJECTIONS=2`），即**第 3 次**才 409 `run.empty_diff_repeated` | 以源码为准，文档修订列 §4.4 W-3 |
 | 3 | 采集函数名 | 需求 / implementation plan 用 `collect()` | `diff_gate.py` 无 `collect()`；采集由 `snapshot()` + `_numstat()` + `check_diff_gate()` 完成 | 以源码为准 |
 | 4 | `diff_summary.after` | 需求写 before/after 同为 `Snapshot.brief()` 6 字段 | `before` 为 6 字段；`after` 只有 `{files, insertions, deletions}`；`changed` / `reason` / `mode` 平铺顶层 | 以源码为准 |
-| 5 | 门控插入点 | FR-B02 写「约 `:288` 后、`:289` 前」 | 实测 `runs.py:336-337`（文件现 636 行） | 以源码为准 |
+| 5 | 门控插入点 | FR-B02 写「约 `:288` 后、`:289` 前」 | 2026-11-07 实测 `runs.py:336-337`（文件当时 636 行）；**2026-11-10 复核已漂移**：文件 686 行，`_apply_diff_gate` 调用点 `:387`、定义 `:445`、阈值判断 `:530` | 以源码为准，且**按函数名定位**；行号是移动目标，W-3 不再写死（§4.4.1「第七次取证」） |
 | 6 | `docs/` 是否入库 | 旧笔记写「`docs/` 被 .gitignore 第 31 行忽略」 | 第 31/32 行是注释，实际规则在第 33 行 `docs/*` + `:34-41` 白名单反选（`!docs/taskhub/` 等）；「整体忽略」是 2026-10-10 历史态，G0/T0.4 已改白名单。`git check-ignore` 对本文件无输出（不被忽略），`git ls-files docs/taskhub/` 已跟踪 168 个文件 | **不被忽略，需显式 `git add`**：取证当时 `git status --short` 实测 `_delivery-fact-pack.md` 与 `delivery-plan/` 均为 `??`；**2026-11-08 W-10 已入库**（`git ls-files docs/taskhub/delivery-plan/` = 9，冻结 commit `093869b`）。不被忽略 ≠ 已跟踪 |
 
 配套结论：`GET /api/v1/board/diff-gate-stats` 的确切 schema 已由 `api/board.py:371-386` 逐行复核为 **12 个顶层键**：`mode` / `scanned_runs` / `judged_runs` / `unjudged_runs` / `by_reason` / `blocked_run_count` / `blocked_runs` / `warned_run_count` / `skipped_run_count` / `suspected_false_positive_count` / `suspected_false_positive` / `note`。后端分册记「13 字段」属误数，验收按 12 键逐键断言、不按总数判定，需求 §8.2 第 3 条【待确认】收口。
@@ -95,7 +95,7 @@
 | 2 | `scripts/release_checklist.py`、`check_first_run()`、`t35-coldstart-report.md:54` 的「待人工取证」文本 | **一律不改**。发布门权威输出仍为 `all_green=false` / EXIT=1；⑤ 保持「部分」 |
 | 3 | G4 当前状态 | 记为「**不适用（本机自用）**」。不是「通过」，不是「已取消」，也不是「待办中的 No-Go」；条件形态启用时按原判据重新执行，本裁决不构成豁免 |
 | 4 | `build.ps1:66/:180` 两处硬编码、`release_checklist.py` 四处工具缺陷 | 登记为技术债，本轮不排期；不做对外分发时不产生当前影响 |
-| 5 | 当前剩余工作 | ① 提交本次文档改动；② W-1 窄门禁灰度观察（本机可执行，是唯一成功判据 M2 的关键路径）；③ §4.3 表中 W-2 / W-3 / W-6 三项本轮未核完成状态，排期不变 |
+| 5 | 当前剩余工作 | ① 提交本次文档改动 → **2026-11-10 已执行**，第七次、第八次取证随主方案单文件提交；② W-1 窄门禁灰度观察（本机可执行，是唯一成功判据 M2 的关键路径）；③ W-2 / W-3 / W-6 完成状态已核实（§4.4.1「第七次取证」），三项均未关闭，按 11-09 裁决不阻塞本机自用 |
 
 明确禁止：不以「删除 ⑤ 项」「把 ⑤ 判为是」「修改 `check_first_run()` 阈值」「回填报告文本」等方式换取 `all_green=true`。本节调整的是交付范围，不是验收标准。
 
@@ -397,7 +397,7 @@ S-1~S-3 是**对外分发**的硬前置，优先级高于 C 块；S-4 前端通�
 |---|---|---|---|---|---|
 | W-1 | 灰度观察：填 `diff-gate-grayscale-log.md` 起止、跑真实 run、记录 M1~M5、人工回看 M2/M3、按三勾选决定是否切 `block` | 无 | 灰度 log 起止已填；≥3 个真实 run；M2/M3 有人工回看结论；切 block 三个勾选有明确裁决 | 墙钟 1–4 周（真实使用周期），纯工时 1–2 人日 | **是** |
 | W-2 | 前端收尾：`api.js` 的 `ApiError` 读 `detail.code`、`req()` 优先取 `detail.message`、新增 `run.empty_diff` / `run.empty_diff_repeated` 专用文案；`ErrorBar` 接 `error` 对象；`HistRow` 按 `meta.tone` 加整行 danger 类；`.run-report__warn` 前端显式补「不影响放行」 | 无 | `pytest tests/test_run_diff_gate.py -q --basetemp=<独立目录>` 全绿；构造拦截断言 `.toast--danger` 4 秒内出现、`hist-row--danger` 存在、`level=warn` 时无 toast；两个错误体的 `ApiError.userMessage` 不含「数据校验失败」「操作冲突」 | 2–4 人日 | 否 |
-| W-3 | 文档口径修订：`d468e633/api.md` 5 处差异（无认证 / 157 路由 / 不限流无 429 / `after` 字段结构 / 阈值）、FR-B06 阈值改「第 3 次」、`collect()` 命名改 `snapshot()`、FR-B02 插入点行号改 `:336-337`、`diff_summary.after` 改 3 字段 | 无 | 修订后逐一与源码比对无冲突；不打回代码 | 1–2 人日 | 否 |
+| W-3 | 文档口径修订：`d468e633/api.md` 5 处差异（无认证 / 157 路由 / 不限流无 429 / `after` 字段结构 / 阈值）、FR-5 阈值改「第 3 次」、`collect()` 命名改 `snapshot()`、FR-B02 插入点**改按函数名定位，不写死行号**（§4.4.1「第七次取证」）、`diff_summary.after` 改 3 字段 | 无 | 修订后逐一与源码比对无冲突；不打回代码；`api.md` 为 `状态: approved` 契约文档，修订须先按 AGENTS.md 走文档链 consult（分支 `task-<id>` / claim / ReadEvidence / `FR-n` 引用）并过质量分与棘轮基线 | 1–2 人日 | 否 |
 | W-4 | CI 补校验：把 `python scripts/gen_readme_stats.py --check` 接进 `test.yml`；补覆盖率步骤产出 `coverage.xml`；移除安装步 `2>/dev/null` 与其后的 `\|\| pip install -e .` 静默降级，使失败可见；复核并**清理过期的 `-k` 排除项**（`not test_webhook_guard` 对应的 4 个用例已删除，`not test_two_agents_race` 是否仍需保留逐个核）；修正 `tests/conftest.py:11` 无条件覆盖 `MIO_TASKHUB_DB` 导致 CI 注入失效；全量跑补 `--basetemp=<仓库外独立目录>` | 无 | CI 绿；`--check` 漂移能让 job 失败；`coverage.xml` 产物存在；`MIO_TEST_DB_PATH` 与 CI 注入的库路径一致；`-k` 只保留仍成立的排除项 | 1–2 人日 | 否 |
 | W-5 | README 正文旧数字收口：`README.md:737`（40 个 MCP 工具）、`:750`（26 路由模块 / 119 端点）、`:758`（1305 用例）三处改为脚本派生值或删除手工数字；`gen_readme_stats.py --check` 的覆盖范围需扩到这三处；**把已在工作树生效但未提交的统计漂移修复随发版提交** | W-4 | `python scripts/gen_readme_stats.py --check` EXIT=0 且 `grep -nE "40 个 MCP\|119 个端点\|1305\|26 个路由" README.md` 无命中；`git status --short README.md` 为空（干净检出 HEAD 不红 CI） | 0.5 人日 | 否 |
 | W-6 | 三链路自动化断言：给 M4 / AC-07 / AC-15 补可重复断言。**不引入 `web/` 测试框架**，新增用例放后端 `tests/test_front_gate_visibility.py`，用 `TestClient` + 解析 `index.html` / bundle JS 的静态断言覆盖三链路与 `level=warn` 无 toast | W-2 | `pytest tests/test_front_gate_visibility.py -q --basetemp=<独立目录>` 全绿；`web/` 下仍无测试框架依赖 | 1–3 人日 | 否 |
@@ -541,6 +541,54 @@ S-1~S-3 是**对外分发**的硬前置，优先级高于 C 块；S-4 前端通�
 **2026-11-09 更正**：作者确认外部 3 台干净机取证不可执行，当前不做对外分发。上表两项不再是待办，`all_green=false` 保持原值不改；G4 记为「不适用（本机自用）」，见 §0.3 裁决段。本轮不修改 `release_checklist.py`、不回填 `t35-coldstart-report.md`、不删改 §4.5 Gate 判据。
 
 **合计**：纯工时约 10–18 人日（W-1~W-10 约 9–16 人日，S 组剩余约 1–2 人日；两组可并行）；不含 W-1 的观察墙钟与 W-7 的干净机等待。墙钟 2–6 周，主要消耗在 W-1 的真实使用周期与 W-7 的干净机可得性。按 2026-11-08 裁决，S-4 部署动作不做，S 组只剩冻结 commit 复验；S 组只阻塞「对外分发」，本机自用不受其阻塞。W-4 / W-5 的上表已执行部分不再计入剩余工时。**W-10 冻结复核（第六次取证）已执行完毕**：S 组仅剩的冻结 commit 复验也已完成，S 组剩余降为 0；剩余工作收敛为 W-1 观察周期、W-7 干净机取证、W-9 构建修复与同 commit 重跑、两个阻塞清零后的发布门重跑，不含干净机等待。**2026-11-09 调整**：W-7~W-10 转条件形态后，上句中依赖外部机器的四项不再计入当前剩余；当前剩余为文档提交与 W-1 观察，原工期区间不再覆盖条件形态部分。
+
+#### 第七次取证：剩余工作项完成状态复核（2026-11-10）
+
+HEAD 已前进到 `77de1d2`（`docs(delivery-plan): 回写最终交付计划与 phase3 运维/QA 验收`）。该提交只含三份交付文档（`git show --name-only` = 3 个文件，117 insertions / 22 deletions），11-09 范围裁决段已随其入库；`git status --short` = 0，README `--check` EXIT=0。冻结取证基线仍是 `093869b`：`77de1d2` 未改任何 `.py` / `web/src` / `tests` 文件，W-10 的测试与发布门结论不受影响。本轮为只读取证，未改业务源码与 `状态: approved` 契约文档。
+
+| 工作项 | 状态 | 取证 |
+|---|---|---|
+| W-1 灰度观察 | 未执行，且不可由 Agent 代跑 | 需一个真实使用周期、≥3 真实 run、人工回看 M2/M3；`diff-gate-grayscale-log.md` 起止与切 block 勾选框仍空白 |
+| W-2 前端收尾 | **部分完成**：6 条 DoD 中 1 条成立 | 已落地 2 处代码点，其中 `ApiError.userMessage` 属支撑代码、不是 DoD 条目：`web/src/api.js:27` 的 `ApiError.userMessage`、`web/src/components/ErrorBar.jsx:9` 接 `error?.userMessage`（对应 DoD「`ErrorBar` 接 `error` 对象」）。未做：① `ApiError` 只读 `detail.hint` / `detail.error`（`api.js:24-28`），未读 `detail.code`；② `req()` 的 msg 取 `detail?.detail \|\| detail?.error`（`api.js:43`），未优先取 `detail.message`；③ `ERROR_MESSAGES` 无 `run.empty_diff` / `run.empty_diff_repeated` 专用文案；④ `TaskDetail.jsx:156` 的 `HistRow` 整行类名固定 `hist-row`，只有 chip 带 `meta.tone`（`:160`），无整行 danger 类；⑤ `TaskDetail.jsx:520` 的 `.run-report__warn` 只渲染「提示」+ message，无「不影响放行」 |
+| W-3 文档口径修订 | **未执行** | `api.md` 五处旧口径全部仍在，逐处源码依据见下表；`collect()` 仍在 `narrow-gate-implementation-plan-20261020.md:219`；插入点行号已漂移 |
+| W-6 三链路自动化断言 | **未执行** | `tests/test_front_gate_visibility.py` 不存在；`web/` 下仍无测试框架（符合 W-6 原约束） |
+
+W-3 逐处对照（修订按此表，不得按文档原文）：
+
+| # | 文档位置 | 文档原文 | 当前源码 / 实测 | 修订方向 |
+|---|---|---|---|---|
+| 1 | `api.md:47,49` | 「无认证」「401 不使用」 | `main.py:33-46`：`app.state.auth_token` 非空时保护 `/api/`、`/metrics`、`/logs`，不匹配返回 401；token 为空时放行。按 11-08 裁决当前不做默认 auth | 分列默认形态与启用 `--auth` 的条件形态 |
+| 2 | `api.md:21` | 「157 路由」 | README 顶部表 185 REST 端点（`gen_readme_stats.py` 派生，2026-11-10 `--check` EXIT=0） | 改为派生值引用，不写死数字 |
+| 3 | `api.md:373` | 「不限流、不配额，无 429」 | `middleware.py:90` `_DEFAULT_RATE_LIMIT = 600` req/min per IP、`:134` 返回 429；心跳 / result / claim 端点免限流。注：`middleware.py:96` docstring 仍写 120，属源码注释过时 | 改为 600 + 429 + 免限流清单 |
+| 4 | `api.md:195,289,309-310` | 「after 同上结构」；示例 `{head, porcelain}` | `runs.py:472-476` 的 after 仅 `{files, insertions, deletions}`；`runs.py:477-479` 的 `changed` / `reason` / `mode` 平铺顶层；`before` 为 `diff_gate.py:63-72` 的 `Snapshot.brief()` 6 键（含 `paths`） | 改字段表与示例 |
+| 5 | `api.md:101` | 「连续被拒达 2 次后本次执行判失败」 | `runs.py:530` `if run.rejections > MAX_REJECTIONS`（`MAX_REJECTIONS=2`）→ 第 3 次；`:531-535` 注释明确「前 2 次是 422，第 3 次才判失败」 | 改为「第 3 次」 |
+| 6 | `narrow-gate-implementation-plan-20261020.md:219` | `collect()` 抛错 | `diff_gate.py` 无 `collect()`；采集入口为 `snapshot()`（`:147`）+ `_numstat()` + `check_diff_gate()` | 改函数名 |
+
+**插入点行号是移动目标**：FR-B02 原写「约 `:288` 后、`:289` 前」，§0.2 第 5 条曾实测 `runs.py:336-337`（当时文件 636 行）；2026-11-10 复核 `runs.py` 已 686 行，`_apply_diff_gate` 调用点 `:387`、定义 `:445`、阈值判断 `:530`。因此 W-3 的「FR-B02 插入点行号改 `:336-337`」这条 DoD 不成立，改为**按函数名 `_apply_diff_gate` / `submit_result` 定位，不写死行号**；§0.2 第 5 条已同步更正。
+
+**实施前置（AGENTS.md）**：W-2 / W-6 要改 `web/src` 源码与新增 `tests/` 用例，W-3 要修订 `状态: approved` 的契约文档，均需先按项目文档链流程执行——分支 `task-<id>`、`claim` 取 `run_id` 与 `required_reads`、逐 kind 落 ReadEvidence、引用 `FR-n` 编号；approved 文档修订还需过质量分与棘轮基线。本轮未完成这些前置，故不动业务源码、不改 approved 文档、不创建测试文件。
+
+**结论**：方案文档侧已收口并入库；剩余 W 项全部卡在前置条件上——W-1 卡真实使用周期，W-2 / W-3 / W-6 卡文档链 consult。按 11-09 裁决，这些都不阻塞本机自用。
+
+#### 第八次取证：consult 前置核查与单文件提交窗口（2026-11-10 17:35）
+
+上一轮中断处的 consult 前置核查已复核完成，结论与首次取证一致；同时确认提交窗口成立。
+
+**工作树状态**：HEAD `94b284d`（`fix(runtime): 修 hub worker 停摆`，17:29:50），该提交把并行 supervisor 看门狗工作流的 6 个文件（`.github/workflows/test.yml`、`README.md`、`docs/taskhub/spec-supervisor-worker.md`、`mio_taskhub/middleware.py`、`packaging/run_hub.py`、`tests/test_supervisor_worker.py`）全部入库。取证当时 `git status --short` 只剩主方案 1 个文件，近 20 分钟无并行写入；`gen_readme_stats.py --check` EXIT=0。冻结取证基线仍为 `093869b`，`94b284d` 未改交付文档，W-10 的测试与发布门结论不受影响。
+
+| 核查项 | 请求 | 实测 |
+|---|---|---|
+| hub 存活 | `GET /healthz` | 200 `{"status":"ok"}` |
+| 服务状态 | `GET /api/v1/status` | 200，返回各阶段任务计数 |
+| 文档读取 | `GET /api/v1/tasks/d468e633/doc?kind=api` | 200，6 个顶层键 `content` / `kind` / `missing` / `path` / `status` / `truncated` |
+| 文档路径 | 同上 | `path = docs/taskhub/d468e633/api.md` |
+| 文档状态 | 同上 | `status.state = approved`，`at = 2026-10-20T08:32:16.759717+00:00`，`note` 为空 |
+| 正文完整性 | 同上 | `truncated = False`、`missing = False` |
+| 正文一致性 | 服务端 `content` 与仓库 `api.md` | 均为 13,291 字符，`IDENTICAL = True` |
+
+**裁决**：服务端 `content` 是实时读取 `path` 指向的磁盘文件，与仓库 `docs/taskhub/d468e633/api.md` 同一份；`status.state = approved` 是 DB 中的文档状态元数据，不是正文。因此 W-3 若启动，修订只需改仓库这一个 `.md` 文件，服务端返回内容随之更新，**不需要写 DB**；此前「改 approved 文档是否要动数据库」的隐含疑问不成立。但这条结论只解决存储位置，不解除流程前置：分支 `task-<id>`、claim、逐 kind 落 ReadEvidence、引用 `FR-n`、质量分与棘轮基线仍须先完成（§4.4.1「第七次取证」、§7.2 #32）。本轮仍未完成前置，故不改 `api.md`、不改业务源码、不创建测试文件。
+
+**提交窗口**：并行线已入库，工作树只剩主方案 1 个文件，满足日志记录的「只 `git add docs/taskhub/delivery-plan/final-delivery-plan.md`」隔离条件。本轮把第七次、第八次取证一并单独提交，不带入任何并行线文件；按上文「HEAD 是移动目标」的口径，本方案不逐次追写 commit，不登记本次提交号。
 
 ### 4.5 里程碑与依赖
 
@@ -760,6 +808,12 @@ W-10 需确认**对外发布物**（README / CHANGELOG / Release Notes / 项目�
 
 **新增 #31（2026-11-09）｜外部取证不可执行与交付范围裁决**：作者确认无外部 3 台干净机取证条件，当前不做对外分发；W-7 / W-8 / W-9 / W-10、AC-17 / AC-18 / AC-20、G4 整体转条件形态。`all_green=false` 与 `t35-coldstart-report.md:54`「待人工取证」保持原样；不修改脚本、不回填报告、不降低判据。剩余待确认仅「将来是否恢复对外分发」这一产品决策，不排期。
 
+**2026-11-10 增量裁定**：W-2 / W-3 / W-6 的完成状态已取证，见 §4.4.1「第七次取证」，三项均未关闭；修订 `状态: approved` 契约文档或改业务源码前，须先走 AGENTS.md 的文档链 consult（分支 `task-<id>`、claim、ReadEvidence、`FR-n` 引用）。§0.2 第 5 条与 §4.3 W-3 行已按行号漂移更正。
+
+**新增 #32（2026-11-10）｜剩余 W 项的实施前置**：W-1 需真实使用周期与人工回看，不可由 Agent 代跑；W-2（前端收尾 4 项未完成）、W-3（`api.md` 五处旧口径 + `collect()` 命名）、W-6（断言文件缺失）需先按项目文档链流程登记任务并落 ReadEvidence。是否启动由作者决定，不排期。
+
+**2026-11-10 17:35 补充（第八次取证）**：`GET /api/v1/tasks/d468e633/doc?kind=api` 实测 200，`path` 指向仓库内的 `docs/taskhub/d468e633/api.md`，`status.state = approved`、`truncated = False`、`missing = False`，服务端 `content` 与仓库文件逐字符一致。服务端读的是磁盘同一份文件，因此 W-3 修订不需要写 DB；但 approved 状态属文档状态机，修订仍须过状态门、质量分与棘轮基线。此项只澄清存储位置，#32 的流程前置不变。
+
 ---
 
 ## 8. 交付物清单
@@ -787,3 +841,5 @@ W-10 需确认**对外发布物**（README / CHANGELOG / Release Notes / 项目�
 **W-10 入库与取证批次 ④（2026-11-08）**：九份交付文档已显式 `git add` 并随冻结 commit `093869b` 入库（`git ls-files docs/taskhub/delivery-plan/` = 9，`git status --short` = 0）；上面「提交隔离约束」记录的三处混合 hunk 已由并行线各自提交后整文件合入解决，不再是待办。§4.4.1「第六次取证」为本方案第四次取证批次，其中全量测试、发布门、AC-23~AC-26 默认形态、禁用词检索均在冻结基线上完成。前 ③ 批与 ④ 批的取证条件不同（前 ③ 批为移动工作树，④ 为冻结且停止并行写入），数字与结论不得互换。
 
 **2026-11-09 范围裁决的文档影响**：本轮按作者「无外部取证」的约束，把 G4 及依赖外部机器的 W / AC 判据标为条件形态；判据原文、脚本与取证报告一律未改。本次改动仍为 3 份文档的工作树修改，需单独一次提交，冻结基线 `093869b` 的取证结论不变。
+
+**2026-11-10 状态**：上一轮的文档改动已随 `77de1d2` 入库（该提交只含三份文档），冻结取证基线仍为 `093869b`。本轮 §4.4.1「第七次取证」「第八次取证」均为只读取证结论回写，未改业务源码与 `状态: approved` 契约文档。并行 supervisor 看门狗工作流的 6 个文件已由 `94b284d` 单独入库，此后工作树只剩主方案 1 个改动，提交隔离条件成立；本轮把第七次、第八次取证随主方案单文件单独提交，暂存清单只含本文件，不带入并行线文件。
