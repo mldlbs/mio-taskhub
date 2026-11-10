@@ -44,7 +44,8 @@ mio-taskhub.exe hub                      ← supervisor（父进程）
   ├─ CreateProcessW(exe, "hub --worker", CREATE_SUSPENDED)
   │     └─ AssignProcessToJobObject → ResumeThread
   │        （Assign 失败 → 仍 ResumeThread，runtime.log warn "[supervisor] job object degraded"）
-  ├─ 等待循环: WaitForSingleObject(worker) → exit_code
+  ├─ 等待循环: _wait_for_worker() 轮询 WaitForSingleObject(worker, 5s) + /healthz 探活
+  │     ├─ 启动宽限 20s 内不探活；连续 3 次探活失败且 worker 仍活着 → TerminateProcess(9)
   │     ├─ expected_exit / exit_code==0 → 收敛退出，不重启
   │     ├─ 连续 3 次相同非 0 码 → 冷却 60s（log + 托盘 notify）后重置计数
   │     └─ 否则退避 [0, 2, 5, 15]s（封顶）重启（先 CloseHandle 再 spawn，防句柄泄漏）
@@ -54,7 +55,9 @@ mio-taskhub.exe hub                      ← supervisor（父进程）
 mio-taskhub.exe hub --worker             ← worker（子进程）
   ├─ （不碰互斥锁/端口回收/托盘）
   ├─ 守护线程: WaitForSingleObject(exit_event) → server.should_exit = True
-  ├─ uvicorn Server.run() 守卫循环（既有异常语义保留）
+  ├─ uvicorn Server.run() 守卫循环：异常崩溃 sleep 2s 重启；
+  │     启动失败 → _force_worker_exit(3)；无退出请求却返回 → _force_worker_exit(7)
+  │     （两者都必须非 0 码，supervisor 才会退避重启，见「补充」）
   └─ apscheduler + 后台线程（既有）
 ```
 
@@ -144,7 +147,7 @@ def _worker_main():
 
 ## 测试计划
 
-**新增 `tests/test_supervisor_worker.py`（静态回归，7 用例）：**
+**新增 `tests/test_supervisor_worker.py`（静态回归 + 可注入替身，21 用例）：**
 
 | 用例 | 覆盖 | 断言要点 |
 |---|---|---|
@@ -155,6 +158,11 @@ def _worker_main():
 | `test_exit_event_name` | FR-4 | 事件名模板含 `mio-taskhub-worker-exit-` 与 `<port>` 后缀；drain 兜底超时 3s 存在 |
 | `test_worker_no_tray_no_lock` | FR-1/FR-5 | `_worker_main` 函数体（按行切片）不含 `_single_hub_instance`/`_start_tray`/`_reclaim_port` |
 | `test_no_uvicorn_workers_n` | 非目标 | run_hub 无 `workers=` 参数传给 uvicorn（防 apscheduler 重复） |
+| `test_force_worker_exit_uses_nonzero_code` | 补充 | 意外结束码 3/7/9 均非 0，`_force_worker_exit` 调注入的 exit_fn |
+| `test_worker_main_unexpected_returns_are_forced_nonzero` | 补充 | `_worker_main` 两条意外路径都走 `_force_worker_exit`，预期退出仍 `if current["exit"]` break |
+| `test_watchdog_terminates_hung_worker` 等 4 条 | 补充 | 连续 3 次探活失败触发 `TerminateProcess(9)`；宽限期不探、探活成功清零、退出收敛/进程已退出不探 |
+| `test_supervisor_loop_uses_health_watchdog` | 补充 | 等待改走 `_wait_for_worker`，FR-2 的 `code==0` 收敛判定不变 |
+| `test_supervisor_loop_restarts_on_nonzero_exit` / `test_supervisor_loop_still_converges_on_zero` | 补充 | 替身跑真实 `_supervisor_loop`：3/7/9 触发第二次 spawn；0 仍只 spawn 一次 |
 
 **真机验证（TC）：**
 
@@ -219,3 +227,22 @@ def _worker_main():
 | FR-5 | 模块职责边界、详细设计 3 | `test_worker_no_tray_no_lock`、TC-5 |
 | FR-6 | 测试计划-回归 | 全量 pytest + npm build + TC-6 |
 | FR-7 | （本文档链） | doc_quality + 追溯 + pre-push（TC-7） |
+
+---
+
+## 补充：worker 停摆修复（2026-11-10）
+
+**现象**：11-09 线上 48620 无监听，但 `TaskHub.exe` 父进程仍在。
+
+**根因**：FR-2 用 `exit_code==0` 表达「预期收敛、不重启」，更新接口 `POST /api/v1/update/apply` 在 worker 进程内调用 `_request_hub_exit()` 后正是靠这个语义让 supervisor 让路。但 `_worker_main` 的两条**非预期**路径也走到了同一个 0：
+
+| 路径 | 原行为 | 现行为 |
+|---|---|---|
+| uvicorn 启动失败抛 `SystemExit(3)`（端口占用等） | break → 0 → supervisor 收敛停摆 | `_force_worker_exit(3)`，supervisor 退避重启 |
+| `server.run()` 无退出请求却正常返回 | break → 0 → supervisor 收敛停摆 | `_force_worker_exit(7)`，supervisor 退避重启 |
+| 托盘退出 / 更新替换（`current["exit"]=True`） | break → 0 → 收敛 | 不变 |
+| 硬退看门狗强退 | `os._exit(0)` → 收敛 | 不变 |
+
+**新增探活看门狗**：`_wait_for_worker()` 把 INFINITE 等待换成 5s 轮询，worker 启动 20s 后按 `/healthz` 探活；连续 3 次失败且 worker 句柄仍有效 → `TerminateProcess(9)`，交给既有 FR-2 退避重启。用 `/healthz` 而非 `/api/v1/tasks`，因为后者在启用 `--auth` 时会返回 401、把鉴权误判成服务挂了。退出收敛期间不探活，避免干扰 drain。
+
+**残余**：若 worker 由外部以退出码 0 结束（非本代码路径），supervisor 仍按 FR-2 收敛。要彻底区分需引入跨进程的「预期退出标记」，会牵动更新契约，本次不做。

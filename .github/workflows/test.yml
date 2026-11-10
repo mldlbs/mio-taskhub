@@ -29,9 +29,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      # 2026-11-10：统计漂移不该让 13 分钟的测试被整步跳过（已踩三次：
+      # 11-07 两次、11-09 E7 一次）。改成告警 + 留痕，测试照常跑。
       - name: Check README stats
+        id: readme_stats
+        continue-on-error: true
         shell: bash
         run: python scripts/gen_readme_stats.py --check
+
+      - name: Warn on README stats drift
+        if: steps.readme_stats.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "::warning title=README 统计漂移::本地运行 python scripts/gen_readme_stats.py --write 并提交；统计数值只影响 README 表格，不影响测试结果。"
 
       - name: Run tests
         shell: bash

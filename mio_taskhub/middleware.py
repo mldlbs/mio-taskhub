@@ -93,7 +93,7 @@ _DEFAULT_RATE_LIMIT = 600  # req/min per client IP (global)
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Sliding-window rate limiter per client IP for all /api/ endpoints.
 
-    Configure via MIO_TASKHUB_RATE_LIMIT env var (default 120 req/min).
+    Configure via MIO_TASKHUB_RATE_LIMIT env var (default 600 req/min).
     Health/metrics/ws endpoints are exempt.
     """
 

@@ -616,6 +616,19 @@ BACKOFF = [0, 2, 5, 15]        # FR-2 崩溃重启退避秒数（封顶 15s）
 COOLDOWN_STREAK = 3            # FR-2 连续相同非 0 码进入冷却的次数
 COOLDOWN_SECONDS = 60          # FR-2 冷却时长
 DRAIN_TIMEOUT_S = 3            # FR-4 优雅退出等待 worker drain 的兜底超时
+
+# worker 意外结束的退出码（2026-11-10）。FR-2 约定 code==0 为「预期收敛、不重启」：
+# 更新/托盘退出都靠它。因此 uvicorn 启动失败、或没有退出请求却返回，都不能再走 0，
+# 否则 supervisor 会永久收敛，留下「父进程在、端口没人听」的停摆（11-09 线上实例）。
+EXIT_START_FAILURE = 3         # uvicorn 启动失败（端口占用等），可恢复，走退避重启
+EXIT_UNEXPECTED_RETURN = 7     # 服务循环无退出请求却返回
+EXIT_HEALTH_FAILED = 9         # 探活连续失败，supervisor 主动终止 worker
+
+WATCHDOG_POLL_MS = 5000        # supervisor 等句柄的轮询间隔，兼作探活节奏
+WATCHDOG_GRACE_S = 20.0        # worker 启动宽限，期间不探活
+WATCHDOG_FAIL_STREAK = 3       # 连续探活失败次数阈值
+WAIT_TIMEOUT = 258
+
 CREATE_SUSPENDED = 0x00000004
 WAIT_OBJECT_0 = 0
 SYNCHRONIZE = 0x00100000
@@ -869,6 +882,56 @@ def _spawn_worker(job):
     return pi.hProcess, pi.dwProcessId
 
 
+def _probe_health(url) -> bool:
+    """看门狗探活：只打 /healthz（不受 --auth 鉴权影响，_probe_service 打 /api/v1/tasks 会误判）。"""
+    try:
+        import urllib.request
+
+        with urllib.request.urlopen(f"{url}/healthz", timeout=2) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def _wait_for_worker(k32, controller, handle, url, probe=None, monotonic=None,
+                     grace_s=WATCHDOG_GRACE_S, poll_ms=WATCHDOG_POLL_MS,
+                     fail_streak=WATCHDOG_FAIL_STREAK):
+    """等 worker 退出，期间按 healthz 探活；worker 活着但服务不可达则主动终止以便重启。
+
+    原先的 INFINITE 等待只能发现「进程死了」，发现不了「进程还活着但 uvicorn 已不服务」。
+    2026-11-09 线上出现过父进程在、48620 无人听的形态。终止用非 0 码，后面统一走
+    GetExitCodeProcess + FR-2 退避重启；退出收敛期间不探活，避免干扰 drain。
+    """
+    probe = probe or _probe_health
+    monotonic = monotonic or time.monotonic
+    started = monotonic()
+    fails = 0
+    while True:
+        rc = k32.WaitForSingleObject(handle, poll_ms)
+        if rc == WAIT_OBJECT_0:
+            return
+        if controller.expected_exit or controller.stop.is_set():
+            continue
+        if monotonic() - started < grace_s:
+            continue
+        if probe(url):
+            fails = 0
+            continue
+        fails += 1
+        if fails < fail_streak:
+            continue
+        _log("health probe failed %dx with live worker -> terminate for restart"
+             % fails, role="supervisor")
+        try:
+            k32.TerminateProcess(handle, EXIT_HEALTH_FAILED)
+        except Exception as e:  # noqa: BLE001
+            _log("terminate hung worker failed: %r" % e, role="supervisor")
+        for _ in range(10):
+            if k32.WaitForSingleObject(handle, 1000) == WAIT_OBJECT_0:
+                break
+        return
+
+
 def _supervisor_loop(controller, job, icon) -> None:
     """spawn → 等待 → 分支判定 → 退避/冷却重启 → 收敛退出（FR-1/FR-2）。"""
     k32 = _k32()
@@ -891,7 +954,8 @@ def _supervisor_loop(controller, job, icon) -> None:
                     continue
                 controller.set_worker(handle)
                 _log("spawn worker pid=%d" % pid, role="supervisor")
-            k32.WaitForSingleObject(handle, 0xFFFFFFFF)  # INFINITE
+            _wait_for_worker(k32, controller, handle,
+                             f"http://127.0.0.1:{controller.port}")
             code = wintypes.DWORD(0)
             k32.GetExitCodeProcess(handle, ctypes.byref(code))
             code = int(code.value)
@@ -962,6 +1026,22 @@ def _watch_exit_event(port: int, current: dict) -> None:
 EXIT_HARD_GRACE_S = 25.0
 
 
+def _force_worker_exit(code, reason, exit_fn=None, log_fn=None):
+    """worker 意外结束：必须以非 0 码退出，supervisor 才会走 FR-2 退避重启。
+
+    曾几何时这些路径都 break 到 0，被 supervisor 当成「预期收敛」永久停摆。
+    只有托盘退出、更新替换（current["exit"]=True）才允许 0。
+    """
+    (log_fn or _log)("unexpected worker exit code=%d reason=%s" % (code, reason),
+                     role="worker")
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:  # noqa: BLE001
+        pass
+    (exit_fn or os._exit)(code)
+
+
 def _hard_exit_watchdog(current, grace=EXIT_HARD_GRACE_S, poll=0.25, exit_fn=None):
     """退出请求超过 grace 秒仍未退出 → 强制 os._exit(0)（更新/退出兜底）。
 
@@ -1029,21 +1109,25 @@ def _worker_main(port: int):
             server.should_exit = True
         try:
             server.run()
-            _log("hub run returned normally (should_exit=true or clean exit)",
-                 role="worker")
-            break
         except (SystemExit, KeyboardInterrupt) as e:
-            # uvicorn 端口占用等启动失败会抛 SystemExit(3)：重启只会无限循环
-            # 制造僵尸实例（runtime.log 实测 "crashed, restart in 2s: SystemExit(3)"），
-            # 改为直接退出：退出码 0 → supervisor 收敛不重启（FR-2）
-            _log("hub exit (SystemExit/KeyboardInterrupt) type=%s code=%s, no restart"
-                 % (type(e).__name__, getattr(e, "code", None)), role="worker")
-            break
+            # uvicorn 端口占用等启动失败会抛 SystemExit(3)。worker 内部重启只会
+            # 无限制造僵尸（runtime.log 实测），但直接退出 0 会让 supervisor 收敛
+            # 停摆；改成非 0 码交由 supervisor 退避重启（端口占用常是短暂的）。
+            _force_worker_exit(
+                EXIT_START_FAILURE,
+                "%s code=%s" % (type(e).__name__, getattr(e, "code", None)))
         except BaseException as e:
             _log("hub crashed, restart in 2s: type=%s e=%r" % (type(e).__name__, e),
                  role="worker")
             time.sleep(2)
             continue
+        if current["exit"]:
+            # 托盘退出 / 更新替换：保持 0，supervisor 按 FR-2 收敛不重启。
+            _log("hub run returned normally (should_exit=true or clean exit)",
+                 role="worker")
+            break
+        _force_worker_exit(EXIT_UNEXPECTED_RETURN,
+                           "uvicorn returned without exit request")
 
 
 def main(worker: bool = False):
