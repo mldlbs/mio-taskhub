@@ -9,11 +9,23 @@ import re
 import threading
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 RUN_PY = ROOT / "packaging" / "run.py"
 RUN_HUB = ROOT / "packaging" / "run_hub.py"
 
 _MOD = None
+
+
+@pytest.fixture(autouse=True)
+def _no_runtime_log(monkeypatch):
+    """替身跑真实 supervisor/worker 函数时 _log 不得写 ~/.mio_taskhub/runtime.log。
+
+    2026-11-10：早期版本把 [supervisor] health probe failed / restart backoff
+    这类测试日志混进真实运行日志，排障时会误判成线上事件。
+    """
+    monkeypatch.setattr(_load_run_hub(), "_log", lambda *a, **k: None)
 
 
 def _src() -> str:
