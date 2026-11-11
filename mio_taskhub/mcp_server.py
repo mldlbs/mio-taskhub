@@ -53,6 +53,7 @@ mcp = FastMCP(
         "- 代码分支命名为 task-<id>（id 为 8 位十六进制）；本地 pre-push 钩子校验 spec/api/plan 已 approved 且引用的 FR-n 真实存在。\n"
         "- taskhub_submit_result 成功路径会校验 ReadEvidence：required reads 缺失或文档版本已变更 → 422（服务端强制，绕不过）；可用 taskhub_read_status 查看还差哪些。\n"
         "- spec/api/plan 未批准时**不要自行推进文档状态**：taskhub_set_doc_status 需管理面凭据（F-004），执行 agent 调用会被 403；等人工/前端批准后再编码，需要时向用户说明阻塞点。\n"
+        "- **destructive 操作由人执行，agent 不要自助**（F-004 第 3 步，服务端强制）：取消任务（taskhub_cancel_task）、删子任务（taskhub_delete_subtask）、推进文档状态（taskhub_set_doc_status）、强制生成灵感（taskhub_force_generate）都要求管理面凭据——MCP 客户端默认拦截，即使 MIO_MCP_ALLOW_DESTRUCTIVE=1 放行了客户端层，服务端仍会 403（该开关只影响 MCP 客户端，服务端不认）。需要这些动作时向用户说明，由人/前端完成。\n"
         "同项目参考（软信息，只给参考不强制）：\n"
         "- claim 返回的 lessons 字段来自**同workspace 近期已完成任务**，含 test_hints（这个项目测试怎么跑）/ file_layout（文件通常放哪）/ pitfalls（已知坑）。\n"
         "- **动手前先看 lessons**：照着 test_hints 的方式写测试，比事后被检查更有效。\n"
@@ -429,7 +430,7 @@ async def taskhub_scaffold_docs(
     return _fmt(await _request("POST", f"/tasks/{task_id}/docs/scaffold", body=body))
 
 
-@_tool(name="taskhub_set_doc_status", title="推进文档生命周期", method="POST", path="/tasks/{task_id}/doc/{kind}/status", read_only=False, destructive=True, desc="推进文档生命周期状态机（严格向前不允许回退）：requirement/PRD draft→approved；spec draft→review→approved；decision/ADR proposed→accepted→superseded；plan draft→approved→done；test planned→passed/failed；milestone/Release planned→released；incident open→resolved→closed。文档首次写入时自动落初始状态。**该动作属验收，需管理面凭据（X-TaskHub-Admin-Token / 前端 DocPanel），执行任务的 agent 调用会被 403；由人完成。**")
+@_tool(name="taskhub_set_doc_status", title="推进文档生命周期", method="POST", path="/tasks/{task_id}/doc/{kind}/status", read_only=False, destructive=True, desc="推进文档生命周期状态机（严格向前不允许回退）：requirement/PRD draft→approved；spec draft→review→approved；decision/ADR proposed→accepted→superseded；plan draft→approved→done；test planned→passed/failed；milestone/Release planned→released；incident open→resolved→closed。文档首次写入时自动落初始状态。**该动作属验收，需管理面凭据（F-004）：MCP 客户端默认拦截；即使客户端放行，服务端 destructive 门控仍要求管理面凭据，执行 agent 收到的是明确 HTTP 403（admin.token_required / admin.local_confirmation_required）——由人/前端（DocPanel + 管理面凭据）完成。**")
 async def taskhub_set_doc_status(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     kind: str = Field(description="文档类型（需有生命周期的 kind）：requirement/spec/decision/plan/test/milestone/incident"),
@@ -510,7 +511,7 @@ async def taskhub_decompose_apply(
                                body=payload))
 
 
-@_tool(name="taskhub_update_task", title="更新任务细节", method="PATCH", path="/tasks/{task_id}", read_only=False, destructive=False, desc="更新任务细节字段。仅传需要修改的字段。**workspace/files/deliverables/depends_on/target_agent_type 属管理面字段（F-004）：执行任务的 agent 传了会被 403，改任务执行边界需管理面凭据（人/前端）。**")
+@_tool(name="taskhub_update_task", title="更新任务细节", method="PATCH", path="/tasks/{task_id}", read_only=False, destructive=False, desc="更新任务细节字段。仅传需要修改的字段：title/description/acceptance_criteria/due_at/labels/project/fallback_after/doc_paths/spec_path/plan_path。**执行边界字段 workspace/files/deliverables/depends_on/target_agent_type 不在本工具签名里**（F-004 第 3 步收敛）：它们属管理面字段，由人/前端通过 REST PATCH + 管理面凭据修改；agent 建单时的初始边界用 taskhub_create_task（POST 不受字段级管理面校验，路径合法性由服务端 path_guard 兜底）。")
 async def taskhub_update_task(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     title: Optional[str] = Field(default=None, description="标题"),
@@ -519,10 +520,6 @@ async def taskhub_update_task(
     due_at: Optional[str] = Field(default=None, description="截止时间 ISO 格式"),
     labels: Optional[list] = Field(default=None, description="自定义状态标签列表"),
     project: Optional[str] = Field(default=None, description="项目名"),
-    workspace: Optional[str] = Field(default=None, description="工作区路径"),
-    files: Optional[list] = Field(default=None, description="文件路径列表"),
-    deliverables: Optional[list] = Field(default=None, description="产出物路径列表"),
-    depends_on: Optional[list] = Field(default=None, description="前置任务 id 列表（替换现有依赖）"),
     fallback_after: Optional[int] = Field(default=None, description="从 created_at 起算的秒数，超过后允许非目标 agent 领取"),
     doc_paths: Optional[dict] = Field(default=None, description="文档路径映射（kind -> 路径），与现有映射合并；传空字符串可清除该类型。kind 取 spec/plan/requirement/test/architecture/api/readme/changelog"),
     spec_path: Optional[str] = Field(default=None, description="设计文档路径（等价于 doc_paths['spec']，传空字符串清除）"),
@@ -530,8 +527,7 @@ async def taskhub_update_task(
 ) -> str:
     body = {k: v for k, v in {
         "title": title, "description": description, "acceptance_criteria": acceptance_criteria,
-        "due_at": due_at, "labels": labels, "project": project, "workspace": workspace,
-        "files": files, "deliverables": deliverables, "depends_on": depends_on,
+        "due_at": due_at, "labels": labels, "project": project,
         "fallback_after": fallback_after,
         "doc_paths": doc_paths, "spec_path": spec_path, "plan_path": plan_path,
     }.items() if v is not None}
@@ -560,7 +556,7 @@ async def taskhub_update_subtask(
     return _fmt(await _request("PATCH", f"/tasks/{task_id}/subtasks/{subtask_id}", body=body))
 
 
-@_tool(name="taskhub_delete_subtask", title="删除子任务", method="DELETE", path="/tasks/{task_id}/subtasks/{subtask_id}", read_only=False, destructive=True, desc="删除一个子任务/清单项（不可恢复）。")
+@_tool(name="taskhub_delete_subtask", title="删除子任务", method="DELETE", path="/tasks/{task_id}/subtasks/{subtask_id}", read_only=False, destructive=True, desc="删除一个子任务/清单项（不可恢复）。**服务端 destructive 门控要求管理面凭据（F-004 第 3 步）：执行 agent 调用收到明确 HTTP 403，由人/前端完成。**")
 async def taskhub_delete_subtask(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     subtask_id: str = Field(description="子任务唯一标识", min_length=1),
@@ -647,7 +643,7 @@ async def taskhub_move_to_stage(
     return _fmt(await _request("POST", f"/tasks/{task_id}/stage/move", body=body))
 
 
-@_tool(name="taskhub_cancel_task", title="取消任务", method="DELETE", path="/tasks/{task_id}", read_only=False, destructive=True, desc="取消一个排队中的任务（标记为 cancelled）。")
+@_tool(name="taskhub_cancel_task", title="取消任务", method="DELETE", path="/tasks/{task_id}", read_only=False, destructive=True, desc="取消一个排队中的任务（标记为 cancelled）。**服务端 destructive 门控要求管理面凭据（F-004 第 3 步）：执行 agent 调用收到明确 HTTP 403，由人/前端完成。**")
 async def taskhub_cancel_task(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     reason: str = Field(default="manual", description="取消原因枚举：manual/duplicate/obsolete/superseded/policy/other"),
@@ -825,7 +821,7 @@ async def taskhub_gate_status() -> str:
     return _fmt(await _request("GET", "/ideas/gate/status"))
 
 
-@_tool(name="taskhub_force_generate", title="强制触发想法生成", method="POST", path="/ideas/gate/force-generate", read_only=False, destructive=True, desc="强制触发每日灵感生成（绕过闸门，留痕审计）。Body 可选: {\"reason\": \"...\"}。需 MIO_MCP_ALLOW_DESTRUCTIVE=1。")
+@_tool(name="taskhub_force_generate", title="强制触发想法生成", method="POST", path="/ideas/gate/force-generate", read_only=False, destructive=True, desc="强制触发每日灵感生成（绕过闸门，留痕审计）。Body 可选: {\"reason\": \"...\"}。**MCP 客户端默认拦截，服务端 destructive 门控也要求管理面凭据（MIO_MCP_ALLOW_DESTRUCTIVE=1 只放宽 MCP 客户端层，服务端不认）——执行 agent 调用收到明确 HTTP 403，由人/运维执行。**")
 async def taskhub_force_generate(
     job_id: str = Field(default="1271eac5", description="定时任务 id"),
     reason: str = Field(default="", description="强制生成理由（审计留痕）"),

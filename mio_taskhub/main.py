@@ -215,6 +215,12 @@ from fastapi.middleware.gzip import GZipMiddleware
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(RequestIDMiddleware)
+# F-004 第 3 步：destructive 端点服务端收口（destructive_guard）。
+# 注册在 auth 中间件内侧（此后 main.py 下方才 add 的 auth 在外层先跑）：
+# 无 API 凭据先 401；带 API 凭据但无**管理面**凭据的 destructive 请求 403——
+# REST 直连与 MCP 工具调用同一把尺，MIO_MCP_ALLOW_DESTRUCTIVE 只影响 MCP 客户端层。
+from mio_taskhub.destructive_guard import make_destructive_guard_middleware
+app.middleware("http")(make_destructive_guard_middleware())
 init_db()
 
 from mio_taskhub.materials.api import router as materials_router

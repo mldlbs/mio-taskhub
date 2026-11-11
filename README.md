@@ -7,11 +7,11 @@
 | 维度 | 现状 |
 |------|------|
 | 版本 | v0.6.1 |
-| 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 76 模块 / 36,177 行 |
+| 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 76 模块 / 36,196 行 |
 | 对外能力 | **185 个 REST 端点** · **56 个 MCP 工具** · WebSocket 实时广播 · React Web UI |
 | 任务文档 | **22 类文档 kind** · **7 件套文档链** · **9 类生命周期状态机** · 质量 lint + 状态门控 + 修订指令 |
-| 前端 | React 18 + Vite 5 · 56 文件 / 13,889 行 · 10 个视图 |
-| 测试 | **1765 个用例**（55 文件 / 8,480 行）· GitHub Actions（windows-latest / py3.12） |
+| 前端 | React 18 + Vite 5 · 56 文件 / 13,893 行 · 10 个视图 |
+| 测试 | **1769 个用例**（55 文件 / 8,480 行）· GitHub Actions（windows-latest / py3.12） |
 | 部署 | pip 源码 · Docker 多阶段镜像 · Windows 单 EXE 绿色版（免 Python）· Windows 安装包（图形安装 + 正规卸载） |
 
 ---
@@ -683,7 +683,26 @@ OpenTelemetry 自动埋点覆盖 FastAPI、SQLAlchemy、httpx；结构化日志�
 - Web 前端把管理面 token 存在浏览器 `localStorage` 的 `mio-taskhub.admin-token`（与 API 凭据的 `mio-taskhub.token` 分开），只给需要管理员的操作附加 `adminHeaders()`；普通请求不带管理面头。
 - 管理面凭据录入：`?admin_token=<MIO_TASKHUB_ADMIN_TOKEN>` 一次性注入（`auth.js::getAdminToken()` 读后立即从地址栏移除、写入 `sessionStorage`），或直接写浏览器 `localStorage` 键 `mio-taskhub.admin-token`；与 API 凭据的 `?token=` / `mio-taskhub.token` 分流，二者不可复用。
 - URL 会短暂出现在地址栏，可能被浏览器历史 / Referer / 截图留存；管理面凭据比 API 凭据敏感，**仅本机运维首次录入使用**，不要写进日志、聊天或工单。
-- 受管理面约束的操作：`PUT /nightrun/config`、`POST /nightrun/spawn-now`、`POST /nightrun/stop`；`PATCH /tasks/{id}` 里的 `workspace` / `files` / `deliverables` / `target_agent_type` / `depends_on`，以及 `doc_gate_exempt` / `diff_gate_exempt` **置真**；`POST /tasks/{id}/doc/{kind}/status`（文档推进到 review/approved 是验收动作，agent 不得自助完成）。`POST /tasks` 不拦执行边界字段，agent 仍需能建单时指定初始 workspace（路径合法性由 `path_guard` 兜底）。
+- 受管理面约束的操作：`PUT /nightrun/config`、`POST /nightrun/spawn-now`、`POST /nightrun/stop`；`PATCH /tasks/{id}` 里的 `workspace` / `files` / `deliverables` / `target_agent_type` / `depends_on`，以及 `doc_gate_exempt` / `diff_gate_exempt` **置真**；`POST /tasks` 不拦执行边界字段，agent 仍需能建单时指定初始 workspace（路径合法性由 `path_guard` 兜底）。
+
+### destructive 端点服务端收口（F-004 第 3 步）
+
+「哪些端点算破坏性」由 `mio_taskhub/destructive_guard.py::DESTRUCTIVE_ENDPOINTS` 这一**代码常量**登记（中间件在 auth 内侧统一执行），REST 直连与 MCP 工具调用同一把尺，仅持 API 访问凭据（`MIO_TASKHUB_TOKEN`）不能调用：
+
+| 方法 路径 | 名称 | 判定依据 |
+|-----------|------|----------|
+| `DELETE /tasks/{id}` | cancel_task | 任务终态写入，agent 自主取消绕过人工排期与验收 |
+| `POST /tasks/{id}/doc/{kind}/status` | set_doc_status | 推进文档生命周期（含 review/approved/released），绕过质量门/棘轮，属验收动作 |
+| `DELETE /tasks/{id}/subtasks/{sid}` | delete_subtask | 删除子任务，不可恢复 |
+| `POST /ideas/gate/force-generate` | force_generate | 绕过想法生产闸门强制生成 |
+
+要点：
+
+- 判定标准从严：**删除/终态语义、绕过质量门或闸门的验收动作**才算 destructive；agent 必需路径（claim / heartbeat / submit_result / write_document / add_discussion / 阶段推进 / PATCH 普通字段）一律不受影响。
+- `MIO_MCP_ALLOW_DESTRUCTIVE` 是 **MCP 客户端层**开关（`mcp_risk.check`，省一次网络往返），服务端**不读它**——即使置 1，destructive 端点在服务端仍要求管理面凭据，agent 收到明确 403。不存在「一开全放」的服务端宽口子。
+- `mcp_risk` 的 destructive 模式表从 `DESTRUCTIVE_ENDPOINTS` **派生**（单一事实源），MCP 客户端预拦与服务端判定不会漂移；MCP 工具面同步收敛：`taskhub_update_task` 签名已不含 `workspace/files/deliverables/depends_on/target_agent_type`（执行边界字段由人/前端经 REST PATCH + 管理面凭据修改）。
+- Web 前端对 destructive 调用（取消任务 / 推文档状态）统一带 `adminHeaders()`；被拒绝的请求会留 `destructive_blocked` 审计事件。
+- 配套的 operator 面删除（`DELETE /tasks/templates/{id}`、`DELETE /scheduled-jobs/{id}`、`DELETE /alert-rules/{id}`、`POST /update/apply`）不在本清单——它们不经 MCP 工具面暴露，另有 `policy_guard` 的 Mio 历史风险确认（409 + confirm）兜底；如需同等强度可后续并入清单。
 
 ### 记忆网关
 
@@ -755,6 +774,7 @@ mio_taskhub/
 ├── migrations.py        # 轻量迁移
 ├── mcp_server.py        # MCP 工具注册（_tool 装饰器工厂；数量见顶部表）
 ├── middleware.py        # RequestID + 限流
+├── destructive_guard.py # destructive 端点服务端收口（清单常量 + 管理面凭据门控中间件）
 ├── events.py            # 全局事件流 + WebSocket 广播
 ├── background.py        # 心跳扫描 / 调度器 / ThreadRegistry
 ├── dependency.py        # 依赖满足判定 + depends_on 归一化

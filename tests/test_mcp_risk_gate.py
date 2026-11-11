@@ -25,10 +25,22 @@ from mio_taskhub.mcp_risk import READ, WRITE, DESTRUCTIVE
     ("DELETE", "/tasks/abc", DESTRUCTIVE),
     ("POST", "/tasks/abc/stage/move", WRITE),
     ("POST", "/tasks/abc/doc/spec/status", DESTRUCTIVE),
+    # F-004 第 3 步：模式表从服务端清单派生，补齐原清单漏登的两个 destructive 工具面
+    ("DELETE", "/tasks/abc/subtasks/s1", DESTRUCTIVE),
+    ("POST", "/ideas/gate/force-generate", DESTRUCTIVE),
     ("PATCH", "/tasks/abc", WRITE),
 ])
 def test_classify(method, path, level):
     assert mcp_risk.classify(method, path) == level
+
+
+def test_patterns_derived_from_server_list():
+    """单一事实源：mcp_risk 的模式表必须与 destructive_guard 清单一致（防两端漂移）。"""
+    from mio_taskhub.destructive_guard import DESTRUCTIVE_ENDPOINTS
+    expected = {f"{m} {p.lstrip('^')}" for m, p, _n, _w in DESTRUCTIVE_ENDPOINTS}
+    got = {(p[1:] if p.startswith("^") else p).replace("\\s+", " ")
+           for p, _n in mcp_risk._DESTRUCTIVE_PATTERNS}
+    assert got == expected
 
 
 # ---------- 策略：默认拒绝 destructive ----------
@@ -104,7 +116,8 @@ def test_high_risk_tools_annotated_destructive():
     import inspect
     import mio_taskhub.mcp_server as ms
     src = inspect.getsource(ms)
-    for nm in ("taskhub_cancel_task", "taskhub_set_doc_status"):
+    for nm in ("taskhub_cancel_task", "taskhub_set_doc_status",
+               "taskhub_delete_subtask", "taskhub_force_generate"):
         # 找到该工具的 @_tool 声明行，确认 destructive=True
         idx = src.find('name="%s"' % nm)
         assert idx != -1, nm

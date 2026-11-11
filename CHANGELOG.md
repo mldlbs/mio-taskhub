@@ -5,6 +5,14 @@
 > 独立安装与卸载程序：图形安装向导、正规卸载入口（Windows「应用和功能」）、快捷方式、确定性打包。
 > 版本号在发版提交（`chore(release)`）统一抬升并打 tag —— 本节保持 Unreleased。
 
+### Changed — 安全：destructive 门控下沉到服务端（F-004 第 3 步）
+- **新增 `mio_taskhub/destructive_guard.py`**：破坏性端点清单（代码常量：取消任务 / 推文档状态 / 删子任务 / 强制生成灵感）+ 服务端中间件，命中清单即要求**管理面凭据**——REST 直连不再能凭 API 访问凭据绕过此前只存在于 MCP 进程内的门控。
+- **`MIO_MCP_ALLOW_DESTRUCTIVE` 语义收敛**：只作用于 MCP 客户端层（`mcp_risk.check`），服务端判定不读它——即使置 1，destructive 端点在服务端仍 403，不再有「一开全放」的宽口子。
+- **`mcp_risk` 模式表改为从服务端清单派生**（单一事实源），并补齐原清单漏登的 `delete_subtask` / `force_generate` 两个 destructive 工具面。
+- **MCP 工具签名收敛**：`taskhub_update_task` 移除 `workspace/files/deliverables/depends_on` 参数（执行边界字段由人/前端经 REST + 管理面凭据修改；agent 建单初始边界走 `taskhub_create_task` 的 POST 路径）；`taskhub_cancel_task` / `taskhub_delete_subtask` / `taskhub_set_doc_status` / `taskhub_force_generate` 的 desc 与 prompt 同步说明服务端 403 语义。
+- **Web 前端**：`cancelTask` 补带 `adminHeaders()`（服务端收口后裸取消会 403）；`gated()` 409 确认重试透传同一组头。**需重新构建 `web/dist` 后生效。**
+- 测试：新增 `tests/test_destructive_guard.py`（REST 403/放行、agent 必需路径不受影响、env 开关不改变服务端判定、审计事件）；`test_mcp_server.py` / `test_mcp_risk_gate.py` / `test_frontend_auth_wiring.py` 同步收敛断言。
+
 ### Added — 安装 / 卸载程序
 - **`mio_taskhub/installer/` 新增安装与卸载子系统**：安装目录管理、「应用和功能」注册表项（HKCU 用户级，免管理员）、开始菜单/桌面快捷方式、进程清理、payload 解压校验。
 - **图形安装向导 / 卸载向导**（Tkinter）：`mio-taskhub-setup.exe` 双击即装，装完建快捷方式；`uninstall.exe` 双击即卸，可选「同时删除用户数据」（默认保留数据库/日志/备份）。

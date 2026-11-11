@@ -133,10 +133,16 @@ def test_admin_headers_use_get_admin_token_not_localstorage():
     assert "getAdminToken()" in body, "adminHeaders 未走 auth.js 的统一读取入口"
     assert "X-TaskHub-Admin-Token" in body, "强隔离部署所需的 token 头丢失"
     assert "localStorage.getItem" not in body, "adminHeaders 仍在直接读 localStorage 管理面键"
-    # 五个管理面调用点继续带 adminHeaders()：setDocStatus / updateTask / nightrun 三个
+    # 六个管理面调用点继续带 adminHeaders()：setDocStatus / updateTask /
+    # cancelTask（F-004 第 3 步 destructive 收口）/ nightrun 三个
     calls = set(re.findall(r"^\s*(\w+):.*adminHeaders\(\)", api, re.M))
-    assert {"setDocStatus", "updateTask", "nrSaveConfig", "nrStop", "nrSpawnNow"} <= calls, \
+    assert {"setDocStatus", "updateTask", "cancelTask",
+            "nrSaveConfig", "nrStop", "nrSpawnNow"} <= calls, \
         f"管理面调用点缺 adminHeaders()：{sorted(calls)}"
+    # gated() 的 409 确认重试必须透传同一组头，否则 destructive 确认后仍 403
+    assert re.search(
+        r"async function gated\(method, path, label, extraHeaders\)", api), \
+        "gated() 未透传 extraHeaders（409 确认重试会丢管理面头）"
 
 
 def test_req_default_never_claims_admin():

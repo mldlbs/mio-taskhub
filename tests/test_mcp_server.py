@@ -13,21 +13,37 @@ def mcp_ctx(monkeypatch):
     """Point the MCP server's HTTP client at the FastAPI app via ASGI transport.
 
     放行 destructive（MIO_MCP_ALLOW_DESTRUCTIVE=1）：本文件测的是工具行为本身
-    （含 cancel_task），不是风险门控——门控有独立测试 tests/test_mcp_risk_gate.py。
+    （含 cancel_task），不是风险门控——门控有独立测试 tests/test_mcp_risk_gate.py
+    与 tests/test_destructive_guard.py。
     """
     monkeypatch.setenv("MIO_MCP_ALLOW_DESTRUCTIVE", "1")
     transport = httpx.ASGITransport(app=app)
     original_client = mcp_server._client
     # F-004：与 conftest 的 TestClient 口径一致——本文件的 MCP HTTP 客户端视为
     # 本机可信管理面，带 X-TaskHub-Admin: 1，工具行为用例才不会撞上管理面门。
-    # 注意：生产里的 MCP 客户端不带该头，taskhub_update_task 的
-    # workspace/files/deliverables/depends_on 参数因此会被服务端 403（F-004 的预期收紧，
-    # 工具签名待第 3 步「MCP destructive 下沉」一并收敛），无权限路径另见
-    # tests/test_security_p0.py 的 anon_client 用例。
+    # F-004 第 3 步（destructive 下沉 + 签名收敛）已落地：生产 MCP 客户端只带 API
+    # 凭据，taskhub_update_task 的执行边界参数已从签名移除（不再依赖 403 兜底）；
+    # destructive 端点由服务端 destructive_guard 强制管理面凭据，无权限路径见
+    # mcp_ctx_anon fixture 与 tests/test_destructive_guard.py。
     mcp_server._client = httpx.AsyncClient(
         transport=transport, base_url="http://test", timeout=5.0,
         headers={"X-TaskHub-Admin": "1"},
     )
+    yield mcp_server
+    mcp_server._client = original_client
+
+
+@pytest.fixture()
+def mcp_ctx_anon(monkeypatch):
+    """生产口径的 MCP HTTP 客户端：只有 API 访问层，**不带任何管理面头**。
+
+    用于验证：MCP 客户端门控放行（MIO_MCP_ALLOW_DESTRUCTIVE=1）后，destructive
+    调用打到服务端会被 destructive_guard 以明确 HTTP 403 拒绝——env 开关不改变
+    服务端判定。"""
+    transport = httpx.ASGITransport(app=app)
+    original_client = mcp_server._client
+    mcp_server._client = httpx.AsyncClient(
+        transport=transport, base_url="http://test", timeout=5.0)
     yield mcp_server
     mcp_server._client = original_client
 
@@ -159,6 +175,12 @@ def test_claim_with_context(mcp_ctx):
     assert claim["task"]["files"] == ["a.py", "b.py"]
 
 
+def _update_tool_props() -> set:
+    """taskhub_update_task 的 FastMCP 入参 schema 属性集（签名收敛断言用）。"""
+    tool = mcp_server.mcp._tool_manager._tools["taskhub_update_task"]
+    return set(tool.parameters.get("properties", {}))
+
+
 def test_update_task_tool(mcp_ctx):
     created = _call("taskhub_create_task", {"title": "Upd"})
     tid = created["id"]
@@ -166,14 +188,23 @@ def test_update_task_tool(mcp_ctx):
                                       "labels": ["blocked"], "project": "p"})
     assert r["acceptance_criteria"] == "AC"
     assert r["labels"] == ["blocked"]
+    # F-004 第 3 步：执行边界字段已从工具签名移除（FastMCP 参数校验层面不接受）
+    assert not {"workspace", "files", "deliverables", "depends_on",
+                "target_agent_type"} & _update_tool_props()
 
 
 def test_create_and_update_task_depends_on_array(mcp_ctx):
+    """依赖创建走 taskhub_create_task 的 POST 路径（POST 不受字段级管理面校验）。
+
+    taskhub_update_task 签名已不含 depends_on（F-004 第 3 步）：FastMCP 会忽略
+    未登记的入参，body 不带该键 → PATCH 普通字段放行，依赖保持不变——
+    「改执行边界须管理面凭据」在工具签名层就不可达，不再依赖服务端 403 兜底。
+    """
     parent = _call("taskhub_create_task", {"title": "DepParent"})
     created = _call("taskhub_create_task", {"title": "DepChild", "depends_on": [parent["id"]]})
     assert created["depends_on"] == [parent["id"]]
     r = _call("taskhub_update_task", {"task_id": created["id"], "depends_on": []})
-    assert r["depends_on"] == []
+    assert r["depends_on"] == [parent["id"]]  # 未被改：工具签名里没有这个参数
 
 
 def test_subtask_tools(mcp_ctx):
@@ -539,15 +570,55 @@ def test_claim_lessons_never_blocks(mcp_ctx):
 def test_admin_plane_guidance_in_mcp_texts():
     """F-004 收尾：MCP prompt 与工具描述必须如实告知管理面边界。
 
-    生产 MCP 客户端只带 API 凭据、不带管理面头：agent 自助推文档状态或改
-    任务执行边界都会被服务端 403。若 prompt 还在指示 agent 去调
-    taskhub_set_doc_status（2026-11-11 修复前的写法），agent 会反复撞 403。
+    生产 MCP 客户端只带 API 凭据、不带管理面头：agent 自助推文档状态会
+    被服务端 403；执行边界字段已从 taskhub_update_task 签名移除（第 3 步）。
+    若 prompt 还在指示 agent 去调 taskhub_set_doc_status（2026-11-11 修复前的
+    写法），agent 会反复撞 403。
     """
     import pathlib
     src = pathlib.Path(mcp_server.__file__).read_text(encoding="utf-8")
     # prompt 不再指示 agent 自推文档状态
     assert "不要自行推进文档状态" in src
     assert "先用 taskhub_set_doc_status 推进其生命周期再编码" not in src
-    # 工具描述写明管理面边界与正确凭据
+    # prompt 说明 destructive 门控下沉：env 开关只影响 MCP 客户端层
+    assert "destructive 操作由人执行" in src
+    assert "服务端不认" in src
+    # 工具描述写明管理面边界、明确 403 语义与签名收敛
     assert "该动作属验收，需管理面凭据" in src
-    assert "workspace/files/deliverables/depends_on/target_agent_type 属管理面字段" in src
+    assert "不在本工具签名里" in src
+
+
+def test_destructive_env_only_relaxes_client_layer(mcp_ctx_anon, monkeypatch):
+    """F-004 第 3 步核心断言：MIO_MCP_ALLOW_DESTRUCTIVE=1 放行的只是 MCP 客户端层，
+    服务端 destructive 门控仍要求管理面凭据——生产口径（无管理面头）的 MCP 调用
+    收到明确 HTTP 403，而不是客户端 block，也不是静默成功。"""
+    monkeypatch.setenv("MIO_MCP_ALLOW_DESTRUCTIVE", "1")
+    monkeypatch.delenv("MIO_TASKHUB_ADMIN_TOKEN", raising=False)
+    created = _call("taskhub_create_task", {"title": "Gate me"})
+    res = _call("taskhub_cancel_task", {"task_id": created["id"]})
+    assert "error" in res, res
+    assert "403" in res["error"], res
+    assert "admin" in res["error"], res
+    # 任务未被取消
+    detail = _call("taskhub_get_task", {"task_id": created["id"]})
+    assert detail["state"] != "cancelled"
+
+
+def test_client_gate_still_blocks_destructive_by_default(mcp_ctx_anon, monkeypatch):
+    """无 env 放行时，MCP 客户端门控依旧先拦（fail fast，不发网络请求）；
+    拒绝文案如实指向管理面凭据，不再推荐无效的 env 逃生口。"""
+    monkeypatch.delenv("MIO_MCP_ALLOW_DESTRUCTIVE", raising=False)
+    res = _call("taskhub_cancel_task", {"task_id": "whatever"})
+    assert res.get("blocked") is True, res
+    assert "管理面凭据" in res.get("error", ""), res
+
+
+def test_set_doc_status_surfaces_server_403(mcp_ctx_anon, monkeypatch):
+    """set_doc_status：客户端放行后，agent 看到的是服务端明确 403（第 3 步
+    desc 口径「admin.token_required / admin.local_confirmation_required」可对上）。"""
+    monkeypatch.setenv("MIO_MCP_ALLOW_DESTRUCTIVE", "1")
+    monkeypatch.delenv("MIO_TASKHUB_ADMIN_TOKEN", raising=False)
+    res = _call("taskhub_set_doc_status",
+                {"task_id": "deadbeef", "kind": "spec", "state": "approved"})
+    assert "error" in res, res
+    assert "403" in res["error"] and "admin.local_confirmation_required" in res["error"], res

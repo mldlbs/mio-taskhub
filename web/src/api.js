@@ -67,9 +67,11 @@ async function req(method, path, body, extraHeaders) {
 
 // 危险操作门控：409 policy_risk_high → 弹窗确认后带 confirm=true 重试。
 // 低风险时后端直接放行，此处零开销；Mio 不可用时 fail-open 也不会触发。
-async function gated(method, path, label) {
+// extraHeaders：destructive 端点（F-004 第 3 步服务端收口）要求管理面凭据，
+// 确认重试路径必须带上同一组头，否则 409 解除后仍会 403。
+async function gated(method, path, label, extraHeaders) {
   try {
-    return await req(method, path)
+    return await req(method, path, undefined, extraHeaders)
   } catch (e) {
     if (e instanceof ApiError && e.status === 409 && e.error_code === 'policy_risk_high') {
       const risk = (e.detail && e.detail.risk) || 'high'
@@ -78,7 +80,7 @@ async function gated(method, path, label) {
                                { title: '危险操作', danger: true, okText: '仍要继续' })
       if (!ok) throw e
       const sep = path.includes('?') ? '&' : '?'
-      return await req(method, path + sep + 'confirm=true')
+      return await req(method, path + sep + 'confirm=true', undefined, extraHeaders)
     }
     throw e
   }
@@ -122,7 +124,9 @@ export const api = {
   updateSubtask: (id, sid, body) => req('PATCH', `/tasks/${id}/subtasks/${sid}`, body),
   addDiscussion: (id, body) => req('POST', `/tasks/${id}/discussions`, body),
   claim: (agent) => req('POST', `/tasks/claim?agent=${encodeURIComponent(agent)}`),
-  cancelTask: (id) => gated('DELETE', `/tasks/${id}`, '取消任务'),
+  // F-004 第 3 步：DELETE /tasks/{id} 是 destructive 端点，服务端要求管理面凭据
+  // （REST 直连同判）。前端带 adminHeaders()，与 setDocStatus / updateTask 同口径。
+  cancelTask: (id) => gated('DELETE', `/tasks/${id}`, '取消任务', adminHeaders()),
   retryTask: (id) => req('POST', `/tasks/${id}/retry`, {}),
   heartbeat: (rid, body) => req('POST', `/runs/${rid}/heartbeat`, body),
   result: (rid, body) => req('POST', `/runs/${rid}/result`, body),
