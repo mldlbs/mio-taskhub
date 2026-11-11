@@ -2,7 +2,7 @@
 """F-004 第 3 步：服务端 destructive 收口（destructive_guard）回归。
 
 覆盖：
-- 清单判定：4 个破坏性端点命中（含 /api/v1 前缀两种口径），agent 必需路径
+- 清单判定：8 个破坏性端点命中（含 /api/v1 前缀两种口径），agent 必需路径
   （claim / heartbeat / submit_result / write_document / add_discussion /
   PATCH 普通字段 / 阶段推进）不命中；
 - REST 直连 destructive 无管理面凭据 → 403；带管理面凭据（降级头 /
@@ -16,7 +16,7 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import select
+from sqlmodel import Session, select
 
 from mio_taskhub.destructive_guard import is_destructive, match_destructive
 from mio_taskhub.main import app
@@ -42,6 +42,11 @@ def _mk_task(tmp_path, **extra) -> str:
     ("POST", "/tasks/abc123/doc/spec/status", "set_doc_status"),
     ("DELETE", "/api/v1/tasks/abc123/subtasks/s1", "delete_subtask"),
     ("POST", "/api/v1/ideas/gate/force-generate", "force_generate"),
+    ("DELETE", "/api/v1/tasks/templates/tpl1", "delete_template"),
+    ("DELETE", "/tasks/templates/tpl1", "delete_template"),   # MCP 口径
+    ("DELETE", "/api/v1/scheduled-jobs/j1", "delete_scheduled_job"),
+    ("DELETE", "/api/v1/alert-rules/r1", "delete_alert_rule"),
+    ("POST", "/api/v1/update/apply", "update_apply"),
 ])
 def test_destructive_endpoints_matched(method, path, name):
     assert match_destructive(method, path) == name
@@ -64,8 +69,12 @@ def test_destructive_endpoints_matched(method, path, name):
     ("PATCH", "/api/v1/tasks/t1"),                    # 普通字段 PATCH（字段级校验在路由层）
     ("GET", "/api/v1/tasks/t1/doc"),
     ("GET", "/api/v1/board/summary"),
-    ("DELETE", "/api/v1/tasks/templates/tpl1"),       # 模板删除不在本清单（见残余风险说明）
-    ("DELETE", "/api/v1/scheduled-jobs/j1"),
+    ("DELETE", "/api/v1/tasks/templates/tpl1/versions"),  # 模板版本是只读列表
+    ("POST", "/api/v1/scheduled-jobs"),                   # 建定时任务（普通写）
+    ("POST", "/api/v1/scheduled-jobs/j1/trigger"),        # 手动触发（有 cron 引擎与 nightrun 白名单兜底）
+    ("POST", "/api/v1/update/check"),                     # 更新检查/下载只读，不落终态
+    ("POST", "/api/v1/update/download"),
+    ("GET", "/api/v1/update/status"),
 ])
 def test_non_destructive_paths_not_matched(method, path):
     assert is_destructive(method, path) is False
@@ -131,6 +140,75 @@ def test_rest_doc_status_gate(anon_client, tmp_path, monkeypatch):
     r = anon_client.post(f"/api/v1/tasks/{tid}/doc/decision/status",
                          json={"state": "accepted"})
     assert r.status_code == 403, r.text
+
+
+# ── operator 面删除端点（B16-6 残余 #2 收口）─────────────────────────────────
+
+def _mk_template_row() -> str:
+    from mio_taskhub.db import engine
+    from mio_taskhub.models import TaskTemplate
+    import uuid as _uuid
+    tid = _uuid.uuid4().hex[:8]
+    with Session(engine) as s:
+        s.add(TaskTemplate(id=tid, title="tpl"))
+        s.commit()
+    return tid
+
+
+def _mk_job_row() -> str:
+    from mio_taskhub.db import engine
+    from mio_taskhub.models import ScheduledJob
+    import uuid as _uuid
+    jid = _uuid.uuid4().hex[:8]
+    with Session(engine) as s:
+        s.add(ScheduledJob(id=jid, name="job", cron_expr="0 0 * * *"))
+        s.commit()
+    return jid
+
+
+def test_rest_operator_deletes_gate(anon_client, tmp_path, monkeypatch):
+    """模板 / 定时任务 / 告警规则的硬删除：匿名 403，管理面凭据放行。"""
+    monkeypatch.delenv("MIO_TASKHUB_ADMIN_TOKEN", raising=False)
+
+    tpl = _mk_template_row()
+    r = anon_client.delete(f"/api/v1/tasks/templates/{tpl}", params={"confirm": "true"})
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"]["code"] == "admin.local_confirmation_required"
+    r2 = client.delete(f"/api/v1/tasks/templates/{tpl}", params={"confirm": "true"})
+    assert r2.status_code == 200, r2.text
+
+    jid = _mk_job_row()
+    assert anon_client.delete(f"/api/v1/scheduled-jobs/{jid}").status_code == 403
+    assert client.delete(f"/api/v1/scheduled-jobs/{jid}").status_code == 200
+
+    cr = client.post("/api/v1/alert-rules",
+                     json={"name": "r", "metric": "cpu", "condition": "gt", "threshold": 1})
+    assert cr.status_code == 200, cr.text
+    rid = cr.json()["id"]
+    assert anon_client.delete(f"/api/v1/alert-rules/{rid}").status_code == 403
+    assert client.delete(f"/api/v1/alert-rules/{rid}",
+                         params={"confirm": "true"}).status_code == 200
+
+
+def test_rest_update_apply_gate(anon_client, monkeypatch):
+    """update/apply：门控先于 handler，匿名永远到不了更新器。"""
+    monkeypatch.delenv("MIO_TASKHUB_ADMIN_TOKEN", raising=False)
+    r = anon_client.post("/api/v1/update/apply", params={"confirm": "true"})
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"]["code"] == "admin.local_confirmation_required"
+
+
+def test_rest_update_apply_admin_pass(monkeypatch):
+    """带管理面凭据（降级头）时放行——用注入桩避免真的替换二进制。"""
+    class _Stub:
+        def apply(self):
+            return {"ok": True, "stub": True}
+
+    from mio_taskhub.api import update as update_api
+    monkeypatch.setattr(update_api, "_service_override", _Stub())
+    r = client.post("/api/v1/update/apply")
+    assert r.status_code == 200, r.text
+    assert r.json()["ok"] is True
 
 
 def test_allow_destructive_env_does_not_change_server(anon_client, tmp_path, monkeypatch):

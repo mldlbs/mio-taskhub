@@ -50,6 +50,16 @@ DESTRUCTIVE_ENDPOINTS = [
      "删除子任务：不可恢复"),
     ("POST", r"^/ideas/gate/force-generate$", "force_generate",
      "强制触发灵感生成：绕过想法生产闸门（留痕审计）"),
+    # ── 2026-11-11 B16-6 残余 #2：operator 面删除端点并入 ──
+    ("DELETE", r"^/tasks/templates/[^/]+$", "delete_template",
+     "删除任务模板：硬删且连版本历史一起删，不可恢复"),
+    ("DELETE", r"^/scheduled-jobs/[^/]+$", "delete_scheduled_job",
+     "删除定时任务：硬删不可恢复，且定时任务可驱动 nightrun 等批量动作"),
+    ("DELETE", r"^/alert-rules/[^/]+$", "delete_alert_rule",
+     "删除告警规则：硬删不可恢复（DELETE FROM），静默削弱运维告警面"),
+    ("POST", r"^/update/apply$", "update_apply",
+     "应用更新：替换二进制并重启 Hub，等价于对常驻服务执行维护动作，"
+     "须由人/前端确认（policy_guard 的 confirm 只是客户端确认，非身份校验）"),
 ]
 
 _API_PREFIX = re.compile(r"^/api/v1")

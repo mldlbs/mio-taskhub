@@ -695,14 +695,17 @@ OpenTelemetry 自动埋点覆盖 FastAPI、SQLAlchemy、httpx；结构化日志�
 | `POST /tasks/{id}/doc/{kind}/status` | set_doc_status | 推进文档生命周期（含 review/approved/released），绕过质量门/棘轮，属验收动作 |
 | `DELETE /tasks/{id}/subtasks/{sid}` | delete_subtask | 删除子任务，不可恢复 |
 | `POST /ideas/gate/force-generate` | force_generate | 绕过想法生产闸门强制生成 |
+| `DELETE /tasks/templates/{tpl_id}` | delete_template | 硬删模板且连版本历史一起删，不可恢复 |
+| `DELETE /scheduled-jobs/{job_id}` | delete_scheduled_job | 硬删定时任务不可恢复，且定时任务可驱动批量动作 |
+| `DELETE /alert-rules/{rule_id}` | delete_alert_rule | 硬删告警规则（DELETE FROM），静默削弱告警面 |
+| `POST /update/apply` | update_apply | 替换二进制并重启 Hub，属对常驻服务的维护动作 |
 
 要点：
 
 - 判定标准从严：**删除/终态语义、绕过质量门或闸门的验收动作**才算 destructive；agent 必需路径（claim / heartbeat / submit_result / write_document / add_discussion / 阶段推进 / PATCH 普通字段）一律不受影响。
 - `MIO_MCP_ALLOW_DESTRUCTIVE` 是 **MCP 客户端层**开关（`mcp_risk.check`，省一次网络往返），服务端**不读它**——即使置 1，destructive 端点在服务端仍要求管理面凭据，agent 收到明确 403。不存在「一开全放」的服务端宽口子。
 - `mcp_risk` 的 destructive 模式表从 `DESTRUCTIVE_ENDPOINTS` **派生**（单一事实源），MCP 客户端预拦与服务端判定不会漂移；MCP 工具面同步收敛：`taskhub_update_task` 签名已不含 `workspace/files/deliverables/depends_on/target_agent_type`（执行边界字段由人/前端经 REST PATCH + 管理面凭据修改）。
-- Web 前端对 destructive 调用（取消任务 / 推文档状态）统一带 `adminHeaders()`；被拒绝的请求会留 `destructive_blocked` 审计事件。
-- 配套的 operator 面删除（`DELETE /tasks/templates/{id}`、`DELETE /scheduled-jobs/{id}`、`DELETE /alert-rules/{id}`、`POST /update/apply`）不在本清单——它们不经 MCP 工具面暴露，另有 `policy_guard` 的 Mio 历史风险确认（409 + confirm）兜底；如需同等强度可后续并入清单。
+- Web 前端对 destructive 调用（取消任务 / 推文档状态 / 删模板 / 删定时任务 / 应用更新）统一带 `adminHeaders()`；被拒绝的请求会留 `destructive_blocked` 审计事件。
 
 ### 记忆网关
 

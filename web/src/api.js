@@ -200,7 +200,9 @@ export const api = {
   getTemplate: (id) => req('GET', `/tasks/templates/${id}`),
   createTemplate: (body) => req('POST', '/tasks/templates', body),
   updateTemplate: (id, body) => req('PATCH', `/tasks/templates/${id}`, body),
-  deleteTemplate: (id) => gated('DELETE', `/tasks/templates/${id}`, '删除模板'),
+  // 服务端 destructive 清单（destructive_guard.py）：删除模板/定时任务/告警规则
+  // 与 POST /update/apply 都须管理面凭据；REST 直连同判。
+  deleteTemplate: (id) => gated('DELETE', `/tasks/templates/${id}`, '删除模板', adminHeaders()),
   createTemplateFromTask: (taskId, body) => req('POST', `/tasks/templates/from-task/${taskId}`, body),
   createTaskFromTemplate: (tplId, body) => req('POST', `/tasks/from-template/${tplId}`, body),
   listTemplateVersions: (tplId) => req('GET', `/tasks/templates/${tplId}/versions`),
@@ -234,7 +236,7 @@ export const api = {
   getScheduledJob: (id) => req('GET', `/scheduled-jobs/${id}`),
   createScheduledJob: (body) => req('POST', '/scheduled-jobs', body),
   updateScheduledJob: (id, body) => req('PATCH', `/scheduled-jobs/${id}`, body),
-  deleteScheduledJob: (id) => gated('DELETE', `/scheduled-jobs/${id}`, '删除定时任务'),
+  deleteScheduledJob: (id) => gated('DELETE', `/scheduled-jobs/${id}`, '删除定时任务', adminHeaders()),
   triggerScheduledJob: (id) => req('POST', `/scheduled-jobs/${id}/trigger`),
   pauseScheduledJob: (id) => req('POST', `/scheduled-jobs/${id}/pause`),
   resumeScheduledJob: (id) => req('POST', `/scheduled-jobs/${id}/resume`),
@@ -252,7 +254,7 @@ export const api = {
   updateStatus: () => req('GET', '/update/status'),
   updateCheck: () => req('POST', '/update/check'),
   updateDownload: () => req('POST', '/update/download'),
-  updateApply: () => gated('POST', '/update/apply', '应用更新并重启 Hub'),
+  updateApply: () => gated('POST', '/update/apply', '应用更新并重启 Hub', adminHeaders()),
   updateDismiss: () => req('POST', '/update/dismiss'),
   // Mio Agent Runtime (read-only)
   mioStatus: () => req('GET', '/mio/status'),
