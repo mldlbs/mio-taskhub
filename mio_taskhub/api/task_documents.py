@@ -11,6 +11,7 @@ from mio_taskhub.db import get_session
 from mio_taskhub.events import emit_event
 from mio_taskhub.models import Task
 from mio_taskhub import path_guard
+from mio_taskhub.admin_guard import require_admin
 from mio_taskhub.doc_paths import DOC_KINDS, doc_path_of, existing_doc_kinds, merge_doc_paths, sync_legacy_fields
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -626,12 +627,16 @@ def _quality_for(t: Task, kind: str):
                          target.read_text(encoding='utf-8', errors='replace') if target.is_file() else None,
                          base)
 
-@router.post('/{task_id}/doc/{kind}/status')
+@router.post('/{task_id}/doc/{kind}/status', dependencies=[Depends(require_admin)])
 def set_doc_status(task_id: str, kind: str, body: dict, db: Session = Depends(get_session)):
     """推进文档生命周期状态（doc_lifecycle.py 状态机，严格向前，不允许回退）。
 
     body：`state`（必填）+ `note`（可选，如 ADR superseded 的替代编号）。
     未落初始状态时自动先落初始状态再校验转移。
+
+    F-004：文档生命周期推进到 review/approved 是验收动作，不是执行动作；
+    执行任务的 agent 不得自助完成。该端点在 MCP 侧已列为 destructive 默认拒绝，
+    REST 直连此前没有门，现挂整体端点级 `require_admin`。
     """
     from mio_taskhub.doc_lifecycle import lifecycle_of, validate_transition
     t = db.get(Task, task_id)

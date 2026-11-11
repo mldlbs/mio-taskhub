@@ -28,7 +28,15 @@ from mio_taskhub.main import app  # noqa: E402
 from mio_taskhub.db import engine, init_db  # noqa: E402
 from mio_taskhub.models import SQLModel  # noqa: E402
 
-client = TestClient(app)
+# F-004：本审计脚本在进程内驱动 hub，属于本机可信管理面；set_doc_status 现需
+# 管理面凭据，不带头会把探针变成 403（ERR），量不到质量门 / force 的真实行为。
+# 两种头都发：未配 MIO_TASKHUB_ADMIN_TOKEN 时认 X-TaskHub-Admin: 1，配了以后认
+# X-TaskHub-Admin-Token。
+_ADMIN_HEADERS = {"X-TaskHub-Admin": "1"}
+if os.environ.get("MIO_TASKHUB_ADMIN_TOKEN", "").strip():
+    _ADMIN_HEADERS["X-TaskHub-Admin-Token"] = os.environ["MIO_TASKHUB_ADMIN_TOKEN"].strip()
+
+client = TestClient(app, headers=_ADMIN_HEADERS)
 RESULTS = []
 
 

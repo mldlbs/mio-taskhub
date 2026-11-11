@@ -30,6 +30,43 @@ from sqlmodel import select  # noqa: E402
 from mio_taskhub.db import engine, init_db  # noqa: E402
 from mio_taskhub.models import SQLModel, Task, Run, Agent  # noqa: E402
 
+# F-004：管理面凭据不与测试进程的生产 env 串味。需要「强隔离」语义的用例自己用
+# monkeypatch.setenv("MIO_TASKHUB_ADMIN_TOKEN", ...) 覆盖，monkeypatch 用完即还原。
+os.environ.pop("MIO_TASKHUB_ADMIN_TOKEN", None)
+
+# ── TestClient 凭据基线（F-004）─────────────────────────────────────────────
+# 本仓库没有统一的 client fixture：约 100 个测试模块各自在模块级写
+# `client = TestClient(app)`，在 conftest 的 fixture 里改不到这些已构造的实例。
+# 因此在 conftest 导入期（早于所有测试模块）统一给 TestClient 注入默认管理员头：
+#
+#   **TestClient 视为本机可信管理面**：默认带 X-TaskHub-Admin: 1，走 require_admin
+#   的「环回 + 显式确认头」降级态。无权限路径另用 anon_client，不要用默认 client
+#   假装匿名，否则 403 断言会变成假绿。
+#
+# 需要验证「无管理员头」的用例一律用 `anon_client` fixture（或 _anon=True）。
+from fastapi.testclient import TestClient as _TestClient  # noqa: E402
+
+_ORIG_TESTCLIENT_INIT = _TestClient.__init__
+
+
+def _admin_plane_init(self, app, *args, **kwargs):
+    if kwargs.pop("_anon", False):
+        return _ORIG_TESTCLIENT_INIT(self, app, *args, **kwargs)
+    headers = dict(kwargs.pop("headers", None) or {})
+    headers.setdefault("X-TaskHub-Admin", "1")
+    kwargs["headers"] = headers
+    return _ORIG_TESTCLIENT_INIT(self, app, *args, **kwargs)
+
+
+_TestClient.__init__ = _admin_plane_init
+
+
+@pytest.fixture()
+def anon_client():
+    """不带任何管理员头的匿名主体；用于验证 403 路径（F-004）。"""
+    from mio_taskhub.main import app  # noqa: F401
+    return _TestClient(app, _anon=True)
+
 
 @pytest.fixture(autouse=True)
 def _clean_db():

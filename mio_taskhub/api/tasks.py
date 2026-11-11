@@ -32,6 +32,15 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 # `gate_tier` 不在此列——显式降级已强制给 reason 并落 task_gate_tier_changed 事件。
 GATE_EXEMPT_FIELDS = ("doc_gate_exempt", "diff_gate_exempt")
 
+# F-004：PATCH 里能改动「任务执行边界」的字段。改 workspace / files / deliverables
+# 等于改 agent 的落盘范围，改 target_agent_type / depends_on 等于改调度与拓扑，
+# 不能由执行任务的主体自助完成（update_task 此前没有任何主体校验）。
+# 只挂在 PATCH：POST /tasks 仍需允许 agent 带初始 workspace（path_guard 兜底）。
+# gate_tier 不在此列——显式降级已强制 gate_tier_reason 并落 task_gate_tier_changed 事件。
+ADMIN_TASK_FIELDS = frozenset({
+    "workspace", "files", "deliverables", "target_agent_type", "depends_on",
+})
+
 _FALSY = {"", "0", "false", "no", "off", "none", "null"}
 
 
@@ -41,25 +50,54 @@ def _wants_exempt(v) -> bool:
     return bool(v)
 
 
-def _guard_gate_fields(request: Request, body: dict) -> None:
-    """body 里把门控豁免置真时，要求管理员确认（2026-11-07，F-006）。"""
-    touched = [f for f in GATE_EXEMPT_FIELDS if _wants_exempt((body or {}).get(f))]
-    if not touched:
+def _guard_admin_fields(request: Request, body: dict, *, task_fields: bool = True) -> None:
+    """字段级管理面校验（F-004 + F-006，单一判定逻辑）。
+
+    - `task_fields=True`（update_task）：body 出现 ADMIN_TASK_FIELDS 任一字段，
+      或把门控豁免置真，都要求 `admin_ok`；否则 403。
+    - `task_fields=False`（create_task / 兼容包装）：只校验门控豁免置真，
+      POST 不做字段级管理面校验。
+
+    门控豁免置真的 code 保持 `admin.required_for_gate_fields`（兼容既有用例），
+    优先级高于 `admin.required_for_task_fields`。
+    """
+    body = body or {}
+    touched_exempt = [f for f in GATE_EXEMPT_FIELDS if _wants_exempt(body.get(f))]
+    touched_admin = sorted(f for f in ADMIN_TASK_FIELDS if f in body) if task_fields else []
+    if not touched_exempt and not touched_admin:
         return
     from mio_taskhub.admin_guard import admin_ok
     if admin_ok(request):
         return
+    if touched_exempt:
+        raise HTTPException(403, detail={
+            "code": "admin.required_for_gate_fields",
+            "message": (f"把 {', '.join(touched_exempt)} 置为真会关掉质量门控，需要管理面凭据："
+                        "未配置 MIO_TASKHUB_ADMIN_TOKEN 时请带 X-TaskHub-Admin: 1；"
+                        "配置了之后请带 X-TaskHub-Admin-Token（--auth 的 Bearer 不是管理员凭据）。"),
+            "fields": touched_exempt,
+        })
     raise HTTPException(403, detail={
-        "code": "admin.required_for_gate_fields",
-        "message": (f"把 {', '.join(touched)} 置为真会关掉质量门控，需要管理员确认："
-                    "未配置 MIO_TASKHUB_ADMIN_TOKEN 时请带 X-TaskHub-Admin: 1"
-                    "（或启用 --auth 后带 Bearer）。"),
-        "fields": touched,
+        "code": "admin.required_for_task_fields",
+        "message": ("修改任务执行边界字段需要管理面凭据：未配置 MIO_TASKHUB_ADMIN_TOKEN 时"
+                    "请带 X-TaskHub-Admin: 1；配置了之后请带 X-TaskHub-Admin-Token"
+                    "（--auth 的 Bearer 只是 API 访问凭据，不是管理员凭据）。"),
+        "fields": touched_admin,
     })
+
+
+def _guard_gate_fields(request: Request, body: dict) -> None:
+    """兼容包装：create_task 只校验门控豁免，不拦 ADMIN_TASK_FIELDS。
+
+    判定仍走 `_guard_admin_fields`，不留两套逻辑。
+    """
+    return _guard_admin_fields(request, body, task_fields=False)
 
 
 @router.post("", response_model=dict)
 def create_task(body: dict, request: Request, db: Session = Depends(get_session)):
+    # POST 只拦「门控豁免置真」；ADMIN_TASK_FIELDS 不拦，agent 要能带初始 workspace
+    # 建单（路径合法性由 path_guard.workspace_error 兜底）。F-004 只收紧 PATCH。
     _guard_gate_fields(request, body)
     due_at = parse_dt(body.get("due_at"), "due_at")
     run_at = parse_dt(body.get("run_at"), "run_at")
@@ -431,7 +469,8 @@ def update_task(task_id: str, body: dict, request: Request,
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404, "task not found")
-    _guard_gate_fields(request, body)
+    # F-004：PATCH 首次引入主体校验——执行边界字段 + 门控豁免置真都要管理面凭据。
+    _guard_admin_fields(request, body)
     old_tier = t.gate_tier
     editable = ["title", "description", "priority", "est_duration_min", "max_retries",
                 "acceptance_criteria", "due_at", "labels", "project", "workspace",

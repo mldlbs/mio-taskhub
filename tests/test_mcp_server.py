@@ -18,8 +18,15 @@ def mcp_ctx(monkeypatch):
     monkeypatch.setenv("MIO_MCP_ALLOW_DESTRUCTIVE", "1")
     transport = httpx.ASGITransport(app=app)
     original_client = mcp_server._client
+    # F-004：与 conftest 的 TestClient 口径一致——本文件的 MCP HTTP 客户端视为
+    # 本机可信管理面，带 X-TaskHub-Admin: 1，工具行为用例才不会撞上管理面门。
+    # 注意：生产里的 MCP 客户端不带该头，taskhub_update_task 的
+    # workspace/files/deliverables/depends_on 参数因此会被服务端 403（F-004 的预期收紧，
+    # 工具签名待第 3 步「MCP destructive 下沉」一并收敛），无权限路径另见
+    # tests/test_security_p0.py 的 anon_client 用例。
     mcp_server._client = httpx.AsyncClient(
-        transport=transport, base_url="http://test", timeout=5.0
+        transport=transport, base_url="http://test", timeout=5.0,
+        headers={"X-TaskHub-Admin": "1"},
     )
     yield mcp_server
     mcp_server._client = original_client

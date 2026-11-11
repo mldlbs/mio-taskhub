@@ -32,6 +32,24 @@ export class ApiError extends Error {
   }
 }
 
+// ── 管理面凭据（F-004）──────────────────────────────────────────────────────
+// 与 auth.js 的 API 访问凭据（getToken / mio-taskhub.token）**完全分开**，键名不复用：
+// - 未配置 MIO_TASKHUB_ADMIN_TOKEN：服务端认「环回 + 'X-TaskHub-Admin': '1'」这道降级态速度闸
+// - 配置之后：服务端只认 X-TaskHub-Admin-Token: <MIO_TASKHUB_ADMIN_TOKEN>，旧头失效
+// 两种头同时发，前端不必按部署形态分叉。管理面 token 只由运维在浏览器 localStorage
+// 里存（键 mio-taskhub.admin-token），绝不下发给执行任务的 agent。
+// 注意：不要把这个头塞进 req() 的默认值，那等于所有请求都是管理面操作。
+const ADMIN_TOKEN_KEY = 'mio-taskhub.admin-token'
+
+export function adminHeaders() {
+  const headers = { 'X-TaskHub-Admin': '1' }
+  try {
+    const t = localStorage.getItem(ADMIN_TOKEN_KEY)
+    if (t) headers['X-TaskHub-Admin-Token'] = t
+  } catch { /* storage 不可用时忽略 */ }
+  return headers
+}
+
 async function req(method, path, body, extraHeaders) {
   // S-4：启用鉴权时统一注入 Authorization: Bearer；无 token 时 authHeaders 原样返回。
   const opts = { method, headers: authHeaders({ 'Content-Type': 'application/json', ...(extraHeaders || {}) }) }
@@ -80,8 +98,9 @@ export const api = {
   getTaskDocuments: (id) => req('GET', `/tasks/${id}/documents`),
   // 文档生命周期总览：各 kind 当前状态 + states 全序列 + 合法后继
   getDocStatuses: (id) => req('GET', `/tasks/${id}/doc/statuses`),
-  // 推进文档生命周期状态（body: {state, note?, force?}）；受质量门约束，422 带缺口明细
-  setDocStatus: (id, kind, body) => req('POST', `/tasks/${id}/doc/${kind}/status`, body),
+  // 推进文档生命周期状态（body: {state, note?, force?}）；受质量门约束，422 带缺口明细。
+  // F-004：验收动作需管理面凭据，带 adminHeaders()。
+  setDocStatus: (id, kind, body) => req('POST', `/tasks/${id}/doc/${kind}/status`, body, adminHeaders()),
   getTaskFile: (id, path) => req('GET', `/tasks/${id}/file?path=${encodeURIComponent(path)}`),
   // 原样返回 workspace 内文件（二进制安全），用于 <img src> 等直接引用。
   // 无 token 时保持原行为；启用鉴权时标签请求带不上 header，调用方改用 rawFileBlobUrl。
@@ -97,7 +116,9 @@ export const api = {
   getTaskGraph: (id) => req('GET', `/tasks/${id}/graph`),
   getWorkstream: (id) => req('GET', `/tasks/${id}/workstream`),  getFullGraph: () => req('GET', '/tasks/graph'),
   createTask: (t) => req('POST', '/tasks', t),
-  updateTask: (id, body) => req('PATCH', `/tasks/${id}`, body),
+  // F-004：PATCH 的 workspace/files/deliverables/target_agent_type/depends_on
+  // 属管理面字段，服务端逐字段校验；前端统一带 adminHeaders()，普通字段不受影响。
+  updateTask: (id, body) => req('PATCH', `/tasks/${id}`, body, adminHeaders()),
   addSubtask: (id, body) => req('POST', `/tasks/${id}/subtasks`, body),
   updateSubtask: (id, sid, body) => req('PATCH', `/tasks/${id}/subtasks/${sid}`, body),
   addDiscussion: (id, body) => req('POST', `/tasks/${id}/discussions`, body),
@@ -115,10 +136,12 @@ export const api = {
   listProjects: () => req('GET', '/plans/projects'),
   nrConfig: () => req('GET', '/nightrun/config'),
   nrLoadFull: () => req('GET', '/nightrun/full-config'),
-  // 危险端点（拉起/停止本机进程）：后端要求管理员确认头，未配 admin token 时靠它放行。
-  nrSaveConfig: (cfg) => req('PUT', '/nightrun/config', cfg, { 'X-TaskHub-Admin': '1' }),
-  nrStop: () => req('POST', '/nightrun/stop', {}, { 'X-TaskHub-Admin': '1' }),
-  nrSpawnNow: (agents) => req('POST', '/nightrun/spawn-now', agents, { 'X-TaskHub-Admin': '1' }),
+  // 危险端点（拉起/停止本机进程）：后端要求管理员确认头。F-004 后统一走
+  // adminHeaders()——强隔离部署（配了 MIO_TASKHUB_ADMIN_TOKEN）时旧的 X-TaskHub-Admin: 1
+  // 会失效，必须同时提供 X-TaskHub-Admin-Token，否则这组按钮会 403。
+  nrSaveConfig: (cfg) => req('PUT', '/nightrun/config', cfg, adminHeaders()),
+  nrStop: () => req('POST', '/nightrun/stop', {}, adminHeaders()),
+  nrSpawnNow: (agents) => req('POST', '/nightrun/spawn-now', agents, adminHeaders()),
   nrStatus: () => req('GET', '/nightrun/full-config'),
   nrCronTasks: () => req('GET', '/nightrun/cron-tasks'),
   // Reviews

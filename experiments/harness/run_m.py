@@ -213,11 +213,26 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 # ── 子进程：探针 ──────────────────────────────────────────────────────────
+def _admin_headers() -> dict:
+    """F-004：实验探针在进程内驱动 hub，属于本机可信管理面。
+
+    `set_doc_status` 与 PATCH 执行边界字段现在要管理面凭据；探针量的是
+    质量门/棘轮回退的业务状态码（422/200），不能被 403 提前短路。
+    两种头都发：未配 MIO_TASKHUB_ADMIN_TOKEN 时认 X-TaskHub-Admin: 1，
+    配了以后认 X-TaskHub-Admin-Token。
+    """
+    headers = {"X-TaskHub-Admin": "1"}
+    token = os.environ.get("MIO_TASKHUB_ADMIN_TOKEN", "").strip()
+    if token:
+        headers["X-TaskHub-Admin-Token"] = token
+    return headers
+
+
 def _client_ctx():
     """进程内 TestClient（进入时启动 lifespan）。调用方须先设好 env 与 DB。"""
     from fastapi.testclient import TestClient
     from mio_taskhub.main import app
-    return TestClient(app)
+    return TestClient(app, headers=_admin_headers())
 
 
 def _init_db() -> None:
@@ -230,7 +245,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
     from fastapi.testclient import TestClient
     from mio_taskhub.main import app
     out: Dict[str, bool] = {}
-    with TestClient(app) as client:
+    with TestClient(app, headers=_admin_headers()) as client:
         # 探针 1：未读 submit
         tid = _mk_task(client, title=f"probe-unread-{args.arm}")
         r = client.post(f"/api/v1/tasks/claim", params={"agent": f"probe-{args.arm}", "task_id": tid})
@@ -359,7 +374,7 @@ def cmd_unit(args: argparse.Namespace) -> int:
             return _unit_s4a(args)
         from fastapi.testclient import TestClient
         from mio_taskhub.main import app
-        with TestClient(app) as client:
+        with TestClient(app, headers=_admin_headers()) as client:
             return _dispatch(client, args, jsonl, scen, arm, rep, seed)
     except Exception as e:  # §5.4-1：harness 自身失败 → ERR 计入分母
         _write_jsonl(jsonl, {"kind": "err", "scenario": scen, "arm": arm,

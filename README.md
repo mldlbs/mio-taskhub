@@ -7,11 +7,11 @@
 | 维度 | 现状 |
 |------|------|
 | 版本 | v0.6.1 |
-| 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 76 模块 / 35,974 行 |
+| 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 76 模块 / 36,046 行 |
 | 对外能力 | **185 个 REST 端点** · **56 个 MCP 工具** · WebSocket 实时广播 · React Web UI |
 | 任务文档 | **22 类文档 kind** · **7 件套文档链** · **9 类生命周期状态机** · 质量 lint + 状态门控 + 修订指令 |
-| 前端 | React 18 + Vite 5 · 56 文件 / 13,833 行 · 10 个视图 |
-| 测试 | **1735 个用例**（55 文件 / 8,480 行）· GitHub Actions（windows-latest / py3.12） |
+| 前端 | React 18 + Vite 5 · 56 文件 / 13,856 行 · 10 个视图 |
+| 测试 | **1748 个用例**（55 文件 / 8,480 行）· GitHub Actions（windows-latest / py3.12） |
 | 部署 | pip 源码 · Docker 多阶段镜像 · Windows 单 EXE 绿色版（免 Python）· Windows 安装包（图形安装 + 正规卸载） |
 
 ---
@@ -667,6 +667,21 @@ OpenTelemetry 自动埋点覆盖 FastAPI、SQLAlchemy、httpx；结构化日志�
 | `MIO_TASKHUB_ADR_DIR` | `<CWD>/docs/adr` | ADR 落盘目录 |
 | `MIO_TASKHUB_WIDGET_NO_TRAY` | — | `1` 时浮动面板不进托盘 |
 
+### 身份凭据：API 访问权 ≠ 管理面操作权（两级，F-004）
+
+| 凭据 | 默认 | 作用 | 谁持有 |
+|------|------|------|--------|
+| `MIO_TASKHUB_TOKEN` / `--auth` | 空（关闭鉴权） | **API 访问凭据**。`main.py` 的全局中间件校验 `Authorization: Bearer <token>`，保护 `/api/`、`/metrics`、`/logs` 与 WebSocket。只回答「能不能访问 API」 | 人、Web 前端、MCP、所有执行任务的 agent（共用同一个值） |
+| `MIO_TASKHUB_ADMIN_TOKEN` | 空 | **管理面凭据**。`admin_guard.require_admin` 校验 `X-TaskHub-Admin-Token: <token>`（兼容 `Authorization: Bearer <token>`）。回答「是不是管理面操作者」 | **只给 Web 前端 / 运维，绝不下发给执行任务的 agent** |
+
+要点：
+
+- 两者**互不通用**：拿到 `--auth` 的全局 token 不等于拿到管理员凭据。F-004 之前 `admin_tokens()` 会把 `app.state.auth_token` 并进管理员凭据，任何持有全局 token 的 agent 都自动是管理员，`require_admin` 形同虚设。
+- **降级态**：只配 `--auth`、未配 `MIO_TASKHUB_ADMIN_TOKEN` 时，管理面判定回落到「环回来源 + 显式 `X-TaskHub-Admin: 1`」这道**速度闸**。同机任意进程都能伪造该头，只挡误操作，**不是强隔离**。
+- **强隔离**：两个都配。`--auth` 挡住外部主体，`MIO_TASKHUB_ADMIN_TOKEN` 把管理面凭据与 agent 持有的 API 凭据切开；此时 `X-TaskHub-Admin: 1` 失效，必须带 `X-TaskHub-Admin-Token`。
+- Web 前端把管理面 token 存在浏览器 `localStorage` 的 `mio-taskhub.admin-token`（与 API 凭据的 `mio-taskhub.token` 分开），只给需要管理员的操作附加 `adminHeaders()`；普通请求不带管理面头。
+- 受管理面约束的操作：`PUT /nightrun/config`、`POST /nightrun/spawn-now`、`POST /nightrun/stop`；`PATCH /tasks/{id}` 里的 `workspace` / `files` / `deliverables` / `target_agent_type` / `depends_on`，以及 `doc_gate_exempt` / `diff_gate_exempt` **置真**；`POST /tasks/{id}/doc/{kind}/status`（文档推进到 review/approved 是验收动作，agent 不得自助完成）。`POST /tasks` 不拦执行边界字段，agent 仍需能建单时指定初始 workspace（路径合法性由 `path_guard` 兜底）。
+
 ### 记忆网关
 
 | 变量 | 默认 | 说明 |
@@ -718,9 +733,10 @@ mio-taskhub serve --auth
 ```
 
 - 服务端 token 优先取 `MIO_TASKHUB_TOKEN`，其次 `--token`，都未设置则自动生成并打印
-- 只有 `/api/*` 前缀需要认证，Web UI 与 `/docs` 免认证（本地单用户场景）
+- 只有 `/api/*` 前缀（外加 `/metrics`、`/logs`）需要认证，Web UI 与 `/docs` 免认证（本地单用户场景）
 - 客户端（MCP 服务、`agent_wrapper.py`）设 `MIO_TASKHUB_TOKEN` 后自动带 `Authorization: Bearer <token>`
 - WebSocket 连接时传 `?token=<token>` 或 Bearer 头
+- `--auth` 只管「API 访问权」，**不是管理员凭据**；管理员操作另需 `MIO_TASKHUB_ADMIN_TOKEN`，见 §9「身份凭据」。只配 `--auth` 时管理面处于降级态（`X-TaskHub-Admin: 1` 速度闸），不要把它当强隔离
 
 ---
 
