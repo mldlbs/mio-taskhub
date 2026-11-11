@@ -172,8 +172,8 @@ def test_mcp_heartbeat_sends_pid_and_records_sent(monkeypatch):
     from mio_taskhub import mcp_server
     captured = []
 
-    async def fake_request(method, path, params=None, body=None):
-        captured.append({"method": method, "path": path, "body": body})
+    async def fake_request(method, path, params=None, body=None, headers=None):
+        captured.append({"method": method, "path": path, "body": body, "headers": headers})
         return {"id": "rx", "state": "running", "progress": 50}
 
     monkeypatch.setattr(mcp_server, "_request", fake_request)
@@ -187,7 +187,7 @@ def test_mcp_heartbeat_sends_pid_and_records_sent(monkeypatch):
     assert entries[0]["delivered"] is True
 
     # 传输失败：delivered=false（网络分区对账证据）
-    async def failing_request(method, path, params=None, body=None):
+    async def failing_request(method, path, params=None, body=None, headers=None):
         return {"error": "无法连接 hub"}
     monkeypatch.setattr(mcp_server, "_request", failing_request)
     asyncio.run(mcp_server.taskhub_heartbeat(run_id="runmcp", progress=51))

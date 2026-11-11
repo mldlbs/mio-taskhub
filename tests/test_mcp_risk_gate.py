@@ -89,7 +89,7 @@ def test_read_request_not_blocked(monkeypatch):
     import mio_taskhub.mcp_server as ms
     monkeypatch.delenv("MIO_MCP_ALLOW_DESTRUCTIVE", raising=False)
 
-    async def fake_request(self, method, url, params=None, json=None):
+    async def fake_request(self, method, url, params=None, json=None, headers=None):
         return httpx.Response(200, json={"ok": True}, request=httpx.Request(method, url))
     monkeypatch.setattr(ms._client, "request", fake_request.__get__(ms._client, type(ms._client)))
 
