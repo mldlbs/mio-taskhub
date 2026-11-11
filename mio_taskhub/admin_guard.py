@@ -21,9 +21,11 @@ API 凭据切开）。
 
 `require_admin` 判定规则：
 
-1. 配置了 `MIO_TASKHUB_ADMIN_TOKEN`：请求必须携带
-   `X-TaskHub-Admin-Token: <token>`（或兼容的 `Authorization: Bearer <token>`），
-   否则 403 `admin.token_required`。`X-TaskHub-Admin: 1` 在此模式下**不生效**。
+1. 配置了 `MIO_TASKHUB_ADMIN_TOKEN`：请求必须携带 `X-TaskHub-Admin-Token: <token>`，
+   否则 403 `admin.token_required`。`Authorization: Bearer <token>` 仅在**未启用
+   `--auth`** 时可用作兼容——启用 `--auth` 后 Bearer 被 API 访问凭据占用，带
+   Bearer 管理面 token 会先被 auth 中间件 401（2026-11-11 线上实测）。
+   `X-TaskHub-Admin: 1` 在此模式下**不生效**。
 2. 未配置管理面凭据（降级态）：仅允许环回来源 + `X-TaskHub-Admin: 1`，否则 403
    `admin.local_confirmation_required`。
 """
@@ -74,8 +76,9 @@ def require_admin(request: Request) -> None:
             return
         raise HTTPException(403, detail={
             "code": "admin.token_required",
-            "message": ("该端点需要管理面凭据：X-TaskHub-Admin-Token: <MIO_TASKHUB_ADMIN_TOKEN> "
-                        "（或 Authorization: Bearer <MIO_TASKHUB_ADMIN_TOKEN>）。"
+            "message": ("该端点需要管理面凭据：X-TaskHub-Admin-Token: <MIO_TASKHUB_ADMIN_TOKEN>。"
+                        "Authorization: Bearer <MIO_TASKHUB_ADMIN_TOKEN> 仅在未启用 --auth 时可用作兼容；"
+                        "启用 --auth 后 Bearer 被 API 凭据占用，只能用 X-TaskHub-Admin-Token。"
                         "注意 --auth / MIO_TASKHUB_TOKEN 是 API 访问凭据，不是管理员凭据。"),
         })
     client = request.client.host if request.client else ""

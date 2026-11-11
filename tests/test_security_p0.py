@@ -442,6 +442,11 @@ def test_admin_token_env_disables_legacy_header(tmp_path, monkeypatch):
     r2 = client.post(f"/api/v1/tasks/{tid}/doc/spec/status", json={"state": "review"})
     assert r2.status_code == 403, r2.text
     assert r2.json()["detail"]["code"] == "admin.token_required"
+    # 403 文案必须优先推荐 X-TaskHub-Admin-Token；Bearer 兼容仅限未启用 --auth。
+    # 双 token 部署下按旧文案走 Bearer 会先被 auth 中间件 401（2026-11-11 线上实测）。
+    msg = r2.json()["detail"]["message"]
+    assert "X-TaskHub-Admin-Token" in msg
+    assert "仅在未启用 --auth 时可用作兼容" in msg
 
 
 def test_admin_token_env_accepts_admin_token_header(tmp_path, monkeypatch):

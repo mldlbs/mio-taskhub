@@ -534,3 +534,20 @@ def test_claim_lessons_never_blocks(mcp_ctx):
     assert claim.get("id"), claim
     # lessons 降级为空结构
     assert claim["lessons"]["source_count"] == 0
+
+
+def test_admin_plane_guidance_in_mcp_texts():
+    """F-004 收尾：MCP prompt 与工具描述必须如实告知管理面边界。
+
+    生产 MCP 客户端只带 API 凭据、不带管理面头：agent 自助推文档状态或改
+    任务执行边界都会被服务端 403。若 prompt 还在指示 agent 去调
+    taskhub_set_doc_status（2026-11-11 修复前的写法），agent 会反复撞 403。
+    """
+    import pathlib
+    src = pathlib.Path(mcp_server.__file__).read_text(encoding="utf-8")
+    # prompt 不再指示 agent 自推文档状态
+    assert "不要自行推进文档状态" in src
+    assert "先用 taskhub_set_doc_status 推进其生命周期再编码" not in src
+    # 工具描述写明管理面边界与正确凭据
+    assert "该动作属验收，需管理面凭据" in src
+    assert "workspace/files/deliverables/depends_on/target_agent_type 属管理面字段" in src

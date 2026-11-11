@@ -672,7 +672,7 @@ OpenTelemetry 自动埋点覆盖 FastAPI、SQLAlchemy、httpx；结构化日志�
 | 凭据 | 默认 | 作用 | 谁持有 |
 |------|------|------|--------|
 | `MIO_TASKHUB_TOKEN` / `--auth` | 空（关闭鉴权） | **API 访问凭据**。`main.py` 的全局中间件校验 `Authorization: Bearer <token>`，保护 `/api/`、`/metrics`、`/logs` 与 WebSocket。只回答「能不能访问 API」 | 人、Web 前端、MCP、所有执行任务的 agent（共用同一个值） |
-| `MIO_TASKHUB_ADMIN_TOKEN` | 空 | **管理面凭据**。`admin_guard.require_admin` 校验 `X-TaskHub-Admin-Token: <token>`（兼容 `Authorization: Bearer <token>`）。回答「是不是管理面操作者」 | **只给 Web 前端 / 运维，绝不下发给执行任务的 agent** |
+| `MIO_TASKHUB_ADMIN_TOKEN` | 空 | **管理面凭据**。`admin_guard.require_admin` 校验 `X-TaskHub-Admin-Token: <token>`（`Authorization: Bearer <token>` 仅在未启用 `--auth` 时可用作兼容；启用后 Bearer 被 API 凭据占用）。回答「是不是管理面操作者」 | **只给 Web 前端 / 运维，绝不下发给执行任务的 agent** |
 
 要点：
 

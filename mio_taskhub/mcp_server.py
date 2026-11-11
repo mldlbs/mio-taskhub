@@ -51,7 +51,7 @@ mcp = FastMCP(
         "- 写代码/测试时引用 requirement 里的 FR-n 编号（可追溯，详见仓库 doc-consult-enforcement-plan.md）。\n"
         "- 代码分支命名为 task-<id>（id 为 8 位十六进制）；本地 pre-push 钩子校验 spec/api/plan 已 approved 且引用的 FR-n 真实存在。\n"
         "- taskhub_submit_result 成功路径会校验 ReadEvidence：required reads 缺失或文档版本已变更 → 422（服务端强制，绕不过）；可用 taskhub_read_status 查看还差哪些。\n"
-        "- spec/api/plan 未批准时先用 taskhub_set_doc_status 推进其生命周期再编码。\n"
+        "- spec/api/plan 未批准时**不要自行推进文档状态**：taskhub_set_doc_status 需管理面凭据（F-004），执行 agent 调用会被 403；等人工/前端批准后再编码，需要时向用户说明阻塞点。\n"
         "同项目参考（软信息，只给参考不强制）：\n"
         "- claim 返回的 lessons 字段来自**同workspace 近期已完成任务**，含 test_hints（这个项目测试怎么跑）/ file_layout（文件通常放哪）/ pitfalls（已知坑）。\n"
         "- **动手前先看 lessons**：照着 test_hints 的方式写测试，比事后被检查更有效。\n"
@@ -422,7 +422,7 @@ async def taskhub_scaffold_docs(
     return _fmt(await _request("POST", f"/tasks/{task_id}/docs/scaffold", body=body))
 
 
-@_tool(name="taskhub_set_doc_status", title="推进文档生命周期", method="POST", path="/tasks/{task_id}/doc/{kind}/status", read_only=False, destructive=True, desc="推进文档生命周期状态机（严格向前不允许回退）：requirement/PRD draft→approved；spec draft→review→approved；decision/ADR proposed→accepted→superseded；plan draft→approved→done；test planned→passed/failed；milestone/Release planned→released；incident open→resolved→closed。文档首次写入时自动落初始状态。")
+@_tool(name="taskhub_set_doc_status", title="推进文档生命周期", method="POST", path="/tasks/{task_id}/doc/{kind}/status", read_only=False, destructive=True, desc="推进文档生命周期状态机（严格向前不允许回退）：requirement/PRD draft→approved；spec draft→review→approved；decision/ADR proposed→accepted→superseded；plan draft→approved→done；test planned→passed/failed；milestone/Release planned→released；incident open→resolved→closed。文档首次写入时自动落初始状态。**该动作属验收，需管理面凭据（X-TaskHub-Admin-Token / 前端 DocPanel），执行任务的 agent 调用会被 403；由人完成。**")
 async def taskhub_set_doc_status(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     kind: str = Field(description="文档类型（需有生命周期的 kind）：requirement/spec/decision/plan/test/milestone/incident"),
@@ -503,7 +503,7 @@ async def taskhub_decompose_apply(
                                body=payload))
 
 
-@_tool(name="taskhub_update_task", title="更新任务细节", method="PATCH", path="/tasks/{task_id}", read_only=False, destructive=False, desc="更新任务细节字段。仅传需要修改的字段。")
+@_tool(name="taskhub_update_task", title="更新任务细节", method="PATCH", path="/tasks/{task_id}", read_only=False, destructive=False, desc="更新任务细节字段。仅传需要修改的字段。**workspace/files/deliverables/depends_on/target_agent_type 属管理面字段（F-004）：执行任务的 agent 传了会被 403，改任务执行边界需管理面凭据（人/前端）。**")
 async def taskhub_update_task(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     title: Optional[str] = Field(default=None, description="标题"),
