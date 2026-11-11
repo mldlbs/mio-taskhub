@@ -149,8 +149,11 @@ async def test_pause_resume_job():
 
 @pytest.mark.anyio
 async def test_delete_job():
+    # delete 是服务端 destructive 端点（destructive_guard），须带管理面凭据；
+    # 此文件用裸 AsyncClient（不走 conftest 的 TestClient 注入），显式带降级头。
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(transport=transport, base_url="http://test",
+                           headers={"X-TaskHub-Admin": "1"}) as client:
         r = await client.post("/api/v1/scheduled-jobs", json={
             "name": "delete me",
             "cron_expr": "0 * * * *",
