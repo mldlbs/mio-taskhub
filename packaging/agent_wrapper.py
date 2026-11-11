@@ -6,7 +6,7 @@ import sys, json, time, os, urllib.request, urllib.error, urllib.parse
 
 HUB = "http://127.0.0.1:48620/api/v1"
 
-def req(method, path, body=None):
+def req(method, path, body=None, extra_headers=None):
     url = HUB + path
     data = json.dumps(body).encode() if body else None
     r = urllib.request.Request(url, data=data, method=method)
@@ -14,6 +14,8 @@ def req(method, path, body=None):
     tok = os.environ.get("MIO_TASKHUB_TOKEN")
     if tok:
         r.add_header("Authorization", f"Bearer {tok}")
+    for k, v in (extra_headers or {}).items():
+        r.add_header(k, v)
     try:
         with urllib.request.urlopen(r, timeout=10) as resp:
             if resp.status == 204: return None
@@ -39,21 +41,28 @@ def main():
         r = req("POST", f"/tasks/claim?agent={agent}")
         if r and "id" in r:
             print(f"Claimed task: {r['task_id']} (run={r['id']}, attempt={r.get('attempt',1)})")
+            if r.get("run_token"):
+                print(f"  run_token={r['run_token']}  (保存好，heartbeat/result 需带)")
             print(f"  → Execute this task, then send heartbeats and result")
         else:
             print("No tasks available (204)")
 
     elif action == "heartbeat":
         run_id, progress = sys.argv[3], int(sys.argv[4] or 50)
-        #带 agent：服务端据此校验 run 所有权（P0 d1b54de0）
-        r = req("POST", f"/runs/{run_id}/heartbeat?agent={urllib.parse.quote(agent)}", {"progress": progress})
+        # 带 agent：服务端据此校验 run 所有权（P0 d1b54de0）
+        # 可选第 4 参 run_token：per-run 凭据，经 X-Run-Token 头携带（F-005）
+        rt = sys.argv[5] if len(sys.argv) > 5 else None
+        hdr = {"X-Run-Token": rt} if rt else None
+        r = req("POST", f"/runs/{run_id}/heartbeat?agent={urllib.parse.quote(agent)}", {"progress": progress}, hdr)
         print(f"Heartbeat: progress={r['progress']}% state={r['state']}")
 
     elif action == "result":
         run_id = sys.argv[3]
         success = sys.argv[4].lower() in ("true", "1", "yes", "success")
         msg = sys.argv[5] if len(sys.argv) > 5 else ("done" if success else "failed")
-        r = req("POST", f"/runs/{run_id}/result?agent={urllib.parse.quote(agent)}", {"success": success, "result": msg})
+        rt = sys.argv[6] if len(sys.argv) > 6 else None
+        hdr = {"X-Run-Token": rt} if rt else None
+        r = req("POST", f"/runs/{run_id}/result?agent={urllib.parse.quote(agent)}", {"success": success, "result": msg}, hdr)
         print(f"Result submitted: state={r['state']} result={r['result']}")
 
     elif action == "heartbeat-agent":

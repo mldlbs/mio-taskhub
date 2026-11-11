@@ -305,6 +305,10 @@ class Run(SQLModel, table=True):
     evidence: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     # 本 run 累计被拒次数（窄门禁拒绝不消耗 attempt，达上限才判本次执行失败）
     rejections: int = 0
+    # per-run 凭据（F-005 第 2 步，2026-11-11）：claim 时下发明文（仅出现在 claim
+    # 响应里一次），这里只存 sha256。heartbeat / submit_result 带 X-Run-Token 比对，
+    # 关闭「凭 run_id 冒充他人 agent」的残余缺口。旧 run / 迁移前 run 为 None（宽松兼容）。
+    token_hash: Optional[str] = Field(default=None, index=False)
 
 class Subtask(SQLModel, table=True):
     id: Optional[str] = Field(default_factory=_uuid, primary_key=True)

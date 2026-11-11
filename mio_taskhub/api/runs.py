@@ -1,8 +1,11 @@
+import hashlib
 import logging
+import os
+import secrets
 import threading
 from datetime import timedelta
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session, select
 from sqlalchemy import update as sa_update
 from mio_taskhub.db import get_session
@@ -15,6 +18,57 @@ from mio_taskhub.workflow.state_machine import State, Stage, ActorType, IllegalT
 logger = logging.getLogger("runs")
 
 router = APIRouter(prefix="/runs", tags=["runs"])
+
+# ── per-run token（F-005 第 2 步，2026-11-11）───────────────────────────
+# claim 时下发明文（secrets.token_urlsafe，只在 claim 响应里出现一次），Run 只存
+# sha256。heartbeat / submit_result 带 `X-Run-Token` 比对，关闭「凭 run_id 冒充
+# 他人 agent」的残余缺口——此前 `assert_run_owner(run, agent)` 在 agent 未传时
+# 直接跳过，传了也只是比对自由字符串。
+#
+# 兼容策略（与 assert_run_owner 同一套渐进收口风格）：
+#   - run.token_hash 为空（迁移前旧 run / reaper 等内部调用）→ 放行
+#   - 带了 token：比对 sha256，不匹配 403 run.token_mismatch
+#   - 没带 token：默认放行（宽松）；`MIO_TASKHUB_RUN_TOKEN_REQUIRED=1` 时
+#     403 run.token_required（强模式；对无 hash 的旧 run 仍放行，无法凭空补发）
+RUN_TOKEN_HEADER = "x-run-token"
+
+
+def _run_token_required() -> bool:
+    return os.environ.get("MIO_TASKHUB_RUN_TOKEN_REQUIRED", "").strip().lower() \
+        in ("1", "true", "yes", "on")
+
+
+def issue_run_token() -> str:
+    """生成一次性明文 run token；调用方负责立即返回给 claim 方。"""
+    return secrets.token_urlsafe(24)
+
+
+def run_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def verify_run_token(run: Run, request: Request) -> None:
+    """校验请求携带的 per-run 凭据。规则见模块头注释。"""
+    expected = getattr(run, "token_hash", None)
+    if not expected:
+        return  # 旧 run / 迁移前数据：无凭据可比对，宽松兼容
+    supplied = (request.headers.get(RUN_TOKEN_HEADER) or "").strip()
+    if supplied:
+        if secrets.compare_digest(run_token_hash(supplied), expected):
+            return
+        raise HTTPException(403, detail={
+            "code": "run.token_mismatch",
+            "message": (f"X-Run-Token 与 run {run.id} 的凭据不匹配。"
+                        "请使用 claim 响应里返回的 run_token（后续 heartbeat / "
+                        "submit_result 通过 X-Run-Token 头携带）。"),
+        })
+    if _run_token_required():
+        raise HTTPException(403, detail={
+            "code": "run.token_required",
+            "message": (f"run {run.id} 已启用强制 per-run 凭据"
+                        "（MIO_TASKHUB_RUN_TOKEN_REQUIRED=1）：请求必须携带"
+                        "X-Run-Token: <claim 返回的 run_token>。"),
+        })
 
 
 # ── Run ownership guards (P0 d1b54de0) ─────────────────────────────────
@@ -29,8 +83,9 @@ router = APIRouter(prefix="/runs", tags=["runs"])
 # mcp_server.py 的 taskhub_heartbeat / taskhub_submit_result）均已持有 agent
 # 变量，应在接入时补传；外部 mio-agent-runtime 无引用（已 grep 确认）。
 #
-# 未传 agent 时的残余风险：仍可凭 run_id 越权。这是**已知限制**，不是修复完成态；
-# 彻底关闭需要 run 级凭证（claim 时下发 token），列入后续任务。
+# 未传 agent 时的残余风险：仍可凭 run_id 越权。2026-11-11 已由 per-run token
+# 关闭（claim 下发、X-Run-Token 比对，见下方 verify_run_token）；agent 名字
+# 校验保留为第一道，token 为第二道。
 
 def assert_run_owner(run: Run, agent: Optional[str]) -> None:
     """校验调用方是该 run 的持有者。agent 为空则跳过（兼容旧调用方）。"""
@@ -86,7 +141,12 @@ def find_existing_run(db, agent):
 
 
 def create_run(db, agent, task):
-    """Create a new Run for the claimed task. Returns the Run object."""
+    """Create a new Run for the claimed task. Returns the Run object.
+
+    per-run 凭据（F-005 第 2 步）：生成明文 token 挂在 `run._plain_token`
+    （非持久属性，仅本进程内可读），claim 端点取出后放进响应；Run 只落
+    sha256。commit/refresh 不影响该属性。
+    """
     import uuid as _uuid
     run = Run(
         id=str(_uuid.uuid4())[:8],
@@ -97,6 +157,9 @@ def create_run(db, agent, task):
         started_at=_now(),
         last_heartbeat=_now(),
     )
+    plain = issue_run_token()
+    run.token_hash = run_token_hash(plain)
+    run._plain_token = plain
     # 窄门禁（d468e633 FR-1）：run 创建时拍「前」快照。
     # 必须在 run 创建时拍 —— 若等到 submit 才拍，无法区分「本次 run 的改动」
     # 与「run 开始前工作区就有的脏」。
@@ -172,13 +235,16 @@ def _is_system_timeout_failure(db, task) -> bool:
 
 @router.post("/{run_id}/heartbeat")
 def heartbeat(run_id: str, body: dict = None, agent: str = None,
-              db: Session = Depends(get_session)):
+              request: Request = None, db: Session = Depends(get_session)):
     body = body or {}
     run = db.get(Run, run_id)
     if not run:
         raise HTTPException(404)
     # P0 d1b54de0：所有权校验。不传 agent 则跳过（兼容旧调用方）。
     assert_run_owner(run, agent)
+    # F-005 第 2 步：per-run 凭据（带错 403；不带默认放行，REQUIRED=1 强制）。
+    if request is not None:
+        verify_run_token(run, request)
     # 已结束的 run 不接受心跳：避免与超时回收 / 正常完成竞争，把终态改回 running。
     if run.state == RunState.FINISHED:
         raise HTTPException(409, detail={
@@ -316,7 +382,7 @@ def run_diff_evidence(run_id: str, db: Session = Depends(get_session)):
 
 @router.post("/{run_id}/result")
 def submit_result(run_id: str, body: dict, agent: str = None,
-                  db: Session = Depends(get_session)):
+                  request: Request = None, db: Session = Depends(get_session)):
     """提交 run 结果。
 
     2026-11-07 修复：此前无并发保护，两个并发提交都会读到 RUNNING、都过
@@ -329,6 +395,13 @@ def submit_result(run_id: str, body: dict, agent: str = None,
     多进程部署需改为 DB 级 CAS，见 `_run_submit_locks` 注释。
     """
     lock = _submit_lock(run_id)
+    # F-005 第 2 步：per-run 凭据在拿锁前校验，尽早拒绝。
+    if request is not None:
+        run_probe = db.get(Run, run_id)
+        if not run_probe:
+            raise HTTPException(404)
+        assert_run_owner(run_probe, agent)
+        verify_run_token(run_probe, request)
     with lock:
         # 锁外读到的对象可能已陈旧，先失效再重读，保证判定基于最新状态。
         db.expire_all()

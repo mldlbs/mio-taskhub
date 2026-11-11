@@ -21,6 +21,7 @@ def run_migrations(target_engine=None):
         if "run" in tables:
             _migrate_run_diff_gate(conn)
             _migrate_run_evidence(conn)
+            _migrate_run_token(conn)
         if "idea" in tables:
             _migrate_idea(conn)
             _migrate_idea_assumption_link(conn)
@@ -292,6 +293,19 @@ def _migrate_run_evidence(conn):
     cols = {c["name"] for c in inspect(conn).get_columns("run")}
     if "evidence" not in cols:
         conn.execute(text("ALTER TABLE run ADD COLUMN evidence JSON"))
+
+
+def _migrate_run_token(conn):
+    """per-run 凭据（F-005 第 2 步，2026-11-11）：Run.token_hash。
+
+    只存 sha256(token)，明文只在 claim 响应里出现一次。存量 run 留 NULL——
+    无凭据可比对，`verify_run_token` 对 NULL 走宽松兼容（不 403），
+    `MIO_TASKHUB_RUN_TOKEN_REQUIRED=1` 对 NULL run 也放行（无法凭空补发）。
+    幂等：列已存在则跳过。
+    """
+    cols = {c["name"] for c in inspect(conn).get_columns("run")}
+    if "token_hash" not in cols:
+        conn.execute(text("ALTER TABLE run ADD COLUMN token_hash VARCHAR(64)"))
 
 
 def _migrate_run_diff_gate(conn):

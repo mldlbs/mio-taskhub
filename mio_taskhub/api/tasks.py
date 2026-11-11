@@ -1,6 +1,7 @@
 import uuid
 import json
 import os
+import secrets
 from datetime import datetime, timezone
 from mio_taskhub.api.claim import claim_for, should_fallback
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -597,6 +598,7 @@ def list_discussions(task_id: str, db: Session = Depends(get_session)):
 def claim_task(agent: str = Query(...), agent_type: str = Query(None),
                task_id: str = Query(None), project: str = Query(None), workspace: str = Query(None),
                files: str = Query(None), project_scope: str = Query(None),
+               run_token: str = Query(None),
                db: Session = Depends(get_session)):
     if task_id:
         t_probe = db.get(Task, task_id)
@@ -615,9 +617,32 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
         select(Run).where(Run.agent_name == agent, Run.state.in_([RunState.CLAIMED, RunState.RUNNING]))
     ).first()
     if existing:
+        # F-005 第 2 步：幂等续领的 per-run 凭据校验。
+        # - 带 run_token：比对 sha256，匹配则回显（续领确认），不匹配 403；
+        # - 不带：默认放行（兼容旧调用方，响应不含 run_token）；
+        #   MIO_TASKHUB_RUN_TOKEN_REQUIRED=1 时强制 403（对无 hash 的旧 run 放行）。
+        from mio_taskhub.api.runs import run_token_hash, _run_token_required
+        token_hash = getattr(existing, "token_hash", None)
+        if token_hash:
+            if run_token:
+                if not secrets.compare_digest(run_token_hash(run_token), token_hash):
+                    return JSONResponse(status_code=403, content={"detail": {
+                        "code": "run.token_mismatch",
+                        "message": ("run_token 与 run %s 的凭据不匹配（幂等续领）。"
+                                    "请使用首次 claim 响应返回的 run_token。" % existing.id),
+                    }})
+            elif _run_token_required():
+                return JSONResponse(status_code=403, content={"detail": {
+                    "code": "run.token_required",
+                    "message": ("run %s 已启用强制 per-run 凭据"
+                                "（MIO_TASKHUB_RUN_TOKEN_REQUIRED=1）：幂等续领必须带"
+                                "run_token 参数（首次 claim 响应返回的值）。" % existing.id),
+                }})
         from mio_taskhub.read_evidence import build_claim_context
         resp = {"id": existing.id, "task_id": existing.task_id, "state": existing.state.value,
                 "agent_name": existing.agent_name}
+        if token_hash and run_token and secrets.compare_digest(run_token_hash(run_token), token_hash):
+            resp["run_token"] = run_token
         t_existing = db.get(Task, existing.task_id)
         if t_existing is not None:
             resp.update(build_claim_context(t_existing))
@@ -643,6 +668,9 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
         if ag and ag.agent_type:
             agent_type = ag.agent_type
     run = claim_for(agent, db, agent_type, task_id, project_scope)
+    # F-005 第 2 步：新 run 的明文凭据只在本次响应出现一次（Run 只存 sha256）。
+    # 必须在 commit/refresh 前取走；run 为 None 的分支随后返回。
+    plain_token = getattr(run, "_plain_token", None) if run is not None else None
     if run is None:
         db.rollback()
         if task_id:
@@ -683,6 +711,8 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
     from mio_taskhub.read_evidence import build_claim_context
     resp = {"id": run.id, "task_id": run.task_id, "state": run.state.value,
             "agent_name": run.agent_name, "attempt": run.attempt}
+    if plain_token:
+        resp["run_token"] = plain_token
     resp.update(build_claim_context(task))
     # TH-01（FR-2/FR-3）：route 在选完候选之后调用，不参与排序；
     # 任何异常都降级为 null，绝不影响领取结果。
