@@ -10,8 +10,8 @@
 | 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 76 模块 / 36,046 行 |
 | 对外能力 | **185 个 REST 端点** · **56 个 MCP 工具** · WebSocket 实时广播 · React Web UI |
 | 任务文档 | **22 类文档 kind** · **7 件套文档链** · **9 类生命周期状态机** · 质量 lint + 状态门控 + 修订指令 |
-| 前端 | React 18 + Vite 5 · 56 文件 / 13,856 行 · 10 个视图 |
-| 测试 | **1748 个用例**（55 文件 / 8,480 行）· GitHub Actions（windows-latest / py3.12） |
+| 前端 | React 18 + Vite 5 · 56 文件 / 13,889 行 · 10 个视图 |
+| 测试 | **1752 个用例**（55 文件 / 8,480 行）· GitHub Actions（windows-latest / py3.12） |
 | 部署 | pip 源码 · Docker 多阶段镜像 · Windows 单 EXE 绿色版（免 Python）· Windows 安装包（图形安装 + 正规卸载） |
 
 ---
@@ -680,6 +680,8 @@ OpenTelemetry 自动埋点覆盖 FastAPI、SQLAlchemy、httpx；结构化日志�
 - **降级态**：只配 `--auth`、未配 `MIO_TASKHUB_ADMIN_TOKEN` 时，管理面判定回落到「环回来源 + 显式 `X-TaskHub-Admin: 1`」这道**速度闸**。同机任意进程都能伪造该头，只挡误操作，**不是强隔离**。
 - **强隔离**：两个都配。`--auth` 挡住外部主体，`MIO_TASKHUB_ADMIN_TOKEN` 把管理面凭据与 agent 持有的 API 凭据切开；此时 `X-TaskHub-Admin: 1` 失效，必须带 `X-TaskHub-Admin-Token`。
 - Web 前端把管理面 token 存在浏览器 `localStorage` 的 `mio-taskhub.admin-token`（与 API 凭据的 `mio-taskhub.token` 分开），只给需要管理员的操作附加 `adminHeaders()`；普通请求不带管理面头。
+- 管理面凭据录入：`?admin_token=<MIO_TASKHUB_ADMIN_TOKEN>` 一次性注入（`auth.js::getAdminToken()` 读后立即从地址栏移除、写入 `sessionStorage`），或直接写浏览器 `localStorage` 键 `mio-taskhub.admin-token`；与 API 凭据的 `?token=` / `mio-taskhub.token` 分流，二者不可复用。
+- URL 会短暂出现在地址栏，可能被浏览器历史 / Referer / 截图留存；管理面凭据比 API 凭据敏感，**仅本机运维首次录入使用**，不要写进日志、聊天或工单。
 - 受管理面约束的操作：`PUT /nightrun/config`、`POST /nightrun/spawn-now`、`POST /nightrun/stop`；`PATCH /tasks/{id}` 里的 `workspace` / `files` / `deliverables` / `target_agent_type` / `depends_on`，以及 `doc_gate_exempt` / `diff_gate_exempt` **置真**；`POST /tasks/{id}/doc/{kind}/status`（文档推进到 review/approved 是验收动作，agent 不得自助完成）。`POST /tasks` 不拦执行边界字段，agent 仍需能建单时指定初始 workspace（路径合法性由 `path_guard` 兜底）。
 
 ### 记忆网关

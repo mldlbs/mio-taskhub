@@ -1,5 +1,6 @@
 import { confirm } from './confirm'
 import { authHeaders, authFetch, getToken } from './auth'
+import { getAdminToken } from './auth'
 
 const BASE = '/api/v1'
 
@@ -36,17 +37,15 @@ export class ApiError extends Error {
 // 与 auth.js 的 API 访问凭据（getToken / mio-taskhub.token）**完全分开**，键名不复用：
 // - 未配置 MIO_TASKHUB_ADMIN_TOKEN：服务端认「环回 + 'X-TaskHub-Admin': '1'」这道降级态速度闸
 // - 配置之后：服务端只认 X-TaskHub-Admin-Token: <MIO_TASKHUB_ADMIN_TOKEN>，旧头失效
-// 两种头同时发，前端不必按部署形态分叉。管理面 token 只由运维在浏览器 localStorage
-// 里存（键 mio-taskhub.admin-token），绝不下发给执行任务的 agent。
+// 两种头同时发，前端不必按部署形态分叉。管理面 token 由运维经 ?admin_token= 一次性
+// 注入或 localStorage 键 mio-taskhub.admin-token 录入，读取统一走 auth.js 的
+// getAdminToken()（与 API 凭据 getToken() 分流），绝不下发给执行任务的 agent。
 // 注意：不要把这个头塞进 req() 的默认值，那等于所有请求都是管理面操作。
-const ADMIN_TOKEN_KEY = 'mio-taskhub.admin-token'
 
 export function adminHeaders() {
   const headers = { 'X-TaskHub-Admin': '1' }
-  try {
-    const t = localStorage.getItem(ADMIN_TOKEN_KEY)
-    if (t) headers['X-TaskHub-Admin-Token'] = t
-  } catch { /* storage 不可用时忽略 */ }
+  const t = getAdminToken()
+  if (t) headers['X-TaskHub-Admin-Token'] = t
   return headers
 }
 
