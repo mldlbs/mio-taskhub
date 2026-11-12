@@ -233,6 +233,8 @@ class TaskReview(SQLModel, table=True):
     comments: str = ""                 # 详细批注/意见
     artifacts: list = Field(default_factory=list, sa_column=Column(JSON))  # 关联文档路径
     reviewer: str = ""                 # 审阅人 (agent name / user / system)
+    reviewer_verified: bool = False    # True=per-run token 证明「评审人=该 run 的 agent」；False=未验证声明（人审或未带凭据）
+    verified_run_id: Optional[str] = None  # 验证通过时对应的 run id（审计回溯）
     review_duration_sec: Optional[int] = None  # 从 review_started_at 到本次审阅的秒数
     created_at: datetime = Field(default_factory=_now)
 

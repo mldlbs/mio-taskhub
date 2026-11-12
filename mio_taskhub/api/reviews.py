@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session, select
 
+from mio_taskhub.api.runs import RUN_TOKEN_HEADER, run_token_hash
 from mio_taskhub.db import get_session
 from mio_taskhub.doc_paths import doc_path_of
 from mio_taskhub.models import Task, TaskStage, TaskReview, Run
@@ -60,6 +61,8 @@ def list_reviews(task_id: str, db: Session = Depends(get_session)):
             "id": r.id, "task_id": r.task_id, "decision": r.decision,
             "checklist": r.checklist, "summary": r.summary, "comments": r.comments,
             "artifacts": r.artifacts, "reviewer": r.reviewer,
+            "reviewer_verified": bool(getattr(r, "reviewer_verified", False)),
+            "verified_run_id": getattr(r, "verified_run_id", None),
             "review_duration_sec": r.review_duration_sec,
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }
@@ -68,8 +71,18 @@ def list_reviews(task_id: str, db: Session = Depends(get_session)):
 
 
 @router.post("/{task_id}/reviews")
-def submit_review(task_id: str, body: dict, db: Session = Depends(get_session)):
-    """提交审阅记录。decision: approve / reject / comment。"""
+def submit_review(task_id: str, body: dict, request: Request = None,
+                  db: Session = Depends(get_session)):
+    """提交审阅记录。decision: approve / reject / comment。
+
+    评审人身份验证（F-004 收尾）：带 per-run token（`X-Run-Token` 头或
+    body.run_token）可证明「评审人 = 本任务某次 run 的 agent」——
+    - token 与本任务任一 run 的 token_hash 匹配 → reviewer_verified=True，
+      并记录 verified_run_id；
+    - body.reviewer 与验证出的 agent 名不一致 → 422（冒充他人评审）；
+      未填 reviewer 时默认取验证出的 agent 名。
+    不带 token 走人审路径，reviewer_verified=False（未验证声明，与既往一致）。
+    """
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404, "task not found")
@@ -78,6 +91,38 @@ def submit_review(task_id: str, body: dict, db: Session = Depends(get_session)):
         raise HTTPException(422, "decision must be approve, reject, or comment")
     reviewer = (body.get("reviewer") or "").strip()
     summary = (body.get("summary") or "").strip()
+
+    # ── 评审人身份验证（opt-in：带 token 才验证）────────────────────────────
+    reviewer_verified = False
+    verified_run_id = None
+    supplied_token = ((request.headers.get(RUN_TOKEN_HEADER) if request else "")
+                      or body.get("run_token") or "").strip()
+    if supplied_token:
+        token_hash = run_token_hash(supplied_token)
+        matched_run = db.exec(
+            select(Run).where(Run.task_id == task_id, Run.token_hash == token_hash)
+        ).first()
+        if matched_run is None:
+            raise HTTPException(403, detail={
+                "code": "review.token_mismatch",
+                "message": ("run_token 与本任务任何 run 都不匹配，无法证明评审人身份。"
+                            "请携带 claim 时下发的 run_token（X-Run-Token 头），"
+                            "或不带 token 走人审路径（reviewer_verified=False）。"),
+            })
+        verified_agent = matched_run.agent_name or ""
+        if reviewer and reviewer != verified_agent:
+            raise HTTPException(422, detail={
+                "code": "review.identity_mismatch",
+                "message": (f"run_token 证明的执行者是 '{verified_agent}'，"
+                            f"与声明的评审人 '{reviewer}' 不一致——"
+                            f"冒充他人评审被拒绝。请以真实身份提交，"
+                            f"或不带 token 走人审路径。"),
+                "verified_agent": verified_agent,
+                "claimed_reviewer": reviewer,
+            })
+        reviewer = reviewer or verified_agent
+        reviewer_verified = True
+        verified_run_id = matched_run.id
 
     if decision == "approve":
         # 2026-10-10 审计 P0-4：评审人身份隔离。
@@ -95,6 +140,7 @@ def submit_review(task_id: str, body: dict, db: Session = Depends(get_session)):
                                 f"或显式传 self_review=true 声明为自审"),
                     "reviewer": reviewer,
                     "executor": last_run.agent_name,
+                    "reviewer_verified": reviewer_verified,
                     "hint": "自审会在 TaskReview 中留痕，请确认这是有意为之",
                 })
         # 结论内容下限：未登记 review 文档时，summary 太短不构成可追溯的审查结论
@@ -125,6 +171,8 @@ def submit_review(task_id: str, body: dict, db: Session = Depends(get_session)):
         comments=body.get("comments", ""),
         artifacts=body.get("artifacts", []),
         reviewer=reviewer,
+        reviewer_verified=reviewer_verified,
+        verified_run_id=verified_run_id,
         review_duration_sec=duration_sec,
     )
     db.add(review)

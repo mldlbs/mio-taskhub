@@ -685,6 +685,19 @@ OpenTelemetry 自动埋点覆盖 FastAPI、SQLAlchemy、httpx；结构化日志�
 - URL 会短暂出现在地址栏，可能被浏览器历史 / Referer / 截图留存；管理面凭据比 API 凭据敏感，**仅本机运维首次录入使用**，不要写进日志、聊天或工单。
 - 受管理面约束的操作：`PUT /nightrun/config`、`POST /nightrun/spawn-now`、`POST /nightrun/stop`；`PATCH /tasks/{id}` 里的 `workspace` / `files` / `deliverables` / `target_agent_type` / `depends_on`，以及 `doc_gate_exempt` / `diff_gate_exempt` **置真**；`POST /tasks` 不拦执行边界字段，agent 仍需能建单时指定初始 workspace（路径合法性由 `path_guard` 兜底）。
 
+### 评审人身份验证（F-004 收尾）
+
+`POST /tasks/{id}/reviews` 的 `reviewer` 此前是自由字符串，自审门只比对名字，谎报名字即可绕过。现支持 per-run token 证明身份（opt-in，人审路径零改动）：
+
+| 场景 | 行为 |
+|------|------|
+| 带 `X-Run-Token` 头或 body.run_token，且与本任务某 run 的 token_hash 匹配 | `reviewer_verified=True`，`verified_run_id` 落库；未填 reviewer 时默认取验证出的 agent 名 |
+| token 不匹配本任务任何 run | 403 `review.token_mismatch` |
+| token 验证出的 agent 与声明的 reviewer 不一致 | 422 `review.identity_mismatch`（冒充他人评审被拒） |
+| 不带 token | `reviewer_verified=False`——是「未验证声明」不是「验证失败」，信任级别与既往一致 |
+
+自审门（409 `review.self_approval`）语义不变；token 验证后名字是可信的，409 detail 带 `reviewer_verified` 标志。`GET /tasks/{id}/reviews` 暴露两个新字段。
+
 ### destructive 端点服务端收口（F-004 第 3 步）
 
 「哪些端点算破坏性」由 `mio_taskhub/destructive_guard.py::DESTRUCTIVE_ENDPOINTS` 这一**代码常量**登记（中间件在 auth 内侧统一执行），REST 直连与 MCP 工具调用同一把尺，仅持 API 访问凭据（`MIO_TASKHUB_TOKEN`）不能调用：

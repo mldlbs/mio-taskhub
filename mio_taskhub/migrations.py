@@ -22,6 +22,8 @@ def run_migrations(target_engine=None):
             _migrate_run_diff_gate(conn)
             _migrate_run_evidence(conn)
             _migrate_run_token(conn)
+        if "taskreview" in tables:
+            _migrate_task_review_identity(conn)
         if "idea" in tables:
             _migrate_idea(conn)
             _migrate_idea_assumption_link(conn)
@@ -293,6 +295,22 @@ def _migrate_run_evidence(conn):
     cols = {c["name"] for c in inspect(conn).get_columns("run")}
     if "evidence" not in cols:
         conn.execute(text("ALTER TABLE run ADD COLUMN evidence JSON"))
+
+
+def _migrate_task_review_identity(conn):
+    """评审人身份验证（F-004 收尾，2026-11-12）：TaskReview.reviewer_verified / verified_run_id。
+
+    评审提交可带 per-run token（`X-Run-Token` 头或 body.run_token）证明
+    「评审人 = 该 run 的 agent」；人审路径不带 token，两列保持默认值
+    （reviewer_verified=0），信任级别与此前一致——False 是「未验证声明」，
+    不是「验证失败」。
+    幂等：列已存在则跳过。
+    """
+    cols = {c["name"] for c in inspect(conn).get_columns("taskreview")}
+    if "reviewer_verified" not in cols:
+        conn.execute(text("ALTER TABLE taskreview ADD COLUMN reviewer_verified BOOLEAN DEFAULT 0"))
+    if "verified_run_id" not in cols:
+        conn.execute(text("ALTER TABLE taskreview ADD COLUMN verified_run_id VARCHAR(32)"))
 
 
 def _migrate_run_token(conn):
