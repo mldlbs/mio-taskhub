@@ -698,6 +698,23 @@ OpenTelemetry 自动埋点覆盖 FastAPI、SQLAlchemy、httpx；结构化日志�
 
 自审门（409 `review.self_approval`）语义不变；token 验证后名字是可信的，409 detail 带 `reviewer_verified` 标志。`GET /tasks/{id}/reviews` 暴露两个新字段。
 
+### lessons 提示注入防护与溯源（F-009）
+
+lessons 的内容源是**其他 agent 的 run.result / review_result / memory_store observations**——被攻陷或误操作的 agent 可以在结果里写「忽略之前的指令……」这类文本，随 claim 响应注入下一个 agent 的上下文。防护（best-effort 启发式，**不是完备注入防线**，信任边界仍是「lessons 只作参考信息」）：
+
+- 提取阶段命中已知指令注入模式的句子直接丢弃（中英双语模式：ignore/disregard/override previous instructions、忽略/无视之前以上、新的指令、系统提示词、act as、从现在开始等）；
+- `recent_lessons` 返回新增 `sources` 字段（来源任务的 task_id / title / state），消费方可据此判断可信度、追溯源头。
+
+### 安装器覆盖确认（F-013①）
+
+`install()` 在目标目录已存在且**看起来是 mio-taskhub 安装目录**（有 `TaskHub.exe` 或 `install.json`）时，默认拒绝并提示确认——防止「给自己装过的目录装假包 → 无确认静默毁旧安装」。覆盖路径三条都要求显式确认：
+
+- GUI：检测到旧安装时显示「覆盖已有的 mio-taskhub 安装」勾选项，勾选后才放行；
+- CLI：`python -m mio_taskhub.installer.cli install --allow-overwrite`；
+- 代码调用：`install(..., allow_overwrite=True)`。
+
+目标目录是普通目录（非安装目录）时保持原语义，不需要确认。F-013②（升级 payload 完整性）现状已闭环：下载器对带 sha256 的 manifest 做边下边算校验，`apply()` 对弱校验包（无 sha256）直接拒绝自动更新。
+
 ### destructive 端点服务端收口（F-004 第 3 步）
 
 「哪些端点算破坏性」由 `mio_taskhub/destructive_guard.py::DESTRUCTIVE_ENDPOINTS` 这一**代码常量**登记（中间件在 auth 内侧统一执行），REST 直连与 MCP 工具调用同一把尺，仅持 API 访问凭据（`MIO_TASKHUB_TOKEN`）不能调用：

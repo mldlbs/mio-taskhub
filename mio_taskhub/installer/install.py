@@ -110,18 +110,26 @@ def _log_step(name: str, ok: bool, detail: str = "") -> None:
 
 
 def install(payload_zip=None, install_dir=None, create_shortcuts=True,
-            register=True, uninstall_exe=None, progress=None) -> InstallResult:
-    """执行安装。progress(step_name) 用于 UI 回调。"""
+            register=True, uninstall_exe=None, progress=None,
+            allow_overwrite=False) -> InstallResult:
+    """执行安装。progress(step_name) 用于 UI 回调。
+
+    allow_overwrite（F-013①）：install_dir 已存在且**看起来是 mio-taskhub
+    安装目录**（TaskHub.exe / install.json）时，必须显式传 True 才允许
+    覆盖——否则拒绝。防止「给自己装过的目录装假包 → 无确认静默毁旧安装」。
+    """
     try:
         return _install_impl(payload_zip, install_dir, create_shortcuts,
-                              register, uninstall_exe, progress)
+                             register, uninstall_exe, progress,
+                             allow_overwrite=allow_overwrite)
     finally:
         # 无论成功失败，都要清理解出的内嵌安装包临时目录
         _cleanup_embedded()
 
 
 def _install_impl(payload_zip=None, install_dir=None, create_shortcuts=True,
-                  register=True, uninstall_exe=None, progress=None) -> InstallResult:
+                  register=True, uninstall_exe=None, progress=None,
+                  allow_overwrite=False) -> InstallResult:
     """install() 的真正实现（外层 install() 负责 finally 清理）。"""
     res = InstallResult()
 
@@ -134,6 +142,18 @@ def _install_impl(payload_zip=None, install_dir=None, create_shortcuts=True,
 
     install_dir = Path(install_dir or default_install_dir())
     res.install_dir = str(install_dir)
+
+    # F-013①：覆盖已有安装须显式确认。判据复用 looks_like_install_dir
+    # （TaskHub.exe / install.json），与 uninstall() 的误删防护同一把尺。
+    if install_dir.exists() and not allow_overwrite \
+            and looks_like_install_dir(install_dir):
+        msg = ("检测到 %s 已有一个 mio-taskhub 安装。覆盖安装会先清空该目录，"
+               "确认要覆盖请勾选「覆盖已有安装」重试，或换一个安装目录。"
+               % install_dir)
+        _log_step("覆盖确认", False, msg)
+        res.step("覆盖确认", False, msg)
+        res.message = msg
+        return res
 
     # **优先用内嵌的安装包**（单文件安装包形态）：
     # setup.exe 自身尾部就带着 payload zip → 不需要用户另外下载一个文件。

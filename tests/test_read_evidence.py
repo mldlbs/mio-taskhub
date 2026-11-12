@@ -137,7 +137,7 @@ def test_claim_context_includes_lessons(tmp_path):
     # 新增字段
     assert "lessons" in ctx
     assert set(ctx["lessons"]) == {"test_hints", "file_layout", "pitfalls",
-                                  "source_count"}
+                                  "source_count", "sources"}  # F-009 溯源
     # 既有字段语义未变（TC-10 / AC-2.4）
     assert ctx["branch"] == "task-t1"
     assert set(ctx["required_reads"]) == {"spec", "api", "requirement"}

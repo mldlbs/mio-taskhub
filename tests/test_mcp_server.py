@@ -541,9 +541,11 @@ def test_claim_carries_lessons(mcp_ctx):
                                     "project": "lp"})
     assert "lessons" in claim, sorted(claim.keys())
     ls = claim["lessons"]
-    assert set(ls) == {"test_hints", "file_layout", "pitfalls", "source_count"}
+    assert set(ls) == {"test_hints", "file_layout", "pitfalls", "source_count",
+                       "sources"}  # F-009：sources 为溯源字段
     # 没有历史时不得报错
     assert isinstance(ls["test_hints"], list)
+    assert isinstance(ls["sources"], list)
 
 
 def test_claim_lessons_never_blocks(mcp_ctx):

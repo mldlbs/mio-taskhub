@@ -958,6 +958,7 @@ class InstallerApp(_Base):
         self.var_payload = tk.StringVar(value=payload_zip or "")
         self.var_dir = tk.StringVar(value=str(default_install_dir()))
         self.var_shortcuts = tk.BooleanVar(value=True)
+        self.var_overwrite = tk.BooleanVar(value=False)  # F-013①：覆盖已有安装须显式勾选
         self._done = False
         self._build()
         self.root.after(80, self._auto_find_payload)
@@ -1006,6 +1007,12 @@ class InstallerApp(_Base):
 
         _Check(body, "在桌面和「开始」菜单中创建快捷方式（可选）", self.var_shortcuts,
                parent_bg=CARD).pack(anchor="w", pady=(18, 0))
+
+        # F-013①：目标目录已是 mio-taskhub 安装目录时，必须勾选才会覆盖
+        # （否则 install() 直接拒绝，见 install.allow_overwrite）。
+        self._overwrite_check = _Check(body, "覆盖该目录下已有的 mio-taskhub 安装（覆盖前会先清空旧目录）",
+                                       self.var_overwrite, parent_bg=CARD)
+        self._overwrite_check.pack_forget()  # 仅在检测到旧安装时显示
 
         # 给非技术用户一句「不用管这些」，降低面对路径框的困惑
         _label(body, "提示：保持默认即可，安装完成后会在桌面和「开始」菜单中创建快捷方式。", 9, "#8b96a3",
@@ -1167,16 +1174,34 @@ class InstallerApp(_Base):
             self.notice.show("err", "还没有安装包",
                              "请先点「选择文件…」指定安装包")
             return
+        # F-013①：目标目录已是 mio-taskhub 安装目录 → 需勾选覆盖确认。
+        allow_overwrite = False
+        try:
+            from .install import looks_like_install_dir
+            overwrite_needed = (install_dir and os.path.isdir(install_dir)
+                                and looks_like_install_dir(install_dir))
+        except Exception:  # noqa: BLE001
+            overwrite_needed = False
+        if overwrite_needed:
+            self._overwrite_check.pack(anchor="w", pady=(6, 0))
+            if not bool(self.var_overwrite.get()):
+                self.notice.show(
+                    "err", "检测到已有安装",
+                    "目标目录已存在 mio-taskhub 安装，覆盖会先清空该目录。"
+                    "请勾选「覆盖已有的 mio-taskhub 安装」后重试，或更换安装目录。")
+                return
+            allow_overwrite = True
         self._done = True
         self._btn_install.set_enabled(False)
         self._btn_install.set_text("安装中…")
         self.status.configure(text="正在安装，请勿关闭窗口")
         self.notice.show("info", "正在安装", "正在解压并写入程序文件…")
         threading.Thread(target=self._work, args=(payload_zip, install_dir,
-                                                  create_shortcuts),
+                                                  create_shortcuts, allow_overwrite),
                          daemon=True).start()
 
-    def _work(self, payload_zip, install_dir, create_shortcuts):
+    def _work(self, payload_zip, install_dir, create_shortcuts,
+              allow_overwrite=False):
         """工作线程：**只碰纯 Python 值**，不碰任何 Tk 对象。
 
         结果通过 `_ui_call` 回主线程刷新界面。
@@ -1186,6 +1211,7 @@ class InstallerApp(_Base):
                 payload_zip=payload_zip or None,
                 install_dir=install_dir or None,
                 create_shortcuts=create_shortcuts,
+                allow_overwrite=allow_overwrite,
             )
             for s in res.steps:
                 self.post(self.log.append,

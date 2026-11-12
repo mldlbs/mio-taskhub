@@ -1222,3 +1222,51 @@ def test_updater_accepts_flat_payload(tmp_path):
 
     ok, msg = verify_staging(staging)
     assert ok, msg
+
+
+# ── F-013①：覆盖已有安装须显式确认（2026-11-12）────────────────────────────
+
+def test_install_refuses_overwrite_without_confirmation(tmp_path):
+    """目标目录已是 mio-taskhub 安装目录（有 TaskHub.exe）→ 不带 allow_overwrite 拒绝。"""
+    payload = _build_fake_payload(tmp_path)
+    target = tmp_path / "install"
+    assert install_mod.install(payload_zip=payload, install_dir=target,
+                               create_shortcuts=False, register=False).ok
+    # 旧安装留下的标记文件（确认覆盖后才能动它）
+    marker = target / "old_install_marker.txt"
+    marker.write_text("do-not-lose", encoding="utf-8")
+
+    res2 = install_mod.install(payload_zip=payload, install_dir=target,
+                               create_shortcuts=False, register=False)
+    assert not res2.ok
+    assert "覆盖" in res2.message
+    assert marker.exists(), "拒绝时不得动旧目录"
+
+
+def test_install_overwrite_with_confirmation(tmp_path):
+    payload = _build_fake_payload(tmp_path)
+    target = tmp_path / "install"
+    assert install_mod.install(payload_zip=payload, install_dir=target,
+                               create_shortcuts=False, register=False).ok
+    marker = target / "old_install_marker.txt"
+    marker.write_text("do-not-lose", encoding="utf-8")
+
+    res2 = install_mod.install(payload_zip=payload, install_dir=target,
+                               create_shortcuts=False, register=False,
+                               allow_overwrite=True)
+    assert res2.ok, res2.message
+    assert not marker.exists(), "确认覆盖后旧目录应被清空"
+    assert (target / APP_EXE_NAME).exists()
+
+
+def test_install_non_install_dir_needs_no_confirmation(tmp_path):
+    """目标目录存在但不是 mio-taskhub 安装（无 TaskHub.exe/install.json）→ 无需确认。"""
+    payload = _build_fake_payload(tmp_path)
+    target = tmp_path / "somedir"
+    target.mkdir()
+    (target / "unrelated.txt").write_text("keep?", encoding="utf-8")
+    res = install_mod.install(payload_zip=payload, install_dir=target,
+                              create_shortcuts=False, register=False,
+                              allow_overwrite=False)
+    # 非安装目录不拦（普通目录覆盖是用户明确选择的路径，保持原语义）
+    assert res.ok, res.message

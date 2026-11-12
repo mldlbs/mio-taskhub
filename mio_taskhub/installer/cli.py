@@ -29,6 +29,7 @@ def _cmd_install(args) -> int:
         install_dir=args.dir or default_install_dir(),
         create_shortcuts=not args.no_shortcuts,
         register=not args.no_registry,
+        allow_overwrite=bool(getattr(args, "allow_overwrite", False)),
     )
     if args.json:
         _print(json.dumps({"ok": res.ok, "message": res.message,
@@ -98,6 +99,8 @@ def main(argv=None) -> int:
     p_install.add_argument("--dir", help="安装目录（默认 %%LOCALAPPDATA%%\\Programs\\mio-taskhub）")
     p_install.add_argument("--no-shortcuts", action="store_true", help="不创建快捷方式")
     p_install.add_argument("--no-registry", action="store_true", help="不写注册表项")
+    p_install.add_argument("--allow-overwrite", action="store_true",
+                           help="目标目录已存在 mio-taskhub 安装时允许覆盖（不传则拒绝）")
     p_install.set_defaults(func=_cmd_install)
 
     p_uninstall = sub.add_parser("uninstall", help="卸载程序")

@@ -78,7 +78,34 @@ def empty_lessons() -> Dict[str, Any]:
         "file_layout": [],
         "pitfalls": [],
         "source_count": 0,
+        "sources": [],
     }
+
+
+# ── F-009：lessons 提示注入防护（2026-11-12）────────────────────────────────
+# lessons 的内容源是**其他 agent 的 run.result / review_result / memory_store
+# observations**——被攻陷或误操作的 agent 可以在结果里写「忽略之前的指令……」
+# 这类文本，随 claim 响应注入下一个 agent 的上下文。这里是 best-effort 的
+# 启发式过滤：命中已知指令注入模式的句子直接丢弃（不进入 lessons）。
+# 局限性如实声明：自然语言注入无法穷举，本过滤挡已知模式 + 提供溯源字段
+# （sources），不是完备的注入防线；信任边界仍是「lessons 只作参考信息」。
+_INJECTION_RE = re.compile(
+    r"(ignore|disregard|forget|override)\s+(all\s+|any\s+)?"
+    r"(previous|prior|above|earlier|preceding|system)\b"
+    r"|(system\s+(prompt|message|instructions?)|developer\s+message)"
+    r"|(new|updated)\s+(instructions?|rules?|directives?)\b"
+    r"|(忽略|无视| disregard)\s*(之前|以上|前面|先前|上述|以上|所有|全部)"
+    r"|新(的)?(指令|指示|规则|任务)"
+    r"|(系统提示|系统指令|系统消息|开发者消息)"
+    r"|(从现在开始|从即刻起)"
+    r"|(you\s+must\s+now|act\s+as|pretend\s+to\s+be|roleplay\s+as|do\s+not\s+tell)"
+    r"|(请?立即执行|执行以下(指令|命令))",
+    re.IGNORECASE,
+)
+
+
+def _is_injection_like(s: str) -> bool:
+    return bool(_INJECTION_RE.search(s or ""))
 
 
 def _clean(text: Optional[str], max_chars: int) -> str:
@@ -113,6 +140,8 @@ def _extract_test_hints(results: Iterable[Optional[str]], limit: int,
             if len(s) < 4:
                 continue
             if not any(p in s.lower() for p in patterns):
+                continue
+            if _is_injection_like(s):  # F-009：指令注入模式句直接丢弃
                 continue
             # 允许句子被截断后再比对，但去重键用原始句
             key = s[:120]
@@ -157,6 +186,8 @@ def _extract_pitfalls(failures: Iterable[Optional[str]], limit: int,
             continue
         # 跳过「已修复」类无信息量的记录
         if any(w in s for w in ("cleanup", "probe cleanup", "verify", "取消", "已过时")):
+            continue
+        if _is_injection_like(s):  # F-009：指令注入模式句直接丢弃
             continue
         key = s[:120]
         if key in seen:
@@ -252,7 +283,7 @@ def _load_experience(project: str, limit: int, max_chars: int) -> List[str]:
     for ent in rows or []:
         for obs in (ent.get("observations") or [])[:limit]:
             s = _clean(obs, max_chars)
-            if s:
+            if s and not _is_injection_like(s):  # F-009：过滤注入模式
                 out.append(s)
             if len(out) >= limit:
                 break
@@ -276,8 +307,9 @@ def recent_lessons(db: Session, workspace: str = "", project: str = "",
     - `limit`：每个列表最多返回几条
     - `max_chars`：每条文本最多多少字符
 
-    返回 `{"test_hints", "file_layout", "pitfalls", "source_count"}`，
-    无数据时四个字段分别为空数组 / 0。
+    返回 `{"test_hints", "file_layout", "pitfalls", "source_count", "sources"}`，
+    无数据时列表字段为空数组 / 计数为 0。`sources` 为内容来源任务
+    （task_id / title / state），供消费方判断可信度（F-009 溯源）。
     """
     try:
         workspace = (workspace or "").strip()
@@ -293,7 +325,6 @@ def recent_lessons(db: Session, workspace: str = "", project: str = "",
             out = empty_lessons()
             out["pitfalls"] = pits
             return out
-
         task_ids = [t.id for t in tasks]
         results = _load_run_results(db, task_ids)
 
@@ -319,6 +350,13 @@ def recent_lessons(db: Session, workspace: str = "", project: str = "",
             "file_layout": file_layout,
             "pitfalls": pitfalls,
             "source_count": len(tasks),
+            # F-009 溯源：lessons 内容来自哪些任务（消费方可据此判断可信度/找源头）
+            "sources": [
+                {"task_id": t.id,
+                 "title": (t.title or "")[:80],
+                 "state": (t.state.value if hasattr(t.state, "value") else str(t.state or ""))}
+                for t in tasks[:limit]
+            ],
         }
     except Exception:
         # 契约：任何异常都降级为空结构，不外泄
