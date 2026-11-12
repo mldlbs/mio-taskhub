@@ -137,11 +137,13 @@ def approve(taskhub_db: Path, task_id: str, target_db: Path, secret: str,
         review_id = uuid.uuid4().hex[:12]
         conn.execute(
             "insert into taskreview (id, task_id, decision, checklist, summary, "
-            "comments, artifacts, reviewer, review_duration_sec, created_at) "
-            "values (?,?,?,?,?,?,?,?,?,?)",
+            "comments, artifacts, reviewer, reviewer_verified, "
+            "review_duration_sec, created_at) "
+            "values (?,?,?,?,?,?,?,?,?,?,?)",
             (review_id, task_id, "approve", None,
              "Migration approval bound to target content hash and code commit.",
-             "", json.dumps(artifacts, ensure_ascii=False), reviewer, None,
+             "", json.dumps(artifacts, ensure_ascii=False), reviewer, 0,
+             None,
              datetime.now(timezone.utc).isoformat()))
         conn.commit()
         return {"ok": True, "review_id": review_id, "task_id": task_id,
