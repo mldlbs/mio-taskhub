@@ -703,6 +703,7 @@ OpenTelemetry 自动埋点覆盖 FastAPI、SQLAlchemy、httpx；结构化日志�
 lessons 的内容源是**其他 agent 的 run.result / review_result / memory_store observations**——被攻陷或误操作的 agent 可以在结果里写「忽略之前的指令……」这类文本，随 claim 响应注入下一个 agent 的上下文。防护（best-effort 启发式，**不是完备注入防线**，信任边界仍是「lessons 只作参考信息」）：
 
 - 提取阶段命中已知指令注入模式的句子直接丢弃（中英双语模式：ignore/disregard/override previous instructions、忽略/无视之前以上、新的指令、系统提示词、act as、从现在开始等）；
+- **白名单化**：`test_hints` 只保留「命令形」句子（可执行工具 token + 参数，或 `$ cmd` / 「命令：…」前缀）；纯描述性文字（如「单元测试全部通过，质量很好」）不再进入 lessons；
 - `recent_lessons` 返回新增 `sources` 字段（来源任务的 task_id / title / state），消费方可据此判断可信度、追溯源头。
 
 ### 安装器覆盖确认（F-013①）

@@ -120,3 +120,25 @@ def test_recent_lessons_returns_sources():
     item = [x for x in out["sources"] if x["task_id"] == tid][0]
     assert item["title"] == "lessons-src"
     assert item["state"] == "completed"
+
+
+# ── 白名单化：test_hints 只留命令形句子 ─────────────────────────────────────
+
+def test_command_shaped_gate():
+    from mio_taskhub.api.task_lessons import _is_command_shaped
+    assert _is_command_shaped("pytest tests/ -q 1235 passed")
+    assert _is_command_shaped("测试：pytest tests/ -q 1235 passed")
+    assert _is_command_shaped("npm test 过了")
+    assert _is_command_shaped("命令：npm run build")
+    assert _is_command_shaped("$ cargo test --all")
+    assert not _is_command_shaped("单元测试全部通过，质量很好")
+    assert not _is_command_shaped("改了几个文案，没有跑任何检查")
+
+
+def test_extract_test_hints_whitelist_mode():
+    results = [
+        "单元测试全部通过，质量很好",           # 描述性文字 → 丢弃
+        "测试：pytest tests/ -q 1235 passed",  # 命令形 → 保留
+    ]
+    out = _extract_test_hints(results, limit=5, max_chars=200)
+    assert out == ["测试：pytest tests/ -q 1235 passed"]

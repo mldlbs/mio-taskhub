@@ -108,6 +108,30 @@ def _is_injection_like(s: str) -> bool:
     return bool(_INJECTION_RE.search(s or ""))
 
 
+# ── F-009 白名单化（2026-11-12）─────────────────────────────────────────────
+# test_hints 只保留「命令形」句子：必须包含一个可执行工具 token + 参数
+# （或 `$ cmd` / 「命令：…」前缀形态）。纯描述性文字（「单元测试全部通过，
+# 质量很好」）不再进入 lessons——进一步收窄自由文本注入面。
+_LESSON_TOOLS = (
+    "pytest", "unittest", "npm", "pnpm", "yarn", "mvn", "gradle", "gradlew",
+    "go", "cargo", "dotnet", "make", "python", "python3", "pip", "uv", "uvx",
+    "tox", "jest", "vitest", "mocha", "nose", "rspec", "phpunit", "ctest",
+    "cmake", "lint", "eslint", "ruff", "flake8", "mypy", "tsc", "gofmt",
+    "black", "isort", "prettier", "shellcheck",
+)
+_CMD_SHAPE_RE = re.compile(
+    r"(?:^|[\s`'\"（(：:])"
+    r"(?:" + "|".join(re.escape(t) for t in _LESSON_TOOLS) + r")\s+\S"
+    r"|(?:^|\n)\s*\$\s+\S"
+    r"|(?:命令|运行|执行|跑)\s*[:：]\s*\S",
+    re.IGNORECASE,
+)
+
+
+def _is_command_shaped(s: str) -> bool:
+    return bool(_CMD_SHAPE_RE.search(s or ""))
+
+
 def _clean(text: Optional[str], max_chars: int) -> str:
     """压缩空白 + 截断。"""
     if not text:
@@ -142,6 +166,8 @@ def _extract_test_hints(results: Iterable[Optional[str]], limit: int,
             if not any(p in s.lower() for p in patterns):
                 continue
             if _is_injection_like(s):  # F-009：指令注入模式句直接丢弃
+                continue
+            if not _is_command_shaped(s):  # F-009 白名单化：只要命令形句子
                 continue
             # 允许句子被截断后再比对，但去重键用原始句
             key = s[:120]
