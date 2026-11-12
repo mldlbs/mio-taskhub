@@ -44,11 +44,13 @@ for _stream in (sys.stdout, sys.stderr):
 HUB = os.environ.get("MIO_TASKHUB_URL") or "http://127.0.0.1:48620/api/v1"
 
 
-def req(method, path, body=None, timeout=20):
+def req(method, path, body=None, timeout=20, headers=None):
     url = HUB.rstrip("/") + path
     data = json.dumps(body).encode("utf-8") if body is not None else None
     r = urllib.request.Request(url, data=data, method=method)
     r.add_header("Content-Type", "application/json")
+    for k, v in (headers or {}).items():
+        r.add_header(k, v)
     tok = os.environ.get("MIO_TASKHUB_TOKEN")
     if tok:
         r.add_header("Authorization", "Bearer %s" % tok)
@@ -220,6 +222,11 @@ def main() -> int:
         idle_since = None
         run_id = res["id"]
         task_id = res.get("task_id")
+        # 强模式（MIO_TASKHUB_RUN_TOKEN_REQUIRED=1）：claim 响应的 run_token 是
+        # 本 run 的唯一凭据，heartbeat / submit_result 必须经 X-Run-Token 携带，
+        # 否则 403 run.token_required。
+        run_token = res.get("run_token") or ""
+        run_hdr = {"X-Run-Token": run_token} if run_token else None
         task = res.get("task") or {}
         # claim 响应不内联 task 详情时，补一次 GET 以取 title/description（门控必读在顶层 res）
         if not task and task_id:
@@ -245,9 +252,11 @@ def main() -> int:
 
             def _hb():
                 while not stop_hb.wait(60):
-                    # 带 agent：服务端据此校验 run 所有权（P0 d1b54de0）
+                    # 带 agent：服务端据此校验 run 所有权（P0 d1b54de0）；
+                    # 带 X-Run-Token：per-run 凭据（F-005，强模式必带）
                     req("POST", "/runs/%s/heartbeat?agent=%s"
-                        % (run_id, urllib.parse.quote(args.agent)), {"progress": 50})
+                        % (run_id, urllib.parse.quote(args.agent)), {"progress": 50},
+                        headers=run_hdr)
 
             threading.Thread(target=_hb, daemon=True).start()
             print("[idle-worker] exec(%s): %s" % ("shell" if use_shell else "argv",
@@ -264,7 +273,7 @@ def main() -> int:
                 stop_hb.set()
 
         req("POST", "/runs/%s/result?agent=%s" % (run_id, urllib.parse.quote(args.agent)),
-            {"success": bool(ok), "result": str(msg)[:2000]})
+            {"success": bool(ok), "result": str(msg)[:2000]}, headers=run_hdr)
         print("[idle-worker] submitted run=%s success=%s" % (run_id, ok))
         done += 1
         if args.once or (args.max and done >= args.max):

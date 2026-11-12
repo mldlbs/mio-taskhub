@@ -673,7 +673,7 @@ OpenTelemetry 自动埋点覆盖 FastAPI、SQLAlchemy、httpx；结构化日志�
 |------|------|------|--------|
 | `MIO_TASKHUB_TOKEN` / `--auth` | 空（关闭鉴权） | **API 访问凭据**。`main.py` 的全局中间件校验 `Authorization: Bearer <token>`，保护 `/api/`、`/metrics`、`/logs` 与 WebSocket。只回答「能不能访问 API」 | 人、Web 前端、MCP、所有执行任务的 agent（共用同一个值） |
 | `MIO_TASKHUB_ADMIN_TOKEN` | 空 | **管理面凭据**。`admin_guard.require_admin` 校验 `X-TaskHub-Admin-Token: <token>`（`Authorization: Bearer <token>` 仅在未启用 `--auth` 时可用作兼容；启用后 Bearer 被 API 凭据占用）。回答「是不是管理面操作者」 | **只给 Web 前端 / 运维，绝不下发给执行任务的 agent** |
-| `MIO_TASKHUB_RUN_TOKEN_REQUIRED` | 空（宽松） | **per-run 凭据强模式**（F-005 第 2 步）。claim 时下发 `run_token`（Run 只存 sha256，明文仅在 claim 响应出现一次），`heartbeat` / `submit_result` / 幂等续领经 `X-Run-Token` 头或 `run_token` 参数携带：带错一律 403；不带默认放行（兼容存量调用方），置 `1` 后不带 403。迁移前的旧 run 无凭据可比对，任何模式下都放行 | 执行任务的 agent（claim 方） |
+| `MIO_TASKHUB_RUN_TOKEN_REQUIRED` | 空（宽松） | **per-run 凭据强模式**（F-005 第 2 步）。claim 时下发 `run_token`（Run 只存 sha256，明文仅在 claim 响应出现一次），`heartbeat` / `submit_result` / 幂等续领经 `X-Run-Token` 头或 `run_token` 参数携带：带错一律 403；不带默认放行（兼容存量调用方），置 `1` 后不带 403。迁移前的旧 run 无凭据可比对，任何模式下都放行。**仓内执行侧已全部自动携带**（`packaging/agent_wrapper.py` / `packaging/idle_worker.py` / MCP `taskhub_heartbeat` / `taskhub_submit_result`）；hub 启动注入用 `packaging/start_hub_strong.cmd`（环境变量无 .env 支持，必须进程启动时注入） | 执行任务的 agent（claim 方） |
 
 要点：
 
