@@ -7,6 +7,7 @@
 #   -Prerelease   mark the release as prerelease (channel=prerelease in latest.json)
 #   -DryRun       build is skipped unless -SkipBuild is omitted; prints what would happen, makes no API calls
 #   -SkipBuild    reuse the existing dist/mio-taskhub-win64.zip instead of rebuilding
+#   -GateReport   可选素材门禁报告（传了才校验；素材质量与发布包内容无关，默认不查）
 #
 # Requires: dist/mio-taskhub-win64.zip (produced by build.ps1) and GH_TOKEN for real runs.
 param(
@@ -21,12 +22,10 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
-# 真实发布必须先验证素材门禁报告：报告需绑定当前 commit 与被测 DB。
-# DryRun 不发布，允许跳过。
-if (-not $DryRun) {
-  if (-not $GateReport) {
-    throw 'Real release requires -GateReport <gate-report.json> (no bypass).'
-  }
+# 素材门禁报告：可选（2026-11-13 解绑）。发布包是纯软件产物，不含素材数据
+# （zip 已实证 0 个 material/db 文件），素材质量与发布内容无关；素材线已于
+# 2026-10-08 暂停。仍传 -GateReport 时会照常校验（绑定 commit 与 DB sha）。
+if (-not $DryRun -and $GateReport) {
   if (-not (Test-Path $GateReport)) {
     throw "Gate report not found: $GateReport"
   }
@@ -34,6 +33,8 @@ if (-not $DryRun) {
   if ($LASTEXITCODE -ne 0) {
     throw 'Gate report verification failed; release blocked.'
   }
+} elseif (-not $DryRun) {
+  Write-Warning '-GateReport 未提供：跳过素材门禁校验（素材质量与发布包内容无关）。'
 }
 
 $Owner     = 'mldlbs'
@@ -132,19 +133,30 @@ $releaseBody = @{
   draft      = $false
   prerelease = [bool]$Prerelease
 } | ConvertTo-Json
+# PS 5.1 把字符串 body 按默认（ASCII 系）编码发送，中文会变 '?'。
+# 必须显式 UTF-8 字节，与 latest.json 的 no-BOM 处理同理。
+$releaseBodyBytes = [System.Text.Encoding]::UTF8.GetBytes($releaseBody)
 try {
-  $rel = Invoke-RestMethod -Method Post -Uri "$api/releases" -Headers $headers -ContentType 'application/json' -Body $releaseBody
+  $rel = Invoke-RestMethod -Method Post -Uri "$api/releases" -Headers $headers -ContentType 'application/json' -Body $releaseBodyBytes
 } catch {
   throw "create release failed: $($_.Exception.Message) $($_.ErrorDetails.Message)"
 }
-$uploadUrl = $rel.upload_url -replace '\{\?name,label\}', ''
-Write-Host "  release id=$($rel.id)"
+$releaseId = $rel.id
+$uploadUrl = "$($rel.upload_url)".Trim()
+if (-not $uploadUrl -or $uploadUrl -notlike 'https://*') {
+  # 兜底：PS 5.1 偶发拿不到 upload_url（空值会让 URI 只剩 "?name=..."，报
+  # 「未能分析主机名」）。uploads 端点是稳定已知形态，直接构造。
+  $uploadUrl = "https://uploads.github.com/repos/$Owner/$Repo/releases/$releaseId/assets"
+}
+$uploadUrl = $uploadUrl -replace '\{\?name,label\}', ''
+Write-Host "  release id=$releaseId"
 
 function Upload-Asset([string]$filePath) {
   $name = Split-Path -Leaf $filePath
+  $encoded = [System.Uri]::EscapeDataString($name)
   $bytes = [System.IO.File]::ReadAllBytes($filePath)
   $h = @{ Authorization = "Bearer $token"; 'User-Agent' = 'mio-taskhub-release' }
-  Invoke-RestMethod -Method Post -Uri "$uploadUrl?name=$name" -Headers $h `
+  Invoke-RestMethod -Method Post -Uri "$uploadUrl?name=$encoded" -Headers $h `
     -ContentType 'application/octet-stream' -Body $bytes | Out-Null
   Write-Host "  uploaded $name"
 }
