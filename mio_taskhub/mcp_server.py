@@ -40,6 +40,8 @@ mcp = FastMCP(
         "- 看板渲染：把 taskhub_status 结果渲染成 markdown 表格（阶段|数量|任务列表），不要贴原始 JSON。\n"
         "- 只读询问（看进度/看板）时只调 taskhub_status / taskhub_get_task / taskhub_list_tasks，不创建不修改。\n"
         "- 建任务用 taskhub_create_task，写清描述/验收标准；先给用户复述标题+描述，确认后再提交。\n"
+        "- **拆分时先定用哪套结构，两套数据互不相通**：① 单个任务内部的勾选步骤 → taskhub_add_subtask（写入 Subtask 表，任务详情「清单」tab，不能独立 claim、无状态机、不参与依赖分层）；② 需要多个可独立 claim、有先后依赖、要算关键路径的平级任务 → 用 taskhub_create_task 逐个建任务，每个的 labels 里带 `part-of:<owner>`（owner 取根任务 id），并用 depends_on 连依赖，任务详情「工作流」tab 与 taskhub_get_workstream 才会看到这一组。判断依据是「这一步要不要单独派活、要不要单独出结果」：要 → ②，不要 → ①。\n"
+        "- taskhub_decompose_apply 创建的是带 parent_id 的平级 Task，**不会自动加 `part-of` 标签**，因此拆出来的任务不会出现在工作流面板；需要工作流视图时，建单阶段就得自己带上标签，或事后由人补 labels。\n"
         "- 推进阶段用 taskhub_advance_stage，需带产出物路径/审查结论，缺失时先向用户要。\n"
         "- 任务完成后用 taskhub_submit_result 提交，并向用户一句话汇报结果（成功/失败+原因）。\n"
         "执行类流程：taskhub_register 注册 → taskhub_claim 领取 → taskhub_heartbeat 心跳 → taskhub_submit_result 提交结果。\n"
@@ -53,7 +55,7 @@ mcp = FastMCP(
         "- 代码分支命名为 task-<id>（id 为 8 位十六进制）；本地 pre-push 钩子校验 spec/api/plan 已 approved 且引用的 FR-n 真实存在。\n"
         "- taskhub_submit_result 成功路径会校验 ReadEvidence：required reads 缺失或文档版本已变更 → 422（服务端强制，绕不过）；可用 taskhub_read_status 查看还差哪些。\n"
         "- spec/api/plan 未批准时**不要自行推进文档状态**：taskhub_set_doc_status 需管理面凭据（F-004），执行 agent 调用会被 403；等人工/前端批准后再编码，需要时向用户说明阻塞点。\n"
-        "- **destructive 操作由人执行，agent 不要自助**（F-004 第 3 步，服务端强制）：取消任务（taskhub_cancel_task）、删子任务（taskhub_delete_subtask）、推进文档状态（taskhub_set_doc_status）、强制生成灵感（taskhub_force_generate）都要求管理面凭据——MCP 客户端默认拦截，即使 MIO_MCP_ALLOW_DESTRUCTIVE=1 放行了客户端层，服务端仍会 403（该开关只影响 MCP 客户端，服务端不认）。需要这些动作时向用户说明，由人/前端完成。\n"
+        "- **destructive 操作由人执行，agent 不要自助**（F-004 第 3 步，服务端强制）：取消任务（taskhub_cancel_task）、删清单项（taskhub_delete_subtask）、推进文档状态（taskhub_set_doc_status）、强制生成灵感（taskhub_force_generate）都要求管理面凭据——MCP 客户端默认拦截，即使 MIO_MCP_ALLOW_DESTRUCTIVE=1 放行了客户端层，服务端仍会 403（该开关只影响 MCP 客户端，服务端不认）。需要这些动作时向用户说明，由人/前端完成。\n"
         "同项目参考（软信息，只给参考不强制）：\n"
         "- claim 返回的 lessons 字段来自**同workspace 近期已完成任务**，含 test_hints（这个项目测试怎么跑）/ file_layout（文件通常放哪）/ pitfalls（已知坑）。\n"
         "- **动手前先看 lessons**：照着 test_hints 的方式写测试，比事后被检查更有效。\n"
@@ -294,6 +296,13 @@ async def taskhub_get_task(
     return _fmt(await _request("GET", f"/tasks/{task_id}"))
 
 
+@_tool(name="taskhub_get_workstream", title="查看工作流分组", method="GET", path="/tasks/{task_id}/workstream", read_only=True, destructive=False, desc="查看任务所属的工作流分组（只读）：服务端按 labels 里的 part-of:<owner> 聚合平级成员，成员任务会向上解析 owner。返回 nodes/edges/layers（依赖分层）/blocked/external（组外前置）/missing（缺失依赖）/cycle（依赖环）/stats（total、done、blocked、estimate_min、critical_path）。成员是各自独立的 Task，可单独 claim。**这不是任务详情的「清单」tab**：清单是 Subtask 勾选表，不在此接口返回。若需要新建一组工作流成员，用 taskhub_create_task 带 labels 的 part-of:<owner> 与 depends_on。")
+async def taskhub_get_workstream(
+    task_id: str = Field(description="任务唯一标识；传成员任务 id 时会自动解析到所属 owner", min_length=1),
+) -> str:
+    return _fmt(await _request("GET", f"/tasks/{task_id}/workstream"))
+
+
 def _doc_path_from(task: dict, kind: str) -> str:
     """解析 kind -> 路径：优先 doc_paths，回退旧的 spec_path/plan_path 列。"""
     paths = task.get("doc_paths") or {}
@@ -466,11 +475,11 @@ async def taskhub_create_task(
     fallback_after: Optional[int] = Field(default=None, description="从 created_at 起算的秒数，超过后允许非目标 agent 领取"),
     priority: int = Field(default=0, description="优先级 0-3，越大越优先", ge=0, le=3),
     est_duration_min: int = Field(default=30, description="预估耗时（分钟）", ge=1, le=1440),
-    depends_on: Optional[list] = Field(default=None, description="前置任务 id 列表（依赖全部完成后才放行），如 [\"task1\", \"task2\"]"),
+    depends_on: Optional[list] = Field(default=None, description="前置任务 id 列表（依赖全部完成后才放行），如 [\"task1\", \"task2\"]。工作流组内用 depends_on 连边，GET /tasks/{id}/workstream 据此算依赖分层、阻塞与关键路径"),
     max_retries: int = Field(default=3, description="最大重试次数", ge=0, le=10),
     acceptance_criteria: str = Field(default="", description="验收标准 / 完成定义"),
     due_at: Optional[str] = Field(default=None, description="截止时间 ISO 格式"),
-    labels: Optional[list] = Field(default=None, description="自定义状态标签列表"),
+    labels: Optional[list] = Field(default=None, description="自定义状态标签列表。要归入工作流组，加 part-of:<owner>，owner 为该组根任务 id；带此标签的成员在看板隐藏，只在任务详情「工作流」tab 展示"),
     project: str = Field(default="", description="关联项目名"),
     workspace: str = Field(default="", description="工作区根路径"),
     files: Optional[list] = Field(default=None, description="文件路径列表（相对工作区）"),
@@ -493,7 +502,7 @@ async def taskhub_create_task(
     return _fmt(await _request("POST", "/tasks", body=body))
 
 
-@_tool(name="taskhub_decompose_preview", title="拆分预览与校验", method="POST", path="/tasks/{task_id}/decompose/preview", read_only=True, destructive=False, desc="对顶层任务执行拆分校验（只读）：覆盖 plan item、DAG、验收、契约、边界、复杂度与文档要求。返回 errors/warnings/apply_token；不创建子任务。")
+@_tool(name="taskhub_decompose_preview", title="拆分预览与校验", method="POST", path="/tasks/{task_id}/decompose/preview", read_only=True, destructive=False, desc="对顶层任务执行拆分校验（只读）：覆盖 plan item、DAG、验收、契约、边界、复杂度与文档要求。返回 errors/warnings/apply_token；不创建任何任务。")
 async def taskhub_decompose_preview(
     task_id: str = Field(description="父任务唯一标识", min_length=1),
     payload: dict = Field(description="拆分请求体：parent_summary/plan_items/children/contracts 等"),
@@ -502,7 +511,7 @@ async def taskhub_decompose_preview(
                                body=payload))
 
 
-@_tool(name="taskhub_decompose_apply", title="应用拆分", method="POST", path="/tasks/{task_id}/decompose/apply", read_only=False, destructive=False, desc="复校验后原子创建子任务并回写父任务 decomposition。请求体与 preview 相同，可带 apply_token。")
+@_tool(name="taskhub_decompose_apply", title="应用拆分", method="POST", path="/tasks/{task_id}/decompose/apply", read_only=False, destructive=False, desc="复校验后原子创建平级子任务（独立 Task，带 parent_id 与 role=child，不是 Subtask 清单项）并回写父任务 decomposition。**不会自动加 part-of 标签**，因此拆出来的任务不会出现在工作流面板；需要工作流视图就在建单时自己带 labels。请求体与 preview 相同，可带 apply_token。")
 async def taskhub_decompose_apply(
     task_id: str = Field(description="父任务唯一标识", min_length=1),
     payload: dict = Field(description="拆分请求体；建议带 preview 返回的 apply_token"),
@@ -534,20 +543,20 @@ async def taskhub_update_task(
     return _fmt(await _request("PATCH", f"/tasks/{task_id}", body=body))
 
 
-@_tool(name="taskhub_add_subtask", title="添加子任务", method="POST", path="/tasks/{task_id}/subtasks", read_only=False, destructive=False, desc="为任务添加一个子任务/计划步骤。")
+@_tool(name="taskhub_add_subtask", title="添加清单项", method="POST", path="/tasks/{task_id}/subtasks", read_only=False, destructive=False, desc="为任务添加一个清单项（Subtask 勾选步骤，显示在任务详情「清单」tab）。清单项不是独立 Task，不能单独 claim、没有 state/stage、不参与依赖分层。若要拆成多个可独立派发、带依赖的平级任务，改用 taskhub_create_task 并在 labels 里带 part-of:<owner>、用 depends_on 连边，再用 taskhub_get_workstream 查看。")
 async def taskhub_add_subtask(
     task_id: str = Field(description="任务唯一标识", min_length=1),
-    title: str = Field(description="子任务标题", min_length=1, max_length=200),
+    title: str = Field(description="清单项标题", min_length=1, max_length=200),
     order: int = Field(default=0, description="排序号"),
     status: str = Field(default="pending", description="状态：pending/in_progress/done/blocked"),
 ) -> str:
     return _fmt(await _request("POST", f"/tasks/{task_id}/subtasks", body={"title": title, "order": order, "status": status}))
 
 
-@_tool(name="taskhub_update_subtask", title="更新子任务状态", method="PATCH", path="/tasks/{task_id}/subtasks/{subtask_id}", read_only=False, destructive=False, desc="更新子任务的标题/排序/状态。")
+@_tool(name="taskhub_update_subtask", title="更新清单项状态", method="PATCH", path="/tasks/{task_id}/subtasks/{subtask_id}", read_only=False, destructive=False, desc="更新清单项的标题/排序/状态。")
 async def taskhub_update_subtask(
     task_id: str = Field(description="任务唯一标识", min_length=1),
-    subtask_id: str = Field(description="子任务唯一标识", min_length=1),
+    subtask_id: str = Field(description="清单项唯一标识", min_length=1),
     status: Optional[str] = Field(default=None, description="状态：pending/in_progress/done/blocked"),
     title: Optional[str] = Field(default=None, description="标题"),
     order: Optional[int] = Field(default=None, description="排序号"),
@@ -556,7 +565,7 @@ async def taskhub_update_subtask(
     return _fmt(await _request("PATCH", f"/tasks/{task_id}/subtasks/{subtask_id}", body=body))
 
 
-@_tool(name="taskhub_delete_subtask", title="删除子任务", method="DELETE", path="/tasks/{task_id}/subtasks/{subtask_id}", read_only=False, destructive=True, desc="删除一个子任务/清单项（不可恢复）。**服务端 destructive 门控要求管理面凭据（F-004 第 3 步）：执行 agent 调用收到明确 HTTP 403，由人/前端完成。**")
+@_tool(name="taskhub_delete_subtask", title="删除清单项", method="DELETE", path="/tasks/{task_id}/subtasks/{subtask_id}", read_only=False, destructive=True, desc="删除一个清单项（不可恢复）。**服务端 destructive 门控要求管理面凭据（F-004 第 3 步）：执行 agent 调用收到明确 HTTP 403，由人/前端完成。**")
 async def taskhub_delete_subtask(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     subtask_id: str = Field(description="子任务唯一标识", min_length=1),
