@@ -144,8 +144,7 @@ try {
 $releaseId = $rel.id
 $uploadUrl = "$($rel.upload_url)".Trim()
 if (-not $uploadUrl -or $uploadUrl -notlike 'https://*') {
-  # 兜底：PS 5.1 偶发拿不到 upload_url（空值会让 URI 只剩 "?name=..."，报
-  # 「未能分析主机名」）。uploads 端点是稳定已知形态，直接构造。
+  # 防御：API 未给 upload_url 时按 uploads.github.com 稳定形态构造。
   $uploadUrl = "https://uploads.github.com/repos/$Owner/$Repo/releases/$releaseId/assets"
 }
 $uploadUrl = $uploadUrl -replace '\{\?name,label\}', ''
@@ -156,7 +155,10 @@ function Upload-Asset([string]$filePath) {
   $encoded = [System.Uri]::EscapeDataString($name)
   $bytes = [System.IO.File]::ReadAllBytes($filePath)
   $h = @{ Authorization = "Bearer $token"; 'User-Agent' = 'mio-taskhub-release' }
-  Invoke-RestMethod -Method Post -Uri "$uploadUrl?name=$encoded" -Headers $h `
+  # PowerShell 变量名允许 '?'：直接写 "$uploadUrl?name=..." 会被解析成变量
+  # `uploadUrl?name`（空值），URL 只剩 "?name=..." → 「未能分析主机名」。
+  # v0.7.0 发布即踩此坑，必须用 ${uploadUrl} 界定变量边界。
+  Invoke-RestMethod -Method Post -Uri "${uploadUrl}?name=$encoded" -Headers $h `
     -ContentType 'application/octet-stream' -Body $bytes | Out-Null
   Write-Host "  uploaded $name"
 }
