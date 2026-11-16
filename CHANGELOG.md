@@ -5,6 +5,33 @@
 > 独立安装与卸载程序：图形安装向导、正规卸载入口（Windows「应用和功能」）、快捷方式、确定性打包。
 > 版本号在发版提交（`chore(release)`）统一抬升并打 tag —— 本节保持 Unreleased。
 
+### Fixed — claim 领不到只回空 204，无法诊断（含 offline 自动复活）
+- **现象**：agent 空闲超过 180s 被 `_mark_stale_agents` 置 `offline`，此后调 claim 一律拿到**空 204**——与「确实没有任务」完全无法区分。现场表现是「任务明明在队列里，按 ID 领也被拒，retry 也没用」。
+- **根因**：`claim_for` 对 `status != ONLINE` 的已注册 agent 直接 `return None`，`claim_task` 又把这个 `None` 和「没活可干」混成同一条空响应；同时 `find_existing_run` 的幂等续领先于状态检查，导致判断更偶发。
+- **默认改为自动复活**：claim 本身就是「我活着且能干」的证据，比保活心跳更能证明进程存活。`MIO_CLAIM_REVIVE_OFFLINE_AGENT`（默认 `1`）开启时，offline 的 agent 领活即翻回 `online` 并写 `agent_online` 事件（`{"reason": "claim_revive", "previous_status": "offline"}`）；置 `0`/`false`/`off` 回严格模式（原 T4.3 防僵尸语义）。
+- **拒绝原因说清**：显式传 `task_id` 却领不到 → 409 且带 `code`（`claim.agent_not_online` / `claim.task_not_queued` / `claim.not_ready`）与 `hint`；轮询式领取仍回 204，但带 `X-Claim-Reason` 头。MCP 侧 `_request` 把 4xx 的 `detail` 抬到首层（`code` / `hint` / `agent_status` / `last_heartbeat` / `missing`），`taskhub_claim` 拿到空响应时再自查 `GET /agents/{name}` 区分「真没任务」与「人被拦」。
+- **新增 `GET /api/v1/agents/{name}`**：返回 `can_claim` / `strict_mode` / `last_heartbeat` / `hint`，未注册 404 `agent.not_found`。
+- **run 面板标注系统回收**：`GET /tasks/{id}` 的 run 序列化新增 `reap_reason`（`heartbeat_timeout` / `agent_offline` / `never_started`），前端显示「系统回收 · 未提交结果」——不再让人以为是 agent 自己报的失败。
+- 测试：`test_agent_heartbeat.py` 拆分默认/严格两条路径，新增 `test_claim_revives_offline_agent_by_default_and_strict_mode_blocks` 等 6 条；`test_mcp_server.py` 断言改为 code 或文案任一命中。
+
+### Added — 阻塞项性质分类、判定依据独立成行、问题总览表
+- **每条问题补两个字段**：`nature`（性质分类：门控 / 输入缺口 / 记录缺失 / 外部条件 / 执行顺序 / 待决策 / 运行异常 / 前置异常 / 风险，共 21 类）与 `evidence`（判定依据，写清「哪个字段 = 什么值、期望是什么」，可逐条核查）。`blockers` 与 `readiness` 两个端点同步。
+- **依据从正文里拆出来**：新增 `split_evidence()`，正则 `判定依据[：:]\s*(.+?)(?=。|$)` 把判据抽到 `evidence`——21 类里 14 类自动命中，其余 7 类显式补。代号展开（`deviations[D-1]`）只作用于正文，不碰 `evidence`，避免把方括号里的中文标题插进字段名。
+- **前端**：标题右侧显示性质标签，正文下方单独一行等宽字体展示依据；列表上方加问题总览表（`#` / 问题 / 性质 / 依据 / 责任方），点行滚动定位到对应条目。
+- 诚实边界：依据只能到「字段 + 当前值 + 期望值」，做不到引用规格条款原文——那需要在门控规则里加 `source_ref`（未做）。
+
+### Fixed — 阻塞面板因果顺序倒置
+- **现象**：`doc_gate`（文档没批）排在 `deviation_open` / `decision_open` 之前，但实际因果是「偏差与决策没解决 → 文档批不了」。顶部写着文档阻塞，人先去改文档，改完仍然批不过。
+- **修复**：`_ORDER` 重排为 `decision_open(5) → deviation_open(6) → doc_gate(7)`；`doc_gate` 条目的 `because` 追加因果说明，`steps` 首位插入「先处理上面列出的偏差与决策」；`deviation_open` 在被 gate 挡住时补一句「这条偏差也是文档批准的前置」。
+
+### Added — 文档面板可手动推进状态
+- **`DocPanel` 之前只读**：文档状态只能靠 MCP / REST 推，面板上看得到 draft 却点不动。新增 `api.setDocStatus()` 与按钮组，按 `GET /tasks/{id}/doc/statuses` 返回的 `allowed_next` 渲染合法后继（requirement 是 draft→approved 直通，api 必须 draft→review→approved）；`has_doc === false` 时禁用；质量门 422 的 `detail.message` 显示在按钮下方。
+
+### Fixed — 基线冻结脚本偶发假红（`run_pytest` 丢诊断）
+- **现象**：`test_baseline_freeze::test_end_to_end_small` 偶发 `stats == {}`，同一份代码重跑必过，日志里只剩一个空 dict，无从判断。
+- **根因**：子进程 `pytest --cov` 竞争写仓库根 `.coverage`，偶发非零退出且输出里没有摘要行；`run_pytest` 只返回 `rc`/`stats`，把 stdout/stderr 全丢了。
+- **修复**：抽 `_run_pytest_once` 并把输出末 15 行收进 `tail`；`run_pytest` 在 `rc != 0` 或摘要缺失时自动重试一次，首次结果留在 `first_attempt`（含 `tail`），区分「偶发」与「真回退」。测试 +3 条（重试、不重试、tail 保留）。
+
 ### Changed — 安全：destructive 门控下沉到服务端（F-004 第 3 步）
 - **新增 `mio_taskhub/destructive_guard.py`**：破坏性端点清单（代码常量：取消任务 / 推文档状态 / 删子任务 / 强制生成灵感）+ 服务端中间件，命中清单即要求**管理面凭据**——REST 直连不再能凭 API 访问凭据绕过此前只存在于 MCP 进程内的门控。
 - **`MIO_MCP_ALLOW_DESTRUCTIVE` 语义收敛**：只作用于 MCP 客户端层（`mcp_risk.check`），服务端判定不读它——即使置 1，destructive 端点在服务端仍 403，不再有「一开全放」的宽口子。

@@ -25,7 +25,7 @@
 | `taskhub_status` | 一次获取全局上下文（各阶段计数/待领取/执行中/告警/最近完成/下一步建议） |
 | `taskhub_poll_events` | 增量订阅全局变更事件（建任务/领取/心跳/完成/阶段/想法/讨论），记录 next_seq 轮询 |
 | `taskhub_register` | 注册 agent（幂等，重复注册刷新在线状态） |
-| `taskhub_agent_heartbeat` | Agent 心跳保活（空闲时周期调用，超时 180s 自动离线；未注册自动注册） |
+| `taskhub_agent_heartbeat` | Agent 心跳保活（空闲时周期调用，超时 180s 自动离线；未注册自动注册。离线后调 claim 会自动翻回在线并留 `agent_online` 事件，除非部署设 `MIO_CLAIM_REVIVE_OFFLINE_AGENT=0`） |
 | `taskhub_claim` | 领取一个排队任务，返回 run_id + 任务详情 |
 | `taskhub_heartbeat` | 心跳上报进度（0-100），避免超时 |
 | `taskhub_submit_result` | 提交结果（成功/失败），驱动 completed/retrying/failed |
@@ -122,11 +122,14 @@ python -m mio_taskhub.mcp_server
 ## mio-taskhub 任务执行规范
 使用 mio-taskhub MCP 工具领取并完成任务：
 1. taskhub_register：注册为 <agent 名称>（先检查是否已注册）；空闲时每隔约 1 分钟调用 taskhub_agent_heartbeat 保持在线
+   （心跳停了也不会永久失能：claim 会把 offline 的 agent 自动翻回 online 并留事件，除非部署设了 MIO_CLAIM_REVIVE_OFFLINE_AGENT=0）
 2. taskhub_claim：领取任务，得到 run_id 和任务详情
 3. 执行任务内容；如耗时较长，周期性调用 taskhub_heartbeat 上报进度
 4. 完成调用 taskhub_submit_result(run_id, success=true, result="产出描述")
    失败则提交 success=false 并说明原因
 ```
+
+claim 返回空（HTTP 204）说明当前没有可领的任务。被拦下时不再静默：按 task_id 领取会回 409 并带 `code`（`claim.agent_not_online` / `claim.task_not_queued` / `claim.not_ready`）与 `hint`，轮询式领取则在 `X-Claim-Reason` 响应头里给原因。要直接自查可调 REST `GET /api/v1/agents/{name}`，返回 `can_claim` / `strict_mode` / `last_heartbeat`。
 
 ## 4. 增量订阅事件（编排/协作感知）
 

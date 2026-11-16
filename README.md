@@ -7,11 +7,11 @@
 | 维度 | 现状 |
 |------|------|
 | 版本 | v0.6.1 |
-| 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 76 模块 / 36,521 行 |
-| 对外能力 | **185 个 REST 端点** · **57 个 MCP 工具** · WebSocket 实时广播 · React Web UI |
+| 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 76 模块 / 36,661 行 |
+| 对外能力 | **186 个 REST 端点** · **57 个 MCP 工具** · WebSocket 实时广播 · React Web UI |
 | 任务文档 | **22 类文档 kind** · **7 件套文档链** · **9 类生命周期状态机** · 质量 lint + 状态门控 + 修订指令 |
-| 前端 | React 18 + Vite 5 · 56 文件 / 13,895 行 · 10 个视图 |
-| 测试 | **1806 个用例**（55 文件 / 8,480 行）· GitHub Actions（windows-latest / py3.12） |
+| 前端 | React 18 + Vite 5 · 56 文件 / 13,901 行 · 10 个视图 |
+| 测试 | **1815 个用例**（55 文件 / 8,480 行）· GitHub Actions（windows-latest / py3.12） |
 | 部署 | pip 源码 · Docker 多阶段镜像 · Windows 单 EXE 绿色版（免 Python）· Windows 安装包（图形安装 + 正规卸载） |
 
 ---
@@ -156,7 +156,7 @@ new ──> fermenting ──> formed ──> broken_down ──> (任务全部�
 |------|------|----------|
 | `Task` | 任务主体 | state · stage · doc_paths · doc_statuses · depends_on · priority · max_retries · fallback_after · target_agent_type |
 | `Run` | 一次执行 | task_id · agent_name · progress · attempt · checkpoint |
-| `Agent` | Agent 注册表 | name · status · last_heartbeat（180s 无心跳转 offline） |
+| `Agent` | Agent 注册表 | name · status · last_heartbeat（180s 无心跳转 offline；claim 时按 `MIO_CLAIM_REVIVE_OFFLINE_AGENT` 自动复活，默认开启） |
 | `TaskEvent` | 任务级事件 | event_type · from/to_state · from/to_stage · actor_type |
 | `Event` | 全局事件流 | 单调 `seq`，供增量订阅 |
 | `Subtask` / `GitRef` / `HistoryEvent` | 拆解与追溯 | 子任务、分支/commit/PR/tag、执行历史 |
@@ -318,6 +318,18 @@ python packaging/agent_wrapper.py opencode list
 - `taskhub_claim` 会优先返回已分配的 run（幂等，重复调用不会重复领）
 - 不想被自动分配：注册后不保持 online 心跳，或在任务上设 `target_agent_type` 精确指定执行者
 - 目标 Agent 迟迟不来：`fallback_after`（秒）到期后允许其他 Agent 接手
+
+**Agent 掉线后能不能直接领活？**（`MIO_CLAIM_REVIVE_OFFLINE_AGENT`，默认 `1`）
+
+| 场景 | 默认行为 | 严格模式（设为 `0`/`false`/`off`） |
+|------|----------|-----------------------------------|
+| agent 空闲 >180s 被置 `offline` 后调 claim | **领成功**，agent 状态同时翻回 `online`，全局事件流留 `agent_online {reason: claim_revive, previous_status: offline}` | 返回 409 `claim.agent_not_online`，必须显式发 agent 心跳 |
+| 未注册的 agent 名调 claim | 自动注册（沿用原语义） | 同左 |
+| 按 task_id 领取但任务不在队列 | 409 `claim.task_not_queued`（带 `state` 与 `hint`） | 同左 |
+
+设计取向：claim 本身就是「我活着且能干」的证据，比 180s 的保活心跳更能证明进程存活；早期的严格拒绝（T4.3 防僵尸）实践中把人卡死在「心跳一停就再也领不到活」的死结上，且对外只回空 204，完全不可诊断。需要旧行为随时把开关置 0。
+
+自查入口——`GET /api/v1/agents/{name}` 返回 `can_claim` / `strict_mode` / `last_heartbeat`，MCP 侧 `taskhub_claim` 拿到空响应时会自动调它，把「真没任务」和「agent 被拦」区分开。
 
 ---
 
@@ -661,9 +673,10 @@ OpenTelemetry 自动埋点覆盖 FastAPI、SQLAlchemy、httpx；结构化日志�
 | `MIO_TASKHUB_PORT` | `48620` | 监听端口（绿色版/hub/widget 均读） |
 | `MIO_TASKHUB_URL` | `http://127.0.0.1:48620/api/v1` | 客户端侧 hub 地址（MCP、空闲运行器读） |
 | `MIO_TASKHUB_TOKEN` | 空 | Bearer token；服务端与客户端共用 |
-| `MIO_TASKHUB_RATE_LIMIT` | `120` | 全局 API 限流（req/min/IP） |
+| `MIO_TASKHUB_RATE_LIMIT` | `600` | 全局 API 限流（req/min/IP）。`/healthz` `/readyz` `/metrics`、`/runs/*/heartbeat`、`/runs/*/result`、`/tasks/claim` 免限流；其余请求带 `?agent=` 时按 `IP|agent` 单独分桶（120 的旧默认会把单机前端与所有 agent 打进同一个桶） |
 | `MIO_TASKHUB_TIMEOUT_SECONDS` | `300` | run 存活基线：任务未配 `timeout_min` 时，看门狗多久未收到 run 心跳即回收（放宽前的 120s 会误杀仍在跑的长任务） |
 | `MIO_TASKHUB_AGENT_OFFLINE_SECONDS` | `120` | agent 已 OFFLINE 时的回收上限：只把上面的基线收紧到这个值，**不会**跳过 run 心跳新鲜度判定 |
+| `MIO_CLAIM_REVIVE_OFFLINE_AGENT` | `1` | claim 时是否允许自动复活 offline 的 agent。默认复活（claim 视作存活证据，翻回 online 并写 `agent_online` 事件）；置 `0`/`false`/`off` 回严格模式，offline 的 agent claim 一律 409 |
 | `MIO_TASKHUB_ADR_DIR` | `<CWD>/docs/adr` | ADR 落盘目录 |
 | `MIO_TASKHUB_WIDGET_NO_TRAY` | — | `1` 时浮动面板不进托盘 |
 
