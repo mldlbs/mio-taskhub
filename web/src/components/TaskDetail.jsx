@@ -503,6 +503,12 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
                   <div className="run-report__head">
                     <b className="mono">{r.agent_name || 'agent'}</b>
                     <span className={`chip${ok ? ' disc-status' : r.exit_code ? ' chip--due' : ''}`}>{r.state}{r.attempt > 1 ? ` · 第 ${r.attempt} 次` : ''}</span>
+                    {r.reap_reason && (
+                      <span className="chip chip--due"
+                            title={`系统回收（${r.reap_reason}）：这条 run 没有提交结果，结果字段是服务端写的`}>
+                        系统回收 · 未提交结果
+                      </span>
+                    )}
                     <span className="hist-row__at mono">
                       {r.started_at ? fmtDate(r.started_at) : ''}{r.finished_at ? ` → ${fmtDate(r.finished_at)}` : ''}
                     </span>
