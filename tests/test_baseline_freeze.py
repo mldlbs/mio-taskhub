@@ -76,3 +76,53 @@ def test_main_writes_manifest(tmp_path):
     m = json.loads(out.read_text(encoding="utf-8"))
     assert m["git"]["head"]
     assert m["pytest"]["stats"]["passed"] == 6
+
+
+def test_run_pytest_retries_once_on_empty_stats(monkeypatch):
+    """子进程偶发异常退出（rc!=0 且无摘要）→ 自动重试一次并留首次结果。"""
+    calls = []
+    seq = [
+        {"rc": 4, "stats": {}, "coverage_total_pct": None,
+         "summary_line": None, "tail": ["INTERNALERROR> coverage"]},
+        {"rc": 0, "stats": {"passed": 3}, "coverage_total_pct": 88.0,
+         "summary_line": "3 passed in 1.0s", "tail": []},
+    ]
+
+    def fake(repo, pytest_args=None):
+        calls.append(pytest_args)
+        return dict(seq[len(calls) - 1])
+
+    monkeypatch.setattr(bf, "_run_pytest_once", fake)
+    out = bf.run_pytest(bf.REPO, "tests/x.py -q")
+    assert len(calls) == 2
+    assert out["retried"] is True
+    assert out["stats"]["passed"] == 3
+    assert out["first_attempt"]["rc"] == 4
+    assert out["first_attempt"]["tail"] == ["INTERNALERROR> coverage"]
+
+
+def test_run_pytest_no_retry_when_first_attempt_ok(monkeypatch):
+    calls = []
+
+    def fake(repo, pytest_args=None):
+        calls.append(pytest_args)
+        return {"rc": 0, "stats": {"passed": 1}, "coverage_total_pct": 90.0,
+                "summary_line": "1 passed in 1.0s", "tail": []}
+
+    monkeypatch.setattr(bf, "_run_pytest_once", fake)
+    out = bf.run_pytest(bf.REPO, "tests/x.py -q")
+    assert len(calls) == 1
+    assert "retried" not in out
+    assert out["stats"]["passed"] == 1
+
+
+def test_run_pytest_keeps_output_tail_for_diagnosis(monkeypatch):
+    """stats 为空时 tail 必须留下，否则只剩 rc 无从定位。"""
+    def fake(repo, pytest_args=None):
+        return {"rc": 1, "stats": {}, "coverage_total_pct": None,
+                "summary_line": None, "tail": ["boom"]}
+
+    monkeypatch.setattr(bf, "_run_pytest_once", fake)
+    out = bf.run_pytest(bf.REPO, "tests/x.py -q", retry=False)
+    assert out["tail"] == ["boom"]
+    assert out["stats"] == {}

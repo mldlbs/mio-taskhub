@@ -85,7 +85,12 @@ def parse_coverage_total(text: str):
     return None
 
 
-def run_pytest(repo: Path, pytest_args: str | None = None) -> dict:
+def _run_pytest_once(repo: Path, pytest_args: str | None = None) -> dict:
+    """跑一次子进程 pytest，返回 rc/stats/coverage/summary_line/tail。
+
+    tail 保留输出末尾若干行：子进程异常退出（如 coverage 数据文件竞争）
+    时 stats 会是空 dict，只留 rc 无法定位，所以把尾巴一起带上。
+    """
     env = dict(os.environ)
     env["MIO_OBSERVER_AUTOSTART"] = "0"
     env.pop("MIO_READ_GATE", None)
@@ -114,12 +119,36 @@ def run_pytest(repo: Path, pytest_args: str | None = None) -> dict:
             "stats": stats,
             "coverage_total_pct": parse_coverage_total(combined),
             "summary_line": summary_line,
+            "tail": [ln for ln in combined.splitlines()[-15:] if ln.strip()],
         }
     finally:
         try:
             os.unlink(dbpath)
         except OSError:
             pass
+
+
+def run_pytest(repo: Path, pytest_args: str | None = None,
+               retry: bool = True) -> dict:
+    """跑子进程 pytest；偶发失败（rc!=0 或摘要缺失）自动重试一次。
+
+    背景：子进程带 `--cov` 时会写仓库根的 .coverage，测试文件太多或
+    上一个进程未退干净时偶发竞态，表现为 rc!=0 且摘要在输出里缺失。
+    单次失败不足以判定基线回退，重试一次并把首次结果留在
+    first_attempt 里，避免「偶发红」被当成真实回归。
+    """
+    first = _run_pytest_once(repo, pytest_args)
+    if not retry or (first["rc"] == 0 and first["stats"]):
+        return first
+    second = _run_pytest_once(repo, pytest_args)
+    second["retried"] = True
+    second["first_attempt"] = {
+        "rc": first["rc"],
+        "stats": first["stats"],
+        "summary_line": first["summary_line"],
+        "tail": first["tail"],
+    }
+    return second
 
 
 def build_manifest(repo: Path, pytest_args: str | None = None,
