@@ -1,4 +1,5 @@
 from typing import Optional
+import os
 from datetime import timezone
 from sqlmodel import Session, select
 from sqlalchemy import case, Integer, func
@@ -39,12 +40,35 @@ def claim_for(agent: str, db: Session, agent_type: Optional[str] = None,
     if existing:
         return existing
 
-    # P1-OBS/T4.3 防御：已注册但非 ONLINE 的 agent 不得领新任务（防幽灵/僵尸抢占）。
-    # 未注册 agent（盲领，INV-1）仍放行——不查表即不存在记录。幽灵 agent（心跳缺失被
-    # `_mark_stale_agents` 置 OFFLINE 后）由此被拒，不再反复抢占真实任务。
+    # 2026-11-16（事故 b139ecec 后用户拍板）：claim 本身就是存活证据——发起领取的进程
+    # 此刻是活的，所以 claim 时自动把 agent 置回 online（落 agent_online(claim_revive)
+    # 事件留痕），避免「空闲 180s 即离线 → 所有 claim 被静默拒绝」的死结。
+    # 代价：防僵尸（T4.3/P1-OBS）后退一步——真僵尸 agent 如果还会循环 claim，也会领到
+    # 任务，浪费一轮 attempt；由 max_retries / bounce 上限兜底。
+    # 要恢复旧的严格行为（offline 即拒），设 MIO_CLAIM_REVIVE_OFFLINE_AGENT=0。
+    # 未注册 agent（盲领，INV-1）仍放行——不查表即不存在记录。
     ag = db.get(Agent, agent)
     if ag is not None and ag.status != AgentStatus.ONLINE:
-        return None
+        if os.environ.get("MIO_CLAIM_REVIVE_OFFLINE_AGENT", "1").lower() in ("0", "false", "off"):
+            return None
+        from mio_taskhub.db import engine as _engine
+        from mio_taskhub.events import emit_event as _emit
+        with Session(_engine) as s2:
+            a2 = s2.get(Agent, agent)
+            if a2 is None:
+                return None
+            a2.status = AgentStatus.ONLINE
+            a2.last_heartbeat = _now()
+            ev = _emit(s2, type="agent_online", entity="agent", entity_id=agent,
+                       payload={"reason": "claim_revive",
+                                "previous_status": str(getattr(ag.status, "value", ag.status))})
+            s2.add(a2)
+            s2.commit()
+            try:
+                from mio_taskhub.events import broadcast_for_event
+                broadcast_for_event(ev)
+            except Exception:  # noqa: BLE001 — 广播失败不影响领取
+                pass
 
     if not agent_type:
         agent_type = lookup_agent_type(db, agent) or agent_type

@@ -27,6 +27,14 @@ from mio_taskhub.hierarchy import (
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
+# reaper 回收 run 时写入的 result 取值（background._on_timeout）。命中即为「系统回收、
+# 未提交结果」——区别于 agent 自己 submit 的结论。UI 据此标注，不用改 schema。
+_REAP_RESULTS = {
+    "heartbeat timeout": "heartbeat_timeout",
+    "agent offline": "agent_offline",
+    "never started (no heartbeat)": "never_started",
+}
+
 # 能**关掉**质量门控的字段（F-006）。它们不是普通属性：置真就少一道门，
 # 因此单独要求管理员确认，而不是把整个 PATCH 变成管理员端点。
 # 只保护「置为真」这一侧：把豁免改回 false 是收紧，不该拦。
@@ -434,6 +442,9 @@ def _task_detail(t: Task, db: Session) -> dict:
             "attempt": r.attempt, "progress": r.progress,
             "started_at": _fmt(r.started_at), "finished_at": _fmt(r.finished_at),
             "exit_code": r.exit_code, "result": r.result,
+            # 非 null 表示这条 run 是系统回收的（心跳超时/掉线/从未启动），不是 agent 提交的结论。
+            # 面板据此把「finished」显示成「系统回收 · 未提交结果」。
+            "reap_reason": _REAP_RESULTS.get(str(r.result or "").strip()),
             # 窄门禁（d468e633 FR-11）：改动证据 / 标注 / 被拒次数。
             # diff_summary 未采集为 None（不是 {}）——「没采到」与「采到空」是两种状态。
             "diff_summary": getattr(r, "diff_summary", None),
@@ -673,6 +684,22 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
     plain_token = getattr(run, "_plain_token", None) if run is not None else None
     if run is None:
         db.rollback()
+        # 领不到时必须说清「为什么」：此前统一返回空 204，客户端只能看到「没有可领取的任务」，
+        # 而真实原因可能是 agent 被置 offline（心跳超时回收后 _mark_stale_agents 的连带结果）。
+        ag = db.get(Agent, agent)
+        ag_state = str(getattr(ag.status, "value", ag.status)) if ag is not None else None
+        agent_blocked = ag is not None and ag_state != "online"
+        agent_reject = None
+        if agent_blocked:
+            agent_reject = {
+                "code": "claim.agent_not_online",
+                "message": (f"agent「{agent}」当前状态是 {ag_state}，且此部署开启了严格模式"
+                            "（MIO_CLAIM_REVIVE_OFFLINE_AGENT=0），非 online 的 agent 不允许领取。"),
+                "agent": agent, "agent_status": ag_state,
+                "last_heartbeat": (ag.last_heartbeat.isoformat() if ag.last_heartbeat else None),
+                "hint": (f"两条路任选：① 调 POST /api/v1/agents/heartbeat {{\"name\": \"{agent}\"}} 置回 online；"
+                         "② 去掉 MIO_CLAIM_REVIVE_OFFLINE_AGENT=0，之后 claim 会自动恢复 agent 状态。"),
+            }
         if task_id:
             t = db.get(Task, task_id)
             if not t:
@@ -693,8 +720,32 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
                     "message": "task is main; not claimable by a worker",
                     "refs": [],
                 }})
+            if agent_blocked:
+                return JSONResponse(status_code=409, content={"detail": agent_reject})
             if t.state != TaskState.QUEUED:
-                return Response(status_code=409, content=f"task {task_id} 不可领取（当前状态 {t.state.value}）")
+                return JSONResponse(status_code=409, content={"detail": {
+                    "code": "claim.task_not_queued",
+                    "message": f"任务 {task_id} 当前状态是 {t.state.value}，不在排队（queued）中，无法领取。",
+                    "state": t.state.value,
+                    "hint": ("failed / retrying 会在退避到期后自动回队列（GET /tasks/{id} 的 retry_countdown "
+                             "是剩余秒数）；要立刻重来用 POST /tasks/{id}/retry。"),
+                }})
+            # 任务在排队、agent 在线，仍领不到 → 只剩就绪度门（claim_gate_mode=block）
+            try:
+                from mio_taskhub.completion_gate import build_readiness
+                rd = build_readiness(db, t)
+                missing = rd.get("missing")
+            except Exception:  # noqa: BLE001 — 诊断失败不影响拒绝语义
+                missing = None
+            return JSONResponse(status_code=409, content={"detail": {
+                "code": "claim.not_ready",
+                "message": (f"任务 {task_id} 在排队且 agent 在线，但就绪度检查未通过（claim 门控为 block 模式），"
+                            "所以没有领取。"),
+                "missing": missing,
+                "hint": "缺口清单见 GET /tasks/{id}/readiness；补完或把 claim 门控改成 warn 后重试。",
+            }})
+        if agent_blocked:
+            return Response(status_code=204, headers={"X-Claim-Reason": f"agent_{ag_state}"})
         return Response(status_code=204)
     task = db.get(Task, run.task_id)
     if project and not task.project:

@@ -600,7 +600,8 @@ def test_destructive_env_only_relaxes_client_layer(mcp_ctx_anon, monkeypatch):
     res = _call("taskhub_cancel_task", {"task_id": created["id"]})
     assert "error" in res, res
     assert "403" in res["error"], res
-    assert "admin" in res["error"], res
+    # code 现在作为独立字段透出（error 文案保持人话），两种都算对得上
+    assert "admin" in res["error"] or res.get("code") == "admin.local_confirmation_required", res
     # 任务未被取消
     detail = _call("taskhub_get_task", {"task_id": created["id"]})
     assert detail["state"] != "cancelled"
@@ -623,4 +624,6 @@ def test_set_doc_status_surfaces_server_403(mcp_ctx_anon, monkeypatch):
     res = _call("taskhub_set_doc_status",
                 {"task_id": "deadbeef", "kind": "spec", "state": "approved"})
     assert "error" in res, res
-    assert "403" in res["error"] and "admin.local_confirmation_required" in res["error"], res
+    assert "403" in res["error"], res
+    assert ("admin.local_confirmation_required" in res["error"]
+            or res.get("code") == "admin.local_confirmation_required"), res

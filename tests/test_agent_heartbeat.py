@@ -130,12 +130,136 @@ def test_null_heartbeat_fresh_agent_stays_online():
     assert _agent_status("ghost2") == AgentStatus.ONLINE
 
 
-def test_offline_agent_cannot_claim():
-    """P1-OBS/T4.3 防御：已注册但 OFFLINE 的 agent 不得领任务（防幽灵/僵尸抢占）。"""
+def test_offline_agent_claim_revives_by_default():
+    """默认（2026-11-16 用户拍板）：claim 即存活证据，offline agent 领取时自动恢复 online。
+
+    否则「空闲 180s 即离线 → 永远领不到任务」，这是 b139ecec 事故的实际死结。
+    """
     _mk_agent("dead-agent", status=AgentStatus.OFFLINE)
     client.post("/api/v1/tasks", json={"title": "dead-agent-task", "stage": "ready"})
     r = client.post("/api/v1/tasks/claim", params={"agent": "dead-agent"})
+    assert r.status_code == 200
+    assert _agent_status("dead-agent") == AgentStatus.ONLINE
+
+
+def test_offline_agent_cannot_claim_in_strict_mode(monkeypatch):
+    """显式严格模式（MIO_CLAIM_REVIVE_OFFLINE_AGENT=0）：保留 T4.3 防僵尸语义。"""
+    monkeypatch.setenv("MIO_CLAIM_REVIVE_OFFLINE_AGENT", "0")
+    _mk_agent("strict-agent", status=AgentStatus.OFFLINE)
+    client.post("/api/v1/tasks", json={"title": "strict-agent-task", "stage": "ready"})
+    r = client.post("/api/v1/tasks/claim", params={"agent": "strict-agent"})
     assert r.status_code == 204  # 无任务可领（被拒）
+
+
+def test_claim_by_id_from_offline_agent_explains_reason(monkeypatch):
+    """严格模式下，按 ID 领取被 agent 状态拒绝时，必须给出可执行的原因，而不是空 204。
+
+    真实事故：run 心跳超时被 reaper 回收 → agent 连带置 offline → 之后按 ID claim
+    和通用 claim 全部静默返回 204，误判为「队列里没有任务」。
+    """
+    monkeypatch.setenv("MIO_CLAIM_REVIVE_OFFLINE_AGENT", "0")
+    _mk_agent("offline-claim-agent", status=AgentStatus.OFFLINE, hb_age_sec=9999)
+    t = client.post("/api/v1/tasks", json={"title": "offline-claim-task", "stage": "ready"}).json()
+    r = client.post("/api/v1/tasks/claim",
+                    params={"agent": "offline-claim-agent", "task_id": t["id"]})
+    assert r.status_code == 409
+    detail = r.json()["detail"]
+    assert detail["code"] == "claim.agent_not_online"
+    assert detail["agent_status"] == "offline"
+    assert detail["last_heartbeat"]                      # 有值：能看出心跳停在什么时候
+    assert "/agents/heartbeat" in detail["hint"]
+
+    # 恢复路径：agent 心跳 → 再 claim 成功（不需要动任务状态）
+    client.post("/api/v1/agents/heartbeat", json={"name": "offline-claim-agent"})
+    r2 = client.post("/api/v1/tasks/claim",
+                     params={"agent": "offline-claim-agent", "task_id": t["id"]})
+    assert r2.status_code == 200
+    assert r2.json()["task_id"] == t["id"]
+
+
+def test_claim_by_id_not_queued_reports_state_and_hint():
+    """任务不在排队状态时，409 要带上当前状态与恢复方式（retry / 退避倒计时）。"""
+    _mk_agent("queued-claim-agent")
+    t = client.post("/api/v1/tasks", json={"title": "not-queued-task", "stage": "ready"}).json()
+    with Session(engine) as s:
+        from mio_taskhub.models import Task, TaskState
+        task = s.get(Task, t["id"])
+        task.state = TaskState.FAILED
+        s.add(task); s.commit()
+    r = client.post("/api/v1/tasks/claim",
+                    params={"agent": "queued-claim-agent", "task_id": t["id"]})
+    assert r.status_code == 409
+    detail = r.json()["detail"]
+    assert detail["code"] == "claim.task_not_queued"
+    assert detail["state"] == "failed"
+    assert "retry" in detail["hint"]
+
+
+def test_get_agent_exposes_can_claim(monkeypatch):
+    """自查端点：状态、可领取性、严格模式标记一眼可见，不用靠猜。
+
+    默认 claim 自动恢复（can_claim=True 与 status 无关）；严格模式下只有 online 可领。
+    """
+    monkeypatch.delenv("MIO_CLAIM_REVIVE_OFFLINE_AGENT", raising=False)
+    _mk_agent("probe-online")
+    ok = client.get("/api/v1/agents/probe-online").json()
+    assert ok["status"] == "online" and ok["can_claim"] is True and ok["hint"] is None
+
+    _mk_agent("probe-offline", status=AgentStatus.OFFLINE)
+    bad = client.get("/api/v1/agents/probe-offline").json()
+    assert bad["status"] == "offline" and bad["can_claim"] is True   # 默认自动恢复
+    assert bad["strict_mode"] is False
+
+    monkeypatch.setenv("MIO_CLAIM_REVIVE_OFFLINE_AGENT", "0")
+    strict = client.get("/api/v1/agents/probe-offline").json()
+    assert strict["can_claim"] is False and strict["strict_mode"] is True
+    assert "/agents/heartbeat" in strict["hint"]
+
+    assert client.get("/api/v1/agents/never-registered-x").status_code == 404
+
+
+def test_claim_revives_offline_agent_by_default_and_strict_mode_blocks(monkeypatch):
+    """默认 claim 视作存活证据自动恢复；MIO_CLAIM_REVIVE_OFFLINE_AGENT=0 恢复严格拒绝。"""
+    _mk_agent("revive-agent", status=AgentStatus.OFFLINE, hb_age_sec=9999)
+    t = client.post("/api/v1/tasks", json={"title": "revive-task", "stage": "ready"}).json()
+
+    monkeypatch.delenv("MIO_CLAIM_REVIVE_OFFLINE_AGENT", raising=False)   # 默认 = 自动恢复
+    r = client.post("/api/v1/tasks/claim",
+                    params={"agent": "revive-agent", "task_id": t["id"]})
+    assert r.status_code == 200
+    assert r.json()["task_id"] == t["id"]
+    assert _agent_status("revive-agent") == AgentStatus.ONLINE
+
+    # 严格模式：同名 agent 此时已有活跃 run（幂等续领会绕过检查），
+    # 所以用另一个离线 agent 验证拒绝。
+    _mk_agent("revive-agent-2", status=AgentStatus.OFFLINE, hb_age_sec=9999)
+    t2 = client.post("/api/v1/tasks", json={"title": "revive-task-2", "stage": "ready"}).json()
+    monkeypatch.setenv("MIO_CLAIM_REVIVE_OFFLINE_AGENT", "0")
+    r2 = client.post("/api/v1/tasks/claim",
+                     params={"agent": "revive-agent-2", "task_id": t2["id"]})
+    assert r2.status_code == 409
+    assert r2.json()["detail"]["code"] == "claim.agent_not_online"
+
+
+def test_task_detail_marks_reaped_run():
+    """系统回收的 run 要能被识别：result 命中 reaper 文案时给出 reap_reason。
+
+    用户反馈「run 被标记 finished，但我并未提交结果」——数据层补一个显式标记，
+    界面就能显示「系统回收 · 未提交结果」，而不是看起来像 agent 报的结论。
+    """
+    from mio_taskhub.models import Run, RunState, Task
+    _mk_agent("reap-agent")
+    t = client.post("/api/v1/tasks", json={"title": "reap-marker-task", "stage": "ready"}).json()
+    with Session(engine) as s:
+        s.add(Run(id="reap-run-1", task_id=t["id"], agent_name="reap-agent", state=RunState.FINISHED,
+                  attempt=1, progress=40, exit_code=1, result="heartbeat timeout"))
+        s.add(Run(id="reap-run-2", task_id=t["id"], agent_name="reap-agent", state=RunState.FINISHED,
+                  attempt=2, progress=100, exit_code=0, result="done: tests pass"))
+        s.commit()
+    runs = client.get(f"/api/v1/tasks/{t['id']}").json()["runs"]
+    by_result = {r["result"]: r for r in runs}
+    assert by_result["heartbeat timeout"]["reap_reason"] == "heartbeat_timeout"
+    assert by_result["done: tests pass"]["reap_reason"] is None
 
 
 def test_unregistered_agent_blind_claim_still_works():

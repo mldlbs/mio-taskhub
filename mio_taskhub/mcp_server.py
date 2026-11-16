@@ -118,7 +118,25 @@ async def _request(method: str, path: str, params: Optional[dict] = None, body: 
     except httpx.HTTPStatusError as e:
         elapsed_ms = (time.perf_counter() - start) * 1000
         DepMetrics.record("mcp", f"{method} {path}", elapsed_ms, success=False)
-        return {"error": f"HTTP {e.response.status_code}: {e.response.text[:200]}"}
+        # 409/422 的 detail 里带 code / message / hint（例如 claim.agent_not_online）。
+        # 只回 "HTTP 409: {json}" 等于让调用方自己去解析，这里抬成首层字段。
+        body = None
+        try:
+            body = e.response.json()
+        except Exception:  # noqa: BLE001 — 非 JSON 响应按原文截断
+            body = None
+        detail = body.get("detail") if isinstance(body, dict) else None
+        msg = None
+        if isinstance(detail, dict):
+            msg = detail.get("message") or detail.get("code")
+        elif isinstance(detail, str):
+            msg = detail
+        out = {"error": f"HTTP {e.response.status_code}: {msg or e.response.text[:200]}"}
+        if isinstance(detail, dict):
+            for k in ("code", "hint", "state", "agent", "agent_status", "last_heartbeat", "missing"):
+                if detail.get(k) is not None:
+                    out[k] = detail[k]
+        return out
     except httpx.HTTPError as e:
         elapsed_ms = (time.perf_counter() - start) * 1000
         DepMetrics.record("mcp", f"{method} {path}", elapsed_ms, success=False)
@@ -199,14 +217,14 @@ async def taskhub_register(
     return _fmt(await _request("POST", "/agents/register", body={"name": name, "agent_type": agent_type}))
 
 
-@_tool(name="taskhub_agent_heartbeat", title="Agent 心跳保活", method="POST", path="/agents/heartbeat", read_only=False, destructive=False, desc="保持 agent 在线（心跳保活）。空闲时周期性调用（建议约 1 分钟一次），避免超过 180s 被标记离线。未注册的 name 会自动注册（upsert）。")
+@_tool(name="taskhub_agent_heartbeat", title="Agent 心跳保活", method="POST", path="/agents/heartbeat", read_only=False, destructive=False, desc="保持 agent 在线（心跳保活）。空闲时周期性调用（建议约 1 分钟一次），避免超过 180s 被标记离线。未注册的 name 会自动注册（upsert）。**心跳停了不会永久失能**：offline 状态下调 taskhub_claim 会自动把 agent 翻回 online 并写 agent_online 事件（reason=claim_revive），除非部署设了 MIO_CLAIM_REVIVE_OFFLINE_AGENT=0。")
 async def taskhub_agent_heartbeat(
     name: str = Field(description="当前 agent 名称，需与 register 一致", min_length=1, max_length=64),
 ) -> str:
     return _fmt(await _request("POST", "/agents/heartbeat", body={"name": name}))
 
 
-@_tool(name="taskhub_claim", title="领取一个任务", method="POST", path="/tasks/claim", read_only=False, destructive=False, desc="按关联度 + 优先级 + FIFO 领取一个排队任务，或按 task_id 直接认领指定任务，返回 Run id + task 详情，并内联 branch / required_reads / required_fr / documents（预览）+ lessons（同项目参考）。**必须领指定任务时务必传 task_id**：不传将按相关度挑选，可能领到其他任务（trace claim-taskid-mcp-drop-20260927）。**内联预览不等于已读**：动手前必须对 required_reads 逐一调用 taskhub_read_document(task_id, kind, run_id=<本 run>) 产生 ReadEvidence，否则 taskhub_submit_result 会被 422 拦截。**动手前先看 lessons.test_hints**：那是同项目近期已完成任务的测试做法，照着写比事后被检查有效；为空数组表示该项目暂无历史，不是错误。")
+@_tool(name="taskhub_claim", title="领取一个任务", method="POST", path="/tasks/claim", read_only=False, destructive=False, desc="按关联度 + 优先级 + FIFO 领取一个排队任务，或按 task_id 直接认领指定任务，返回 Run id + task 详情，并内联 branch / required_reads / required_fr / documents（预览）+ lessons（同项目参考）。**必须领指定任务时务必传 task_id**：不传将按相关度挑选，可能领到其他任务（trace claim-taskid-mcp-drop-20260927）。**内联预览不等于已读**：动手前必须对 required_reads 逐一调用 taskhub_read_document(task_id, kind, run_id=<本 run>) 产生 ReadEvidence，否则 taskhub_submit_result 会被 422 拦截。**动手前先看 lessons.test_hints**：那是同项目近期已完成任务的测试做法，照着写比事后被检查有效；为空数组表示该项目暂无历史，不是错误。**领不到时会说清原因**：传了 task_id 却领不到 → 409 且带 code（claim.agent_not_online / claim.task_not_queued / claim.not_ready）与 hint；不传 task_id 的轮询式领取 → 空 204，原因在 X-Claim-Reason 响应头；offline 的 agent 默认自动复活而非拒绝。")
 async def taskhub_claim(
     agent: str = Field(description="当前 agent 名称，需先注册", min_length=1, max_length=64),
     agent_type: Optional[str] = Field(default=None, description="若设置，只领取匹配该类型的任务；不传则自动回查注册 agent_type", max_length=32),
@@ -228,7 +246,20 @@ async def taskhub_claim(
     if "error" in claim:
         return _fmt(claim)
     if not claim.get("id"):
-        return _fmt({"message": "当前没有可领取的任务", "available": False})
+        # 空响应有两种含义：真的没有可领任务，或 agent 被置 offline 导致全被拒。
+        # 后者此前只显示「当前没有可领取的任务」，把人引到错误方向。
+        diag = await _request("GET", f"/agents/{agent}")
+        info = {"message": "本次没有领到任务", "available": False}
+        if isinstance(diag, dict) and "error" not in diag:
+            info.update({"agent": agent, "agent_status": diag.get("status"),
+                         "last_heartbeat": diag.get("last_heartbeat")})
+            if not diag.get("can_claim"):
+                info["message"] = (
+                    f"agent「{agent}」当前状态是 {diag.get('status')}，服务端只允许 online 的 agent 领取任务，"
+                    "所以这次没领到——不是没有任务。")
+                info["hint"] = diag.get("hint")
+                info["available"] = True   # 有任务可领，但 agent 这边被拦
+        return _fmt(info)
     detail = await _request("GET", f"/tasks/{claim['task_id']}")
     return _fmt({**claim, "task": detail if "error" not in detail else {}})
 

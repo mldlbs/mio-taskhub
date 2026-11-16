@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import os
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
@@ -32,6 +33,39 @@ def register(body: dict, db: Session = Depends(get_session)):
     db.add(a)
     db.commit()
     return {"name": name, "status": "registered"}
+
+@router.get("/{name}")
+def get_agent(name: str, db: Session = Depends(get_session)):
+    """查单个 agent 的在线状态与可领取性。
+
+    起因：运行被心跳超时回收后，agent 会被连带置 offline，之后所有 claim 都被静默拒绝，
+    调用方看不出「任务可领但 agent 不可领」。这个端点让拒绝原因可自查。
+    """
+    a = db.get(Agent, name)
+    if a is None:
+        return JSONResponse(status_code=404, content={"detail": {
+            "code": "agent.not_found",
+            "name": name,
+            "message": f"agent「{name}」没有注册记录；未注册 agent 的领取按盲领放行（INV-1）。",
+        }})
+    st = str(getattr(a.status, "value", a.status))
+    online = st == "online"
+    strict = os.environ.get("MIO_CLAIM_REVIVE_OFFLINE_AGENT", "1").lower() in ("0", "false", "off")
+    can_claim = online or not strict   # 默认 claim 自动恢复；严格模式只有 online 能领
+    return {
+        "name": a.name,
+        "status": st,
+        "agent_type": a.agent_type,
+        "last_heartbeat": (a.last_heartbeat.isoformat() if a.last_heartbeat else None),
+        "can_claim": can_claim,
+        "strict_mode": strict,
+        "hint": None if can_claim else (
+            f"此部署开了严格模式（MIO_CLAIM_REVIVE_OFFLINE_AGENT=0），状态 {st} 领取会被拒"
+            f"（409 claim.agent_not_online）；需先调 POST /api/v1/agents/heartbeat "
+            f"{{\"name\": \"{name}\"}}。"
+        ),
+    }
+
 
 @router.post("/heartbeat")
 def heartbeat(body: dict, db: Session = Depends(get_session)):
