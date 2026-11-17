@@ -5,6 +5,16 @@
 > 独立安装与卸载程序：图形安装向导、正规卸载入口（Windows「应用和功能」）、快捷方式、确定性打包。
 > 版本号在发版提交（`chore(release)`）统一抬升并打 tag —— 本节保持 Unreleased。
 
+### Added — 阻塞项规则出处（source_ref）
+- **问题**：上一轮给每条问题加了 `evidence`（判定依据：字段 + 当前值 + 期望值），回答「这条任务为什么命中」；但「凭什么这条算问题」——规则定义在哪个函数、哪份约定文档——面板没说，读者只能信。
+- **修复**：新增 `_RULE_REFS`（21 类 kind 全覆盖），每条问题输出 `source_ref`：
+  - `rule`：规则的人话表述（如「阶段推进时逐份检查已登记文档的状态是否达标，不足即拒绝推进（422）」）；
+  - `defined_at`：代码里的判定位置（如 `advance_stage + DOC_LIFECYCLE`、`HeartbeatSweep.effective_timeout`）；
+  - `doc`：仓库内约定出处（AGENTS.md §文档链门控 / §读证留痕 / §棘轮基线等）。**没有可靠出处的留空，不硬编。**
+- `readiness` 的 `_item` 同步；`doc_gate` 聚合条目走同一通道自动获得。
+- **前端**：依据行下新增「规则」行（比依据更弱一层），显示 rule + 定义处（等宽）+ 出处。
+- 测试 +2：全条目 `source_ref` 断言；`_NATURE` 与 `_RULE_REFS` 同集校验——新增 kind 漏登记出处时直接红。
+
 ### Fixed — claim 领不到只回空 204，无法诊断（含 offline 自动复活）
 - **现象**：agent 空闲超过 180s 被 `_mark_stale_agents` 置 `offline`，此后调 claim 一律拿到**空 204**——与「确实没有任务」完全无法区分。现场表现是「任务明明在队列里，按 ID 领也被拒，retry 也没用」。
 - **根因**：`claim_for` 对 `status != ONLINE` 的已注册 agent 直接 `return None`，`claim_task` 又把这个 `None` 和「没活可干」混成同一条空响应；同时 `find_existing_run` 的幂等续领先于状态检查，导致判断更偶发。
