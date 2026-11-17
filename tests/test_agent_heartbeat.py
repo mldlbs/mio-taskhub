@@ -439,3 +439,38 @@ def test_offline_agent_reclaim_capped_at_baseline():
                                       on_alive=lambda r: None)
     sweep._sweep()
     assert rid in timed_out
+
+
+def test_list_agents_exposes_can_claim_and_counts():
+    """GET /agents 列表：在线排前、can_claim 按部署模式算、带汇总计数。
+
+    巡检/前端 agent 总览用这一个端点取全量，不必逐个调 /agents/{name}。
+    """
+    import os
+    from mio_taskhub.models import Agent, AgentStatus
+    _mk_agent("lst-online", status=AgentStatus.ONLINE)
+    _mk_agent("lst-offline", status=AgentStatus.OFFLINE, hb_age_sec=86400)
+    prev = os.environ.get("MIO_CLAIM_REVIVE_OFFLINE_AGENT")
+    try:
+        os.environ.pop("MIO_CLAIM_REVIVE_OFFLINE_AGENT", None)   # 默认复活
+        d = client.get("/api/v1/agents").json()
+        rows = {r["name"]: r for r in d["agents"]}
+        assert rows["lst-online"]["can_claim"] is True
+        assert rows["lst-offline"]["can_claim"] is True          # 默认模式 offline 也能领
+        assert d["strict_mode"] is False
+        assert d["counts"]["online"] >= 1 and d["counts"]["can_claim"] >= 2
+        # 在线的排在 offline 前面
+        names = [r["name"] for r in d["agents"]]
+        assert names.index("lst-online") < names.index("lst-offline")
+
+        # 严格模式：offline 的 can_claim 翻 False，计数同步
+        os.environ["MIO_CLAIM_REVIVE_OFFLINE_AGENT"] = "0"
+        d2 = client.get("/api/v1/agents").json()
+        rows2 = {r["name"]: r for r in d2["agents"]}
+        assert rows2["lst-offline"]["can_claim"] is False
+        assert d2["strict_mode"] is True
+    finally:
+        if prev is None:
+            os.environ.pop("MIO_CLAIM_REVIVE_OFFLINE_AGENT", None)
+        else:
+            os.environ["MIO_CLAIM_REVIVE_OFFLINE_AGENT"] = prev

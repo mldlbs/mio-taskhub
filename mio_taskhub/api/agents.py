@@ -34,6 +34,39 @@ def register(body: dict, db: Session = Depends(get_session)):
     db.commit()
     return {"name": name, "status": "registered"}
 
+@router.get("")
+def list_agents(db: Session = Depends(get_session)):
+    """列出全部注册 agent 的在线状态与可领取性（只读）。
+
+    与 GET /agents/{name} 同一契约：can_claim 按部署的复活模式计算。
+    在线的排前面，其余按心跳新到旧；巡检脚本、前端 agent 总览、
+    claim 前批量自查都从这里取数，不必逐个调 {name} 端点。
+    """
+    strict = os.environ.get("MIO_CLAIM_REVIVE_OFFLINE_AGENT", "1").lower() in ("0", "false", "off")
+    rows = db.query(Agent).all()
+
+    def _row(a: Agent) -> dict:
+        st = str(getattr(a.status, "value", a.status))
+        online = st == "online"
+        can_claim = online or not strict
+        return {
+            "name": a.name,
+            "status": st,
+            "agent_type": a.agent_type,
+            "last_heartbeat": (a.last_heartbeat.isoformat() if a.last_heartbeat else None),
+            "can_claim": can_claim,
+        }
+
+    agents = [_row(a) for a in rows]
+    agents.sort(key=lambda r: (r["status"] != "online", r["name"]))
+    counts = {
+        "total": len(agents),
+        "online": sum(1 for r in agents if r["status"] == "online"),
+        "can_claim": sum(1 for r in agents if r["can_claim"]),
+    }
+    return {"agents": agents, "counts": counts, "strict_mode": strict}
+
+
 @router.get("/{name}")
 def get_agent(name: str, db: Session = Depends(get_session)):
     """查单个 agent 的在线状态与可领取性。
