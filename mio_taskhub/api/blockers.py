@@ -856,6 +856,9 @@ def collect_blockers(db: Session, t: Task) -> list[dict]:
             if p["is_cause"] or p["code"].startswith("B"):
                 p["mins"] = None          # B 类没有时长语义，「提频 15min」不是耗时
                 p.update(_cause_fix(p))   # 解决路径：要做什么、属于哪类（协调/拍板/补资料…）
+                # members 是前端逐条渲染的列表，name 必须截断——否则一条长标题
+                # 会把整张列表撑爆。完整原文仍在子任务清单里，这里只做展示名。
+                p["name"] = _short_name(p["name"])
                 causes.append({**p, "status": _v(s.status)})
             else:
                 p["dep_open"] = [d for d in p["deps"]
@@ -863,6 +866,7 @@ def collect_blockers(db: Session, t: Task) -> list[dict]:
                 p["dep_open_txt"] = "、".join(
                     f"{c}「{_short_name(code_names[c])}」" if c in code_names else c
                     for c in p["dep_open"])
+                p["name"] = _short_name(p["name"])
                 works.append({**p, "status": _v(s.status)})
 
         # 分两类：真的挡住某条具体工作的算 blocking；条目里写明「不阻塞」的，

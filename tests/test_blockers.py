@@ -476,3 +476,26 @@ def test_discussion_gate_exemption_surfaced_in_readiness():
     assert disc and disc[0]["severity"] == "blocking"
     assert "方向确认" in disc[0]["title"]
     assert "已批准" in disc[0]["because"]      # 文案要讲清豁免条件
+
+
+def test_member_names_are_truncated(tmp_path):
+    """members 列表的 name 必须截断展示，否则一条长标题撑爆整张列表。
+
+    子任务标题原文可能很长（拆解器生成的 B 类条目常带完整上下文），
+    面板逐条渲染的是 members[].name，超长会让分组条目不可读。
+    原文不丢——子任务清单 tab 里仍是全文，这里只约束展示名。
+    """
+    long_name = "B1 阻塞：业务方对四级阈值的数据口径迟迟没有给出书面确认，" \
+                "上游采样频率与告警联动方案也依赖这个口径才能定稿 —— 待业务签字；阻塞 N1/N4b"
+    tid = _mk(title="long-member-name", stage="design")
+    with Session(engine) as s:
+        s.add(Subtask(task_id=tid, status=SubtaskStatus.BLOCKED, title=long_name))
+        s.commit()
+    d = client.get(f"/api/v1/tasks/{tid}/blockers").json()
+    blocked = next(i for i in d["items"] if i["kind"] == "subtask_blocked")
+    m = blocked["members"][0]
+    assert m["code"] == "B1"
+    assert len(m["name"]) <= 23, m["name"]           # _short_name 默认 22 + 省略号
+    assert m["name"].endswith("…"), m["name"]
+    # 完整原文不在 members 里，但不丢：blocks_txt / note 等字段保留原始语义
+    assert "书面确认" not in m["name"]
