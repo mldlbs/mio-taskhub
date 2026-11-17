@@ -764,6 +764,13 @@ html[data-theme="light"] .inbox-strip__row:hover { background: rgba(139, 92, 246
   padding: 1px 5px;
   border-radius: 3px;
 }
+/* 规则出处：比依据更弱一层——回答「凭什么这条算问题」，只读不操作 */
+.blocker-row__line.is-rule { color: var(--ink-faint); font-size: 11.5px; }
+.blocker-row__line.is-rule code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
 /* 性质标签：与严重度正交的分类（门控 / 输入缺口 / 记录缺失 / 外部条件 / 执行顺序） */
 .blocker-row__nature {
   font-size: 10.5px;

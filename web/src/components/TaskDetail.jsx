@@ -678,6 +678,14 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
                                   <span className="blocker-row__tag">依据</span><code>{b.evidence}</code>
                                 </p>
                               )}
+                              {b.source_ref && b.source_ref.rule && (
+                                <p className="blocker-row__line is-rule">
+                                  <span className="blocker-row__tag">规则</span>
+                                  {b.source_ref.rule}
+                                  {b.source_ref.defined_at && <>（定义于 <code>{b.source_ref.defined_at}</code>）</>}
+                                  {b.source_ref.doc && <>；出处：{b.source_ref.doc}</>}
+                                </p>
+                              )}
                               {(b.members || []).length > 1 && (
                                 <ul className="blocker-row__members">
                                   {b.members.map((m, mi) => {
