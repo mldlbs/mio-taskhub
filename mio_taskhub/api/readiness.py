@@ -29,7 +29,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from mio_taskhub.api.blockers import (_DOC_STATE_CN, _NATURE, _ORDER as _FLOW_ORDER,
-                                      _STAGE_CN, _cn, _v, collect_blockers, split_evidence)
+                                      _RULE_REFS, _STAGE_CN, _cn, _v, collect_blockers,
+                                      split_evidence)
 from mio_taskhub.db import get_session
 from mio_taskhub.models import Subtask, Task, TaskState
 
@@ -85,17 +86,23 @@ _EXEC_STATES = (TaskState.QUEUED, TaskState.CLAIMED, TaskState.RUNNING)
 
 def _item(kind, layer, severity, title, because, consequence, todo="",
           api="", ref_id="", ref_title="", steps=None, owner="",
-          nature="", evidence="") -> dict:
+          nature="", evidence="", rule_ref="") -> dict:
     steps = [str(x).strip() for x in (steps or []) if str(x or "").strip()]
     if not todo:
         todo = " ".join(f"{i}) {x}" for i, x in enumerate(steps, 1))
     if not evidence:
         because, evidence = split_evidence(because)
+    ref = rule_ref or _RULE_REFS.get(kind) or {}
     return {
         "kind": kind,
         "layer": layer,
         "severity": severity,
         "nature": nature or _NATURE.get(kind, ""),
+        "source_ref": {
+            "rule": str(ref.get("rule") or ""),
+            "defined_at": str(ref.get("defined_at") or ""),
+            "doc": str(ref.get("doc") or ""),
+        },
         "title": title,
         "because": because,
         "evidence": evidence,

@@ -58,6 +58,43 @@ def test_every_item_has_nature_and_evidence():
         assert "判定依据" not in i["because"], ("正文里不该再留判定依据", i["kind"])
 
 
+def test_every_item_has_source_ref():
+    """每条问题必须带 source_ref（rule / defined_at），回答「凭什么这条算问题」。
+
+    evidence 是「这条任务为什么命中」；source_ref 是「规则本身定义在哪」。
+    缺 defined_at → 读者只能信口说，无法回代码核对；rule 缺失 → 面板出现空规则行。
+    所有出现在面板上的 kind 都必须在 _RULE_REFS 里有登记。
+    """
+    from mio_taskhub.api.blockers import _RULE_REFS, _NATURE
+    tid = _mk(title="source-ref", stage="design", gate_tier="high",
+              doc_paths={"plan": "plan.md"}, attempt=2)
+    d = client.get(f"/api/v1/tasks/{tid}/readiness").json()
+    assert d["items"]
+    for i in d["items"]:
+        ref = i.get("source_ref") or {}
+        assert isinstance(ref, dict), ("source_ref 必须是 dict", i["kind"])
+        assert ref.get("rule"), ("rule 缺失", i["kind"], i["title"])
+        assert ref.get("defined_at"), ("defined_at 缺失", i["kind"], i["title"])
+        assert i["kind"] in _RULE_REFS, ("kind 未登记规则出处", i["kind"])
+    # _NATURE 覆盖的 kind 与 _RULE_REFS 必须同集：新增 kind 漏登记出处时在这里红
+    assert set(_NATURE) == set(_RULE_REFS)
+
+
+def test_doc_gate_source_ref_points_to_lifecycle(tmp_path):
+    """doc_gate 的规则出处必须指到状态机定义，能回溯。"""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "requirement.md").write_text("# requirement\n", encoding="utf-8")
+    tid = _mk(title="gate-ref", stage="design", workspace=str(ws),
+              doc_paths={"requirement": "requirement.md"})
+    d = client.get(f"/api/v1/tasks/{tid}/readiness").json()
+    gates = [i for i in d["items"] if i["kind"] == "doc_gate"]
+    assert gates, "design 阶段 + requirement 未达标应有 doc_gate 条目"
+    ref = gates[0]["source_ref"]
+    assert "DOC_LIFECYCLE" in ref["defined_at"]
+    assert "advance_stage" in ref["defined_at"]
+
+
 def test_input_checked_only_for_exec_stages():
     """构思阶段不查执行输入——否则每条任务都报「缺验收标准」，等于没报。"""
     tid = _mk(title="early-stage", stage="brainstorming")

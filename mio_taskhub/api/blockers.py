@@ -144,6 +144,117 @@ _NATURE = {
     "high_tier_unconfirmed": "风险",
 }
 
+# 每类问题对应的「规则从哪来」：rule 是规则的人话表述，defined_at 是它在代码里的
+# 判定位置，doc 是仓库内可读的约定出处（没有可靠出处就留空，不硬编）。
+# 依据（evidence）回答「这条任务为什么命中」；source_ref 回答「凭什么这条算问题」。
+_RULE_REFS = {
+    "state_failed": {
+        "rule": "run 失败计入重试，超过 max_retries 任务转失败",
+        "defined_at": "mio_taskhub/api/tasks.py submit_result 与重试逻辑",
+        "doc": "README §任务状态机",
+    },
+    "runtime_block": {
+        "rule": "看门狗对心跳超时的 run 判死并回收重排",
+        "defined_at": "mio_taskhub/scheduling/heartbeat.py HeartbeatSweep.effective_timeout",
+        "doc": "README §环境变量（MIO_TASKHUB_TIMEOUT_SECONDS）",
+    },
+    "dependency_dead": {
+        "rule": "前置任务进入失败/取消终态时，本任务的依赖视为死锁",
+        "defined_at": "mio_taskhub/workflow/transitions.py",
+        "doc": "README §5.1 依赖编排",
+    },
+    "dependency_open": {
+        "rule": "存在未完成前置时，本任务不能进入实现阶段",
+        "defined_at": "mio_taskhub/workflow/transitions.py",
+        "doc": "README §5.1 依赖编排",
+    },
+    "discussion_required": {
+        "rule": "进入需要方向确认的阶段，必须有已结束讨论或已批准的需求文档（二选一豁免）",
+        "defined_at": "mio_taskhub/api/task_stages.py _stage_requirement",
+        "doc": "AGENTS.md §文档链门控（进 design 至少一条 discussion）",
+    },
+    "decision_open": {
+        "rule": "open 状态的决策是文档定稿与实施的前置，未拍板不收口",
+        "defined_at": "mio_taskhub/api/blockers.py collect_blockers",
+        "doc": "",
+    },
+    "deviation_open": {
+        "rule": "high 严重度且未 resolved/accepted 且无 decision_ref 的偏差阻塞文档批准",
+        "defined_at": "mio_taskhub/api/blockers.py _unresolved_deviations",
+        "doc": "",
+    },
+    "doc_gate": {
+        "rule": "阶段推进时逐份检查已登记文档的状态是否达标，不足即拒绝推进（422）",
+        "defined_at": "mio_taskhub/api/tasks.py advance_stage + mio_taskhub/doc_lifecycle.py DOC_LIFECYCLE",
+        "doc": "AGENTS.md §文档链门控（2026-09-23 收紧）",
+    },
+    "subtask_blocked": {
+        "rule": "拆解出的子任务存在被阻塞条目时，本任务实施不收口",
+        "defined_at": "mio_taskhub/api/blockers.py collect_blockers",
+        "doc": "",
+    },
+    "subtask_open": {
+        "rule": "子任务清单里存在未完成条目时，本任务实施不收口",
+        "defined_at": "mio_taskhub/api/blockers.py collect_blockers",
+        "doc": "",
+    },
+    "scope_unknown": {
+        "rule": "需求文档必须写清范围（做什么、不做什么），缺项拉低质量分",
+        "defined_at": "mio_taskhub/doc_quality.py requirement 质量规格",
+        "doc": "AGENTS.md §文档链门控（质量分 ≥ 80）",
+    },
+    "acceptance_missing": {
+        "rule": "需求文档必须写清验收标准，缺项拉低质量分",
+        "defined_at": "mio_taskhub/doc_quality.py requirement 质量规格",
+        "doc": "AGENTS.md §文档链门控（质量分 ≥ 80）",
+    },
+    "deliverable_missing": {
+        "rule": "需求文档必须写清交付物，缺项拉低质量分",
+        "defined_at": "mio_taskhub/doc_quality.py requirement 质量规格",
+        "doc": "AGENTS.md §文档链门控（质量分 ≥ 80）",
+    },
+    "doc_unregistered": {
+        "rule": "文档须先在任务上登记路径，读证与门控都以登记为前提",
+        "defined_at": "mio_taskhub/api/tasks.py doc_paths + mio_taskhub/read_evidence.py resolve_doc_path",
+        "doc": "AGENTS.md §读证留痕（Read Evidence）",
+    },
+    "doc_file_missing": {
+        "rule": "登记了路径但文件未实际落盘时，门控与读证均不可用",
+        "defined_at": "mio_taskhub/api/blockers.py doc_gate 判定（_doc_written）",
+        "doc": "AGENTS.md §文档链门控",
+    },
+    "doc_gap": {
+        "rule": "文档按质量规格逐章 lint：errors>0 或分数低于门槛时拦截状态推进",
+        "defined_at": "mio_taskhub/doc_quality.py 四键规格（sections/recommended/min_table_rows/detail_rule）",
+        "doc": "AGENTS.md §棘轮基线（质量只升不降）",
+    },
+    "context_docs_missing": {
+        "rule": "claim 下发的 required_reads 必须逐一落读证，缺失时提交结果被 422",
+        "defined_at": "mio_taskhub/read_evidence.py ReadEvidence",
+        "doc": "AGENTS.md §读证留痕（Read Evidence，服务端强制）",
+    },
+    "contract_missing": {
+        "rule": "对外契约接口须登记 api 文档，并被下游任务的 context_package 收录",
+        "defined_at": "mio_taskhub/read_evidence.py + context_package 组装",
+        "doc": "AGENTS.md §读证留痕（Read Evidence，服务端强制）",
+    },
+    "retry_history": {
+        "rule": "失败重试超过 max_retries 任务转失败；历史重试次数是风险信号",
+        "defined_at": "mio_taskhub/models.py Task.max_retries",
+        "doc": "",
+    },
+    "bounce_history": {
+        "rule": "领取后退回（bounce）累计 ≥3 次的任务被判定为不稳定，调度时排后",
+        "defined_at": "mio_taskhub/models.py Task.bounce_count",
+        "doc": "",
+    },
+    "high_tier_unconfirmed": {
+        "rule": "门控档为 high 的任务须人工确认（human_confirmed_at 非空）后才能收尾",
+        "defined_at": "mio_taskhub/models.py Task.gate_tier / Task.human_confirmed_at",
+        "doc": "",
+    },
+}
+
 # 「判定依据：…」从正文里抽出来单独成行（evidence），because 只留现象与机制。
 # 面板上「依据」是可核查的字段/值与期望值，不是叙述的一部分。
 _EVIDENCE_RE = re.compile(r"判定依据[：:]\s*(.+?)(?=。|$)")
@@ -161,10 +272,11 @@ def split_evidence(because: str) -> tuple[str, str]:
 
 def _item(kind, severity, title, because, consequence, todo="",
           api="", ref_id="", ref_title="", members=None,
-          steps=None, owner="", nature="", evidence="") -> dict:
+          steps=None, owner="", nature="", evidence="", rule_ref="") -> dict:
     """一条问题。四要素：because（现象+机制）/ consequence（影响）/ steps（动作）/ owner（谁做）。
 
-    另有 nature（性质分类）与 evidence（判定依据：可核查的字段与期望值）。
+    另有 nature（性质分类）、evidence（判定依据：可核查的字段与期望值）与
+    source_ref（规则出处：rule / defined_at / doc）。
     because 里若带「判定依据：…」，自动抽到 evidence，正文不再重复。
     steps 是给人看的编号动作；todo 保留成一句话版本，给只读字符串的调用方（MCP、旧前端）。
     """
@@ -173,10 +285,16 @@ def _item(kind, severity, title, because, consequence, todo="",
         todo = " ".join(f"{i}) {x}" for i, x in enumerate(steps, 1))
     if not evidence:
         because, evidence = split_evidence(because)
+    ref = rule_ref or _RULE_REFS.get(kind) or {}
     return {
         "kind": kind,
         "severity": severity,
         "nature": nature or _NATURE.get(kind, ""),
+        "source_ref": {
+            "rule": str(ref.get("rule") or ""),
+            "defined_at": str(ref.get("defined_at") or ""),
+            "doc": str(ref.get("doc") or ""),
+        },
         "title": title,
         "because": because,
         "evidence": evidence,
