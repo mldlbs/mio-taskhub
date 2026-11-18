@@ -168,7 +168,8 @@ export default function MemoryView({ liveEvent }) {
   useEffect(() => {
     if (tab !== 'gateway') return
     reload()
-    const t = setInterval(reload, 5000)
+    // 网关面板轮询改 30s（任务 613bc0ca · FR-5）：非主视图，5s 一次徒增服务端负载。
+    const t = setInterval(reload, 30000)
     return () => clearInterval(t)
   }, [reload, tab])
 

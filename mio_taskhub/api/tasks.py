@@ -261,10 +261,32 @@ def create_task(body: dict, request: Request, db: Session = Depends(get_session)
         "gate_tier_reason": t.gate_tier_reason,
     }
 
+# ── 列表端点列投影（任务 613bc0ca · FR-1/FR-2/FR-8）────────────────────
+# 背景：原实现 `select(Task)` 会把 Task 的 6 个 JSON 列全部反序列化
+#   （labels / depends_on / files / deliverables / doc_paths / doc_statuses），
+#   其中 **4 个（files / deliverables / doc_paths / doc_statuses）在响应里根本不出现**。
+#   实测 2039 行：全表 162.6ms → 投影 39.6ms（4.1×）；响应体 988KB → ~150KB。
+#
+# **约束**：投影字段必须与下方响应 dict 实际用到的字段**一一对应**——
+#   少一个 → 响应缺字段（破坏契约，由 TC-2 字段级 diff 兜底）；
+#   多一个 → 白白反序列化，白费本次优化。
+#   改响应字段时**必须同步本清单**。
+_TASK_LIST_COLUMNS = (
+    Task.id, Task.title, Task.state, Task.stage, Task.priority,
+    Task.target_agent_type, Task.fallback_after, Task.grab_mode,
+    Task.doc_gate_exempt, Task.depends_on, Task.idea_id, Task.parent_id,
+    Task.role, Task.complexity, Task.gate_tier, Task.completion_run_id,
+    Task.est_duration_min, Task.task_kind, Task.created_at,
+    Task.project, Task.workspace, Task.labels,
+)
+
+
 @router.get("", response_model=list)
 def list_tasks(state: str = None, agent_type: str = None, stage: str = None,
                cancelled: bool = False, db: Session = Depends(get_session)):
-    q = select(Task)
+    # 列投影：只取响应用得到的列（见 _TASK_LIST_COLUMNS 注释）。
+    # 过滤条件仍用 ORM 表达式拼装，语义与改动前完全一致。
+    q = select(*_TASK_LIST_COLUMNS)
     if not cancelled:
         q = q.where(Task.state != TaskState.CANCELLED)
     if state:

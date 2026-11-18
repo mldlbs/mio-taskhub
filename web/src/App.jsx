@@ -286,11 +286,17 @@ export default function App() {
     }
 
     connect()
-    const interval = setInterval(() => { loadTasks(); loadIdeas() }, 5000)
+    // 轮询频率分层（任务 613bc0ca · FR-5）：
+    //  · 任务列表 5s —— 主视图，WS 事件之外仍需兜底刷新，手感不能牺牲；
+    //  · 想法列表 30s —— 非主视图，5s 拉一次只是白白烧服务端（实测 /ideas 17ms ×
+    //    多标签页叠加可观）；hub 已有 WS 推送负责实时性。
+    const interval = setInterval(() => { loadTasks() }, 5000)
+    const ideasInterval = setInterval(() => { loadIdeas() }, 30000)
     return () => {
       closed = true
       if (timer) clearTimeout(timer)
       clearInterval(interval)
+      clearInterval(ideasInterval)
       clearInterval(tickId)
       if (socket) socket.close()
     }

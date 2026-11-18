@@ -30,7 +30,9 @@ export default function EmbedView() {
       s.onerror = () => { try { s.close() } catch { /* ignore */ } }
     }
     connect()
-    const t = setInterval(load, 5000)
+    // 轮询改 30s（任务 613bc0ca · FR-5）：本视图**已有 WebSocket**
+    // （onmessage → load()），5s 轮询纯属冗余——WS 一有事件就会重新拉全量任务列表。
+    const t = setInterval(load, 30000)
     return () => { closed = true; if (s) s.close(); clearInterval(t) }
   }, [load])
 
