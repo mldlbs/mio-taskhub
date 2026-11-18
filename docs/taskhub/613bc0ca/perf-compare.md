@@ -86,6 +86,63 @@
 
 不在本任务范围：20 s 采样 WS 188.4 → 188.9 MB 平稳，线程 23–25 稳定、handles 465 无增长 → **无泄漏**。
 
+## 线上部署与验证（2026-11-18 18:33–18:45）
+
+### 打包链路的坑（先记下来）
+
+本项目线上是 **Tauri 壳 + PyInstaller Python 运行时**两层：
+
+```
+mio-taskhub/dist/mio-taskhub-v3/TaskHub.exe   ← PyInstaller 产物（tauri.conf.json bundle.resources 指向这里）
+   ↓ cargo tauri build（NSIS/MSI）把 hub/ 塞进壳
+mio-taskhub-tauri/target/release/mio-hub-shell.exe
+   ↓ 安装
+E:\Program Files\TaskHub\hub\TaskHub.exe      ← 实际运行的 Python hub
+```
+
+**只重打 Tauri 壳 ≠ 换掉 Python 运行时**——壳里带的是 `dist/mio-taskhub-v3/` 里的旧 exe。本次首次打包后 PYZ 反查发现安装版仍无 `_counts_by_stage_db` / `_TASK_LIST_COLUMNS`，**改动根本没进去**。正确顺序：
+
+1. `cd web && npm run build`（PyInstaller 会把 `web/dist` 当数据打进 `_internal`，**必须先建前端**）
+2. `python -m PyInstaller mio-taskhub.spec --distpath dist_perf --workpath build_perf --noconfirm`（**用独立输出目录**，不碰运行中的 dist）
+3. 补分发文件：`agent_wrapper.py` / `idle_worker.py` / `*.bat` / `setup-*.ps1` / `workbuddy/` / `使用说明.txt`
+4. 线上替换**只需两个东西**：`TaskHub.exe`（纯 Python 模块在 exe 的 PYZ 里）+ `_internal/web/dist/`（1.3 MB 前端资源）；`_internal` 其余部分不用动
+5. 重启 Tauri 壳（否则窗口仍持有旧 bundle，前端改动不生效）
+
+### 线上实测（同机同库，改造后）
+
+| 端点 | 改造前（线上） | 改造后（线上） | 提升 |
+|---|---|---|---|
+| `GET /api/v1/tasks` | 308 ms | **94.9 ms** | 3.2× |
+| `GET /api/v1/tasks?cancelled=true` | 261 ms | **140.5 ms** | 1.9× |
+| `GET /api/v1/board/summary` | **1008 ms** | **104.7 ms** | **9.6×** |
+| `GET /api/v1/ideas` | 17 ms | 18.6 ms | 不变（未改动） |
+
+### 轮询频次实测（固定 120 秒窗口，按字节偏移精确统计）
+
+| 端点 | 改前 | 改后 | 说明 |
+|---|---|---|---|
+| `/api/v1/ideas` | 5 s（12 次/分） | **30 s（2 次/分）** | ✅ 新前端生效 |
+| `/api/v1/board/summary` | 8 s × 2 组件（≈15 次/分） | **30 s × 2 组件（4 次/分）** | ✅ 降约 4× |
+| `/api/v1/alerts` | 30 s | 30 s | 未改 |
+| `/api/v1/tasks` | 5 s × 2 客户端 | 5 s × 2 客户端 | **刻意保留**（主视图手感） |
+| `/api/v1/update/status` | 5 s 级 | 5 s 级 | 来自 `UpdateBanner`/`SettingsView`，**本次未动**（响应仅 333 B，很便宜） |
+
+### 常驻 CPU（30–90 秒采样窗口）
+
+| | 数值 |
+|---|---|
+| 改造前（13:45 起，3h15m 累计 2177 s） | **19% 单核** |
+| 换新 exe（前端仍是旧 bundle） | 11.3% |
+| **新前端生效后** | **7.6% 单核（-60%）** |
+
+> 中间那档 11.3% 说明：**只换后端能省一半，前端降频再省一半**。两者都到位才到 7.6%。
+
+### 部署过程记录
+
+- 替换窗口：hub 停机约 10 秒（`TaskHub.exe hub --worker` 由 WMI 以 cwd=`E:\Program Files\TaskHub\hub` 拉起）。
+- `E:\Program Files\TaskHub` 本机**可写**（无需管理员）。
+- 验证方式：安装版 exe 的 PYZ 反查新符号 + 线上端点计时 + 线上前端 bundle hash（`index-DYuVyPF7.js` → `index-D0IpGXkx.js`）。
+
 ## 复现方式
 
 ```bash
