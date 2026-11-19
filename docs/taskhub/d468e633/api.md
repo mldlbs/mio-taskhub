@@ -4,8 +4,8 @@
 
 | 项 | 内容 |
 |---|---|
-| 文档版本 | v1.1 |
-| 契约版本 | 1.0（**破坏性**：新增 422 错误码 `run.empty_diff`） |
+| 文档版本 | v1.2 |
+| 契约版本 | 1.1（1.0 破坏性：新增 422 错误码 `run.empty_diff`；1.1 兼容+语义修正：`diff_summary` 增补指纹子字段，`changed` 判据口径修正） |
 | 状态 | approved |
 | 最后更新 | 2026-10-20 16:32 |
 | 负责人 | 项目作者（单人） |
@@ -31,6 +31,7 @@
 | C-3 | `PATCH /tasks/{task_id}` 新增可编辑字段 `diff_gate_exempt` | 兼容（新增可选字段） |
 | C-4 | 新增 `GET /runs/{run_id}/diff-evidence` | 兼容（新增接口） |
 | C-5 | 新增 WS 事件类型 `run.result_rejected` | 兼容（新增事件类型） |
+| C-6 | `diff_summary.before/after` 增补 `fingerprint` / `fingerprint_ok` 子字段；`changed` 判据由「after 增删行数 > 0」改为「前后内容指纹不同」 | **兼容但语义修正**（`changed` 取值口径收窄，见变更记录） |
 
 ## 环境与基础地址
 
@@ -191,7 +192,7 @@ curl -X POST "http://127.0.0.1:48620/api/v1/runs/d468e633/result?agent=claude-co
 | `runs[].exit_code` | int \| null | 是 | 退出码；未结束为 null |
 | `runs[].result` | string \| null | 是 | 自报结果正文 |
 | `runs[].diff_summary` | object \| null | 是 | **新增**：改动证据；未采集为 `null`（非 `{}`） |
-| `runs[].diff_summary.before` | object | 否 | 前快照 `{head, porcelain, files, insertions, deletions}` |
+| `runs[].diff_summary.before` | object | 否 | 前快照 `{head, porcelain, files, insertions, deletions, fingerprint, fingerprint_ok}` |
 | `runs[].diff_summary.after` | object | 否 | 后快照，同上结构 |
 | `runs[].diff_summary.changed` | bool | 否 | 是否判定为有改动 |
 | `runs[].diff_summary.reason` | string | 否 | 判定原因码，如 `has_changes` / `empty_diff` / `no_workspace` |
@@ -332,6 +333,13 @@ WebSocket `/ws` 新增事件类型（其余不变）：
 | 日期 | 契约版本 | 变更内容 | 兼容/破坏 | 影响方 |
 |---|---|---|---|---|
 | 2026-10-20 | 1.0 | 首次定义：新增 `run.empty_diff` 422 错误码、`GET /runs/{id}/diff-evidence`、WS 事件 `run.result_rejected`、`runs[]` 三字段、`diff_gate_exempt` 可编辑字段 | 破坏（成功路径新增失败可能） | Agent 端 submit_result 调用方、前端 TaskDetail |
+| 2026-11-19 | 1.1 | ① `diff_summary.before/after` 增补 `fingerprint` / `fingerprint_ok`；② `changed` 判据口径修正：原「after 的增删行数 > 0」改为「前后工作区内容指纹不同」 | 兼容（新增可选子字段）+ 语义修正（`changed` 在脏工作区下由 true 收窄为 false） | Agent 端 submit_result 调用方、看板/报表消费 `diff_summary` 的逻辑 |
+
+> **1.1 变更原因（实测取证）**：1.0 的判据 3 只看 after 的**绝对**增删行数。
+> 真实开发场景下工作区在 run 开始前通常就是脏的（本次线上实测 `ins=32 / del=10`），
+> 此时本次即使零改动，after 行数仍 > 0 → `changed=true` → **门禁漏放假完成**，
+> 在最常见场景下形同虚设。改为比较前后内容指纹后：脏工作区 + 零改动 → `changed=false`
+> （能被拦）；行数相同但内容变化 → `changed=true`（不误伤）；指纹不可用 → fail-open 放行。
 
 ## 版本策略
 

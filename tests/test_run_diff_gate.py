@@ -140,6 +140,58 @@ def test_tc1_empty_diff_blocked(tmp_path, monkeypatch):
         _cleanup("tc1")
 
 
+# ── TC-17：工作区本来就脏 + 本次零改动 → 必须拦（回归旧漏放缺陷）──
+
+def test_tc17_dirty_workspace_zero_change_blocked(tmp_path, monkeypatch):
+    """TC-17：工作区在 run 开始前就是脏的，本次零改动 → 422 run.empty_diff。
+
+    旧判据只看「after 的增删行数 > 0」→ 脏工作区里本次零改动仍被判成
+    「有改动」→ 门禁在真实开发场景下彻底失效，漏放假完成。
+    本用例锁住修复后的语义：判据 3 比较**前后内容指纹**。
+    """
+    monkeypatch.setenv("MIO_DIFF_GATE", "block")
+    ws = _make_repo(tmp_path)
+    # 前置：run 开始前工作区就是脏的
+    (ws / "dirty.py").write_text("print('dirty')\n", encoding="utf-8")
+    _mk_task("tc17", workspace=str(ws))
+    _mk_run("tc17r", "tc17", with_before=_before_of(ws))
+    try:
+        # 本次 run 期间**不做任何改动**
+        r = client.post("/api/v1/runs/tc17r/result",
+                        json={"success": True, "result": "我干完了"})
+        assert r.status_code == 422, (
+            "脏工作区 + 零改动未被拦截 → 门禁漏放假完成（响应：%s）" % r.text)
+        d = r.json()["detail"]
+        assert d["code"] == "run.empty_diff"
+        assert d["rejections"] == 1
+        with Session(engine) as s:
+            run = s.get(Run, "tc17r")
+            assert run.state == RunState.RUNNING
+            assert run.exit_code is None
+    finally:
+        _cleanup("tc17")
+
+
+def test_tc17b_dirty_workspace_with_real_change_allowed(tmp_path, monkeypatch):
+    """TC-17 续：脏工作区 + 本次确有改动 → 放行（不能误伤）。"""
+    monkeypatch.setenv("MIO_DIFF_GATE", "block")
+    ws = _make_repo(tmp_path)
+    (ws / "dirty.py").write_text("print('dirty')\n", encoding="utf-8")
+    _mk_task("tc17b", workspace=str(ws))
+    _mk_run("tc17br", "tc17b", with_before=_before_of(ws))
+    try:
+        (ws / "new.py").write_text("print('new')\n", encoding="utf-8")
+        r = client.post("/api/v1/runs/tc17br/result",
+                        json={"success": True, "result": "真干了"})
+        assert r.status_code == 200, r.text
+        with Session(engine) as s:
+            run = s.get(Run, "tc17br")
+            assert run.diff_summary["changed"] is True
+            assert run.diff_summary["reason"] == "has_changes"
+    finally:
+        _cleanup("tc17b")
+
+
 # ── TC-2：改了没 commit → 放行 ────────────────────────────────────
 
 def test_tc2_modified_not_committed_allowed(tmp_path, monkeypatch):
@@ -452,10 +504,51 @@ def test_differs_semantics():
     assert differs(ok, ok) is False
     assert differs(ok, Snapshot(ok=True, head="b", porcelain="")) is True
     assert differs(ok, Snapshot(ok=True, head="a", porcelain=" M x")) is True
-    assert differs(ok, Snapshot(ok=True, head="a", porcelain="", insertions=1)) is True
+    # 判据 3 是「内容指纹」而非「after 的绝对增删行数」：
+    # 行数相同、状态相同、指纹相同 → 本次零改动（不放行）
+    assert differs(ok, Snapshot(ok=True, head="a", porcelain="", insertions=1)) is False
+    # 指纹不同 → 有改动（哪怕行数与状态都没变，例如把一行 A 改成一行 B）
+    assert differs(ok, Snapshot(ok=True, head="a", porcelain="", fingerprint="fp2")) is True
+    # 指纹不可用（采集失败/文件过多）→ fail-open，视为有改动，不拦
+    assert differs(ok, Snapshot(ok=True, head="a", porcelain="", fingerprint_ok=False)) is True
     # 采集失败 → 视为有改动（不拦）
     assert differs(bad, ok) is True
     assert differs(ok, bad) is True
+
+
+def test_differs_detects_dirty_workspace_no_change(tmp_path):
+    """回归：工作区在 run 开始前就是脏的、本次零改动 → 必须判「零改动」。
+
+    旧判据（只看 after 的增删行数 > 0）在这里会误判成「有改动」→
+    门禁在真实开发场景（工作区常脏）下彻底失效，漏放假完成。
+    """
+    import subprocess
+
+    from mio_taskhub.diff_gate import differs, snapshot
+
+    ws = tmp_path / "repo"
+    ws.mkdir()
+    run = lambda *a: subprocess.run(["git", *a], cwd=str(ws), capture_output=True, text=True)
+    run("init")
+    run("config", "user.email", "t@t.t")
+    run("config", "user.name", "t")
+    (ws / "a.txt").write_text("one\n", encoding="utf-8")
+    run("add", "-A")
+    run("commit", "-m", "init")
+
+    # run 开始前工作区就是脏的
+    (ws / "a.txt").write_text("one\ntwo\n", encoding="utf-8")
+
+    before = snapshot(str(ws))
+    after = snapshot(str(ws))          # 本次 run 期间零改动
+    assert before.ok and after.ok
+    assert before.insertions > 0        # 确认前置条件：工作区确实是脏的
+    assert differs(before, after) is False, "脏工作区 + 零改动被误判成有改动 → 门禁会漏放"
+
+    # 本次真的改了内容（行数相同、状态相同，只有内容变了）→ 必须判有改动
+    (ws / "a.txt").write_text("one\nTWO\n", encoding="utf-8")
+    changed = snapshot(str(ws))
+    assert differs(before, changed) is True, "内容变化但行数相同未被识别 → 会误伤合法完成"
 
 
 def test_merge_annotations_dedupes_by_code():

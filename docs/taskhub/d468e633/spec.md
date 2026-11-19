@@ -45,7 +45,7 @@
 
 | 函数 | 输入 | 输出 | 副作用 |
 |---|---|---|---|
-| `snapshot(workspace: str) -> Snapshot` | 工作区路径 | `{head, porcelain, files, insertions, deletions, ok, error}` | 只读 git 调用 |
+| `snapshot(workspace: str) -> Snapshot` | 工作区路径 | `{head, porcelain, files, insertions, deletions, fingerprint, fingerprint_ok, ok, error}` | 只读 git 调用 |
 | `differs(before: Snapshot, after: Snapshot) -> bool` | 前后快照 | 是否发生变化 | 无 |
 | `check_diff_gate(db, task, run, body) -> Verdict` | 任务、Run、提交体 | `{blocked, skipped, reason, message, files_changed, ...}` | 读库（查并发活跃 run） |
 | `merge_annotations(existing, new_items) -> list` | 既有标注、新标注 | 合并后的标注列表 | 无 |
@@ -63,6 +63,8 @@
   "insertions": int,     # git diff --numstat 的新增行合计
   "deletions": int,      # git diff --numstat 的删除行合计
   "paths": [str],        # 变更文件路径列表（上限 50 条）
+  "fingerprint": str,    # 变更文件内容指纹（sha256 聚合；空串 = 工作区干净）
+  "fingerprint_ok": bool # 指纹是否可用（False → 判定 fail-open，不拦）
   "captured_at": str,    # 采集时刻 ISO
 }
 
@@ -134,11 +136,30 @@ def differs(before: Snapshot, after: Snapshot) -> bool:
     if before.head != after.head:
         return True          # 有新 commit
     if before.porcelain != after.porcelain:
-        return True          # 工作区改动有变化
-    return (after.insertions + after.deletions) > 0
+        return True          # 工作区改动有变化（含新增未跟踪文件）
+    if not (before.fingerprint_ok and after.fingerprint_ok):
+        return True          # 指纹不可用 → fail-open，不拦
+    return before.fingerprint != after.fingerprint
 ```
 
 `differs` 采不到信息时返回 `True`（即「视为有改动」），是**故意的**：宁可漏放假完成，也不能把「采集失败」变成「拦截成功」。
+
+> **判据 3 为什么是指纹而不是增删行数（2026-11-19 修正）**
+>
+> 原实现是 `return (after.insertions + after.deletions) > 0` —— 只看 **after 的绝对行数**。
+> 这在真实开发场景下会让门禁**彻底失效**：工作区在 run 开始前通常就是脏的
+> （本次实测 `ins=32 / del=10`），此时本次即使零改动，after 行数仍然 > 0
+> → 判定「有改动」→ **放行假完成**。
+>
+> 改为比较**前后内容指纹**后：
+> - 脏工作区 + 本次零改动 → 指纹相同 → 判「零改动」→ 正确拦截
+> - 行数相同但内容变了（把一行 A 改成一行 B）→ 指纹不同 → 判「有改动」→ 不会误伤
+>   （行数增量方案在这里会误伤）
+> - 指纹采集不可用（变更文件 > 5000 / 状态行异常）→ `fingerprint_ok=False`
+>   → fail-open 视为有改动，不拦
+>
+> 指纹只对**变更文件**计算（已跟踪改动 + 未跟踪），成本与变更规模成正比，
+> 与仓库总大小无关。
 
 ### 三、豁免与策略层
 

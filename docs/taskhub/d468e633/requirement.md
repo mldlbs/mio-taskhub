@@ -50,7 +50,7 @@
 | 编号 | 需求描述 | 优先级 | 验收标准 |
 |---|---|---|---|
 | FR-1 | 服务端**自行采集**本次 run 期间工作区的改动证据，不采信 Agent 自报：run 创建时拍「前」快照（`git rev-parse HEAD` + `git status --porcelain`），submit 时拍「后」快照 | P0 | 快照由服务端发起；Agent 在 submit body 中报的任何改动信息都不参与判定 |
-| FR-2 | 判定「本次有改动」= `head_after ≠ head_before` **或** `porcelain_after ≠ porcelain_before` **或** 增删行数 > 0 | P0 | 三条判据任一命中即算有改动；只比 HEAD 会漏「改了没 commit」，只比工作区会漏「已 commit」，两条快照缺一不可 |
+| FR-2 | 判定「本次有改动」= `head_after ≠ head_before` **或** `porcelain_after ≠ porcelain_before` **或** **前后工作区内容指纹不同** | P0 | 三条判据任一命中即算有改动；只比 HEAD 会漏「改了没 commit」，只比工作区会漏「已 commit」，两条快照缺一不可。⚠️ 判据 3 必须比较**前后**内容指纹，**不能**写成「after 的增删行数 > 0」——工作区在 run 开始前通常就是脏的，那样会导致本次零改动仍被判「有改动」，门禁彻底失效（漏放假完成） |
 | FR-3 | 当 `success=true` 且判定为**零改动**且任务**未豁免**时，返回 422 且错误码 `run.empty_diff` | P0 | 拒绝时**不改变 run 状态**（不置 finished、不写 exit_code）、**不消耗 attempt**、**不触发任务状态流转** |
 | FR-4 | 豁免与 fail-open 规则：以下任一成立即**跳过判定**（只写标注不拦）：`workspace` 为空、workspace 非 git 仓库或 git 不可用、`task_kind ∈ {idea_review, change_tracking}`、`diff_gate_exempt=true`、同一 workspace 存在 ≥2 个活跃 run | P0 | 上述 5 种场景下 submit **返回 200**，且标注中写明跳过原因；采集失败绝不导致拦截 |
 | FR-5 | 拒绝次数上限：`MAX_REJECTIONS=2`。同一 run 内被拒 2 次以内可继续重试（不消耗 attempt）；达到上限则判本次执行失败（`exit_code=1`、state=finished、reason=`empty_diff_repeated`），交既有重试机制处理 | P0 | 连续拒绝达上限后任务进入既有 retry/failed 流程；不存在无限重试路径 |
