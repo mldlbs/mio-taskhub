@@ -39,6 +39,10 @@ import CommandPalette from './components/CommandPalette'
 import ConfirmDialog from './components/ConfirmDialog'
 import InputDialog from './components/InputDialog'
 import { confirm } from './confirm'
+import { applyMotion } from './motion'
+
+// 启动即应用动效偏好（用户关闭动效 / 系统开启「减少动画」时禁用所有动画）
+applyMotion()
 
 const VIEW_KEY = 'mio.view'
 const CONTRAST_KEY = 'mio.contrast'
@@ -286,11 +290,17 @@ export default function App() {
     }
 
     connect()
-    const interval = setInterval(() => { loadTasks(); loadIdeas() }, 5000)
+    // 轮询频率分层（任务 613bc0ca · FR-5）：
+    //  · 任务列表 5s —— 主视图，WS 事件之外仍需兜底刷新，手感不能牺牲；
+    //  · 想法列表 30s —— 非主视图，5s 拉一次只是白白烧服务端（实测 /ideas 17ms ×
+    //    多标签页叠加可观）；hub 已有 WS 推送负责实时性。
+    const interval = setInterval(() => { loadTasks() }, 5000)
+    const ideasInterval = setInterval(() => { loadIdeas() }, 30000)
     return () => {
       closed = true
       if (timer) clearTimeout(timer)
       clearInterval(interval)
+      clearInterval(ideasInterval)
       clearInterval(tickId)
       if (socket) socket.close()
     }

@@ -1,5 +1,6 @@
 /** 设置面板：应用信息与软件更新。 */
 import { useEffect, useState, useMemo } from 'react'
+import { motionEnabled, setMotion } from '../motion'
 import { api } from '../api'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -19,6 +20,7 @@ export default function SettingsView() {
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
   const [hint, setHint] = useState('')
+  const [motionOn, setMotionOn] = useState(motionEnabled())
 
   async function refresh() {
     try {
@@ -139,6 +141,30 @@ export default function SettingsView() {
           <pre className="settings-notes">{st.notes}</pre>
         </>
       )}
+
+
+      <h3 className="mio-sec">界面</h3>
+      <table className="mio-table">
+        <tbody>
+          <tr>
+            <td>动效（呼吸光圈 / 扫描条 / 过渡）</td>
+            <td>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={motionOn}
+                  onChange={(e) => { const v = e.target.checked; setMotion(v); setMotionOn(v) }}
+                />
+                <span>{motionOn ? '开' : '关'}</span>
+              </label>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p style={{ fontSize: 11.5, opacity: .6, margin: '6px 0 0', lineHeight: 1.6 }}>
+        在没有 GPU 加速的环境（远程桌面 / 虚拟显示器 / 禁用硬件加速）下，持续动效会让界面每帧重绘，
+        实测仅 2 个状态点就能占用一个多核。界面卡顿或 CPU 飙高时请关闭。
+      </p>
 
       <h3 className="mio-sec">运行信息</h3>
       <table className="mio-table">

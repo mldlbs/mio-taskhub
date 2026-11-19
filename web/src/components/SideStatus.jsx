@@ -8,7 +8,8 @@ export default function SideStatus() {
     let cancelled = false
     const fetch = () => api.boardSummary().then(d => { if (!cancelled) setSummary(d) }).catch(() => {})
     fetch()
-    const t = setInterval(fetch, 8000)
+    // 看板汇总改 30s（任务 613bc0ca · FR-5）：理由同 MissionBar。
+    const t = setInterval(fetch, 30000)
     return () => { cancelled = true; clearInterval(t) }
   }, [])
 

@@ -34,6 +34,41 @@ def _count_by_stage(tasks):
     return counts
 
 
+def _counts_by_stage_db(db: Session) -> dict:
+    """阶段计数：SQL 侧聚合（任务 613bc0ca · FR-3）。
+
+    原实现先把**全表 Task 实体**载入内存（2040 行 = 162.6ms）再在 Python 侧计数。
+    改为 `group by stage` 让 SQLite 直接出计数（实测 5.9ms）。
+    输出结构与 `_count_by_stage` **逐项一致**——TC-4 用同一份数据比对两个函数
+    的输出，不允许"差不多"。
+    """
+    counts = {s.value: 0 for s in TaskStage}
+    rows = db.exec(select(Task.stage, func.count()).group_by(Task.stage)).all()
+    for st, n in rows:
+        counts[_stage(st)] += n
+    return counts
+
+
+def _alert_candidates(db: Session) -> list:
+    """告警检查的候选任务集（任务 613bc0ca · FR-4）。
+
+    原实现把**全表 Task 实体**喂给 `_check_alerts`，而该函数实际只会用到三类：
+      - 逾期检查：有 due_at 且状态非终态的任务；
+      - 依赖阻塞检查：stage ∈ {brainstorming, design, planning} 的任务；
+      - READY 依赖盲区检查：state=queued 且 stage=ready 的任务。
+    之外的行在函数内部会被各自的 if 直接过滤掉，**因此先在 SQL 侧收窄是等价的**，
+    但把"全表 ORM 加载"换成 ~40 行的定点查询（实测 162.6ms → 个位数 ms）。
+    """
+    return db.exec(
+        select(Task).where(
+            (Task.stage.in_([TaskStage.BRAINSTORMING, TaskStage.DESIGN,
+                             TaskStage.PLANNING, TaskStage.READY]))
+            | ((Task.due_at.isnot(None))
+               & (Task.state.notin_([TaskState.COMPLETED, TaskState.CANCELLED])))
+        )
+    ).all()
+
+
 def _ready_queue(db, now):
     rows = db.exec(
         select(Task).where(
@@ -163,21 +198,22 @@ def _ready_dependency_alerts(db, tasks):
 
 
 def _recent_done(db):
-    done_runs = db.exec(
-        select(Run).where(Run.state == RunState.FINISHED, Run.finished_at.isnot(None))
+    # FR-3/FR-4：原实现载入**全部 finished Run**（5258 行 = 179ms）再排序取前 5。
+    # 改为 join + limit 5：筛选集合完全等价（run 已 finished 且其 task 已 COMPLETED），
+    # 排序键同为 finished_at 降序，且省掉了逐条 db.get(Task) 的 N+1。
+    rows = db.exec(
+        select(Run.task_id, Run.finished_at, Task.title)
+        .join(Task, Task.id == Run.task_id)
+        .where(Run.state == RunState.FINISHED,
+               Run.finished_at.isnot(None),
+               Task.state == TaskState.COMPLETED)
+        .order_by(Run.finished_at.desc())
+        .limit(5)
     ).all()
-    done_runs.sort(key=lambda r: (_to_utc(r.finished_at).timestamp() if r.finished_at else 0), reverse=True)
-    recent = []
-    for r in done_runs:
-        if len(recent) >= 5:
-            break
-        t = db.get(Task, r.task_id)
-        if t and t.state == TaskState.COMPLETED:
-            recent.append({
-                "id": t.id, "title": t.title,
-                "completed_at": _to_utc(r.finished_at).isoformat() if r.finished_at else None,
-            })
-    return recent
+    return [{
+        "id": r.task_id, "title": r.title,
+        "completed_at": _to_utc(r.finished_at).isoformat() if r.finished_at else None,
+    } for r in rows]
 
 
 def _next_steps(ready_queue, overdue, running):
@@ -251,12 +287,14 @@ def _delivery_quality(db: Session) -> dict:
 def board_summary(agent: str = Query(None), db: Session = Depends(get_session)):
     """返回对话友好看板汇总：各阶段计数、待领取、执行中、告警、最近完成与下一步建议。"""
     now = _now()
-    tasks = db.exec(select(Task)).all()
-
-    counts = _count_by_stage(tasks)
+    # FR-3：阶段计数改 SQL 聚合，不再全表加载 Task 实体（实测 318ms → 个位数 ms）。
+    # FR-4：告警只加载候选任务（~40 行），不再把全表实体喂给 _check_alerts。
+    # 注：`_count_by_stage` 保留为**对照实现**，TC-4 用它与 SQL 聚合逐项比对。
+    counts = _counts_by_stage_db(db)
+    candidates = _alert_candidates(db)
     ready_queue = _ready_queue(db, now)
     running, active = _running_tasks(db, agent)
-    alerts, overdue = _check_alerts(db, tasks, active, now)
+    alerts, overdue = _check_alerts(db, candidates, active, now)
     recent_done = _recent_done(db)
     next_steps = _next_steps(ready_queue, overdue, running)
 

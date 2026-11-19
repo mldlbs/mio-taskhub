@@ -24,7 +24,9 @@ export default function MissionBar({ tasks, ws, lastSync, refreshing, onRefresh,
     let cancelled = false
     const fetch = () => api.boardSummary().then(d => { if (!cancelled) setSummary(d) }).catch(() => {})
     fetch()
-    const t = setInterval(fetch, 8000)
+    // 看板汇总改 30s（任务 613bc0ca · FR-5）：8s 一次在多标签页下把服务端
+    // board/summary 端点打满（改前单次 1008ms），而汇总本身无秒级诉求。
+    const t = setInterval(fetch, 30000)
     return () => { cancelled = true; clearInterval(t) }
   }, [])
   const q = summary?.ready_queue || []

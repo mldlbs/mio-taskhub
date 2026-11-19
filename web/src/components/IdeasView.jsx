@@ -884,7 +884,8 @@ export default function IdeasView({ ideas, onReload, onOpenTask }) {
 
   useEffect(() => {
     if (!detail) return
-    const t = setInterval(reloadDetail, 5000)
+    // 详情轮询改 30s（任务 613bc0ca · FR-5）：非主视图，5s 一次只是徒增服务端负载。
+    const t = setInterval(reloadDetail, 30000)
     return () => clearInterval(t)
   }, [detail, reloadDetail])
 

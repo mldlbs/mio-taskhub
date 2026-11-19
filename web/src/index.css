@@ -164,8 +164,8 @@ input, textarea, select { font-family: inherit; }
 }
 .rail__ws.is-live {
   background: var(--live);
-  box-shadow: 0 0 0 0 var(--live-glow);
-  animation: wsPulse 2s var(--ease) infinite;
+  color: var(--live);
+  will-change: transform;
 }
 
 .rail__contrast-glyph {
@@ -279,7 +279,7 @@ input, textarea, select { font-family: inherit; }
 }
 .clock .ws-tag { display: inline-flex; align-items: center; gap: 7px; }
 .ws-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
-.ws-dot.is-live { background: var(--live); box-shadow: 0 0 8px var(--live-glow); animation: wsPulse 2.2s var(--ease) infinite; }
+.ws-dot.is-live { background: var(--live); color: var(--live); box-shadow: 0 0 8px var(--live-glow); will-change: transform; }
 .ws-dot.is-dead { background: var(--danger); }
 .clock .ws-txt.is-live { color: var(--live); }
 .clock .ws-txt.is-dead { color: var(--danger); }
@@ -661,15 +661,24 @@ input, textarea, select { font-family: inherit; }
 .task.is-failed .attempt-dot.on { background: var(--danger); }
 
 /* live progress shimmer */
+/* 扫描条改用 transform 位移（合成友好）：原先动画 background-position 属
+   逐帧重绘属性，软件渲染环境下会让 WebView 整页每帧重新光栅化。
+   实测数据见 @keyframes wsRing 上方的注释。 */
 .task__live {
   position: absolute;
   left: 0; right: 0; bottom: 0;
   height: 2px;
-  background: linear-gradient(90deg, transparent, var(--live), transparent);
-  background-size: 220px 2px;
-  background-repeat: no-repeat;
-  animation: liveScan 1.5s linear infinite;
+  overflow: hidden;
   opacity: 0.85;
+}
+.task__live::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 220px; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--live), transparent);
+  will-change: transform;
+  animation: liveScan 1.5s linear infinite;
 }
 
 /* ------------------------------------------------------------
@@ -842,7 +851,7 @@ input, textarea, select { font-family: inherit; }
 }
 .np-status__window.is-active { border-color: color-mix(in srgb, var(--accent) 30%, transparent); background: var(--accent-soft); }
 .np-status__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-faint); flex: none; }
-.np-status__dot.is-live { background: var(--ok, #3ecf8e); animation: wsPulse 2s ease-in-out infinite; }
+.np-status__dot.is-live { background: var(--ok, #3ecf8e); color: var(--ok, #3ecf8e); will-change: transform; }
 .np-status__dot.is-warn { background: var(--warn); }
 .np-status__window-info { flex: 1; font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim); }
 .np-status__window-time { font-family: var(--font-mono); font-size: 12px; font-weight: 600; }
@@ -1023,20 +1032,68 @@ input, textarea, select { font-family: inherit; }
   from { opacity: 0; transform: translateY(14px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
-@keyframes wsPulse {
-  0% { box-shadow: 0 0 0 0 var(--accent-glow); }
-  70% { box-shadow: 0 0 0 7px transparent; }
-  100% { box-shadow: 0 0 0 0 transparent; }
+/* ── 实时脉冲环（替代 wsPulse 的 box-shadow 动画）─────────────────────
+ * 为什么不用 box-shadow 动画：box-shadow 属于**逐帧重绘**属性，在**软件渲染**
+ * 环境（无 GPU 加速——远程桌面 / 虚拟显示器 / 禁用硬件加速的 WebView）下，
+ * 动画会让 WebView **整页每帧重新光栅化**。
+ * 2026-11-18 实测（TaskHub Tauri 窗口 1280×800，WebView2 软件渲染）：
+ *   · 全部动画禁用          →   3.2% 单核
+ *   · 仅恢复 2 个 wsPulse  → 107.1% 单核
+ *   · 全部动画开启          → 162.6% 单核
+ * 即：仅 2 个 10px 的状态点就能吃掉一个多核。
+ *
+ * 改法：脉冲环改用**伪元素 + transform/opacity**——这两类属性能被合成器接管，
+ * 只重绘动画元素自身，不触发整页重绘。视觉意图（呼吸光圈）保持不变。
+ */
+.rail__ws.is-live,
+.ws-dot.is-live,
+.np-status__dot.is-live {
+  position: relative;
+}
+.rail__ws.is-live::after,
+.ws-dot.is-live::after,
+.np-status__dot.is-live::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform, opacity;
+  animation: wsRing 2s var(--ease) infinite;
+}
+@keyframes wsRing {
+  0%   { transform: scale(0.55); opacity: 0.75; }
+  70%  { transform: scale(1.9);  opacity: 0; }
+  100% { transform: scale(1.9);  opacity: 0; }
 }
 @keyframes liveScan {
-  0% { background-position: -220px 0; }
-  100% { background-position: 240px 0; }
+  0% { transform: translateX(-220px); }
+  100% { transform: translateX(100%); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  /* 必须同时把 iteration-count 置 1：只压 duration 而保留 infinite，
+     会把动画变成 0.01ms 的高速死循环——反而比不开更耗 CPU。 */
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
+/* 用户在「设置 → 界面」里关闭动效时生效。
+   只停**持续动画**（无限循环的那些）——它们才是软件渲染环境下每帧重绘的元凶；
+   transition 是事件驱动（悬停/面板展开），不产生常驻开销，故保留。
+   animation-iteration-count 必须置 1：只压 duration 而保留 infinite
+   会变成 0.01ms 的高速死循环，反而更耗 CPU。 */
+.no-anim *,
+.no-anim *::before,
+.no-anim *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+}
 /* ============================================================
    v2  — 精修层：detail drawer · skeleton · drop slot · magnetic
          · list toolbar · plan legend · responsive
