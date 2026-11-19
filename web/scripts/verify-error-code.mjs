@@ -11,21 +11,17 @@
 // 同时**不能**打断 policy_guard 走 detail.error 的 destructive 门控链路
 // （api.js 的 gated() 依赖 error_code === 'policy_risk_high'）。
 //
-// api.js 顶部 import 无扩展名路径（'./confirm'），node ESM 解析不了，
-// 故用 esbuild 打成一个临时 cjs 再 require —— 与 scripts/smoke-gantt.mjs 同一套路。
-import { build } from 'esbuild'
+// ⚠️ **零依赖**（2026-11-19 修正）：本脚本**不依赖 esbuild / npm install**。
+// 最初用 esbuild 把 api.js 打成 cjs 再 require，但 CI（windows-latest）不装
+// web/node_modules → ERR_MODULE_NOT_FOUND → CI 红。
+// 改为从 api.js 源码里**原样抽取** ERROR_MESSAGES 与 ApiError 类，用 new Function
+// 构造后断言 —— 测的仍是仓库里的真实源码，且任何环境都能跑。
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
-import { createRequire } from 'module'
 import { fileURLToPath } from 'url'
 
-const require = createRequire(import.meta.url)
 const here = path.dirname(fileURLToPath(import.meta.url))
-const entry = path.join(here, '..', 'src', 'api.js')
-
-const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'mio-error-code-'))
-const outfile = path.join(tmpdir, 'api.bundle.cjs')
+const apiPath = path.join(here, '..', 'src', 'api.js')
 
 let failed = 0
 function assert(cond, msg) {
@@ -34,21 +30,31 @@ function assert(cond, msg) {
   console.error('FAIL: ' + msg)
 }
 
-try {
-  await build({
-    entryPoints: [entry],
-    bundle: true,
-    format: 'cjs',
-    platform: 'node',
-    outfile,
-    logLevel: 'silent',
-  })
-} catch (e) {
-  console.error('FAIL: esbuild 打包 api.js 失败 —— ' + (e && e.message))
+const src = fs.readFileSync(apiPath, 'utf8')
+
+// 抽取 ERROR_MESSAGES 常量表
+const emMatch = src.match(/const ERROR_MESSAGES = \{[\s\S]*?\n\}/)
+if (!emMatch) {
+  console.error('FAIL: 未能在 api.js 中定位 ERROR_MESSAGES')
+  process.exit(1)
+}
+// 抽取 ApiError 类（类体末尾的 } 位于行首，方法体内的 } 都有缩进，不会误匹配）
+const clsMatch = src.match(/export class ApiError extends Error \{[\s\S]*?\n\}/)
+if (!clsMatch) {
+  console.error('FAIL: 未能在 api.js 中定位 ApiError 类')
   process.exit(1)
 }
 
-const { ApiError } = require(outfile)
+let ApiError
+try {
+  const factory = new Function(
+    `${emMatch[0]}\n${clsMatch[0].replace('export ', '')}\nreturn ApiError`
+  )
+  ApiError = factory()
+} catch (e) {
+  console.error('FAIL: 抽取出的源码无法构造 —— ' + (e && e.message))
+  process.exit(1)
+}
 
 // ① 窄门禁 422：detail.code / message / hint 三件套
 const emptyDiff = new ApiError('raw', 422, {
@@ -96,8 +102,6 @@ const none = new ApiError('raw', 500, null, '/x')
 assert(none.userMessage === '服务器内部错误，请稍后重试',
   '无 detail 时的兜底文案不对（实际：' + none.userMessage + '）')
 assert(none.error_code === undefined, '无 detail 时不应产出 error_code')
-
-fs.rmSync(tmpdir, { recursive: true, force: true })
 
 if (failed) {
   console.error('verify-error-code: ' + failed + ' 条断言失败')

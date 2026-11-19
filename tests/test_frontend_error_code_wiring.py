@@ -12,7 +12,8 @@
   ① 静态断言（源码结构，防重构回退）
   ② 行为断言（node 跑 web/scripts/verify-error-code.mjs，测真实模块）
 
-行为层的断言脚本见 web/scripts/verify-error-code.mjs（esbuild 打包后 require 真实 api.js）。
+行为层的断言脚本见 web/scripts/verify-error-code.mjs（从 api.js 源码原样抽取 ApiError
+类后用 new Function 构造再断言 —— **零依赖**，不需 npm install，CI 可直接跑）。
 """
 import shutil
 import subprocess
@@ -87,6 +88,8 @@ def test_behavior_verification_passes():
         cwd=str(REPO / "web"),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",   # Windows 默认 cp1252 解不动 node 的中文错误输出
         timeout=180,
     )
     assert proc.returncode == 0, (
