@@ -39,6 +39,10 @@ import CommandPalette from './components/CommandPalette'
 import ConfirmDialog from './components/ConfirmDialog'
 import InputDialog from './components/InputDialog'
 import { confirm } from './confirm'
+import { applyMotion } from './motion'
+
+// 启动即应用动效偏好（用户关闭动效 / 系统开启「减少动画」时禁用所有动画）
+applyMotion()
 
 const VIEW_KEY = 'mio.view'
 const CONTRAST_KEY = 'mio.contrast'
