@@ -25,11 +25,19 @@ export class ApiError extends Error {
     this.status = status
     this.detail = detail
     this.url = url
-    this.userMessage = ERROR_MESSAGES[status] || `请求失败 (${status})`
-    if (detail && typeof detail === 'object') {
-      if (detail.hint) this.hint = detail.hint
-      if (detail.error) this.error_code = detail.error
-    }
+    // 业务码：后端存在两套约定并存 —— policy_guard 用 detail.error，
+    // api/runs.py 等用 detail.code（窄门禁 run.empty_diff 等，见
+    // docs/taskhub/d468e633/api.md 统一错误码表）。两者都收，detail.code 优先，
+    // 但 detail.error 必须保留 —— destructive 门控（policy_risk_high）走它，
+    // 丢了会打断 gated() 的确认重试链路。
+    const obj = (detail && typeof detail === 'object') ? detail : null
+    if (obj && obj.code) this.error_code = obj.code
+    else if (obj && obj.error) this.error_code = obj.error
+    // userMessage 优先用后端的三段式 message（发生了什么），
+    // 只有后端没给 message 时才回落到按状态码的通用文案（422 通用文案仅作兜底，
+    // 不能替代 run.empty_diff 这类专用文案）。
+    this.userMessage = (obj && obj.message) || ERROR_MESSAGES[status] || `请求失败 (${status})`
+    if (obj && obj.hint) this.hint = obj.hint
   }
 }
 
@@ -59,7 +67,13 @@ async function req(method, path, body, extraHeaders) {
   const data = await r.json().catch(() => ({}))
   if (!r.ok) {
     const detail = data && data.detail
-    const msg = typeof detail === 'string' ? detail : (detail?.detail || detail?.error || (detail ? JSON.stringify(detail) : `HTTP ${r.status}`))
+    // 报文优先取 detail.message（后端三段式文案的第一段），其次兼容历史字段名；
+    // 都没有才把 detail 整体 JSON 化（此前会把 run.empty_diff 的整个 detail
+    // 压成一行乱码，界面上看不到人话）。
+    const msg = typeof detail === 'string'
+      ? detail
+      : (detail?.message || detail?.detail || detail?.error
+         || (detail ? JSON.stringify(detail) : `HTTP ${r.status}`))
     throw new ApiError(msg, r.status, detail, url)
   }
   return data

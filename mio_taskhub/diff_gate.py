@@ -19,6 +19,7 @@ ReadEvidence 版本一致」，随后**直接采信 Agent 自报的 `success: bo
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -31,6 +32,12 @@ GIT_TIMEOUT_SEC = 5
 MAX_PATHS = 50
 # 单次 run 内允许被拒次数上限。达到即判本次执行失败，交既有重试机制。
 MAX_REJECTIONS = 2
+# 指纹采集的变更文件数上限。超过则放弃指纹（标 fingerprint_ok=False），
+# 判定退化为 fail-open（视为有改动，不拦）——宁可漏放，不能误伤。
+MAX_FINGERPRINT_FILES = 5000
+# 单文件参与指纹计算的大小上限（字节）。超过则该文件按「过大」标记参与，
+# 不读全文（避免大文件/二进制把采集拖垮）。
+MAX_FINGERPRINT_FILE_BYTES = 8 * 1024 * 1024
 
 # 门禁开关三档。
 GATE_MODES = ("off", "warn", "block")
@@ -59,6 +66,10 @@ class Snapshot:
     deletions: int = 0
     paths: List[str] = field(default_factory=list)
     captured_at: str = ""
+    # 工作区变更文件的内容指纹（sha256 聚合）。fingerprint_ok=False 表示
+    # 指纹不可用（文件过多/读失败）→ 判定时按 fail-open 视为「有改动」。
+    fingerprint: str = ""
+    fingerprint_ok: bool = True
 
     def brief(self) -> Dict[str, Any]:
         """摘要形态（入库用）。不返回 error 的绝对路径等敏感信息。"""
@@ -69,6 +80,8 @@ class Snapshot:
             "insertions": self.insertions,
             "deletions": self.deletions,
             "paths": self.paths[:MAX_PATHS],
+            "fingerprint": self.fingerprint,
+            "fingerprint_ok": self.fingerprint_ok,
         }
 
 
@@ -144,6 +157,100 @@ def _numstat(workspace: str) -> tuple[int, int, List[str]]:
     return ins, dele, paths
 
 
+def _file_digest(path: str) -> str:
+    """单文件内容 sha256。分块读，不把大文件整个塞进内存。"""
+    h = hashlib.sha256()
+    try:
+        with open(path, "rb") as fh:
+            while True:
+                chunk = fh.read(1024 * 1024)
+                if not chunk:
+                    break
+                h.update(chunk)
+    except OSError:
+        return "UNREADABLE"
+    return h.hexdigest()
+
+
+def _tree_digest(path: str) -> str:
+    """目录内容摘要（未跟踪目录用）。路径相对 + 内容哈希，排序后聚合。"""
+    h = hashlib.sha256()
+    try:
+        for root, dirs, files in os.walk(path):
+            dirs.sort()
+            for name in sorted(files):
+                fp = os.path.join(root, name)
+                h.update(os.path.relpath(fp, path).encode("utf-8", "replace"))
+                h.update(b"\0")
+                h.update(_file_digest(fp).encode("ascii"))
+                h.update(b"\0")
+    except OSError:
+        return "UNREADABLE"
+    return h.hexdigest()
+
+
+def _path_digest(workspace: str, rel: str) -> str:
+    """路径内容摘要。目录递归，文件单文件；读不到则返回标记串。"""
+    full = os.path.join(workspace, rel)
+    try:
+        if os.path.isdir(full):
+            return _tree_digest(full)
+        if os.path.getsize(full) > MAX_FINGERPRINT_FILE_BYTES:
+            return "TOO_LARGE"
+        return _file_digest(full)
+    except OSError:
+        return "UNREADABLE"
+
+
+def _fingerprint(workspace: str, status_out: str) -> tuple[str, bool]:
+    """工作区变更文件的内容指纹。
+
+    返回 (fingerprint, ok)：
+      · ok=True  → fingerprint 是有效的内容指纹（空串表示工作区干净）
+      · ok=False → 指纹不可用（变更文件过多 / 状态行无法解析），调用方须 fail-open
+
+    **为什么必须有指纹**：只比 `git status --porcelain` 只能看出「哪些文件变了」，
+    比 `diff --numstat` 的行数只能看出「变了多少行」。两者都分辨不出
+    「把一行 A 改成一行 B」——行数相同、文件状态相同，但内容确实变了。
+    更严重的是：若只看 after 的绝对行数，工作区在 run 开始前就是脏的
+    （本次零改动）时也会被判成「有改动」→ 门禁彻底失效（漏放假完成）。
+
+    指纹只对**变更文件**计算（已跟踪改动 + 未跟踪），成本与变更规模成正比，
+    与仓库总大小无关。
+    """
+    entries: List[str] = []
+    try:
+        for line in status_out.splitlines():
+            if not line.strip():
+                continue
+            if len(line) < 4:
+                return "", False          # 状态行格式异常 → 指纹不可用
+            xy = line[:2]
+            rel = line[3:].strip()
+            if " -> " in rel:            # 重命名：取新路径
+                rel = rel.split(" -> ", 1)[1].strip()
+            if xy.startswith("??"):
+                entries.append(f"{xy}:{rel}:{_path_digest(workspace, rel)}")
+                continue
+            if "D" in xy and "M" not in xy:
+                # 已删除：内容不存在，记删除标记（参与指纹但不给内容）
+                entries.append(f"{xy}:{rel}:DELETED")
+                continue
+            entries.append(f"{xy}:{rel}:{_path_digest(workspace, rel)}")
+    except Exception:                   # noqa: BLE001 — 指纹采集不得影响主链路
+        return "", False
+
+    if len(entries) > MAX_FINGERPRINT_FILES:
+        return "", False
+
+    entries.sort()
+    h = hashlib.sha256()
+    for e in entries:
+        h.update(e.encode("utf-8", "replace"))
+        h.update(b"\0")
+    return h.hexdigest(), True
+
+
 def snapshot(workspace: str) -> Snapshot:
     """采集一次快照。任何异常都转成 ok=False + error 原因，绝不向上抛。
 
@@ -175,6 +282,8 @@ def snapshot(workspace: str) -> Snapshot:
     # porcelain 每行一个变更条目（含未跟踪 `??`）
     status_lines = [ln for ln in status_out.splitlines() if ln.strip()]
 
+    fingerprint, fp_ok = _fingerprint(workspace, status_out)
+
     return Snapshot(
         ok=True,
         error="",
@@ -185,6 +294,8 @@ def snapshot(workspace: str) -> Snapshot:
         deletions=dele,
         paths=paths[:MAX_PATHS],
         captured_at=_now().isoformat(),
+        fingerprint=fingerprint,
+        fingerprint_ok=fp_ok,
     )
 
 
@@ -193,8 +304,17 @@ def snapshot(workspace: str) -> Snapshot:
 def differs(before: Snapshot, after: Snapshot) -> bool:
     """前后快照是否有变化。
 
+    三条判据（任一命中即算「本次有改动」）：
+      1. HEAD 变了 —— agent 提交了 commit
+      2. porcelain 变了 —— 变更文件集合/状态变了（含新增未跟踪文件）
+      3. 内容指纹变了 —— 同一文件的内容变了（行数相同、状态相同也能分辨）
+
     **采不到信息时返回 True**（视为有改动）—— 这是故意的：
     宁可漏放假完成，也不能把「采集失败」变成「拦截成功」。
+
+    ⚠️ 判据 3 不能写成「after 的增删行数 > 0」：那样只要工作区在 run 开始前
+    就是脏的（本次零改动），after 行数仍然 > 0 → 判定「有改动」→ 门禁彻底失效
+    （漏放假完成）。必须比较**前后**的内容指纹。
     """
     if not (before.ok and after.ok):
         return True
@@ -202,7 +322,9 @@ def differs(before: Snapshot, after: Snapshot) -> bool:
         return True          # 有新 commit
     if before.porcelain != after.porcelain:
         return True          # 工作区改动有变化（含新增未跟踪文件）
-    return (after.insertions + after.deletions) > 0
+    if not (before.fingerprint_ok and after.fingerprint_ok):
+        return True          # 指纹不可用 → fail-open，不拦
+    return before.fingerprint != after.fingerprint
 
 
 # ── 策略层 ────────────────────────────────────────────────────────────
@@ -277,6 +399,9 @@ def _before_snapshot(run) -> Optional[Snapshot]:
         deletions=int(raw.get("deletions") or 0),
         paths=list(raw.get("paths") or []),
         captured_at=raw.get("captured_at", "") or "",
+        fingerprint=raw.get("fingerprint", "") or "",
+        # 老数据没有 fingerprint 字段 → 指纹不可用 → fail-open（视为有改动）
+        fingerprint_ok=bool(raw.get("fingerprint_ok", False)),
     )
 
 

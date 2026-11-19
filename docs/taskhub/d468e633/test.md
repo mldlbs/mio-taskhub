@@ -4,9 +4,9 @@
 
 | 项 | 内容 |
 |---|---|
-| 文档版本 | v1.0 |
+| 文档版本 | v1.1 |
 | 状态 | passed |
-| 最后更新 | 2026-10-21 10:57 |
+| 最后更新 | 2026-11-19 |
 | 负责人 | 项目作者（单人） |
 | 关联任务 | d468e633 |
 | 需求 | `docs/taskhub/d468e633/requirement.md`（FR-1 ~ FR-11） |
@@ -20,12 +20,12 @@
 | FR | 验收判据 | 对应用例 |
 |---|---|---|
 | FR-1 | 判定证据由服务端采集，Agent 上报的改动信息不参与判定 | TC-1 TC-2 |
-| FR-2 | 空改动 + success → 422 `run.empty_diff`，且 run 状态、exit_code、attempt 均不变 | TC-1 TC-6 |
+| FR-2 | 空改动 + success → 422 `run.empty_diff`，且 run 状态、exit_code、attempt 均不变 | TC-1 TC-6 TC-17 |
 | FR-3 | 5 种豁免/采集失败场景全部 200 放行，且标注写明原因 | TC-3 TC-4 TC-5 |
 | FR-4 | 连续被拒达上限后判 run 失败并进入既有重试流程 | TC-7 |
 | FR-5 | 拦截后 `Event` 与 `HistoryEvent` 两表均有记录（查库确认） | TC-8 |
 | FR-6 | 标注只提示不拦、不弹 toast，文案含「不影响放行」 | TC-9 |
-| FR-7 | 422 detail 含 code/message/hint/rejections，错误码不复用通用文案 | TC-1 |
+| FR-7 | 422 detail 含 code/message/hint/rejections，错误码不复用通用文案 | TC-1 TC-16 |
 | FR-8 | `MIO_DIFF_GATE` 三档生效，off 即时全量放行 | TC-10 |
 | FR-9 | 迁移幂等，存量任务自动豁免 | TC-9（迁移子用例） |
 | FR-10 | 任务详情 `runs[]` 增补 3 字段 | TC-6 |
@@ -79,11 +79,21 @@
 | TC-13 | FR-6 | `merge_annotations()` 同 code 去重 | 同 code 只保留最新一条；不同 code 累加 |
 | TC-14 | FR-8 | `MIO_DIFF_GATE` 非法值 | 未设 / 非法值 → 按 `warn` 处理；大小写不敏感（`BLOCK` → `block`） |
 | TC-15 | FR-3 | `snapshot()` 非 git 目录 / 空路径 | ok=False + error，不抛异常 |
+| TC-16 | FR-7 | **前端错误码透传**：`ApiError` 对 422 `run.empty_diff` 的 detail `{code,message,hint,...}` | `error_code='run.empty_diff'`；`userMessage` 取 `detail.message`（**不得**是「数据校验失败，请检查必填项」）；`hint` 透传；同时 `detail.error` 约定保留（`policy_risk_high` 仍能取到，`gated()` 确认重试链路不断）；`detail` 为字符串 / 为 null 时不崩 |
+| TC-17 | FR-2 | **脏工作区回归**：run 开始前工作区即有改动（前置 `ins>0`），本次 run 期间零改动 | block 档 → **422 `run.empty_diff`**；run 状态/exit_code 不变。TC-17b 续：脏工作区 + 本次确有改动 → 200、`changed=true`（不得误伤） |
+| TC-18 | FR-2 | **内容变化但行数相同**：把一行 A 改成一行 B（增删行数不变、文件状态不变） | 判「有改动」→ 200 放行。锁住「判据 3 用指纹而非行数增量」——若用行数增量会误伤合法完成 |
+
+### 前端接线用例的实现位置
+
+| 编号 | 实现位置 | 覆盖内容 |
+|---|---|---|
+| TC-16 | `web/src/api.js`（`ApiError` + `req()`） | `detail.code` 优先、`detail.error` 回落、`detail.message` 优先于通用文案、`hint` 透传 |
+| TC-16 护栏 | `tests/test_frontend_error_code_wiring.py` | ① 静态断言源码结构（防重构回退）② 行为断言调 `web/scripts/verify-error-code.mjs`（esbuild 打包真实 `api.js` 后断言 6 条行为） |
 
 ## 验收流程
 
 - **谁验收**：项目作者（单人项目，本人即验收人）。
-- **通过条件**：TC-1 ~ TC-10 全过；`quality.errors = 0`；灰度期零误伤；能举出一例真实拦截。
+- **通过条件**：TC-1 ~ TC-18 全过；`quality.errors = 0`；灰度期零误伤；能举出一例真实拦截。
 - **不通过的回退路径**：
   1. 立即 `MIO_DIFF_GATE=off` 全量放行（不需回滚代码）。
   2. 按失败用例定位到批次（A/B/C），只回退该批次。
@@ -120,3 +130,29 @@
 ```
 
 生产库本身**尚未迁移**（新列不存在），迁移在 hub 启动时才执行。
+
+## 二次真实场景验证（2026-11-19，脏工作区漏放缺陷）
+
+在真实仓库（`E:/work/code/agent-dev/mio-taskhub`）上做 warn 档端到端验证时，**零改动被判成「有改动」**：
+
+| 步骤 | 结果 |
+|---|---|
+| 建任务（workspace = 真实仓库）→ claim 建 run → 拍前快照 | 前快照 `files=4 / ins=32 / del=10`（工作区本就是脏的） |
+| 不做任何改动 → 提交 `success=true` | HTTP 200（warn 档） |
+| 判定结论 | `diff_summary.reason = has_changes`、`changed = true` —— **误判** |
+
+根因（离线复现取证）：两次快照 `head` 同、`porcelain` 同、`ins/del` 全同，
+但判据 3「`after.insertions + after.deletions > 0`」只看 **after 的绝对行数** →
+工作区本来脏 → 本次零改动仍 > 0 → 判「有改动」→ **门禁在最常见场景下完全失效（漏放假完成）**。
+
+修复：判据 3 改为比较**前后工作区内容指纹**（变更文件 sha256 聚合），
+指纹不可用时按 fail-open 视为有改动。修复后离线复现：
+
+| 场景 | 修复前 | 修复后 |
+|---|---|---|
+| 脏工作区 + 零改动 | `differs=True`（漏放） | `differs=False`（正确拦截） |
+| 行数相同、内容变了（A→B） | 判不出 | `differs=True`（不误伤） |
+| 干净工作区 + 零改动 | `differs=False` | `differs=False`（不变） |
+| 干净工作区 + 有改动 | `differs=True` | `differs=True`（不变） |
+
+对应用例：TC-17 / TC-17b（集成级）、TC-18（单元级）。
