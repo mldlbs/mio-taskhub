@@ -7,6 +7,7 @@ from sqlalchemy import update as sa_update
 from mio_taskhub.models import Task, TaskState, TaskStage, Agent, AgentStatus
 from mio_taskhub.api.runs import find_existing_run, create_run
 from mio_taskhub.hierarchy import claimable_task_clause, is_main
+from mio_taskhub.dependency import dependencies_satisfied
 from mio_taskhub.utils import _now
 
 
@@ -28,8 +29,9 @@ def claim_for(agent: str, db: Session, agent_type: Optional[str] = None,
     """原子领取：返回该 agent 的 Run 或 None。
 
     先查 agent 已有 claimed/running run（幂等）；否则：
-    - 传 task_id：直接认领该指定任务（按 id 领取），无视阶段，仅校验未认领；
+    - 传 task_id：按 id 领取，但必须满足依赖准入；
     - 否则按关联度 + 优先级 + FIFO 找 ready 任务。
+    候选筛选和最终条件更新都会复核依赖，避免指定领取、候选漂移绕过 DAG 门禁。
     用条件更新（WHERE state='queued'）抢占，避免 SQLite 无 FOR UPDATE 下的并发双 run。
 
     关联度排序（内部使用，不硬排斥）：类型匹配 > 无人认领 > 他人专属。
@@ -99,6 +101,8 @@ def pick_candidate_task(db, agent_type, task_id, project_scope: Optional[str] = 
         # P2a：主任务不是执行单元，即使点名也不能被普通 worker 领走。
         if is_main(task):
             return None
+        if not dependencies_satisfied(db, task):
+            return None
         if not _claim_ready(db, task):
             return None
         return task
@@ -140,32 +144,40 @@ def build_relevance(agent_type):
 
 
 def _claim_ready(db, task) -> bool:
-    """Phase 1：block 模式下跳过 readiness 不满足的任务。"""
+    """Phase 1：block 模式下跳过 readiness 不满足的任务；检查异常时 fail-closed。"""
     try:
         from mio_taskhub.completion_gate import build_readiness, claim_gate_mode
         if claim_gate_mode() != "block":
             return True
         return bool(build_readiness(db, task).get("ready"))
     except Exception:
-        return True
+        # 准入检查自身异常不能被解释为“已就绪”。
+        return False
 
 
 def first_ready_row(rows, db=None):
-    """取首个未到 run_at 时间的一次性任务，并跳过未就绪任务。"""
+    """取首个未到 run_at 时间、依赖满足且 readiness 通过的一次性任务。"""
     now = _now()
     for t in rows:
         if t.schedule_type == "once" and t.run_at:
             run_at = t.run_at if t.run_at.tzinfo else t.run_at.replace(tzinfo=timezone.utc)
             if run_at > now:
                 continue
-        if db is not None and not _claim_ready(db, t):
-            continue
+        if db is not None:
+            if not dependencies_satisfied(db, t):
+                continue
+            if not _claim_ready(db, t):
+                continue
         return t
     return None
 
 
 def atomic_claim(db, agent, candidate):
-    """条件更新抢占：仅当 state 仍为 queued 才算抢到。"""
+    """最终准入复核 + 条件更新抢占：依赖、readiness、queued 状态必须仍然成立。"""
+    # 不能只信任 pick_candidate_task 的早期判断；候选可能在排队期间发生变化。
+    if not dependencies_satisfied(db, candidate) or not _claim_ready(db, candidate):
+        db.rollback()
+        return None
     res = db.exec(
         sa_update(Task)
         .where(
