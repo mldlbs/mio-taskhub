@@ -1,0 +1,10 @@
+{
+  "C901": 57,
+  "PLR0911": 1,
+  "PLR0912": 14,
+  "PLR0915": 5,
+  "complexity": 57,
+  "max-depth": 9,
+  "max-lines-per-function": 16,
+  "max-statements": 3
+}

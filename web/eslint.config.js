@@ -9,6 +9,8 @@ import globals from 'globals';
 export default [
   { ignores: ['dist', 'landing', 'node_modules', 'scripts'] },
   {
+    // 与 Python 侧 RUF100 对齐：重构后不再需要的 disable 注释必须清掉
+    linterOptions: { reportUnusedDisableDirectives: 'error' },
     files: ['**/*.{js,jsx}'],
     languageOptions: {
       ecmaVersion: 2023,

@@ -65,7 +65,9 @@ jobs:
       # 规则集见 pyproject.toml [tool.ruff]；存量债务豁免在 ignore 里逐条注明棘轮候选。
       - name: Ruff lint
         shell: bash
-        run: python -m ruff check .
+        run: |
+          python -m ruff check .
+          python scripts/check_complexity_budget.py
 
       - name: Upload coverage
         if: always()
