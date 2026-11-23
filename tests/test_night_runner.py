@@ -1,4 +1,3 @@
-import json
 from unittest.mock import patch
 
 from mio_taskhub.scheduling import night_runner as nr

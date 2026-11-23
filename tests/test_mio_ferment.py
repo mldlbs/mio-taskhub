@@ -1,5 +1,6 @@
-# -*- coding: utf-8 -*-
 """#2 发酵状态 → taskhub idea 生命周期映射（只读 + 显式推进 + 幂等同步）。"""
+import typing
+
 from fastapi.testclient import TestClient
 
 from mio_taskhub import mio_runtime as mio_rt
@@ -70,7 +71,7 @@ def test_link_by_label_beats_title():
         id = "idea-9"
         title = "Same Title"
         status = type("S", (), {"value": "new"})()
-        labels = ["mio-hyp:h1"]
+        labels: typing.ClassVar = ["mio-hyp:h1"]
 
     items = _ferment_items([_hyp("h1", "Same Title", "active")], [Idea()])
     assert items[0]["linked"] is True
@@ -83,7 +84,7 @@ def test_link_by_title_when_no_label():
         id = "idea-8"
         title = "  Exact Title  "
         status = type("S", (), {"value": "fermenting"})()
-        labels = []
+        labels: typing.ClassVar = []
 
     items = _ferment_items([_hyp("h2", "Exact Title", "validated")], [Idea()])
     assert items[0]["linked"] is True

@@ -1,16 +1,13 @@
-# -*- coding: utf-8 -*-
 """scheduler_control 端点测试：进程分类 / 状态 payload / 激活幂等 / 停止。
 
 进程扫描与 Popen 全部 monkeypatch，不真起进程、不依赖本机 node。
 """
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
 
 from mio_taskhub.api import scheduler_control as sc
-
 
 # ── 进程分类 ──────────────────────────────────────────────
 
@@ -116,10 +113,10 @@ def test_activate_starts_missing_serve(client, monkeypatch, tmp_path):
 
     monkeypatch.setattr(sc, "_node_processes", lambda: [])
     monkeypatch.setattr(sc.subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(sc, "_cli_cmd", lambda args: ["C:\\node.exe", "mio.js"] + args)
+    monkeypatch.setattr(sc, "_cli_cmd", lambda args: ["C:\\node.exe", "mio.js", *args])
     r = client.post("/api/v1/mio/scheduler-activate")
     assert r.status_code == 200
-    body = r.json()
+    r.json()
     # 注意："observe" 含子串 "serve"，判定必须按 token 而非子串
     def has_tok(cmd, tok):
         return tok in cmd
@@ -139,7 +136,7 @@ def test_restart_stops_then_activates(client, monkeypatch):
 
     monkeypatch.setattr(sc, "_node_processes", fake_procs)
     monkeypatch.setattr(sc, "_kill", lambda pid: True)
-    monkeypatch.setattr(sc, "_cli_cmd", lambda args: ["C:\\node.exe", "mio.js"] + args)
+    monkeypatch.setattr(sc, "_cli_cmd", lambda args: ["C:\\node.exe", "mio.js", *args])
     monkeypatch.setattr(sc.subprocess, "Popen", lambda cmd, **k: _FakeProc())
     r = client.post("/api/v1/mio/scheduler-restart")
     assert r.status_code == 200

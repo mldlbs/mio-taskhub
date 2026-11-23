@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """独立结构校验（不 import 提取器/质量规则）。
 
 在素材库副本上检查规范级不变量：
@@ -18,9 +17,10 @@ import json
 import re
 import sqlite3
 from collections import Counter, defaultdict
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any
 
 ATOMIC_SOURCES = {"doc.review", "discussion.closed", "run.result",
                   "hn", "github-trending"}
@@ -33,10 +33,10 @@ BARE_COUNT = re.compile(
     r"(?:passed|failed|skipped|errors?)\s*[=:：]\s*\d+)\s*$", re.I)
 
 
-def _load_exclusions(paths: Iterable[Path]) -> Tuple[Set[str], Set[Tuple[str, str]]]:
+def _load_exclusions(paths: Iterable[Path]) -> tuple[set[str], set[tuple[str, str]]]:
     """按 material_id 或 (kind, quote) 排除历史样本（DB 副本 id 会变）。"""
-    ids: Set[str] = set()
-    pairs: Set[Tuple[str, str]] = set()
+    ids: set[str] = set()
+    pairs: set[tuple[str, str]] = set()
     for path in paths:
         if not path.exists():
             continue
@@ -53,7 +53,7 @@ def _load_exclusions(paths: Iterable[Path]) -> Tuple[Set[str], Set[Tuple[str, st
     return ids, pairs
 
 
-def _locator_slice(payload: Any, locator: Any) -> Tuple[Optional[str], str]:
+def _locator_slice(payload: Any, locator: Any) -> tuple[str | None, str]:
     """返回 (切片, 状态)；状态为 ok/missing/invalid。"""
     if not isinstance(payload, dict) or not isinstance(locator, dict):
         return None, "missing"
@@ -67,7 +67,7 @@ def _locator_slice(payload: Any, locator: Any) -> Tuple[Optional[str], str]:
     return text[start:end], "ok"
 
 
-def _defects(row: Dict[str, Any]) -> Dict[str, bool]:
+def _defects(row: dict[str, Any]) -> dict[str, bool]:
     q = str(row.get("quote") or "")
     src = str(row.get("source_key") or "")
     out = {
@@ -83,9 +83,8 @@ def _defects(row: Dict[str, Any]) -> Dict[str, bool]:
             len(q) > 240 or len(TERM.findall(q)) > 2
             or len(ITEM.findall(q)) >= 3):
         out["atomic"] = True
-    if row.get("kind") == "decision" and src in DECISION_SOURCES:
-        if len(q) < 10 or q.rstrip().endswith(("：", ":")):
-            out["decision_shape"] = True
+    if row.get("kind") == "decision" and src in DECISION_SOURCES and (len(q) < 10 or q.rstrip().endswith(("：", ":"))):
+        out["decision_shape"] = True
     if row.get("kind") == "result" and BARE_COUNT.match(q.strip()):
         out["bare_count"] = True
     if MARKER.match(q):
@@ -93,7 +92,7 @@ def _defects(row: Dict[str, Any]) -> Dict[str, bool]:
     return out
 
 
-def validate(db_path: Path, exclude: Iterable[Path] = (),
+def validate(db_path: Path, exclude: Iterable[Path] = (),  # noqa: C901
              examples: int = 5) -> dict:
     excluded_ids, excluded_pairs = _load_exclusions(exclude)
     conn = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
@@ -108,7 +107,7 @@ def validate(db_path: Path, exclude: Iterable[Path] = (),
     ).fetchall()
     conn.close()
 
-    records: List[Dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
     excluded_rows = 0
     for row in rows:
         item = dict(row)
@@ -144,7 +143,7 @@ def validate(db_path: Path, exclude: Iterable[Path] = (),
     quarantine = [r for r in records if r["status"] == "quarantine"]
     defect_counter = Counter()
     by_check = Counter()
-    examples_out: Dict[str, List[dict]] = defaultdict(list)
+    examples_out: dict[str, list[dict]] = defaultdict(list)
     for r in active:
         for name in r["_defects"]:
             by_check[name] += 1
@@ -155,7 +154,7 @@ def validate(db_path: Path, exclude: Iterable[Path] = (),
                 })
     defect_counter["active_with_any"] = sum(1 for r in active if r["_defects"])
 
-    fp_groups: Dict[str, List[str]] = defaultdict(list)
+    fp_groups: dict[str, list[str]] = defaultdict(list)
     for r in active:
         fp_groups[str(r["content_fingerprint"])].append(str(r["id"]))
     duplicates = {fp: ids for fp, ids in fp_groups.items() if len(ids) > 1}
@@ -165,7 +164,7 @@ def validate(db_path: Path, exclude: Iterable[Path] = (),
                         for r in quarantine)
     verbatim_unverifiable = sum(1 for r in records if r["_verbatim"] == "missing")
 
-    def _rate(n: int, d: int) -> Optional[float]:
+    def _rate(n: int, d: int) -> float | None:
         return round(n / d, 4) if d else None
 
     return {

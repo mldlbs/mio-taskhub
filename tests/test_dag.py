@@ -1,11 +1,11 @@
 # tests/test_dag.py
-from datetime import datetime, timezone
-from sqlmodel import Session, select
 from fastapi.testclient import TestClient
-from mio_taskhub.main import app
+from sqlmodel import Session
+
+from mio_taskhub import background
 from mio_taskhub.db import engine
-from mio_taskhub.models import Task, TaskStage, TaskState
-import mio_taskhub.background as background
+from mio_taskhub.main import app
+from mio_taskhub.models import Task, TaskStage
 
 client = TestClient(app)
 
@@ -73,7 +73,7 @@ def test_dangling_dep_not_released():
 
 def test_release_idempotent_no_duplicate_events():
     a = _mk("a", stage="done")
-    b = _mk("b", stage="planning", deps=[a["id"]])
+    _mk("b", stage="planning", deps=[a["id"]])
     _release()
     _release()  # 第二次 tick 不应再发事件
     r = client.get("/api/v1/events", params={"after_seq": 0}).json()

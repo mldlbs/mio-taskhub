@@ -83,6 +83,7 @@ function MetricCard({ label, value, tone }) {
   )
 }
 
+// eslint-disable-next-line complexity
 export default function ObservabilityView({ onOpenTask }) {
   const [summary, setSummary] = useState(null)
   const [alerts, setAlerts] = useState(null)

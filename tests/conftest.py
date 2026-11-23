@@ -1,5 +1,6 @@
 import os
 import tempfile
+
 import pytest
 
 # Isolate tests from the production DB: point at a throwaway sqlite file
@@ -26,9 +27,9 @@ os.environ.setdefault("MIO_INSIGHT_AUTOTASK_PRECHECK", "0")
 # 测试不启动素材采集后台线程（P3），避免读取真实 observer 文件污染临时库
 os.environ.setdefault("MIO_MATERIALS_AUTOSTART", "0")
 
-from sqlmodel import select  # noqa: E402
-from mio_taskhub.db import engine, init_db  # noqa: E402
-from mio_taskhub.models import SQLModel, Task, Run, Agent  # noqa: E402
+
+from mio_taskhub.db import engine, init_db
+from mio_taskhub.models import SQLModel
 
 # F-004：管理面凭据不与测试进程的生产 env 串味。需要「强隔离」语义的用例自己用
 # monkeypatch.setenv("MIO_TASKHUB_ADMIN_TOKEN", ...) 覆盖，monkeypatch 用完即还原。
@@ -44,7 +45,7 @@ os.environ.pop("MIO_TASKHUB_ADMIN_TOKEN", None)
 #   假装匿名，否则 403 断言会变成假绿。
 #
 # 需要验证「无管理员头」的用例一律用 `anon_client` fixture（或 _anon=True）。
-from fastapi.testclient import TestClient as _TestClient  # noqa: E402
+from fastapi.testclient import TestClient as _TestClient
 
 _ORIG_TESTCLIENT_INIT = _TestClient.__init__
 
@@ -64,7 +65,7 @@ _TestClient.__init__ = _admin_plane_init
 @pytest.fixture()
 def anon_client():
     """不带任何管理员头的匿名主体；用于验证 403 路径（F-004）。"""
-    from mio_taskhub.main import app  # noqa: F401
+    from mio_taskhub.main import app
     return _TestClient(app, _anon=True)
 
 

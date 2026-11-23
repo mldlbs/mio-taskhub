@@ -1,6 +1,6 @@
 """Task template CRUD + from-template task creation tests."""
-import pytest
 from fastapi.testclient import TestClient
+
 from mio_taskhub.main import app
 
 c = TestClient(app)
@@ -83,10 +83,11 @@ def test_create_template_from_task():
     assert r2.json()["title"] == "来自任务的模板"
 
 def test_seed_common_templates_idempotent():
-    from mio_taskhub.db import init_db
     from sqlmodel import Session, select
+
+    from mio_taskhub.db import init_db
     from mio_taskhub.models import TaskTemplate
-    from mio_taskhub.seed import seed_common_templates, COMMON_TEMPLATES
+    from mio_taskhub.seed import COMMON_TEMPLATES, seed_common_templates
     # 当前测试 DB 可能已因其他用例播种过，先清空模板表验证播种逻辑
     with Session(__import__("mio_taskhub.db", fromlist=["engine"]).engine) as s:
         for t in s.exec(select(TaskTemplate)).all():

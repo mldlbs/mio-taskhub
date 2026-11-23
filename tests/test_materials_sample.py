@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
 """P4 抽样：分层配额与可追溯标注模板。"""
-import json
 import sqlite3
 
 from scripts.materials_sample import allocate, build_sample

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """把 payload zip **合并进** `mio-taskhub-setup.exe` → 单文件安装包。
 
 **为什么合并**：真实世界的安装器（NSIS / Inno Setup）都是**单文件**
@@ -18,7 +17,7 @@
 from __future__ import annotations
 
 import argparse
-import os
+import contextlib
 import shutil
 import sys
 import zipfile
@@ -31,12 +30,10 @@ sys.path.insert(0, str(REPO))
 # 直接输出中文会抛 UnicodeEncodeError 并以 rc=1 退出——实测 2026-11-03 起
 # CI 一直红在这行。显式把标准流切到 UTF-8，坏字符降级成占位符即可。
 for _stream in (sys.stdout, sys.stderr):
-    try:
+    with contextlib.suppress(AttributeError, ValueError):
         _stream.reconfigure(encoding="utf-8", errors="replace")
-    except (AttributeError, ValueError):
-        pass
 
-from mio_taskhub.installer import embedded  # noqa: E402
+from mio_taskhub.installer import embedded
 
 
 def main(argv=None) -> int:

@@ -3,6 +3,7 @@ import json
 import logging
 import sys
 import threading
+import typing
 from collections import deque
 from contextvars import ContextVar
 
@@ -21,7 +22,7 @@ class LogBuffer:
         with self._lock:
             self._buf.append(entry)
 
-    def query(self, level: str = None, logger: str = None, limit: int = 100) -> list:
+    def query(self, level: str | None = None, logger: str | None = None, limit: int = 100) -> list:
         with self._lock:
             items = list(self._buf)
         if level:
@@ -87,7 +88,7 @@ class JSONFormatter(logging.Formatter):
 
 class HumanReadableFormatter(logging.Formatter):
     """Colored console output for development."""
-    COLORS = {
+    COLORS: typing.ClassVar[dict] = {
         "DEBUG": "\033[36m",    # cyan
         "INFO": "\033[32m",     # green
         "WARNING": "\033[33m",  # yellow

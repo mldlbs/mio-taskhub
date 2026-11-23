@@ -4,8 +4,8 @@ import json
 
 from fastapi.testclient import TestClient
 
-from mio_taskhub.main import app
 from mio_taskhub.api import idea_templates as it
+from mio_taskhub.main import app
 
 client = TestClient(app)
 

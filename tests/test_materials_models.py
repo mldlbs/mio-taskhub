@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """素材库 P1：表、种子、唯一约束。"""
 from datetime import datetime, timezone
 
@@ -9,7 +8,9 @@ from sqlmodel import Session, select
 
 from mio_taskhub.db import engine
 from mio_taskhub.materials.models import (
-    MaterialRaw, MaterialSource, MaterialSourceAudit,
+    MaterialRaw,
+    MaterialSource,
+    MaterialSourceAudit,
 )
 
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """hub supervisor/worker 双进程结构静态回归（task 516bd0c7，FR-1~FR-6）。
 
 spec 测试计划 7 用例：源码文本 + importlib 加载断言，不启动真进程。
@@ -365,7 +364,9 @@ def test_watchdog_successful_probe_resets_streak():
 def test_watchdog_ignores_probe_during_exit_and_after_worker_exit():
     mod = _load_run_hub()
     calls = []
-    probe = lambda _u: calls.append(1) or False  # noqa: E731
+    def probe(_u):
+        calls.append(1)
+        return False
 
     k32 = _FakeK32([mod.WAIT_TIMEOUT, mod.WAIT_OBJECT_0])
     mod._wait_for_worker(k32, _FakeController(expected=True), 1, "u",

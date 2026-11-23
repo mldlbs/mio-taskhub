@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
+
 from mio_taskhub.main import app
 
 client = TestClient(app)
@@ -47,9 +48,8 @@ def test_docs_not_protected(auth_on):
 
 
 def test_ws_requires_token(auth_on):
-    with pytest.raises(WebSocketDisconnect):
-        with client.websocket_connect("/ws") as ws:
-            ws.receive_json()
+    with pytest.raises(WebSocketDisconnect), client.websocket_connect("/ws") as ws:
+        ws.receive_json()
 
 
 def test_ws_accepts_query_token(auth_on):

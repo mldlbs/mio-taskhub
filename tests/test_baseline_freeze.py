@@ -1,15 +1,11 @@
-# -*- coding: utf-8 -*-
 """baseline_freeze 解析/组装/端到端的纯逻辑测试。"""
 import json
 import os
-import subprocess
 import sys
-
-import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
-import baseline_freeze as bf  # noqa: E402
+import baseline_freeze as bf
 
 
 def test_parse_pytest_summary():

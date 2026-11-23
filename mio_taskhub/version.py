@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """单一版本源 + 安装目录解析。
 
 `__version__` 是唯一权威版本号：打包时由 packaging/build.ps1 覆写，

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """机器噪声任务判定（共享模块，2026-11-04 E7 结论落地）。
 
 口径必须与三处保持一致（改规则时全部同改）：
@@ -11,8 +10,6 @@
 决策视图」都必须先用本口径过滤，否则真实决策信息会被稀释 9:1。
 """
 import re
-
-from mio_taskhub.models import Task
 
 NOISE_AGENT_TYPES = {"idea-reviewer"}
 NOISE_TITLE_RE = re.compile(r"想法评审|^\[insight\]|^\[变更\]|^\[溯因\]|^__verify_")
@@ -43,7 +40,6 @@ def filter_noise(tasks):
 
 def noise_stats(tasks):
     """[total, noise, biz] 三元组——E7 总览口径。"""
-    from collections import Counter
     total = noise = 0
     for t in tasks or []:
         total += 1

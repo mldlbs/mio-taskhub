@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """文档质量校验器（写阶段拦住空心文档）。
 
 三层手段中「写阶段能自动解决」的部分：
@@ -247,7 +246,7 @@ def _attach_hints(kind: str, issues):
     return [f'{msg}（修法：{_hint_for(kind, msg)}）' for msg in issues]
 
 
-def check_content(kind: str, content, ws_dir=None) -> dict:
+def check_content(kind: str, content, ws_dir=None) -> dict:  # noqa: C901, PLR0912
     """校验一份文档内容，返回 {score, errors, warns, todo_left}（均含修法提示）。
 
     content 为 None（文件缺失）时返回单条 error。
@@ -285,9 +284,8 @@ def check_content(kind: str, content, ws_dir=None) -> dict:
     # 2) 必需表格数据行
     for tbl, min_rows in spec.get('min_table_rows', {}).items():
         hit = next(((t, b) for t, b in sections if tbl in t), None)
-        if hit and '<!--' not in _section_body(hit[1]):
-            if _table_data_rows(hit[1]) < min_rows:
-                errors.append(f'章节「{hit[0]}」表格数据行不足（需 ≥{min_rows}）')
+        if hit and '<!--' not in _section_body(hit[1]) and _table_data_rows(hit[1]) < min_rows:
+            errors.append(f'章节「{hit[0]}」表格数据行不足（需 ≥{min_rows}）')
 
     # 2a) 建议章节缺失 → warn（不阻断，但计入评分）
     for rec in spec.get('recommended', []):

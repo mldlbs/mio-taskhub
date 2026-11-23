@@ -1,11 +1,9 @@
 # tests/test_update_runner.py
 import sys
 
-import pytest
-
-from mio_taskhub.update.manifest import manifest_from_dict
 from mio_taskhub.installer.paths import APP_EXE_NAME
 from mio_taskhub.update import runner
+from mio_taskhub.update.manifest import manifest_from_dict
 
 MANIFEST = {
     "schema": 1, "version": "0.4.0", "channel": "stable",

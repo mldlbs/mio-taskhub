@@ -1,14 +1,14 @@
-# -*- coding: utf-8 -*-
 """P2a 任务层级：迁移、父子关系、领取过滤与回归。
 
 范围严格限定 P2a：
 - 只验证 parent_id / role 与领取过滤；
 - 不测拆分校验、上下文包、集成门禁（P2b–P2d）。
 """
+import contextlib
 import os
+import sqlite3
 import tempfile
 import threading
-import sqlite3
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, text
@@ -21,7 +21,6 @@ from mio_taskhub.db import engine
 from mio_taskhub.main import app
 from mio_taskhub.migrations import run_migrations
 from mio_taskhub.models import Agent, AgentStatus, Run, Task, TaskState
-
 
 client = TestClient(app)
 
@@ -90,10 +89,8 @@ def test_migration_idempotent_and_backfills_legacy_leaf():
             idx = {r[1] for r in conn.execute(text("PRAGMA index_list('task')"))}
             assert "ix_task_parent_id" in idx
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.remove(path)
-        except OSError:
-            pass
 
 
 def test_legacy_null_role_still_claimable():

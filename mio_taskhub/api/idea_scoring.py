@@ -1,14 +1,15 @@
 from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Any
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, or_
 from sqlmodel import Session, select
-from mio_taskhub.db import get_session
-from mio_taskhub.models import (Idea, IdeaStatus, IdeaType, Task, IdeaHistory,
-                                Discussion, DiscussionMessage)
-from mio_taskhub.utils import _now
+
 from mio_taskhub.api.ideas import _idea_json, transition_idea_status
+from mio_taskhub.db import get_session
+from mio_taskhub.models import Discussion, DiscussionMessage, Idea, IdeaStatus, IdeaType, Task
+from mio_taskhub.utils import _now
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
 
@@ -16,15 +17,15 @@ router = APIRouter(prefix="/ideas", tags=["ideas"])
 # ==================== Pydantic Models ====================
 
 class IdeaSearchRequest(BaseModel):
-    query: Optional[str] = None
-    status: Optional[List[str]] = None
-    idea_type: Optional[str] = None
-    category: Optional[str] = None
-    project: Optional[str] = None
-    labels: Optional[List[str]] = None
-    date_from: Optional[str] = None
-    date_to: Optional[str] = None
-    min_score: Optional[float] = None
+    query: str | None = None
+    status: list[str] | None = None
+    idea_type: str | None = None
+    category: str | None = None
+    project: str | None = None
+    labels: list[str] | None = None
+    date_from: str | None = None
+    date_to: str | None = None
+    min_score: float | None = None
     sort_by: str = "updated_at"
     sort_order: str = "desc"
     page: int = 1
@@ -35,20 +36,20 @@ class IdeaScoreResponse(BaseModel):
     idea_id: str
     title: str
     score: float
-    factors: Dict[str, float]
+    factors: dict[str, float]
     recommendation: str
 
 
 class BulkActionRequest(BaseModel):
-    idea_ids: List[str]
+    idea_ids: list[str]
     action: str  # archive, advance_status, add_labels, remove_labels, set_project
-    payload: Dict[str, Any] = {}
+    payload: dict[str, Any] = {}
 
 
 # ==================== Search ====================
 
 @router.post("/search")
-def search_ideas(request: IdeaSearchRequest, db: Session = Depends(get_session)):
+def search_ideas(request: IdeaSearchRequest, db: Session = Depends(get_session)):  # noqa: C901
     """Full-text search for ideas with advanced filters."""
     q = select(Idea)
 
@@ -97,10 +98,7 @@ def search_ideas(request: IdeaSearchRequest, db: Session = Depends(get_session))
             pass
 
     sort_col = getattr(Idea, request.sort_by, Idea.updated_at)
-    if request.sort_order == "desc":
-        q = q.order_by(sort_col.desc())
-    else:
-        q = q.order_by(sort_col.asc())
+    q = q.order_by(sort_col.desc()) if request.sort_order == "desc" else q.order_by(sort_col.asc())
 
     page = max(1, request.page)
     page_size = min(max(1, request.page_size), 100)
@@ -120,7 +118,7 @@ def search_ideas(request: IdeaSearchRequest, db: Session = Depends(get_session))
 
 # ==================== Scoring ====================
 
-def _calculate_idea_score(idea: Idea, db: Session) -> Dict[str, Any]:
+def _calculate_idea_score(idea: Idea, db: Session) -> dict[str, Any]:  # noqa: C901, PLR0912
     """Calculate priority score for an idea (RICE-like)."""
     factors = {}
 
@@ -212,8 +210,8 @@ def get_idea_score(idea_id: str, db: Session = Depends(get_session)):
 
 @router.get("/scores")
 def get_all_scores(
-    status: Optional[str] = None,
-    idea_type: Optional[str] = None,
+    status: str | None = None,
+    idea_type: str | None = None,
     min_score: float = 0,
     db: Session = Depends(get_session)
 ):
@@ -244,7 +242,7 @@ def get_all_scores(
 # ==================== Bulk Operations ====================
 
 @router.post("/bulk")
-def bulk_action(request: BulkActionRequest, db: Session = Depends(get_session)):
+def bulk_action(request: BulkActionRequest, db: Session = Depends(get_session)):  # noqa: C901
     """Perform bulk actions on multiple ideas."""
     if not request.idea_ids:
         raise HTTPException(422, "idea_ids is required")
@@ -326,7 +324,7 @@ def get_ideas_summary(db: Session = Depends(get_session)):
         .where(Idea.project != "")
         .group_by(Idea.project)
     ).all()
-    by_project = {p: c for p, c in by_project}
+    by_project = dict(by_project)
 
     week_ago = datetime.now() - timedelta(days=7)
     recent = db.exec(
@@ -398,8 +396,8 @@ def get_related_ideas(idea_id: str, limit: int = 5, db: Session = Depends(get_se
 @router.get("/export")
 def export_ideas(
     format: str = "json",
-    status: Optional[str] = None,
-    idea_type: Optional[str] = None,
+    status: str | None = None,
+    idea_type: str | None = None,
     db: Session = Depends(get_session)
 ):
     """Export ideas as JSON or Markdown."""
@@ -420,11 +418,14 @@ def export_ideas(
     if format == "json":
         return {"ideas": [_idea_json(i) for i in ideas]}
 
-    elif format == "markdown":
+    if format == "markdown":
         lines = ["# Ideas Export", f"Generated: {datetime.now().isoformat()}", ""]
         for i in ideas:
             lines.append(f"## {i.title}")
-            lines.append(f"**ID:** {i.id}  \n**Status:** {i.status.value}  \n**Type:** {i.idea_type.value}  \n**Project:** {i.project or '—'}  \n**Labels:** {', '.join(i.labels) if i.labels else '—'}  \n**Updated:** {i.updated_at.isoformat()}")
+            lines.append(f"**ID:** {i.id}  \n**Status:** {i.status.value}  \n**Type:** {i.idea_type.value}"
+                         f"  \n**Project:** {i.project or '—'}"
+                         f"  \n**Labels:** {', '.join(i.labels) if i.labels else '—'}"
+                         f"  \n**Updated:** {i.updated_at.isoformat()}")
             lines.append("")
             lines.append(i.description or "_No description_")
             lines.append("")
@@ -432,8 +433,7 @@ def export_ideas(
             lines.append("")
         return {"content": "\n".join(lines), "format": "markdown"}
 
-    else:
-        raise HTTPException(400, "format must be 'json' or 'markdown'")
+    raise HTTPException(400, "format must be 'json' or 'markdown'")
 
 
 # ==================== Health Check ====================

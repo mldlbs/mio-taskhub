@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Decision 实体（任务 89a90af6）REST + inbox 集成。
 
 覆盖：
@@ -8,7 +7,7 @@
   - FR-03 inbox decide 队列纳入 open 决策 + summary 分解计数
   - 排序：decide 最老的在前
 """
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -172,6 +171,7 @@ def test_inbox_includes_open_decisions():
 def test_inbox_decide_oldest_first():
     now = datetime.now(timezone.utc)
     from sqlmodel import Session
+
     from mio_taskhub.db import engine
     with Session(engine) as s:
         for did, delta in (("d0old000", timedelta(days=30)), ("d0new000", timedelta(days=1))):

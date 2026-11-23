@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """T-MIRROR：镜像源不虚增佐证，分组调整不回溯旧 witness。"""
 from datetime import datetime, timezone
 
@@ -7,7 +6,10 @@ from sqlmodel import Session, select
 
 from mio_taskhub.db import engine
 from mio_taskhub.materials.models import (
-    Material, MaterialSource, MaterialSourceAudit, MaterialWitness,
+    Material,
+    MaterialSource,
+    MaterialSourceAudit,
+    MaterialWitness,
 )
 from mio_taskhub.materials.pipeline import RawRecord, ingest_records
 from mio_taskhub.materials.quality import Draft

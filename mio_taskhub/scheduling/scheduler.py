@@ -1,13 +1,14 @@
 from __future__ import annotations
+
 import threading
-import time
-from typing import Callable, List, Dict
+from collections.abc import Callable
+
 
 class Scheduler:
     def __init__(
         self,
         interval: float = 30.0,
-        get_due_tasks: Callable[[], List[Dict]] = lambda: [],
+        get_due_tasks: Callable[[], list[dict]] = lambda: [],
         on_enqueue: Callable[[str], None] = lambda tid: None,
     ):
         self.interval = interval

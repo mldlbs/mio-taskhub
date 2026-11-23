@@ -1,7 +1,11 @@
 # tests/test_db.py
-from mio_taskhub.db import get_session, init_db, engine
-from mio_taskhub.models import Task, Agent, TaskState, Idea, IdeaHistory, IdeaStatus, TaskKind, IdeaChange
+import contextlib
+
 from sqlmodel import select, text
+
+from mio_taskhub.db import engine, get_session, init_db
+from mio_taskhub.models import Agent, Idea, IdeaHistory, IdeaStatus, Task, TaskState
+
 
 def test_init_db_and_create_task():
     init_db()
@@ -34,6 +38,7 @@ def test_crud_agent():
 
 def test_create_all_creates_new_tables():
     from sqlalchemy import inspect
+
     from mio_taskhub.db import engine
     tables = set(inspect(engine).get_table_names())
     for name in ["subtask", "gitref", "historyevent", "discussion", "discussionmessage"]:
@@ -41,6 +46,7 @@ def test_create_all_creates_new_tables():
 
 def test_stage_column_added_to_existing_table():
     from sqlalchemy import inspect
+
     from mio_taskhub.db import engine
     with engine.connect() as conn:
         cols = {c["name"] for c in inspect(conn).get_columns("task")}
@@ -49,7 +55,9 @@ def test_stage_column_added_to_existing_table():
 def test_discussion_stage_column_migrated_on_old_table():
     import os
     import tempfile
+
     from sqlalchemy import create_engine, inspect, text
+
     from mio_taskhub.db import _migrate_stage_column
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
@@ -73,15 +81,15 @@ def test_discussion_stage_column_migrated_on_old_table():
             row = conn.execute(text("SELECT stage FROM discussion WHERE id='d1'")).fetchone()
             assert row[0] == "brainstorming"  # Discussion.stage is a plain str (lowercase)
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.remove(path)
-        except OSError:
-            pass
 
 def test_migrate_stage_column_on_old_table():
     import os
     import tempfile
+
     from sqlalchemy import create_engine, inspect, text
+
     from mio_taskhub.db import _migrate_stage_column
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
@@ -106,15 +114,15 @@ def test_migrate_stage_column_on_old_table():
             cols = {c["name"] for c in inspect(conn).get_columns("task")}
             assert {"stage", "spec_path", "plan_path", "review_result"} <= cols
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.remove(path)
-        except OSError:
-            pass
 
 def test_migrate_depends_on_and_idea_id():
     import os
     import tempfile
+
     from sqlalchemy import create_engine, inspect, text
+
     from mio_taskhub.db import _migrate_stage_column
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
@@ -141,15 +149,15 @@ def test_migrate_depends_on_and_idea_id():
             assert rows["t3"] == "[]"
             assert rows["t4"] == "[]"
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.remove(path)
-        except OSError:
-            pass
 
 def test_migrate_event_entity_columns():
     import os
     import tempfile
+
     from sqlalchemy import create_engine, inspect, text
+
     from mio_taskhub.db import _migrate_stage_column
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
@@ -169,16 +177,16 @@ def test_migrate_event_entity_columns():
             row = conn.execute(text("SELECT entity, entity_id FROM event WHERE run_id='r1'")).fetchone()
             assert row[0] == "run" and row[1] == "r1"
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.remove(path)
-        except OSError:
-            pass
 
 def test_migrate_change_tracking_unique_index():
     import os
     import tempfile
-    from sqlalchemy import create_engine, inspect, text
+
+    from sqlalchemy import create_engine, text
     from sqlalchemy.exc import IntegrityError
+
     from mio_taskhub.db import _migrate_stage_column
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
@@ -222,15 +230,15 @@ def test_migrate_change_tracking_unique_index():
             ))
             conn.commit()
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.remove(path)
-        except OSError:
-            pass
 
 def test_migrate_idea_version_and_task_kind_columns():
     import os
     import tempfile
+
     from sqlalchemy import create_engine, inspect, text
+
     from mio_taskhub.db import _migrate_stage_column
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
@@ -259,16 +267,16 @@ def test_migrate_idea_version_and_task_kind_columns():
             icols = {c["name"] for c in inspect(conn).get_columns("idea")}
             assert "version" in icols
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.remove(path)
-        except OSError:
-            pass
 
 
 def test_migrate_idea_last_reviewed_and_review_count():
     import os
     import tempfile
+
     from sqlalchemy import create_engine, inspect, text
+
     from mio_taskhub.db import _migrate_stage_column
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
@@ -293,17 +301,17 @@ def test_migrate_idea_last_reviewed_and_review_count():
             lr = conn.execute(text("SELECT last_reviewed_at FROM idea WHERE id='i1'")).fetchone()[0]
             assert lr is None
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.remove(path)
-        except OSError:
-            pass
 
 
 def test_migrate_ideahistory_actor_content_columns():
     """旧库 ideahistory 表补齐 actor/content 列。"""
     import os
     import tempfile
+
     from sqlalchemy import create_engine, inspect, text
+
     from mio_taskhub.db import _migrate_stage_column
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
@@ -326,10 +334,8 @@ def test_migrate_ideahistory_actor_content_columns():
             row = conn.execute(text("SELECT actor, content FROM ideahistory WHERE idea_id='i1'")).fetchone()
             assert row[0] == "" and row[1] == ""
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.remove(path)
-        except OSError:
-            pass
 
 
 def test_wal_mode_enabled():
@@ -394,8 +400,9 @@ def test_transition_idea_status_records_history():
 
 def test_transition_invalid_raises():
     """非法流转抛 422，状态不变，无历史记录。"""
-    from mio_taskhub.api.ideas import transition_idea_status
     from fastapi import HTTPException
+
+    from mio_taskhub.api.ideas import transition_idea_status
     init_db()
     s = next(get_session())
     try:

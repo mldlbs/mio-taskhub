@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """TH-01 历史决策闭环测试（FR-1 ~ FR-11）。
 
 覆盖：适配层降级与参数、claim 决策记录、submit 幂等投递、退避与重投、
@@ -7,14 +6,13 @@ runtime 一律用 monkeypatch 伪实现，不依赖本机 Mio 安装。
 """
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-from mio_taskhub import mio_runtime as mio
 from mio_taskhub import mio_bridge as bridge
+from mio_taskhub import mio_runtime as mio
 from mio_taskhub.db import engine
 from mio_taskhub.main import app
 from mio_taskhub.models import MioOutbox, RouteDecision, Run, Task, TaskStage, TaskState

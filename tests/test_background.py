@@ -1,10 +1,12 @@
-from datetime import datetime, timezone, timedelta
-from sqlmodel import Session
+from datetime import datetime, timedelta, timezone
+
 from fastapi.testclient import TestClient
-from mio_taskhub.main import app
+from sqlmodel import Session
+
+from mio_taskhub import background
 from mio_taskhub.db import engine
-from mio_taskhub.models import Task, Run, TaskState, RunState
-import mio_taskhub.background as background
+from mio_taskhub.main import app
+from mio_taskhub.models import Run, RunState, Task, TaskState
 
 client = TestClient(app)
 
@@ -74,7 +76,6 @@ def test_per_task_timeout_honored():
     with Session(engine) as s:
         t = Task(title="short-timeout", timeout_min=1)
         s.add(t); s.commit(); s.refresh(t)
-        task_id = t.id
     r = client.post("/api/v1/tasks/claim", params={"agent": "w-agent"})
     assert r.status_code == 200
     rid = r.json()["id"]

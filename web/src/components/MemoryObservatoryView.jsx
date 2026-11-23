@@ -35,6 +35,7 @@ function reuseTier(score) {
 
 const firstContent = (e) => (e.obs && (e.obs[1] || e.obs[0])) || ''
 
+// eslint-disable-next-line complexity, max-lines-per-function
 export default function MemoryObservatoryView() {
   const [data, setData] = useState(null)
   const [showLogs, setShowLogs] = useState(false)

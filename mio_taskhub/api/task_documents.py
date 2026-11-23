@@ -1,18 +1,20 @@
-import pathlib
-import os
-import re
+import contextlib
 import mimetypes
+import os
+import pathlib
+import re
 from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 
-from mio_taskhub.db import get_session
-from mio_taskhub.events import emit_event
-from mio_taskhub.models import Task
 from mio_taskhub import path_guard
 from mio_taskhub.admin_guard import require_admin
+from mio_taskhub.db import get_session
 from mio_taskhub.doc_paths import DOC_KINDS, doc_path_of, existing_doc_kinds, merge_doc_paths, sync_legacy_fields
+from mio_taskhub.events import emit_event
+from mio_taskhub.models import Task
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -54,7 +56,7 @@ def _known_workspace_roots(db) -> list:
         return _WS_ROOTS_CACHE["roots"]
     roots = []
     try:
-        rows = db.exec(select(Task.workspace).where(Task.workspace != None)).all()  # noqa: E711
+        rows = db.exec(select(Task.workspace).where(Task.workspace.is_not(None))).all()
         seen = set()
         for w in rows:
             w = (w or "").strip()
@@ -67,7 +69,7 @@ def _known_workspace_roots(db) -> list:
                 continue
             if path_guard.workspace_error(str(p)) is None:
                 roots.append(p)
-    except Exception:  # noqa: BLE001 — 兼容性增强，查询失败退回只用 env 白名单
+    except Exception:
         roots = []
     _WS_ROOTS_CACHE.update(at=now, roots=roots)
     return roots
@@ -431,7 +433,7 @@ MAX_WRITE_CHARS = 1_000_000
 
 
 @router.put('/{task_id}/doc')
-def write_task_doc(task_id: str, body: dict, kind: str = Query(...),
+def write_task_doc(task_id: str, body: dict, kind: str = Query(...),  # noqa: C901
                    db: Session = Depends(get_session)):
     """写入（或追加）任务文档内容，并登记到 doc_paths。
 
@@ -521,7 +523,7 @@ def write_task_doc(task_id: str, body: dict, kind: str = Query(...),
 
 
 @router.post('/{task_id}/docs/scaffold')
-def scaffold_doc_chain(task_id: str, body: dict = None, db: Session = Depends(get_session)):
+def scaffold_doc_chain(task_id: str, body: dict | None = None, db: Session = Depends(get_session)):
     """按「软件项目文档链（七件套）」一次性生成文档骨架。
 
     需求规格→架构设计→模块 Spec→状态模型→接口契约→测试验收→部署运维，
@@ -628,7 +630,7 @@ def _quality_for(t: Task, kind: str):
                          base)
 
 @router.post('/{task_id}/doc/{kind}/status', dependencies=[Depends(require_admin)])
-def set_doc_status(task_id: str, kind: str, body: dict, db: Session = Depends(get_session)):
+def set_doc_status(task_id: str, kind: str, body: dict, db: Session = Depends(get_session)):  # noqa: C901
     """推进文档生命周期状态（doc_lifecycle.py 状态机，严格向前，不允许回退）。
 
     body：`state`（必填）+ `note`（可选，如 ADR superseded 的替代编号）。
@@ -673,10 +675,8 @@ def set_doc_status(task_id: str, kind: str, body: dict, db: Session = Depends(ge
 
     def _restore_info():
         if _orig_text is not None and _orig_target is not None:
-            try:
+            with contextlib.suppress(OSError):
                 _orig_target.write_text(_orig_text, encoding='utf-8')
-            except OSError:
-                pass
 
     try:
         from mio_taskhub.doc_chain import update_info_section
@@ -735,7 +735,8 @@ def set_doc_status(task_id: str, kind: str, body: dict, db: Session = Depends(ge
                 'ratchet': _blocked,
                 'hint': '把质量分/用例数补回基线以上；若确为有意下调，用 force=true 并留痕'})
 
-    from datetime import datetime as _dt, timezone as _tz
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
     statuses[kind] = {'state': state, 'at': _dt.now(_tz.utc).isoformat(),
                       'note': (body or {}).get('note') or ''}
     t.doc_statuses = statuses
@@ -756,7 +757,7 @@ def get_ratchet(task_id: str, db: Session = Depends(get_session)):
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404, 'task not found')
-    from mio_taskhub.ratchet import list_baselines, enabled
+    from mio_taskhub.ratchet import enabled, list_baselines
     return {'task_id': task_id, 'enabled': enabled(),
             'baselines': list_baselines(db, task_id)}
 
@@ -811,8 +812,7 @@ def doc_quality_report(task_id: str, db: Session = Depends(get_session)):
 
     仅覆盖有质量规格的 kind（doc_quality.QUALITY_SPEC，即文档链 7 件套）。
     """
-    from mio_taskhub.doc_quality import (QUALITY_SPEC, check_content,
-                                         quality_of_file, traceability)
+    from mio_taskhub.doc_quality import QUALITY_SPEC, check_content, quality_of_file, traceability
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404, 'task not found')

@@ -65,6 +65,7 @@ const HIST_TEXT_KEYS = ['raw', 'content', 'text', 'message', 'summary', 'result'
 // payload 落库时是 JSON 字符串，常见形态：
 //   '{"raw": "…\\u9700…"}' / '"…中文…"' / 嵌套双层编码 / 纯文本
 // 逐层解包 + 解转义，还原成人能直接读的文字。
+// eslint-disable-next-line complexity
 function histPayload(p) {
   if (p == null) return { text: '', json: false }
   let v = p
@@ -175,7 +176,8 @@ function HistRow({ h }) {
   )
 }
 
-export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onToggleSubtask, onAdvance, onOpenDocs, onOpenTask, onRetry }) {
+// eslint-disable-next-line complexity, max-lines-per-function
+export default function TaskDetail({ task, tasks, onClose, onCancel, _onMove, onToggleSubtask, onAdvance, onOpenDocs, onOpenTask, onRetry }) {
   const closeRef = useRef(null)
   const [saveAsTpl, setSaveAsTpl] = useState(null)
   const [saveBusy, setSaveBusy] = useState(false)
@@ -490,6 +492,7 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
         {task.runs && task.runs.length > 0 && (
           <section className="drawer__sec">
             <h3>完成报告 · {task.runs.length} 次执行</h3>
+            {/* eslint-disable-next-line complexity */}
             {task.runs.map(r => {
               const ok = r.state === 'FINISHED' && (r.exit_code ?? 0) === 0
               // 窄门禁（d468e633 FR-5/6）：block 级 → 红框拦截卡；
@@ -658,6 +661,7 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
                           <span className="ready-group__hint">{layer.hint}</span>
                         </div>
                         <ul className="blocker-list">
+                          {/* eslint-disable-next-line complexity */}
                           {rows.map((b, i) => (
                             <li key={`${b.kind}-${i}`} id={`ready-item-${b.order}`} className={`blocker-row is-${b.severity}`}>
                               <div className="blocker-row__head">
@@ -688,6 +692,7 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
                               )}
                               {(b.members || []).length > 1 && (
                                 <ul className="blocker-row__members">
+                                  {/* eslint-disable-next-line complexity */}
                                   {b.members.map((m, mi) => {
                                     if (typeof m === 'string') return <li key={mi}>{m}</li>
                                     return (
@@ -998,7 +1003,7 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, onMove, onT
             <button
               className="btn btn--primary"
               // 重试后保持面板打开：任务已回队列，用户往往要继续看阶段/改字段（用户 2026-11-04）
-              onClick={async () => { try { await onRetry(task.id) } catch (e) { /* error handled by App */ } }}
+              onClick={async () => { try { await onRetry(task.id) } catch { /* error handled by App */ } }}
             >重试</button>
           )}
           {task.state === 'retrying' && retryCountdown !== null && (

@@ -1,8 +1,10 @@
-# -*- coding: utf-8 -*-
 """素材库 P1：等长脱敏与指纹。"""
 from mio_taskhub.materials.common import content_fingerprint
 from mio_taskhub.materials.sanitize import (
-    SANITIZER_CONFIG_HASH, mask_text, sanitize_payload, scan_text,
+    SANITIZER_CONFIG_HASH,
+    mask_text,
+    sanitize_payload,
+    scan_text,
 )
 
 

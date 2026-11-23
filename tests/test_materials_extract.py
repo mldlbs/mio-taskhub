@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P2：确定性提炼、黄金样本与 50 条分类基线。"""
 import json
 from pathlib import Path

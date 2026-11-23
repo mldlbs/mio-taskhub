@@ -1,10 +1,12 @@
 # mio_taskhub/planner.py
 from __future__ import annotations
-from datetime import time
-from dataclasses import dataclass, field
-from typing import List, Dict
+
 from collections import deque
+from dataclasses import dataclass, field
+from datetime import time
+
 from mio_taskhub.dependency import normalize_depends
+
 
 @dataclass
 class PlanItem:
@@ -18,7 +20,7 @@ class PlanItem:
 class NightPlan:
     window_start: str
     window_end: str
-    items: List[PlanItem] = field(default_factory=list)
+    items: list[PlanItem] = field(default_factory=list)
     has_overflow: bool = False
     max_parallel: int = 1
 
@@ -34,10 +36,10 @@ def _minutes_to_str(mins: int) -> str:
 def _deps_of(t: dict) -> list:
     return normalize_depends(t.get("depends_on"))
 
-def _topological_sort(tasks: List[dict]) -> List[dict]:
+def _topological_sort(tasks: list[dict]) -> list[dict]:
     task_map = {t["id"]: t for t in tasks}
     in_degree = {t["id"]: 0 for t in tasks}
-    children: Dict[str, List[str]] = {t["id"]: [] for t in tasks}
+    children: dict[str, list[str]] = {t["id"]: [] for t in tasks}
     for t in tasks:
         for d in _deps_of(t):
             if d in task_map:          # 缺失依赖忽略
@@ -56,20 +58,20 @@ def _topological_sort(tasks: List[dict]) -> List[dict]:
     return result
 
 
-def detect_cycle(deps: Dict[str, List[str]]) -> List[str]:
+def detect_cycle(deps: dict[str, list[str]]) -> list[str]:
     """返回一条环路径 [a, b, a]；无环返回 []。deps: {task_id: [dep_ids]}。"""
     WHITE, GRAY, BLACK = 0, 1, 2
-    color = {k: WHITE for k in deps}
-    stack: List[str] = []
+    color = dict.fromkeys(deps, WHITE)
+    stack: list[str] = []
 
-    def dfs(u: str) -> List[str]:
+    def dfs(u: str) -> list[str]:
         color[u] = GRAY
         stack.append(u)
         for v in deps.get(u, []):
             if v not in color:
                 continue
             if color[v] == GRAY:
-                return stack[stack.index(v):] + [v]
+                return [*stack[stack.index(v):], v]
             if color[v] == WHITE:
                 cyc = dfs(v)
                 if cyc:
@@ -86,7 +88,7 @@ def detect_cycle(deps: Dict[str, List[str]]) -> List[str]:
     return []
 
 def generate_night_plan(
-    tasks: List[dict],
+    tasks: list[dict],
     window_start: time = time(22, 0),
     window_end: time = time(7, 0),
     buffer_min: int = 5,
@@ -103,8 +105,8 @@ def generate_night_plan(
     window_min = end_mins - start_mins
 
     # 资源感知排期：同 agent 串行，不同 agent 可并行；依赖跨组需等待
-    resource_cursor: Dict[str, int] = {}   # agent -> 下一个可用时刻
-    end_time_of: Dict[str, int] = {}       # task_id -> 结束时刻（供依赖查询）
+    resource_cursor: dict[str, int] = {}   # agent -> 下一个可用时刻
+    end_time_of: dict[str, int] = {}       # task_id -> 结束时刻（供依赖查询）
 
     for t in sorted_tasks:
         agent = (t.get("target_agent_type") or "").strip() or "__default__"

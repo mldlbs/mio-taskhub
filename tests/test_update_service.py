@@ -1,10 +1,7 @@
-# -*- coding: utf-8 -*-
 import json
 
-import pytest
-
 from mio_taskhub.update.manifest import manifest_from_dict
-from mio_taskhub.update.service import UpdateState, UpdateService
+from mio_taskhub.update.service import UpdateService, UpdateState
 
 MANIFEST = {
     "schema": 1, "version": "0.4.0", "channel": "stable",

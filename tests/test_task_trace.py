@@ -22,6 +22,7 @@ def setup_db():
 
 def _seed(task_id, state, stage, *, running_minutes=60, completed=False, events=2):
     from sqlmodel import Session
+
     from mio_taskhub.db import engine as db_engine
     from mio_taskhub.models import Task, TaskEvent
     from mio_taskhub.utils import _now
@@ -53,7 +54,7 @@ def _seed(task_id, state, stage, *, running_minutes=60, completed=False, events=
 
 
 def test_get_task_trace_returns_spans_with_numeric_duration():
-    from mio_taskhub.models import Task, TaskStage, TaskState
+    from mio_taskhub.models import TaskStage, TaskState
     from mio_taskhub.observability.task_trace import get_task_trace
 
     _seed("trace-1", TaskState.RUNNING, TaskStage.IMPLEMENTING, completed=False, events=3)

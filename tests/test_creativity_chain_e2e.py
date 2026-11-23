@@ -1,5 +1,4 @@
 # tests/test_creativity_chain_e2e.py
-# -*- coding: utf-8 -*-
 """P0 端到端回归：真实生产链路（idea_templates → node 直调 mio.js → creativity-engine 配对器）。
 
 设计（2026-10-08，用户验收标准「不只测命令退出码」）：
@@ -23,7 +22,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mio_taskhub.main import app
-from mio_taskhub.api import idea_templates as it
 
 client = TestClient(app)
 
@@ -72,7 +70,7 @@ class _StubLLM:
                 body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
                 try:
                     payload = json.loads(body)
-                except Exception:  # noqa: BLE001
+                except Exception:
                     payload = {}
                 server.bodies.append(payload)
                 msg = (payload.get("messages") or [{}])[-1].get("content", "")

@@ -5,21 +5,20 @@ Periodically pushes metric snapshots and alert updates to connected WebSocket cl
 import asyncio
 import json
 import logging
-import time
 import threading
-from typing import Optional
+import time
 
 logger = logging.getLogger("mio_taskhub.observability.ws_push")
 
 _PUSH_INTERVAL = 5  # seconds
 _running = False
-_thread: Optional[threading.Thread] = None
+_thread: threading.Thread | None = None
 
 
 def _collect_metrics_snapshot() -> dict:
     """Collect a lightweight metrics snapshot for WS push."""
-    from mio_taskhub.observability.metrics import render_metrics
     from mio_taskhub.observability.alerts import get_alert_manager
+    from mio_taskhub.observability.metrics import render_metrics
 
     lines = render_metrics()
     snap = {"ts": time.time(), "metrics": {}, "alerts": []}
@@ -27,10 +26,7 @@ def _collect_metrics_snapshot() -> dict:
     for line in lines.split("\n"):
         if line.startswith("#") or not line.strip():
             continue
-        if "{" in line:
-            name = line.split("{")[0]
-        else:
-            name = line.split(" ")[0]
+        name = line.split("{")[0] if "{" in line else line.split(" ")[0]
         parts = line.rsplit(" ", 1)
         if len(parts) == 2:
             try:

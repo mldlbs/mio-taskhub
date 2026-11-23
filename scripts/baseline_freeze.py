@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """冻结 G0 基线 → g0_manifest.json（04 §5.3 / §6.1，一键复现）。
 
 汇总（DoD 字段）：
@@ -17,6 +16,7 @@
 退出码：pytest rc!=0 或 failed>0 → 1；git 不可用 → 1。
 """
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -122,10 +122,8 @@ def _run_pytest_once(repo: Path, pytest_args: str | None = None) -> dict:
             "tail": [ln for ln in combined.splitlines()[-15:] if ln.strip()],
         }
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(dbpath)
-        except OSError:
-            pass
 
 
 def run_pytest(repo: Path, pytest_args: str | None = None,

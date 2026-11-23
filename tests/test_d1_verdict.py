@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
 """T2.4 D1 首启成功率判定报告单测。"""
-import re
 from pathlib import Path
 
 import pytest

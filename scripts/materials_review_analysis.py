@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """独立人工复核分析：一致性、kappa、混淆矩阵、分歧清单。
 
 不修改原始复核表，不自动裁决。
@@ -9,10 +8,8 @@ import argparse
 import csv
 import hashlib
 import json
-import math
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 KINDS = {"signal", "fact", "result", "problem", "decision", "lesson"}
 
@@ -27,11 +24,11 @@ def _wilson(k: int, n: int, z: float = 1.96):
     return [round(max(0, centre - half), 4), round(min(1, centre + half), 4)]
 
 
-def _kappa(a: List[str], b: List[str]) -> Optional[float]:
+def _kappa(a: list[str], b: list[str]) -> float | None:
     n = len(a)
     if n == 0:
         return None
-    po = sum(1 for x, y in zip(a, b) if x == y) / n
+    po = sum(1 for x, y in zip(a, b, strict=False) if x == y) / n
     ca, cb = Counter(a), Counter(b)
     pe = sum((ca[k] / n) * (cb[k] / n) for k in set(ca) | set(cb))
     if pe >= 1:
@@ -39,12 +36,12 @@ def _kappa(a: List[str], b: List[str]) -> Optional[float]:
     return round((po - pe) / (1 - pe), 4)
 
 
-def _read_pack(path: Path) -> Dict[str, dict]:
+def _read_pack(path: Path) -> dict[str, dict]:
     rows = [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
     return {str(r["sample_id"]): r for r in rows}
 
 
-def _read_reviewer(path: Path) -> Dict[str, dict]:
+def _read_reviewer(path: Path) -> dict[str, dict]:
     out = {}
     with path.open("r", encoding="utf-8-sig", newline="") as fh:
         for row in csv.DictReader(fh, delimiter="\t"):
@@ -81,13 +78,13 @@ def _expected_quote(text: str) -> str:
     return text.replace("\t", " ").replace("\n", "\\n").strip()
 
 
-def _integrity(pack: Dict[str, dict], reviewers: Dict[str, Dict[str, dict]]) -> dict:
+def _integrity(pack: dict[str, dict], reviewers: dict[str, dict[str, dict]]) -> dict:
     """标注表完整性：行数、复核人标识、原文一致性、轮次与时间。"""
 
-    quote_mismatch: Dict[str, List[str]] = {}
-    ids_by_reviewer: Dict[str, List[str]] = {}
-    missing_id: Dict[str, List[str]] = {}
-    rounds: Dict[str, List[str]] = {}
+    quote_mismatch: dict[str, list[str]] = {}
+    ids_by_reviewer: dict[str, list[str]] = {}
+    missing_id: dict[str, list[str]] = {}
+    rounds: dict[str, list[str]] = {}
     for name, rows in reviewers.items():
         bad = [s for s, r in rows.items()
                if r["quote"].strip()
@@ -98,7 +95,7 @@ def _integrity(pack: Dict[str, dict], reviewers: Dict[str, Dict[str, dict]]) -> 
         missing_id[name] = sorted(s for s, r in rows.items() if not r["reviewer_id"])
         rounds[name] = sorted({r["round"] for r in rows.values() if r["round"]})
 
-    owners: Dict[str, set] = {}
+    owners: dict[str, set] = {}
     for name, ids in ids_by_reviewer.items():
         for rid in ids:
             owners.setdefault(rid, set()).add(name)
@@ -117,16 +114,16 @@ def _integrity(pack: Dict[str, dict], reviewers: Dict[str, Dict[str, dict]]) -> 
     }
 
 
-def _confusion(a: List[str], b: List[str]) -> Dict[str, Dict[str, int]]:
-    out: Dict[str, Dict[str, int]] = {}
-    for x, y in zip(a, b):
+def _confusion(a: list[str], b: list[str]) -> dict[str, dict[str, int]]:
+    out: dict[str, dict[str, int]] = {}
+    for x, y in zip(a, b, strict=False):
         out.setdefault(x, {}).setdefault(y, 0)
         out[x][y] += 1
     return out
 
 
-def analyze(kit: Path, reviewer_paths: List[Path],
-            system_labels: Optional[Path] = None) -> dict:
+def analyze(kit: Path, reviewer_paths: list[Path],
+            system_labels: Path | None = None) -> dict:
     pack = _read_pack(kit / "review-pack.jsonl")
     reviewers = {p.stem: _read_reviewer(p) for p in reviewer_paths}
     ids = set(pack)
@@ -149,14 +146,14 @@ def analyze(kit: Path, reviewer_paths: List[Path],
                 "reviewer_a": names[i],
                 "reviewer_b": names[j],
                 "kind_agreement": round(
-                    sum(1 for x, y in zip(ka, kb) if x == y) / len(ids), 4),
+                    sum(1 for x, y in zip(ka, kb, strict=False) if x == y) / len(ids), 4),
                 "kind_agreement_ci95": _wilson(
-                    sum(1 for x, y in zip(ka, kb) if x == y), len(ids)),
+                    sum(1 for x, y in zip(ka, kb, strict=False) if x == y), len(ids)),
                 "kind_kappa": _kappa(ka, kb),
                 "usable_agreement": round(
-                    sum(1 for x, y in zip(ua, ub) if x == y) / len(ids), 4),
+                    sum(1 for x, y in zip(ua, ub, strict=False) if x == y) / len(ids), 4),
                 "usable_agreement_ci95": _wilson(
-                    sum(1 for x, y in zip(ua, ub) if x == y), len(ids)),
+                    sum(1 for x, y in zip(ua, ub, strict=False) if x == y), len(ids)),
                 "usable_kappa": _kappa(ua, ub),
                 "kind_confusion": _confusion(ka, kb),
             })
@@ -192,11 +189,11 @@ def analyze(kit: Path, reviewer_paths: List[Path],
             vs_system[name] = {
                 "n": len(common),
                 "kind_agreement": round(
-                    sum(1 for x, y in zip(ka, ks) if x == y) / len(common), 4)
+                    sum(1 for x, y in zip(ka, ks, strict=False) if x == y) / len(common), 4)
                 if common else None,
                 "kind_kappa": _kappa(ka, ks),
                 "usable_agreement": round(
-                    sum(1 for x, y in zip(ua, us) if x == y) / len(common), 4)
+                    sum(1 for x, y in zip(ua, us, strict=False) if x == y) / len(common), 4)
                 if common else None,
                 "usable_kappa": _kappa(ua, us),
             }

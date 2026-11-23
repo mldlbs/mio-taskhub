@@ -1,8 +1,11 @@
 import json
+
 import pytest
 
 from mio_taskhub.update.source import (
-    GitHubReleaseSource, SourceError, release_asset_api_url,
+    GitHubReleaseSource,
+    SourceError,
+    release_asset_api_url,
 )
 
 MANIFEST = {
@@ -92,6 +95,7 @@ def test_fetch_manifest_propagates_error_when_both_fail():
 def test_direct_opener_disables_proxy(monkeypatch):
     """默认 opener 必须传入空 ProxyHandler（本机 WinINET/env 代理常是死的）。"""
     import urllib.request
+
     from mio_taskhub.update import source as s
     captured = {}
     real = urllib.request.build_opener
@@ -109,6 +113,7 @@ def test_direct_opener_disables_proxy(monkeypatch):
 
 def test_direct_opener_respects_use_proxy_env(monkeypatch):
     import urllib.request
+
     from mio_taskhub.update import source as s
     captured = {}
     real = urllib.request.build_opener

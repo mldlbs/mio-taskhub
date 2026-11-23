@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """claim 的 project 过滤测试（task 0fe91462）。
 
 此前 project query 参数被静默忽略（pick_candidate_task 从不按它过滤），
@@ -8,8 +7,8 @@ import uuid
 
 from sqlmodel import Session
 
-from mio_taskhub.db import engine
 from mio_taskhub.api.claim import claim_for, pick_candidate_task
+from mio_taskhub.db import engine
 from mio_taskhub.models import Task, TaskStage, TaskState
 
 

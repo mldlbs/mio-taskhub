@@ -1,7 +1,6 @@
 /**
  * WS 连接状态条：断线时显示重连提示 + lastSync 时间。
  */
-import { useEffect, useState } from 'react'
 
 export default function ConnectionBanner({ wsLive, lastSync, retryIn }) {
   if (wsLive) return null

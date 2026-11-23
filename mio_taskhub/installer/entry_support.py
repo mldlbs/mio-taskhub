@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """安装器 / 卸载器入口的共用支撑：stdio 重定向 + 用法输出。
 
 **为什么需要**：
@@ -12,6 +11,7 @@
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 from pathlib import Path
@@ -51,14 +51,9 @@ def log_path(name: str) -> Path:
     「日志文件被占用/损坏 → 所有输出静默消失」的情况。
     """
     override = os.environ.get("MIO_INSTALLER_LOG_DIR")
-    if override:
-        d = Path(override)
-    else:
-        d = Path.home() / ".mio_taskhub"
-    try:
+    d = Path(override) if override else Path.home() / ".mio_taskhub"
+    with contextlib.suppress(OSError):
         d.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        pass
     return d / name
 
 
@@ -71,7 +66,8 @@ def ensure_stdio(log_name: str = "installer.log"):
         return None
     path = log_path(log_name)
     try:
-        f = open(path, "a", encoding="utf-8", buffering=1)
+        # 句柄顶替 sys.stdout/stderr，进程级长持有 → SIM115 豁免
+        f = open(path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
     except OSError:
         return None
     if sys.stdout is None:
@@ -88,7 +84,7 @@ def emit(text: str, log_name: str = "installer.log") -> None:
             sys.stdout.write(text if text.endswith("\n") else text + "\n")
             sys.stdout.flush()
             return
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
     path = log_path(log_name)
     try:

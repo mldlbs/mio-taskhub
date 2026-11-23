@@ -1,16 +1,15 @@
 """自动初筛器：INBOX -> NEW（高分）或 INBOX -> ARCHIVED（低分老龄）。"""
-from datetime import datetime, timedelta
-from typing import Optional
+from datetime import datetime
+
 from sqlmodel import Session, select
 
 from mio_taskhub.models import Idea, IdeaStatus
 from mio_taskhub.scheduling.gate import CFG, idea_weight
-from mio_taskhub.db import engine
 
 
-def auto_triage(db: Session, now: Optional[datetime] = None) -> int:
+def auto_triage(db: Session, now: datetime | None = None) -> int:
     """每小时跑一次：INBOX -> NEW 或 INBOX -> ARCHIVED。
-    
+
     返回: 本次晋升到 NEW 的数量。
     """
     if now is None:
@@ -51,7 +50,7 @@ def auto_triage(db: Session, now: Optional[datetime] = None) -> int:
 
 def manual_triage(db: Session, idea_id: str, action: str, actor: str = "user") -> bool:
     """人工初筛：promote / archive / defer。
-    
+
     返回: 是否成功。
     """
     idea = db.get(Idea, idea_id)

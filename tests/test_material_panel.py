@@ -1,12 +1,11 @@
 # tests/test_material_panel.py
-# -*- coding: utf-8 -*-
 """素材面板（只读聚合端点）：分类口径、指标、可追溯字段。"""
 import json
 
 from fastapi.testclient import TestClient
 
-from mio_taskhub.main import app
 from mio_taskhub import mio_runtime as mio
+from mio_taskhub.main import app
 
 client = TestClient(app)
 

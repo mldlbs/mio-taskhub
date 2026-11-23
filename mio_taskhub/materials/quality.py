@@ -1,18 +1,29 @@
-# -*- coding: utf-8 -*-
 """硬闸与质量评分（spec §3.6）。规则指标，不做语义判断。"""
 from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass, field as dc_field
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from mio_taskhub.materials.constants import (
-    ACTIVE_THRESHOLD, AUTHORITY_BASE, EVIDENCE_SCORE, HALF_LIFE_DAYS,
-    KINDS, LLM_SOURCE_MARKERS, MAX_QUOTE_CHARS, MIN_QUOTE_CHARS,
-    QUARANTINE_FLOOR, QUALITY_MODEL_VERSION, TTL_DAYS,
-    W_AUTHORITY, W_DENSITY, W_EVIDENCE, W_FRESHNESS,
+    ACTIVE_THRESHOLD,
+    AUTHORITY_BASE,
+    EVIDENCE_SCORE,
+    HALF_LIFE_DAYS,
+    KINDS,
+    LLM_SOURCE_MARKERS,
+    MAX_QUOTE_CHARS,
+    MIN_QUOTE_CHARS,
+    QUALITY_MODEL_VERSION,
+    QUARANTINE_FLOOR,
+    TTL_DAYS,
+    W_AUTHORITY,
+    W_DENSITY,
+    W_EVIDENCE,
+    W_FRESHNESS,
 )
 
 _BOILERPLATE = (
@@ -43,15 +54,15 @@ class Draft:
     kind: str
     quote: str
     field: str = "content"
-    char_start: Optional[int] = None
-    char_end: Optional[int] = None
-    title: Optional[str] = None
-    url: Optional[str] = None
-    scope_key: Optional[str] = None
+    char_start: int | None = None
+    char_end: int | None = None
+    title: str | None = None
+    url: str | None = None
+    scope_key: str | None = None
     occurrence_count: int = 1
     evidence_tier: str = "C"
-    source_ref: Optional[dict] = None
-    line: Optional[int] = None
+    source_ref: dict | None = None
+    line: int | None = None
 
 
 @dataclass
@@ -62,7 +73,7 @@ class GateResult:
     char_start: int = 0
     char_end: int = 0
     fragment: str = ""
-    locator: Dict[str, Any] = dc_field(default_factory=dict)
+    locator: dict[str, Any] = dc_field(default_factory=dict)
 
 
 def _utc(dt: datetime) -> datetime:
@@ -72,7 +83,7 @@ def _utc(dt: datetime) -> datetime:
 
 
 def build_locator(raw_revision: int, field: str, start: int, end: int,
-                  line: Optional[int], sanitizer_version: int) -> Dict[str, Any]:
+                  line: int | None, sanitizer_version: int) -> dict[str, Any]:
     return {
         "v": 1,
         "type": "json",
@@ -85,7 +96,7 @@ def build_locator(raw_revision: int, field: str, start: int, end: int,
     }
 
 
-def evaluate_draft(draft: Draft, payload: Dict[str, Any], source_key: str,
+def evaluate_draft(draft: Draft, payload: dict[str, Any], source_key: str,  # noqa: C901
                    scope_key: str, raw_revision: int,
                    sanitizer_version: int) -> GateResult:
     """HG-1~HG-7（HG-8 在 witness 写入时校验）。"""
@@ -95,10 +106,9 @@ def evaluate_draft(draft: Draft, payload: Dict[str, Any], source_key: str,
     n = len(draft.quote or "")
     if n < MIN_QUOTE_CHARS or n > MAX_QUOTE_CHARS:
         return GateResult(False, "HG-5:length")
-    if source_key in _ATOMIC_SOURCES:
-        if n > 240 or len(_TERM_RE.findall(draft.quote)) > 2 \
-                or len(_ITEM_RE.findall(draft.quote)) >= 3:
-            return GateResult(False, "HG-9:not_atomic")
+    if source_key in _ATOMIC_SOURCES and (n > 240 or len(_TERM_RE.findall(draft.quote)) > 2 \
+                or len(_ITEM_RE.findall(draft.quote)) >= 3):
+        return GateResult(False, "HG-9:not_atomic")
     if source_key in _DECISION_SOURCES:
         q = (draft.quote or "").strip()
         if n < 10 or q.endswith(("：", ":")) or not _CLAIM_RE.search(q):
@@ -161,7 +171,7 @@ def density_score(quote: str) -> float:
 
 def score_material(kind: str, origin: str, evidence_tier: str, quote: str,
                    last_seen_at: datetime, corroboration: int,
-                   now: Optional[datetime] = None) -> Tuple[float, Dict[str, Any]]:
+                   now: datetime | None = None) -> tuple[float, dict[str, Any]]:
     now = _utc(now or datetime.now(timezone.utc))
     last_seen = _utc(last_seen_at)
     age_days = max(0.0, (now - last_seen).total_seconds() / 86400.0)
@@ -192,7 +202,7 @@ def score_material(kind: str, origin: str, evidence_tier: str, quote: str,
     return round(quality, 4), detail
 
 
-def initial_status(quality: float, source_mode: str) -> Tuple[str, Optional[str]]:
+def initial_status(quality: float, source_mode: str) -> tuple[str, str | None]:
     if source_mode == "trial":
         return "quarantine", "trial"
     if quality >= ACTIVE_THRESHOLD:
@@ -202,7 +212,7 @@ def initial_status(quality: float, source_mode: str) -> Tuple[str, Optional[str]
     return "quarantine", "below_threshold"
 
 
-def expires_at(kind: str, last_seen_at: datetime) -> Optional[datetime]:
+def expires_at(kind: str, last_seen_at: datetime) -> datetime | None:
     days = TTL_DAYS.get(kind)
     if days is None:
         return None

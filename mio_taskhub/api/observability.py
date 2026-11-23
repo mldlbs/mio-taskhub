@@ -1,10 +1,11 @@
 """Observability API: alerts, SLO history, task tracing, custom rules."""
 import json
 import time
+
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from typing import Optional
 from sqlmodel import Session, text
+
 from mio_taskhub.db import engine
 from mio_taskhub.policy_guard import guard_action
 
@@ -69,8 +70,8 @@ class AlertRuleCreate(BaseModel):
     threshold: float
     severity: str = "warning"
     cooldown_seconds: int = 300
-    notify_channels: Optional[list] = None
-    notify_config: Optional[dict] = None
+    notify_channels: list | None = None
+    notify_config: dict | None = None
 
 
 @router.get("/alert-rules")

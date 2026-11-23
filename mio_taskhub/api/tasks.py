@@ -1,29 +1,43 @@
-import uuid
 import json
 import os
 import secrets
-from datetime import datetime, timezone
-from mio_taskhub.api.claim import claim_for, should_fallback
+import uuid
+from datetime import timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
 
+from mio_taskhub import path_guard
+from mio_taskhub.api.claim import claim_for
+from mio_taskhub.api.task_helpers import check_cycle, parse_dt, validate_depends
 from mio_taskhub.db import get_session
+from mio_taskhub.dependency import normalize_depends, task_deps
+from mio_taskhub.doc_paths import merge_doc_paths
+from mio_taskhub.events import emit_event
+from mio_taskhub.hierarchy import (
+    ROLE_CHILD,
+    ROLE_LEAF,
+    ROLE_MAIN,
+    hierarchy_enabled,
+    normalize_role,
+    validate_child_parent,
+    validate_enabled,
+)
 from mio_taskhub.models import (
-    Task, TaskState, TaskStage, Run, RunState, Subtask, SubtaskStatus, GitRef, RefType, HistoryEvent,
-    Discussion, DiscussionMessage, Agent,
+    Agent,
+    Discussion,
+    DiscussionMessage,
+    GitRef,
+    HistoryEvent,
+    Run,
+    RunState,
+    Subtask,
+    Task,
+    TaskStage,
+    TaskState,
 )
 from mio_taskhub.utils import _now
-from mio_taskhub import path_guard
-from mio_taskhub.doc_paths import DOC_KINDS, doc_path_of, merge_doc_paths, sync_legacy_fields
-from mio_taskhub.dependency import normalize_depends, task_deps
-from mio_taskhub.events import emit_event
-from mio_taskhub.api.task_helpers import parse_dt, parse_enum, check_cycle, validate_depends
-from mio_taskhub.planner import detect_cycle
-from mio_taskhub.hierarchy import (
-    ROLE_CHILD, ROLE_LEAF, ROLE_MAIN, hierarchy_enabled, normalize_role,
-    validate_child_parent, validate_enabled,
-)
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -104,7 +118,7 @@ def _guard_gate_fields(request: Request, body: dict) -> None:
 
 
 @router.post("", response_model=dict)
-def create_task(body: dict, request: Request, db: Session = Depends(get_session)):
+def create_task(body: dict, request: Request, db: Session = Depends(get_session)):  # noqa: C901, PLR0912
     # POST 只拦「门控豁免置真」；ADMIN_TASK_FIELDS 不拦，agent 要能带初始 workspace
     # 建单（路径合法性由 path_guard.workspace_error 兜底）。F-004 只收紧 PATCH。
     _guard_gate_fields(request, body)
@@ -242,7 +256,7 @@ def create_task(body: dict, request: Request, db: Session = Depends(get_session)
     if parent is not None:
         parent.role = ROLE_MAIN
         db.add(parent)
-    event = emit_event(db, type="task_created", entity="task", entity_id=t.id,
+    emit_event(db, type="task_created", entity="task", entity_id=t.id,
                        payload={"title": t.title, "stage": t.stage.value,
                                 "parent_id": parent_id, "role": role})
     db.commit()
@@ -282,7 +296,7 @@ _TASK_LIST_COLUMNS = (
 
 
 @router.get("", response_model=list)
-def list_tasks(state: str = None, agent_type: str = None, stage: str = None,
+def list_tasks(state: str | None = None, agent_type: str | None = None, stage: str | None = None,
                cancelled: bool = False, db: Session = Depends(get_session)):
     # 列投影：只取响应用得到的列（见 _TASK_LIST_COLUMNS 注释）。
     # 过滤条件仍用 ORM 表达式拼装，语义与改动前完全一致。
@@ -316,7 +330,7 @@ def list_tasks(state: str = None, agent_type: str = None, stage: str = None,
             })
         q = q.where(Task.stage == _stage)
     if agent_type:
-        q = q.where((Task.target_agent_type == agent_type) | (Task.target_agent_type == None))
+        q = q.where((Task.target_agent_type == agent_type) | (Task.target_agent_type.is_(None)))
     rows = db.exec(q).all()
     return [
         {"id": r.id, "title": r.title, "state": r.state.value, "stage": r.stage.value,
@@ -476,7 +490,7 @@ def _task_detail(t: Task, db: Session) -> dict:
     }
 
 @router.get("/status", response_model=dict)
-def tasks_status_alias(agent: str = None, db: Session = Depends(get_session)):
+def tasks_status_alias(agent: str | None = None, db: Session = Depends(get_session)):
     from mio_taskhub.api.board import board_summary as _bs
     return _bs(agent=agent, db=db)
 
@@ -498,7 +512,7 @@ def list_children(task_id: str, db: Session = Depends(get_session)):
 
 
 @router.patch("/{task_id}")
-def update_task(task_id: str, body: dict, request: Request,
+def update_task(task_id: str, body: dict, request: Request,  # noqa: C901, PLR0912
                 db: Session = Depends(get_session)):
     t = db.get(Task, task_id)
     if not t:
@@ -572,7 +586,7 @@ def update_task(task_id: str, body: dict, request: Request,
                 # 显式传入即以其为准（含清空），不走 doc_path_of 的旧列回退
                 setattr(t, legacy_key, merged.get(kind, ""))
     db.add(t)
-    event = emit_event(db, type="task_updated", entity="task", entity_id=t.id)
+    emit_event(db, type="task_updated", entity="task", entity_id=t.id)
     db.commit()
     db.refresh(t)
     return _task_detail(t, db)
@@ -592,7 +606,7 @@ def add_discussion(task_id: str, body: dict, db: Session = Depends(get_session))
     for m in body.get("messages", []):
         db.add(DiscussionMessage(discussion_id=d.id, author=m.get("author", ""),
                                  role=m.get("role", "user"), content=m.get("content", "")))
-    event = emit_event(db, type="discussion_created", entity="discussion", entity_id=d.id,
+    emit_event(db, type="discussion_created", entity="discussion", entity_id=d.id,
                        payload={"task_id": task_id})
     db.commit()
     return {"id": d.id, "task_id": d.task_id, "topic": d.topic, "agent": d.agent,
@@ -628,7 +642,7 @@ def list_discussions(task_id: str, db: Session = Depends(get_session)):
     return {"task_id": task_id, "discussions": out}
 
 @router.post("/claim")
-def claim_task(agent: str = Query(...), agent_type: str = Query(None),
+def claim_task(agent: str = Query(...), agent_type: str = Query(None),  # noqa: C901, PLR0911, PLR0912
                task_id: str = Query(None), project: str = Query(None), workspace: str = Query(None),
                files: str = Query(None), project_scope: str = Query(None),
                run_token: str = Query(None),
@@ -654,7 +668,7 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
         # - 带 run_token：比对 sha256，匹配则回显（续领确认），不匹配 403；
         # - 不带：默认放行（兼容旧调用方，响应不含 run_token）；
         #   MIO_TASKHUB_RUN_TOKEN_REQUIRED=1 时强制 403（对无 hash 的旧 run 放行）。
-        from mio_taskhub.api.runs import run_token_hash, _run_token_required
+        from mio_taskhub.api.runs import _run_token_required, run_token_hash
         token_hash = getattr(existing, "token_hash", None)
         if token_hash:
             if run_token:
@@ -681,8 +695,7 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
             resp.update(build_claim_context(t_existing))
         # TH-01（FR-3）：幂等领取复用已有决策记录，不重复调用 route。
         try:
-            from mio_taskhub.mio_bridge import (get_route_decision,
-                                                route_decision_view)
+            from mio_taskhub.mio_bridge import get_route_decision, route_decision_view
             row = get_route_decision(db, existing.id)
             view = route_decision_view(row)
             resp["route"] = None if view is None else {
@@ -693,7 +706,7 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
                 "degraded_reason": view["degraded_reason"],
                 "suggestion": None,
             }
-        except Exception:  # noqa: BLE001 — 决策记录缺失不影响幂等领取
+        except Exception:
             resp["route"] = None
         return resp
     if not agent_type:
@@ -757,7 +770,7 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
                 from mio_taskhub.completion_gate import build_readiness
                 rd = build_readiness(db, t)
                 missing = rd.get("missing")
-            except Exception:  # noqa: BLE001 — 诊断失败不影响拒绝语义
+            except Exception:
                 missing = None
             return JSONResponse(status_code=409, content={"detail": {
                 "code": "claim.not_ready",
@@ -776,7 +789,7 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
         task.workspace = workspace
     if files and not task.files:
         task.files = [f.strip() for f in files.split(",") if f.strip()]
-    event = emit_event(db, type="task_claimed", entity="task", entity_id=task.id,
+    emit_event(db, type="task_claimed", entity="task", entity_id=task.id,
                        run_id=run.id, payload={"agent": agent, "attempt": task.attempt})
     db.add(task)
     db.commit()
@@ -792,7 +805,7 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),
     try:
         from mio_taskhub.mio_bridge import record_route_decision
         resp["route"] = record_route_decision(db, task, run)
-    except Exception:  # noqa: BLE001
+    except Exception:
         resp["route"] = None
     return resp
 

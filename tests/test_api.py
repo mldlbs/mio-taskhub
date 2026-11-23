@@ -1,7 +1,6 @@
 from fastapi.testclient import TestClient
+
 from mio_taskhub.main import app
-from mio_taskhub.db import init_db
-from mio_taskhub.models import Task, Agent, Run, TaskState
 
 client = TestClient(app)
 
@@ -165,7 +164,7 @@ def test_discussion_add_and_close():
         "messages": [{"author": "opencode", "role": "assistant", "content": "建议方案B"}],
     })
     assert r.status_code == 200
-    did = r.json()["id"]
+    r.json()["id"]
     assert r.json()["status"] == "closed"
     assert r.json()["conclusions"] == "用方案B"
 

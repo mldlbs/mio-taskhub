@@ -14,7 +14,8 @@ stage gates, the MCP tools (``taskhub_read_spec`` / ``taskhub_read_plan``) and t
 Web UI keep working unchanged.
 """
 
-from typing import Any, Dict, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 # Keep in sync with:
 #   - api/task_documents.discover_task_docs DOC_PATTERNS
@@ -59,14 +60,14 @@ def _clean(value: Any) -> str:
     return str(value).strip()
 
 
-def normalize_doc_paths(value: Any) -> Dict[str, str]:
+def normalize_doc_paths(value: Any) -> dict[str, str]:
     """Accept a dict (or None) and return a clean ``{kind: path}`` mapping.
 
     Unknown kinds and empty paths are dropped.
     """
     if not isinstance(value, dict):
         return {}
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     for kind, path in value.items():
         if kind not in DOC_KINDS:
             continue
@@ -76,7 +77,7 @@ def normalize_doc_paths(value: Any) -> Dict[str, str]:
     return out
 
 
-def merge_doc_paths(current: Any, incoming: Any) -> Dict[str, str]:
+def merge_doc_paths(current: Any, incoming: Any) -> dict[str, str]:
     """Merge ``incoming`` into ``current``.
 
     Explicitly passing an empty/None value for a known kind **removes** it —

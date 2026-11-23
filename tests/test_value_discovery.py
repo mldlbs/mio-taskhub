@@ -1,12 +1,11 @@
 # tests/test_value_discovery.py
-# -*- coding: utf-8 -*-
 """价值发现实验端点：素材装载/清洗、LLM 失败显式暴露、允许 0 机会、存档与统计。"""
 import json
 
 from fastapi.testclient import TestClient
 
-from mio_taskhub.main import app
 from mio_taskhub import mio_runtime as mio
+from mio_taskhub.main import app
 
 client = TestClient(app)
 

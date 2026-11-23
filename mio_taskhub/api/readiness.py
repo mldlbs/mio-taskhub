@@ -23,14 +23,21 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
-from mio_taskhub.api.blockers import (_DOC_STATE_CN, _NATURE, _ORDER as _FLOW_ORDER,
-                                      _RULE_REFS, _STAGE_CN, _cn, _v, collect_blockers,
-                                      split_evidence)
+from mio_taskhub.api.blockers import (
+    _DOC_STATE_CN,
+    _NATURE,
+    _RULE_REFS,
+    _STAGE_CN,
+    _cn,
+    _v,
+    collect_blockers,
+    split_evidence,
+)
+from mio_taskhub.api.blockers import _ORDER as _FLOW_ORDER
 from mio_taskhub.db import get_session
 from mio_taskhub.models import Subtask, Task, TaskState
 
@@ -145,7 +152,7 @@ def _doc_exists(t: Task, kind: str | None) -> bool:
         from mio_taskhub.read_evidence import resolve_doc_path
         p = resolve_doc_path(t, str(kind))
         return bool(p is not None and p.is_file())
-    except Exception:  # noqa: BLE001 — 判断不了当不存在，交给上层保守报缺
+    except Exception:
         return False
 
 
@@ -168,7 +175,7 @@ def _doc_gap_items(t: Task, tier: str) -> list[dict]:
             if p is None or not p.is_file():
                 continue
             q = quality_of_file(kind, p, ws_dir=str(t.workspace or "") or None)
-        except Exception:  # noqa: BLE001 — 单个文档检查失败不影响其它项
+        except Exception:
             continue
         if not isinstance(q, dict):
             # quality_of_file 对不认识的 kind / 读不动的文件会返回 None
@@ -196,7 +203,7 @@ def _doc_gap_items(t: Task, tier: str) -> list[dict]:
     return out
 
 
-def _input_items(db: Session, t: Task) -> list[dict]:
+def _input_items(db: Session, t: Task) -> list[dict]:  # noqa: C901
     """执行输入缺口：数据 / 参数 / 规则 / 上下文 / 产物契约。"""
     items: list[dict] = []
     stage = _v(t.stage)
@@ -257,7 +264,7 @@ def _input_items(db: Session, t: Task) -> list[dict]:
         try:
             from mio_taskhub.completion_gate import build_readiness
             ready = build_readiness(db, t)
-        except Exception:  # noqa: BLE001 — 就绪度不能因为单项检查失败整体 500
+        except Exception:
             ready = {"ready": True, "missing": []}
         for m in ready.get("missing") or []:
             kind_cn = {"requirement": "需求", "spec": "技术方案", "api": "接口契约",
@@ -476,7 +483,7 @@ def _aggregate_doc_gate(items: list[dict]) -> list[dict]:
     return out
 
 
-def _inputs_updated_at(db: Session, t: Task) -> Optional[str]:
+def _inputs_updated_at(db: Session, t: Task) -> str | None:
     """这份就绪度的输入里，最新的一次改动时间。
 
     取三者的最大值：任务行 updated_at、子任务 updated_at、已登记文档文件的 mtime。
@@ -494,7 +501,7 @@ def _inputs_updated_at(db: Session, t: Task) -> Optional[str]:
             p = resolve_doc_path(t, kind)
             if p is not None and p.is_file():
                 stamps.append(datetime.fromtimestamp(p.stat().st_mtime))
-    except Exception:  # noqa: BLE001 — 取时间失败不影响结论
+    except Exception:
         pass
     return max(stamps).isoformat(timespec="seconds") if stamps else None
 

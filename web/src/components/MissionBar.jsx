@@ -11,6 +11,7 @@ function useClock() {
   return now
 }
 
+// eslint-disable-next-line complexity
 export default function MissionBar({ tasks, ws, lastSync, refreshing, onRefresh, onOpenModal,
                                      filter, onFilterChange, projectOptions, workspaceOptions,
                                      showCancelled, cancelledCount, onToggleCancelled,

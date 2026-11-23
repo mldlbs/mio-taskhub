@@ -1,7 +1,9 @@
 # tests/test_heartbeat.py
 import time as _time
+
 from mio_taskhub.heartbeat import HeartbeatSweep, RunInfo
 from mio_taskhub.models import RunState
+
 
 def test_sweep_marks_timeout_runs():
     swept = []
@@ -33,7 +35,7 @@ def test_on_alive_called_within_timeout():
                     attempt=1, max_retries=3),
         ],
         on_timeout=lambda rid, tid: None,
-        on_alive=lambda rid: alive.append(rid),
+        on_alive=alive.append,
     )
     sweep.start()
     _time.sleep(0.3)
@@ -53,7 +55,7 @@ def test_terminal_state_skipped():
                     attempt=1, max_retries=3),
         ],
         on_timeout=lambda rid, tid: swept.append((rid, tid)),
-        on_alive=lambda rid: alive.append(rid),
+        on_alive=alive.append,
     )
     sweep.start()
     _time.sleep(0.3)

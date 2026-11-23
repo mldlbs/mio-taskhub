@@ -4,16 +4,18 @@ import os
 import secrets
 import threading
 from datetime import timedelta
-from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlmodel import Session, select
 from sqlalchemy import update as sa_update
+from sqlmodel import Session, select
+
 from mio_taskhub.db import get_session
-from mio_taskhub.models import Run, RunState, Task, TaskEvent, TaskState, TaskStage, Agent, AgentStatus
-from mio_taskhub.utils import _now
 from mio_taskhub.events import emit_event
-from mio_taskhub.workflow.transitions import apply_transition, _orm_to_status_stage
-from mio_taskhub.workflow.state_machine import State, Stage, ActorType, IllegalTransition as M1Illegal
+from mio_taskhub.models import Agent, AgentStatus, Run, RunState, Task, TaskEvent, TaskState
+from mio_taskhub.utils import _now
+from mio_taskhub.workflow.state_machine import ActorType, Stage, State
+from mio_taskhub.workflow.state_machine import IllegalTransition as M1Illegal
+from mio_taskhub.workflow.transitions import _orm_to_status_stage, apply_transition
 
 logger = logging.getLogger("runs")
 
@@ -87,7 +89,7 @@ def verify_run_token(run: Run, request: Request) -> None:
 # 关闭（claim 下发、X-Run-Token 比对，见下方 verify_run_token）；agent 名字
 # 校验保留为第一道，token 为第二道。
 
-def assert_run_owner(run: Run, agent: Optional[str]) -> None:
+def assert_run_owner(run: Run, agent: str | None) -> None:
     """校验调用方是该 run 的持有者。agent 为空则跳过（兼容旧调用方）。"""
     if not agent:
         return
@@ -197,7 +199,7 @@ def _retry_at_for(task) -> timedelta:
 def _safe_transition(task, to_state, to_stage, actor_type, actor_id, reason="", metadata=None):
     """走 M1 状态机；非法时返回 (None, None) 不抛（保持旧行为兼容）。"""
     try:
-        from_stage = _orm_to_status_stage(task.stage)
+        _orm_to_status_stage(task.stage)
         _, ev = apply_transition(
             task, to_state, to_stage,
             actor_type, actor_id, reason=reason, metadata=metadata,
@@ -234,7 +236,7 @@ def _is_system_timeout_failure(db, task) -> bool:
 
 
 @router.post("/{run_id}/heartbeat")
-def heartbeat(run_id: str, body: dict = None, agent: str = None,
+def heartbeat(run_id: str, body: dict | None = None, agent: str | None = None,  # noqa: C901
               request: Request = None, db: Session = Depends(get_session)):
     body = body or {}
     run = db.get(Run, run_id)
@@ -269,7 +271,7 @@ def heartbeat(run_id: str, body: dict = None, agent: str = None,
             ActorType.AGENT, run.agent_name,
             reason="heartbeat",
         )
-    event = emit_event(db, type="heartbeat", entity="run", entity_id=run.id,
+    emit_event(db, type="heartbeat", entity="run", entity_id=run.id,
                        run_id=run.id, payload={"progress": run.progress})
     # CAS：仅当 run 仍未进入 finished 时才推进到 running。
     # 与超时回收（同样以 state 为条件）竞争时，只有一方 rowcount==1 生效，
@@ -306,7 +308,11 @@ def heartbeat(run_id: str, body: dict = None, agent: str = None,
     # 首心跳 → agent_ready；带 pid → 异步探测回填 process_alive（pid 去重门控在模块内）。
     try:
         from mio_taskhub.observability.lifecycle import (
-            TYPE_AGENT_READY, probe_process_alive, record as lc_record,
+            TYPE_AGENT_READY,
+            probe_process_alive,
+        )
+        from mio_taskhub.observability.lifecycle import (
+            record as lc_record,
         )
         if first_heartbeat:
             lc_record(TYPE_AGENT_READY, run.id, {
@@ -316,7 +322,7 @@ def heartbeat(run_id: str, body: dict = None, agent: str = None,
         _pid = body.get("pid")
         if isinstance(_pid, int) and 0 < _pid < 2 ** 22:
             probe_process_alive(run.id, _pid)
-    except Exception:  # noqa: BLE001 — 观测失败不得影响心跳
+    except Exception:
         pass
     return {"id": run.id, "state": run.state.value, "progress": run.progress}
 
@@ -381,7 +387,7 @@ def run_diff_evidence(run_id: str, db: Session = Depends(get_session)):
 
 
 @router.post("/{run_id}/result")
-def submit_result(run_id: str, body: dict, agent: str = None,
+def submit_result(run_id: str, body: dict, agent: str | None = None,
                   request: Request = None, db: Session = Depends(get_session)):
     """提交 run 结果。
 
@@ -423,7 +429,7 @@ def _submit_lock(run_id: str) -> threading.Lock:
         return lock
 
 
-def _submit_result_impl(run_id: str, body: dict, agent: str = None,
+def _submit_result_impl(run_id: str, body: dict, agent: str | None = None,  # noqa: C901
                         db: Session = None):
     run = db.get(Run, run_id)
     if not run:
@@ -481,12 +487,12 @@ def _submit_result_impl(run_id: str, body: dict, agent: str = None,
         db.add(task)
     else:
         payload["state"] = None
-    event = emit_event(db, type="task_result", entity="task", entity_id=run.task_id,
+    emit_event(db, type="task_result", entity="task", entity_id=run.task_id,
                        run_id=run.id, payload=payload)
     db.add(run)
     for ev in m1_events:
         db.add(ev)
-    extra = _emit_retry_event_if_needed(db, task, task_state, run, payload)
+    _emit_retry_event_if_needed(db, task, task_state, run, payload)
     db.commit()
     db.refresh(run)
     db.refresh(task)
@@ -506,7 +512,7 @@ def _submit_result_impl(run_id: str, body: dict, agent: str = None,
             verification = "diff_changed=%s reason=%s" % (
                 ds.get("changed"), ds.get("reason"))
         enqueue_outcome(db, task, run, outcome, run.result or "", verification)
-    except Exception:  # noqa: BLE001 — 写回是增强路径，绝不影响提交结果
+    except Exception:
         logger.warning("outcome enqueue failed (submit unaffected)", exc_info=True)
     if task_state == "retrying":
         return {"id": run.id, "state": run.state.value, "result": run.result,
@@ -531,8 +537,11 @@ def _apply_diff_gate(db, task, run, body):
          → 改走 `HistoryEvent`。
     """
     import json as _json
+
     from mio_taskhub.diff_gate import (
-        MAX_REJECTIONS, check_diff_gate, merge_annotations,
+        MAX_REJECTIONS,
+        check_diff_gate,
+        merge_annotations,
     )
     from mio_taskhub.events import emit_event
     from mio_taskhub.models import HistoryEvent
@@ -572,7 +581,7 @@ def _apply_diff_gate(db, task, run, body):
         # 但本函数是**前置**门禁，主流程可能因后续异常回滚。
         # 这里显式 commit，保证「跳过判定的原因」事后查得到（FR-8 可观测）。
         db.commit()
-        return None
+        return
 
     # ── 拦截路径 ──────────────────────────────────────────────────────
     run.rejections = (run.rejections or 0) + 1

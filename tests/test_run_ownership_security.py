@@ -15,10 +15,11 @@
 用例编号 TC-S1..TC-S8，对应验收标准逐条。
 """
 from fastapi.testclient import TestClient
-from mio_taskhub.main import app
-from mio_taskhub.db import engine
 from sqlmodel import Session, select
-from mio_taskhub.models import Run, Task, TaskState, Event
+
+from mio_taskhub.db import engine
+from mio_taskhub.main import app
+from mio_taskhub.models import Event, Run, Task, TaskState
 
 client = TestClient(app)
 

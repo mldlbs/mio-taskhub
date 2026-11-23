@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P5 回归诊断：用修复后的提取器重跑旧 200 样本的原始 payload。
 
 旧样本只用于诊断，不作为新校准样本。
@@ -10,10 +9,11 @@ import json
 import re
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, List
 
 from mio_taskhub.materials.extract import (
-    extract_for_source, has_citable_signal, is_generic_failure,
+    extract_for_source,
+    has_citable_signal,
+    is_generic_failure,
 )
 from mio_taskhub.materials.quality import evaluate_draft
 
@@ -36,7 +36,7 @@ def run(sample_path: Path, labels_path: Path, db_path: Path) -> dict:
 
     details = []
     for lab in labels:
-        sample = samples[lab["sample_id"]]
+        samples[lab["sample_id"]]
         row = conn.execute(
             "select m.project, w.raw_id, w.source_key, w.raw_revision, "
             "w.sanitizer_version, r.payload "

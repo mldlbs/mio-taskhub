@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """迁移审批服务：服务端复核目标库哈希与代码 commit，写入签名审批。
 
 只有处于 review 阶段的任务才能被批准；artifacts 由服务端生成并 HMAC 签名，
@@ -17,13 +16,12 @@ import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from mio_taskhub.dbhash import content_hash  # noqa: E402
+from mio_taskhub.dbhash import content_hash
 
 SCOPE = "scope:task.updated_at"
 SCOPE_VALUE = "task.updated_at"
@@ -45,7 +43,7 @@ def _sign(secret: str, payload: dict) -> str:
 
 
 def verify(secret: str, artifacts: list, db_hash: str, commit: str,
-           task_id: str, now: Optional[datetime] = None) -> dict:
+           task_id: str, now: datetime | None = None) -> dict:
     data = {}
     for item in artifacts or []:
         text = str(item)

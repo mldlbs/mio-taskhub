@@ -1,10 +1,5 @@
-# -*- coding: utf-8 -*-
 """T3.1 D1 生命周期化——超时宽限 + 用户可读诊断单测。"""
-import os
-from mio_taskhub.heartbeat import (
-    HeartbeatSweep, RunInfo, DEFAULT_TIMEOUT_SECONDS,
-    GRACE_PERIOD_SECONDS, AGENT_OFFLINE_TIMEOUT_SECONDS
-)
+from mio_taskhub.heartbeat import DEFAULT_TIMEOUT_SECONDS, GRACE_PERIOD_SECONDS, HeartbeatSweep, RunInfo
 from mio_taskhub.models import RunState
 
 
@@ -77,6 +72,7 @@ def test_env_grace_period(monkeypatch):
     """T3.1：环境变量可覆盖宽限期。"""
     monkeypatch.setenv("MIO_TASKHUB_GRACE_PERIOD_SECONDS", "90")
     from importlib import reload
+
     import mio_taskhub.heartbeat as hb
     reload(hb)
     assert hb.GRACE_PERIOD_SECONDS == 90
@@ -85,12 +81,14 @@ def test_env_grace_period(monkeypatch):
 
 def test_diagnostic_hint_in_task_detail():
     """T3.1：FAILED 任务的 detail 响应含 diagnostic_hint 字段。"""
-    from fastapi.testclient import TestClient
-    from mio_taskhub.main import app
-    from mio_taskhub.db import engine
-    from mio_taskhub.models import Task, TaskState, Run, RunState, Agent, AgentStatus
-    from sqlmodel import Session
     from datetime import datetime, timezone
+
+    from fastapi.testclient import TestClient
+    from sqlmodel import Session
+
+    from mio_taskhub.db import engine
+    from mio_taskhub.main import app
+    from mio_taskhub.models import Agent, AgentStatus, Run, RunState, Task, TaskState
 
     client = TestClient(app)
     # 建任务
@@ -123,10 +121,11 @@ def test_diagnostic_hint_in_task_detail():
 def test_diagnostic_hint_none_when_completed():
     """T3.1：COMPLETED 任务 diagnostic_hint 为 None。"""
     from fastapi.testclient import TestClient
-    from mio_taskhub.main import app
-    from mio_taskhub.db import engine
-    from mio_taskhub.models import Task, TaskState
     from sqlmodel import Session
+
+    from mio_taskhub.db import engine
+    from mio_taskhub.main import app
+    from mio_taskhub.models import Task, TaskState
 
     client = TestClient(app)
     r = client.post("/api/v1/tasks", json={"title": "diag-done", "stage": "ready"})

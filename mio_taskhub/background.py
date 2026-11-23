@@ -1,28 +1,32 @@
 import logging
 import os
-from datetime import datetime, timezone, timedelta
 import threading
 import time
-from typing import Callable, List, Dict
+from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
+
 from sqlmodel import Session, select
-from mio_taskhub.db import engine
+
 from mio_taskhub.api.claim import claim_for as _claim_for
-from mio_taskhub.models import Agent, AgentStatus, Run, RunState, Task, TaskStage, TaskState
-from mio_taskhub.hierarchy import claimable_task_clause
-from mio_taskhub.workflow.state_machine import is_terminal
+from mio_taskhub.db import engine
 from mio_taskhub.dependency import dependency_satisfied, task_deps
-from mio_taskhub.events import emit_event, broadcast_for_event
-from mio_taskhub.workflow.transitions import apply_transition, _orm_to_status_stage
-from mio_taskhub.workflow.state_machine import State as M1State, Stage as M1Stage, ActorType as M1Actor
-from mio_taskhub.workflow.state_machine import IllegalTransition as M1Illegal
-from mio_taskhub.ideas.idea_review import IdeaReviewScanner
-from mio_taskhub.mio_runtime import MioDigestJob, ContractJob
-from mio_taskhub.mio_bridge import MioOutcomeJob
+from mio_taskhub.events import broadcast_for_event, emit_event
 from mio_taskhub.heartbeat import (
+    DEFAULT_TIMEOUT_SECONDS,
     HeartbeatSweep,
     RunInfo,
-    DEFAULT_TIMEOUT_SECONDS,
 )
+from mio_taskhub.hierarchy import claimable_task_clause
+from mio_taskhub.ideas.idea_review import IdeaReviewScanner
+from mio_taskhub.mio_bridge import MioOutcomeJob
+from mio_taskhub.mio_runtime import ContractJob, MioDigestJob
+from mio_taskhub.models import Agent, AgentStatus, Run, RunState, Task, TaskStage, TaskState
+from mio_taskhub.workflow.state_machine import ActorType as M1Actor
+from mio_taskhub.workflow.state_machine import IllegalTransition as M1Illegal
+from mio_taskhub.workflow.state_machine import Stage as M1Stage
+from mio_taskhub.workflow.state_machine import State as M1State
+from mio_taskhub.workflow.state_machine import is_terminal
+from mio_taskhub.workflow.transitions import _orm_to_status_stage, apply_transition
 
 logger = logging.getLogger("mio_taskhub.background")
 
@@ -206,7 +210,7 @@ def _requeue_retries():
             if rt is None:
                 # 兼容旧数据：无 retry_at 直接重入
                 # M1: T9 retry_requeue
-                from_st = _orm_to_status_stage(t.stage)
+                _orm_to_status_stage(t.stage)
                 _apply_event(db, t, M1State.QUEUED, M1Stage.READY,
                              M1Actor.SYSTEM, "scheduler:requeue_retries",
                              reason="retry_backoff_elapsed")
@@ -221,7 +225,7 @@ def _requeue_retries():
                 rt = rt.replace(tzinfo=timezone.utc)
             if rt <= now:
                 # M1: T9 retry_requeue
-                from_st = _orm_to_status_stage(t.stage)
+                _orm_to_status_stage(t.stage)
                 _apply_event(db, t, M1State.QUEUED, M1Stage.READY,
                              M1Actor.SYSTEM, "scheduler:requeue_retries",
                              reason="retry_backoff_elapsed")
@@ -233,7 +237,7 @@ def _requeue_retries():
                 broadcast_for_event(event)
 
 
-def _on_timeout(run_id: str, task_id: str):
+def _on_timeout(run_id: str, task_id: str):  # noqa: C901
     # 心跳超时仍保持原有“立即重入队列”语义，与显式失败的指数退避区分，
     # 以保持 65882419 已有用例稳定；显式失败的退避由 runs.py 的 _requeue_retries 负责。
     # P1-2 增强：区分 never_started（claim 后从未心跳，progress=0）与真实超时，
@@ -305,7 +309,7 @@ def _on_timeout(run_id: str, task_id: str):
                 from mio_taskhub.heartbeat import AGENT_OFFLINE_TIMEOUT_SECONDS, DEFAULT_TIMEOUT_SECONDS
                 _base = (task.timeout_min * 60) if (task and task.timeout_min) else DEFAULT_TIMEOUT_SECONDS
                 _eff = min(_base, AGENT_OFFLINE_TIMEOUT_SECONDS) if agent_offline else _base
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
             _decision = ("never_started" if never_started
                          else ("agent_offline" if agent_offline else "heartbeat_timeout"))
@@ -331,7 +335,7 @@ def _on_timeout(run_id: str, task_id: str):
                 },
             )
             broadcast_for_event(_ev)
-        except Exception:  # noqa: BLE001 — 观测失败不得影响回收
+        except Exception:
             logger.exception("failed to emit reaper_decision evidence")
 
         db.commit()
@@ -342,7 +346,7 @@ def _on_timeout(run_id: str, task_id: str):
                 from mio_taskhub.mio_bridge import enqueue_outcome
                 enqueue_outcome(db, task, run, "aborted",
                                 run.result or "timeout", verification=kind)
-            except Exception:  # noqa: BLE001 — 写回失败不影响回收
+            except Exception:
                 logger.warning("outbox enqueue on timeout failed", exc_info=True)
         # Verify 闭链（P1-2）：requeue 后校验任务确实回到可领取状态，否则留证便于排查
         if task is not None and never_started:
@@ -377,7 +381,7 @@ def _release_dependencies():
             prereqs = [db.get(Task, d) for d in deps if d]
             if prereqs and all(p is not None and dependency_satisfied(p) for p in prereqs):
                 # M1: T17 manual_advance (depsatisfied → ready)
-                from_st = _orm_to_status_stage(t.stage)
+                _orm_to_status_stage(t.stage)
                 _try_apply_event(db, t, M1State.QUEUED, M1Stage.READY,
                                  M1Actor.SYSTEM, "scheduler:release_deps",
                                  reason="deps_satisfied")
@@ -404,7 +408,7 @@ def _assign_to_idle_agents():
                 Task.state == TaskState.QUEUED,
                 Task.stage == TaskStage.READY,
                 # 派单让位：排除主动领取型任务
-                Task.grab_mode == False,  # noqa: E712
+                Task.grab_mode.is_(False),
                 # P2a：主任务不是执行单元，后台派单也不得尝试。
                 claimable_task_clause(),
             )
@@ -542,51 +546,6 @@ class ThreadRegistry:
     """统一管理所有后台守护线程的启动与停止。
 
     按注册顺序启动，按反向顺序停止（保证依赖正确的关闭顺序）。
-    提供健康检查接口。
-    """
-
-    def __init__(self):
-        self._entries: list[tuple[str, threading.Thread, object]] = []
-
-    def register(self, name: str, thread: threading.Thread, obj: object = None):
-        """注册一个守护线程及其停止方法。"""
-        self._entries.append((name, thread, obj))
-
-    def start_all(self):
-        """按注册顺序启动所有线程。"""
-        for name, thread, _ in self._entries:
-            thread.start()
-
-    def stop_all(self):
-        """按反向顺序停止所有线程（保证依赖正确的关闭顺序）。"""
-        for name, thread, obj in reversed(self._entries):
-            if obj is not None and hasattr(obj, "stop"):
-                obj.stop()
-            thread.join(timeout=5)
-        # 清空注册表：注册发生在 lifespan 启动时，退出后旧条目不应残留在
-        # 下一次 lifespan 的 stop_all 里被重复 join（多轮启动会指数拖慢关闭）。
-        self._entries.clear()
-
-    def health_check(self) -> dict:
-        """返回所有线程的健康状态。"""
-        result = {}
-        for name, thread, _ in self._entries:
-            result[name] = "alive" if thread.is_alive() else "dead"
-        return result
-
-
-_thread_registry = ThreadRegistry()
-
-
-def register_thread(name: str, thread: threading.Thread, obj: object = None):
-    """注册一个守护线程到全局调度器。"""
-    _thread_registry.register(name, thread, obj)
-
-
-class ThreadRegistry:
-    """统一管理所有后台守护线程的启动与停止。
-
-    按注册顺序启动，按反向顺序停止（保证依赖正确的关闭顺序）。
     提供健康检查接口（含心跳状态）。
     """
 
@@ -599,12 +558,12 @@ class ThreadRegistry:
 
     def start_all(self):
         """按注册顺序启动所有线程。"""
-        for name, thread, _ in self._entries:
+        for _name, thread, _ in self._entries:
             thread.start()
 
     def stop_all(self):
         """按反向顺序停止所有线程（保证依赖正确的关闭顺序）。"""
-        for name, thread, obj in reversed(self._entries):
+        for _name, thread, obj in reversed(self._entries):
             if obj is not None and hasattr(obj, "stop"):
                 obj.stop()
             thread.join(timeout=5)
@@ -670,7 +629,7 @@ def start_background_jobs():
             material_job.start()
             register_thread("materials-ingest", material_job._thread, material_job)
             jobs.append(material_job)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("materials ingest job not started: %s", exc)
     return tuple(jobs)
 
@@ -685,7 +644,7 @@ class Scheduler:
     def __init__(
         self,
         interval: float = 30.0,
-        get_due_tasks: Callable[[], List[Dict]] = lambda: [],
+        get_due_tasks: Callable[[], list[dict]] = lambda: [],
         on_enqueue: Callable[[str], None] = lambda tid: None,
     ):
         self.interval = interval

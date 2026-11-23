@@ -1,11 +1,10 @@
-# -*- coding: utf-8 -*-
 """流式下载 + 边下边算 sha256 + 重试；只在校验通过后 rename 成最终文件。"""
 import hashlib
 import os
 import time
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 
 class DownloadError(RuntimeError):
@@ -53,9 +52,9 @@ def _default_opener(url: str, timeout: float = 60.0):
     return gen()
 
 
-def download(url: str, dest, sha256: str = None, size: int = None,
-             opener: Callable = None, retries: int = 3,
-             progress: Callable[[int, int], None] = None) -> Path:
+def download(url: str, dest, sha256: str | None = None, size: int | None = None,
+             opener: Callable | None = None, retries: int = 3,
+             progress: Callable[[int, int], None] | None = None) -> Path:
     """下载 url → dest。边下边算 sha256，匹配后 rename .part→dest。
 
     opener(url) 返回 bytes 的迭代器。失败重试 retries 次。
@@ -88,7 +87,7 @@ def download(url: str, dest, sha256: str = None, size: int = None,
                 raise DownloadError("sha256 mismatch")
             os.replace(part, dest)          # 同卷 replace，原子
             return dest
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             last_err = e
             try:
                 if part.exists():

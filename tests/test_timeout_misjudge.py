@@ -18,11 +18,18 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-import mio_taskhub.background as background
+from mio_taskhub import background
 from mio_taskhub.db import engine
 from mio_taskhub.main import app
 from mio_taskhub.models import (
-    Agent, AgentStatus, Run, RunState, Task, TaskEvent, TaskStage, TaskState,
+    Agent,
+    AgentStatus,
+    Run,
+    RunState,
+    Task,
+    TaskEvent,
+    TaskStage,
+    TaskState,
 )
 
 client = TestClient(app)
@@ -206,7 +213,9 @@ def test_late_success_on_cancelled_task_reports_truthful_state():
 
 def test_effective_timeout_capped_when_agent_offline():
     from mio_taskhub.heartbeat import (
-        RunInfo, HeartbeatSweep, AGENT_OFFLINE_TIMEOUT_SECONDS,
+        AGENT_OFFLINE_TIMEOUT_SECONDS,
+        HeartbeatSweep,
+        RunInfo,
     )
     sweep = HeartbeatSweep()
     offline = RunInfo(run_id="r", task_id="t", agent_name="a",
@@ -223,7 +232,7 @@ def test_effective_timeout_capped_when_agent_offline():
 
 def test_effective_timeout_never_below_task_config():
     """任务显式配了更短超时时，agent OFFLINE 不应把上限抬高。"""
-    from mio_taskhub.heartbeat import RunInfo, HeartbeatSweep
+    from mio_taskhub.heartbeat import HeartbeatSweep, RunInfo
     sweep = HeartbeatSweep()
     short = RunInfo(run_id="r", task_id="t", agent_name="a",
                     state=RunState.RUNNING, last_heartbeat=0.0,

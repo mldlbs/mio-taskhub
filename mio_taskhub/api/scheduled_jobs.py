@@ -1,17 +1,22 @@
 """定时任务管理 API 路由。"""
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
+
 from mio_taskhub.db import get_session
-from mio_taskhub.policy_guard import guard_action
 from mio_taskhub.models import (
-    ScheduledJob, ScheduledJobActionType, ScheduledJobStatus, ScheduledJobExecution,
+    ScheduledJob,
+    ScheduledJobActionType,
+    ScheduledJobExecution,
 )
+from mio_taskhub.policy_guard import guard_action
 from mio_taskhub.scheduling.cron_engine import (
-    validate_cron, compute_next_run, compute_next_runs, get_cron_engine,
+    compute_next_run,
+    compute_next_runs,
+    get_cron_engine,
+    validate_cron,
 )
 
 router = APIRouter(prefix="/scheduled-jobs", tags=["scheduled-jobs"])
@@ -106,7 +111,7 @@ def create_job(body: dict, db: Session = Depends(get_session)):
 
 
 @router.patch("/{job_id}")
-def update_job(job_id: str, body: dict, db: Session = Depends(get_session)):
+def update_job(job_id: str, body: dict, db: Session = Depends(get_session)):  # noqa: C901
     job = db.get(ScheduledJob, job_id)
     if not job:
         raise HTTPException(404, "scheduled job not found")

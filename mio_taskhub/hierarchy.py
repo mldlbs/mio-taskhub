@@ -15,7 +15,6 @@ role 取值：
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 from sqlalchemy import or_
 
@@ -80,7 +79,7 @@ def claimable_task_clause():
     return or_(Task.role.is_(None), Task.role != ROLE_MAIN)
 
 
-def validate_child_parent(db, parent_id: str) -> Optional[Task]:
+def validate_child_parent(db, parent_id: str) -> Task | None:
     """校验父任务并返回；不合法时抛 ValueError（由 API 转 HTTP 状态码）。"""
     parent = db.get(Task, parent_id)
     if parent is None:

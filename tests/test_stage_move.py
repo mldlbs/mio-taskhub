@@ -1,9 +1,10 @@
 # tests/test_stage_move.py
 from fastapi.testclient import TestClient
-from mio_taskhub.main import app
-from mio_taskhub.db import engine
-from mio_taskhub.models import Task, TaskStage
 from sqlmodel import Session
+
+from mio_taskhub.db import engine
+from mio_taskhub.main import app
+from mio_taskhub.models import Task, TaskStage
 
 client = TestClient(app)
 
@@ -143,8 +144,9 @@ def test_move_done_from_implementing():
 def test_move_done_from_completed_implementing():
     # state=completed 但 stage 停在 implementing：T18 挪到 review 后 T6 收尾
     from sqlmodel import Session
+
     from mio_taskhub.db import engine
-    from mio_taskhub.models import Task, TaskState, TaskStage
+    from mio_taskhub.models import Task, TaskStage, TaskState
     t = _mk("moveci", stage="implementing")
     with Session(engine) as s:
         db_t = s.get(Task, t["id"])
@@ -162,6 +164,7 @@ def test_move_done_from_completed_implementing():
 def test_move_done_from_failed_409_not_500():
     # failed 无 T5 入口：明确 409，不再 500
     from sqlmodel import Session
+
     from mio_taskhub.db import engine
     from mio_taskhub.models import Task, TaskState
     t = _mk("movefailed", stage="ready")

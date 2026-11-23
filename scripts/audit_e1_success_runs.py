@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """E1 回溯审计（FR-01，任务 c8316737）：只读脚本 v2。
 
 回答假设 A-2：近 60 天被标 success 的 Run 中，有多少没有真实代码改动。
@@ -72,7 +71,7 @@ def load_json(s):
 
 def git_run(workspace, args, timeout=30):
     try:
-        out = subprocess.run(["git", "-C", workspace] + args,
+        out = subprocess.run(["git", "-C", workspace, *args],
                              capture_output=True, text=True, timeout=timeout)
         return out.returncode, out.stdout
     except Exception:
@@ -115,7 +114,7 @@ def collect_git_evidence(workspace, task_id, t_start, t_end):
     return info
 
 
-def main():
+def main():  # noqa: C901, PLR0912
     now = datetime.now(timezone.utc)
     win_start = now - timedelta(days=WINDOW_DAYS)
     uri = f"file:{DB_PATH.replace(os.sep, '/')}?mode=ro&uri=true"
@@ -197,10 +196,7 @@ def main():
             if len(no_change_srcs) >= 1 and (git_info["repo_ok"] and git_info["task_commits"] == 0):
                 verdict = "no_change"
             elif git_info["repo_ok"] and git_info["task_commits"] == 0:
-                if git_info["narrow_commits"] == 0:
-                    verdict = "no_change_weak"
-                else:
-                    verdict = "ambiguous"
+                verdict = "no_change_weak" if git_info["narrow_commits"] == 0 else "ambiguous"
             elif ev_a == "no_change" or ev_c == "no_change":
                 verdict = "no_change"
             else:
@@ -269,7 +265,8 @@ def main():
 
 ## 判定标签定义
 
-- has_change：diff_summary.changed=true / 任务分支或 message 含 task_id 的 commit（宽窗 72h）/ deliverables 存在 / doc_paths·deliverables 文件 mtime 落在 [start-15min, finish+4h]，任一成立。
+- has_change：diff_summary.changed=true / 任务分支或 message 含 task_id 的 commit（宽窗 72h）/
+  deliverables 存在 / doc_paths·deliverables 文件 mtime 落在 [start-15min, finish+4h]，任一成立。
 - no_change（严格）：无任何 has_change 证据，且 ≥1 强 no_change 源（diff_summary.changed=false 或 deliverables 缺失）+ git 仓内无任务相关 commit。
 - no_change_weak（宽口径）：仅凭 git——宽窗无任务相关 commit 且窄窗零 commit，且文档不落窗或无登记产出。
 - ambiguous：窄窗 [start-15min, finish+30min] 有任意 commit 但无法归因到本任务（agent 直接在主分支工作且 message 不含 task_id 的情形）。
@@ -283,9 +280,14 @@ def main():
 
 ## 判定附注（供触发点裁决书引用，不得省略）
 
-1. 弱口径 no_change 的构成以「任务未建 task-<id> 分支、commit message 不含 task_id、未登记 doc_paths/deliverables」为主——这是**归因证据缺失**，不等于「没干活」。
-2. 定性反证：no_change_weak 样本中的任务标题（拓扑可用性补强、空闲计划可用化、定时任务页重构、action_config 乱码修复等）与当前产品中实际存在且运行的功能吻合——改动大概率真实发生，只是 commit 无任务标记。
-3. 主信号：**「Agent 自报 success 但实际未做」在强证据可判定样本中发生率为 0/13~16；而无可归因证据的成功 Run 占比约 60-78%**——真实痛点是「结果可追溯性缺失」（对应假设 A-10 可读性方向），不是「Agent 造假」（A-2 问B 方向）。
+1. 弱口径 no_change 的构成以「任务未建 task-<id> 分支、commit message 不含 task_id、
+   未登记 doc_paths/deliverables」为主——这是**归因证据缺失**，不等于「没干活」。
+2. 定性反证：no_change_weak 样本中的任务标题（拓扑可用性补强、空闲计划可用化、定时任务页重构、
+   action_config 乱码修复等）与当前产品中实际存在且运行的功能吻合——改动大概率真实发生，
+   只是 commit 无任务标记。
+3. 主信号：**「Agent 自报 success 但实际未做」在强证据可判定样本中发生率为 0/13~16；
+   而无可归因证据的成功 Run 占比约 60-78%**——真实痛点是「结果可追溯性缺失」
+   （对应假设 A-10 可读性方向），不是「Agent 造假」（A-2 问B 方向）。
 
 ## 逐条明细（审计范围内）
 

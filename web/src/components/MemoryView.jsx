@@ -139,6 +139,7 @@ function QueryPanel() {
   )
 }
 
+// eslint-disable-next-line complexity
 export default function MemoryView({ liveEvent }) {
   const [tab, setTab] = useState('observatory')
   const [health, setHealth] = useState(null)
@@ -189,6 +190,7 @@ export default function MemoryView({ liveEvent }) {
       const tool = row.label === 'tool' ? row.value : null
       const outcome = row.label === 'outcome' ? row.value : null
       if (tool && outcome) {
+        // eslint-disable-next-line max-depth
         if (!perTool[tool]) perTool[tool] = { ok: 0, error: 0 }
         perTool[tool][outcome] = row.count
       }

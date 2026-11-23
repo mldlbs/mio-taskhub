@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """S-4 前端全通道 token 联动的静态护栏（交付方案 AC-26）。
 
 背景：服务端启用 --auth / MIO_TASKHUB_TOKEN 后，全局中间件保护 /api/、/metrics、/logs，

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P3 一次性回填：读取来源窗口并入库。
 
 用法：
@@ -16,15 +15,15 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from sqlmodel import Session  # noqa: E402
+from sqlmodel import Session
 
-from mio_taskhub.db import engine  # noqa: E402
-from mio_taskhub.materials.adapters import ADAPTERS, run_adapter, source_health  # noqa: E402
-from mio_taskhub.materials.bootstrap import init_materials_db  # noqa: E402
-from mio_taskhub.materials.extract import extract_for_source  # noqa: E402
-from mio_taskhub.materials.models import MaterialSource  # noqa: E402
-from mio_taskhub.materials.pipeline import ingest_records  # noqa: E402
-from mio_taskhub.utils import _now  # noqa: E402
+from mio_taskhub.db import engine
+from mio_taskhub.materials.adapters import ADAPTERS, run_adapter, source_health
+from mio_taskhub.materials.bootstrap import init_materials_db
+from mio_taskhub.materials.extract import extract_for_source
+from mio_taskhub.materials.models import MaterialSource
+from mio_taskhub.materials.pipeline import ingest_records
+from mio_taskhub.utils import _now
 
 CHUNK = 200
 
@@ -83,7 +82,7 @@ def main() -> int:
                 s.commit()
             print(f"[done] {key}: accepted={accepted} rejected={rejected} "
                   f"materials_new={new} materials_merged={merged}")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             failed += 1
             print(f"[error] {key}: {exc}")
 

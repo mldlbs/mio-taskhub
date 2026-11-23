@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """E7 决策清单扫描（capability-v0.7 · 只读实验，2026-11-04）。
 
 目的：验证「一张人工决策清单」是否有用——先把 hub 现有任务按
@@ -52,7 +51,7 @@ def is_noise(t: dict) -> bool:
     return bool(NOISE_TITLE_PAT.search(t.get("title") or ""))
 
 
-def main():
+def main():  # noqa: C901, PLR0915
     status = _get("/api/v1/tasks/status")
     tasks = _get("/api/v1/tasks?limit=5000")
     by_id = {t["id"]: t for t in tasks}

@@ -3,7 +3,6 @@
 核心回归：纯中文标题任务（_tokens 提取不到英文 token → keys 为空）
 不得把工作区全部 discovered 文档拉成 related。
 """
-import os
 
 from fastapi.testclient import TestClient
 

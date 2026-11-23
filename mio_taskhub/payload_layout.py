@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """payload（程序压缩包）布局契约 —— **安装器与更新器共用的唯一事实源**。
 
 契约：payload zip **根目录**下直接是 `TaskHub.exe` 与 `_internal/...`。

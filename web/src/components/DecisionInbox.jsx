@@ -33,6 +33,7 @@ function daysAgo(ts) {
   return (Date.now() - t) / 86400000
 }
 
+// eslint-disable-next-line complexity, max-lines-per-function
 export default function DecisionInbox({ allTasks, onOpenTask }) {
   const [open, setOpen] = useState(false)
   const [depAlerts, setDepAlerts] = useState([])

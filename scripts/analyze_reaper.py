@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """reaper 回收决策三分根因分析（T0.8，只读工具）。
 
 输入：event 表中 type='reaper_decision' 的自然样本（生产 DB 默认

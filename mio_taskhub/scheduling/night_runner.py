@@ -9,13 +9,12 @@
 import json
 import logging
 import os
-import threading
-import time
 import shlex
 import shutil
-from datetime import datetime, date, timedelta
+import subprocess
+import threading
+from datetime import date, datetime
 from pathlib import Path
-from typing import Dict, List, Optional
 
 logger = logging.getLogger("night_runner")
 
@@ -51,7 +50,7 @@ def allowed_executables() -> set:
     return DEFAULT_ALLOWED_EXECUTABLES | names
 
 
-def split_command(cmd: str) -> List[str]:
+def split_command(cmd: str) -> list[str]:
     """把命令模板拆成 argv。Windows 下保留引号再剥掉，避免带空格的参数被切开。"""
     try:
         parts = shlex.split(cmd or "", posix=(os.name != "nt"))
@@ -91,7 +90,7 @@ def _in_window(now_min: int, ws: int, we: int) -> bool:
     return now_min >= ws or now_min < we
 
 
-def _diagnose_command(cmd: str, cwd: Optional[str] = None) -> Optional[str]:
+def _diagnose_command(cmd: str, cwd: str | None = None) -> str | None:
     """粗诊断 spawn 命令是否可跑：首 token 可执行是否在 PATH / python 脚本是否存在。
 
     返回人类可读提示（问题）或 None（看不出问题）。仅做静态检查，不执行命令。
@@ -159,10 +158,10 @@ def save_config(cfg: dict) -> dict:
 class NightRunner:
     def __init__(self, poll_interval: float = POLL_INTERVAL):
         self.poll_interval = poll_interval
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._stop = threading.Event()
-        self._procs: Dict[str, "subprocess.Popen"] = {}   # agent -> 进程
-        self._spawned_date: Optional[date] = None          # 今天已 spawn 过
+        self._procs: dict[str, subprocess.Popen] = {}   # agent -> 进程
+        self._spawned_date: date | None = None          # 今天已 spawn 过
         self._last_status: dict = {}
 
     # ---- 进程管理 -------------------------------------------------------
@@ -289,7 +288,7 @@ class NightRunner:
         self.stop_agents()
 
 
-_runner: Optional[NightRunner] = None
+_runner: NightRunner | None = None
 
 
 def start_night_runner() -> NightRunner:
@@ -306,5 +305,5 @@ def stop_night_runner():
         _runner.shutdown()
 
 
-def get_runner() -> Optional[NightRunner]:
+def get_runner() -> NightRunner | None:
     return _runner

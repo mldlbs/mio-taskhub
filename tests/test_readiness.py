@@ -65,7 +65,7 @@ def test_every_item_has_source_ref():
     缺 defined_at → 读者只能信口说，无法回代码核对；rule 缺失 → 面板出现空规则行。
     所有出现在面板上的 kind 都必须在 _RULE_REFS 里有登记。
     """
-    from mio_taskhub.api.blockers import _RULE_REFS, _NATURE
+    from mio_taskhub.api.blockers import _NATURE, _RULE_REFS
     tid = _mk(title="source-ref", stage="design", gate_tier="high",
               doc_paths={"plan": "plan.md"}, attempt=2)
     d = client.get(f"/api/v1/tasks/{tid}/readiness").json()

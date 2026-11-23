@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Decision 实体 REST 端点（FR-02，任务 89a90af6）。
 
 POST   /api/v1/decisions               创建（question 必填；options 为 [{label, note}]）

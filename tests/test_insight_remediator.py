@@ -1,10 +1,8 @@
-# -*- coding: utf-8 -*-
 """闭环洞察消费测试（task b71206fe / P2-4）。
 
 验证：critical 未确认洞察 → 建跟进任务（幂等/开关/severity/已确认不触发）；
 消费动作记入 remediation log。
 """
-import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlmodel import Session, select, text
@@ -12,8 +10,13 @@ from sqlmodel import Session, select, text
 from mio_taskhub.db import engine
 from mio_taskhub.models import Task, TaskState
 from mio_taskhub.observability.insight_remediator import (
-    DEFAULT_COOLDOWN_HOURS, InsightsRemediator, INSIGHT_LABEL, TITLE_PREFIX,
-    autotask_enabled, precheck_enabled, _cooldown_hours,
+    DEFAULT_COOLDOWN_HOURS,
+    INSIGHT_LABEL,
+    TITLE_PREFIX,
+    InsightsRemediator,
+    _cooldown_hours,
+    autotask_enabled,
+    precheck_enabled,
 )
 
 

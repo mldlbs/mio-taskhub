@@ -9,10 +9,8 @@
 import logging
 import os
 import threading
-import time
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
 
 import httpx
 from croniter import croniter
@@ -20,19 +18,21 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from mio_taskhub.db import engine
+from mio_taskhub.events import broadcast_for_event, emit_event
 from mio_taskhub.models import (
-    Idea, IdeaStatus,
-    ScheduledJob, ScheduledJobActionType, ScheduledJobStatus,
-    ScheduledJobExecution, Task, TaskState, TaskStage,
+    ScheduledJob,
+    ScheduledJobActionType,
+    ScheduledJobExecution,
+    ScheduledJobStatus,
+    Task,
+    TaskStage,
+    TaskState,
 )
+from mio_taskhub.scheduling.auto_triage import auto_triage
 from mio_taskhub.scheduling.gate import (
     compute_gate_status,
     should_generate_now,
-    force_generate,
-    CFG,
 )
-from mio_taskhub.scheduling.auto_triage import auto_triage
-from mio_taskhub.events import emit_event, broadcast_for_event
 
 logger = logging.getLogger("cron_engine")
 
@@ -71,13 +71,13 @@ def _to_utc_aware(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
-def compute_next_run(cron_expr: str, after: Optional[datetime] = None) -> datetime:
+def compute_next_run(cron_expr: str, after: datetime | None = None) -> datetime:
     """下一次执行时间。**cron 按本机时区解释**（0 8 * * * = 本地早 8 点），返回 UTC。"""
     local = _to_utc_aware(after or datetime.now(timezone.utc)).astimezone()
     return croniter(cron_expr, local).get_next(datetime).astimezone(timezone.utc)
 
 
-def compute_next_runs(cron_expr: str, count: int = 5, after: Optional[datetime] = None) -> list:
+def compute_next_runs(cron_expr: str, count: int = 5, after: datetime | None = None) -> list:
     """未来 N 次执行时间。同上：本机时区解释，返回 UTC。"""
     local = _to_utc_aware(after or datetime.now(timezone.utc)).astimezone()
     cron = croniter(cron_expr, local)
@@ -90,7 +90,7 @@ class CronEngine:
     def __init__(self, poll_interval: float = POLL_INTERVAL):
         self.poll_interval = poll_interval
         self._stop = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._executing: set = set()  # 正在执行的 job_id，防止并发
 
     def start(self):
@@ -122,7 +122,7 @@ class CronEngine:
 
             jobs = db.exec(
                 select(ScheduledJob).where(
-                    ScheduledJob.enabled == True,
+                    ScheduledJob.enabled.is_(True),
                     ScheduledJob.next_run_at.is_not(None),
                     ScheduledJob.next_run_at <= now,
                 )
@@ -151,10 +151,7 @@ class CronEngine:
             if job.action_type == ScheduledJobActionType.CREATE_TASK:
                 # 下游消费意愿检查（P1-1）。
                 skipped = self._should_skip_task_creation(job, db)
-                if skipped:
-                    result = f"skipped: {skipped}"
-                else:
-                    result = self._create_task(job, db)
+                result = f"skipped: {skipped}" if skipped else self._create_task(job, db)
             elif job.action_type == ScheduledJobActionType.WEBHOOK:
                 # 生成类 webhook：使用新的价值加权闸门（gate.py）
                 cfg = job.action_config or {}
@@ -230,7 +227,7 @@ class CronEngine:
             db.commit()
             broadcast_for_event(event)
 
-    def _should_skip_task_creation(self, job: ScheduledJob, db: Session) -> Optional[str]:
+    def _should_skip_task_creation(self, job: ScheduledJob, db: Session) -> str | None:
         """下游消费意愿检查（P1-1）。
 
         若由同一 job 生成的任务已堆积超过阈值且仍未被认领，则返回跳过原因；
@@ -273,7 +270,7 @@ class CronEngine:
             priority=cfg.get("priority", 0),
             schedule_type="once",
             stage=TaskStage(cfg.get("stage", "ready")),
-            labels=cfg.get("labels", []) + [f"cron:{job.id}"],
+            labels=[*cfg.get("labels", []), f"cron:{job.id}"],
             project=cfg.get("project", ""),
             workspace=cfg.get("workspace", ""),
             max_retries=cfg.get("max_retries", job.max_retries),
@@ -316,7 +313,7 @@ class CronEngine:
             job.next_run_at = compute_next_run(job.cron_expr)
         return job
 
-    def pause_job(self, job_id: str) -> Optional[ScheduledJob]:
+    def pause_job(self, job_id: str) -> ScheduledJob | None:
         with Session(engine) as db:
             job = db.get(ScheduledJob, job_id)
             if not job:
@@ -329,7 +326,7 @@ class CronEngine:
             db.refresh(job)
             return job
 
-    def resume_job(self, job_id: str) -> Optional[ScheduledJob]:
+    def resume_job(self, job_id: str) -> ScheduledJob | None:
         with Session(engine) as db:
             job = db.get(ScheduledJob, job_id)
             if not job:
@@ -368,7 +365,7 @@ class CronEngine:
                 logger.exception("cron engine tick failed")
 
 
-_engine: Optional[CronEngine] = None
+_engine: CronEngine | None = None
 
 
 def start_cron_engine() -> CronEngine:
@@ -385,5 +382,5 @@ def stop_cron_engine():
         _engine.stop()
 
 
-def get_cron_engine() -> Optional[CronEngine]:
+def get_cron_engine() -> CronEngine | None:
     return _engine

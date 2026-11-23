@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """素材面板（只读）：每日创意生成链路的素材可追溯视图。
 
 回答三个验收指标的数据来源（2026-10-08 用户定义）：
@@ -26,7 +25,6 @@ import re
 from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import List, Optional
 
 from fastapi import APIRouter, Query
 
@@ -78,7 +76,7 @@ def _source_type(name: str) -> str:
     return "other"
 
 
-def _classify_record(sources: List[str]) -> str:
+def _classify_record(sources: list[str]) -> str:
     """一条 combo/hypothesis 的类别。"""
     types = [_source_type(s) for s in (sources or [])]
     if not types:
@@ -92,7 +90,7 @@ def _classify_record(sources: List[str]) -> str:
     return "other"
 
 
-def _read_jsonl_tail(p: Path, limit: int) -> List[dict]:
+def _read_jsonl_tail(p: Path, limit: int) -> list[dict]:
     if not p.is_file():
         return []
     try:
@@ -111,25 +109,25 @@ def _read_jsonl_tail(p: Path, limit: int) -> List[dict]:
             continue
         try:
             out.append(json.loads(line))
-        except Exception:  # noqa: BLE001
+        except Exception:
             continue
     out.sort(key=lambda r: r.get("createdAt") or 0)
     return out[-max(1, min(limit, 500)):]
 
 
-def _read_json(p: Path) -> Optional[dict]:
+def _read_json(p: Path) -> dict | None:
     try:
         return json.loads(p.read_text(encoding="utf-8", errors="replace"))
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
 
-def _observations(days: int, base: Path) -> List[dict]:
+def _observations(days: int, base: Path) -> list[dict]:
     """每日原始抓取：来源分布 + 每来源前几条标题样本（可追溯原始输入）。"""
     d = base / "observations"
     if not d.is_dir():
         return []
-    today = date.today()
+    date.today()
     out = []
     for f in sorted(d.glob("*.json"))[-days:]:
         r = _read_json(f)
@@ -167,7 +165,7 @@ def _local_day(iso: str) -> str:
         return iso[:10]
 
 
-def _insights(days: int, base: Path) -> List[dict]:
+def _insights(days: int, base: Path) -> list[dict]:
     """洞察产出：空 section / LLM 失败 / 选题匹配核对所需的当天来源分布。"""
     d = base / "insights"
     if not d.is_dir():
@@ -233,7 +231,7 @@ def _insights(days: int, base: Path) -> List[dict]:
     return out
 
 
-def _topics(days: int, base: Path) -> List[dict]:
+def _topics(days: int, base: Path) -> list[dict]:
     d = base / "topics"
     if not d.is_dir():
         return []

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """文档 Consult 门控脚本的纯逻辑测试（不触网）。
 
 覆盖：
@@ -10,14 +9,12 @@
 import os
 import sys
 
-import pytest
-
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
-import doc_gate_common as c  # noqa: E402
-import check_fr_trace as fr  # noqa: E402
-import check_doc_approved as ca  # noqa: E402
-import install_hooks as ih  # noqa: E402
+import check_doc_approved as ca
+import check_fr_trace as fr
+import doc_gate_common as c
+import install_hooks as ih
 
 
 def test_parse_task_id_from_branch():

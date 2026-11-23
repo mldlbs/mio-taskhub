@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P3：采集调度日上限与单源故障隔离。"""
 import json
 
@@ -57,7 +56,7 @@ def test_job_daily_cap(tmp_path, monkeypatch):
 
 
 def test_job_isolates_source_failure(monkeypatch):
-    import mio_taskhub.materials.jobs as jobs
+    from mio_taskhub.materials import jobs
 
     def fake(key, session, **kwargs):
         if key == "hn":

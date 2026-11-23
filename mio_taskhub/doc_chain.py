@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """软件项目开发文档链（七件套）。
 
 用户视角的一条完整开发文档链：需求规格 → 架构设计 → 模块 Spec → 状态模型
@@ -71,7 +70,7 @@ def _tpl_requirement(up, down):
 - 目标：
   - （可衡量，有指标或明确状态）
 - 非目标（本次明确不做）：
-  - 
+  -
 
 ## 3. 用户故事 / 使用场景
 <!--
@@ -97,7 +96,7 @@ def _tpl_requirement(up, down):
 - 安全：
   - （鉴权、数据边界）
 - 兼容 / 依赖：
-  - 
+  -
 
 ## 6. 边界与约束
 <!--
@@ -150,7 +149,7 @@ def _tpl_architecture(up, down):
 - 风险：
   - （高风险项单独建 risk 文档链接过来）
 - 对策：
-  - 
+  -
 """
 
 
@@ -160,9 +159,9 @@ def _tpl_spec(up, down):
 
 ## 1. 模块职责与边界
 - 做什么：
-  - 
+  -
 - 不做什么：
-  - 
+  -
 
 ## 2. 输入 / 输出
 - 输入：
@@ -218,7 +217,7 @@ def _tpl_data_model(up, down):
 - 唯一键：
 - 外键：
 - 业务不变量（invariant）：
-  - 
+  -
 
 ## 4. 迁移策略
 - 存量数据迁移：
@@ -531,11 +530,11 @@ def _tpl_test(up, down):
 - 单元测试：
   - （测什么）
 - 集成测试：
-  - 
+  -
 - E2E / 冒烟：
-  - 
+  -
 - 明确不测的：
-  - 
+  -
 
 ## 3. 用例清单
 | 用例编号 | 覆盖需求 | 前置 | 步骤 | 预期 |
@@ -566,9 +565,9 @@ def _tpl_runbook(up, down):
   - （缺一项部署就会卡，逐行列全）
 
 ## 2. 部署步骤
-1. 
-2. 
-3. 
+1.
+2.
+3.
 
 <!--
 - 每步一条可复制执行的命令
@@ -583,8 +582,8 @@ def _tpl_runbook(up, down):
 ## 4. 回滚
 - 触发条件：
 - 回滚步骤：
-  1. 
-  2. 
+  1.
+  2.
 
 ## 5. 监控与告警
 - 关键指标：
@@ -614,7 +613,7 @@ _KIND_LABEL = {
 }
 
 
-def chain_path_of(kind: str, registered: dict, task_id: str = None) -> str:
+def chain_path_of(kind: str, registered: dict, task_id: str | None = None) -> str:
     """链内文档路径：已登记用登记值，否则任务级默认 docs/taskhub/<id>/<kind>.md，
     无 task_id 时退化为 docs/<kind>.md。"""
     stored = (registered or {}).get(kind)
@@ -667,8 +666,8 @@ def _set_info_row(section: str, label: str, value: str) -> str:
     return pat.sub(lambda m: '| %s | %s |' % (label, value), section, count=1)
 
 
-def update_info_section(text: str, state: str = None, bump_version: bool = False,
-                        now: str = None) -> str:
+def update_info_section(text: str, state: str | None = None, bump_version: bool = False,
+                        now: str | None = None) -> str:
     """就地更新「文档信息」表的 最后更新（日期+时间）/ 状态（可选递增 文档版本）。
 
     无该节 → 原样返回。供 set_doc_status 推进状态时自动维护元信息，避免人肉漏填。
@@ -692,7 +691,7 @@ def update_info_section(text: str, state: str = None, bump_version: bool = False
     return text[:i] + seg + (text[j:] if j != -1 else '')
 
 
-def render_chain(kind: str, registered: dict = None, task_id: str = None) -> str:
+def render_chain(kind: str, registered: dict | None = None, task_id: str | None = None) -> str:
     """渲染链内某文档的模板正文（含按链路计算的上下游链接）。"""
     if kind not in _TEMPLATE_BUILDERS:
         raise KeyError(f'kind {kind!r} 不在文档链内: {DOC_CHAIN}')

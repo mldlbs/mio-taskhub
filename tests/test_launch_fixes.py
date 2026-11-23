@@ -5,7 +5,6 @@
 - 文档状态分叉：`set_doc_status` 被质量门拒绝时不得改写文档文件。
 - 重复提交：同一 run 并发提交只能落一次 task_result。
 """
-import pathlib
 import threading
 
 from fastapi.testclient import TestClient
@@ -118,6 +117,7 @@ def _rate_limited_app(limit=2):
     from starlette.applications import Starlette
     from starlette.responses import PlainTextResponse
     from starlette.routing import Route
+
     from mio_taskhub.middleware import RateLimitMiddleware, _rate_buckets
 
     _rate_buckets.clear()

@@ -6,11 +6,11 @@
 - 提升（current > baseline）→ 抬高基线。
 """
 from fastapi.testclient import TestClient
-
-from mio_taskhub.main import app
-from mio_taskhub.ratchet import check_ratchet, current_metrics, applies
-from mio_taskhub.db import engine
 from sqlmodel import Session
+
+from mio_taskhub.db import engine
+from mio_taskhub.main import app
+from mio_taskhub.ratchet import applies, check_ratchet, current_metrics
 
 client = TestClient(app)
 

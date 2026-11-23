@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """回填 agent_lifecycle 本地 jsonl → event 表（T0.7，幂等）。
 
 真相源：$MIO_HOME/lifecycle/<pid>/<run_id>.jsonl（见
@@ -17,13 +16,16 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from pathlib import Path  # noqa: E402
+from pathlib import Path
 
-from sqlmodel import Session, select  # noqa: E402
-from sqlmodel import SQLModel  # noqa: E402
+from sqlmodel import (
+    Session,
+    SQLModel,
+    select,
+)
 
-from mio_taskhub.db import engine  # noqa: E402
-from mio_taskhub.models import Event  # noqa: E402
+from mio_taskhub.db import engine
+from mio_taskhub.models import Event
 
 TYPE_PREFIX = "agent_lifecycle."
 

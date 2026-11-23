@@ -1,9 +1,10 @@
 # tests/test_events_api.py
 from fastapi.testclient import TestClient
-from mio_taskhub.main import app
 from sqlmodel import Session
+
 from mio_taskhub.db import engine
 from mio_taskhub.events import emit_event
+from mio_taskhub.main import app
 
 client = TestClient(app)
 

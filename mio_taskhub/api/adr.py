@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
+
+from mio_taskhub.api.ideas import _get_next_adr_number, _idea_json
 from mio_taskhub.db import get_session
-from mio_taskhub.models import (Idea, IdeaChange, IdeaStatus, IdeaType,
-                                IdeaHistory, ChangeType, OutboxEvent)
-from mio_taskhub.utils import _now
 from mio_taskhub.events import emit_event
-from mio_taskhub.api.ideas import _idea_json, _get_next_adr_number
+from mio_taskhub.models import ChangeType, Idea, IdeaChange, IdeaHistory, IdeaStatus, IdeaType, OutboxEvent
+from mio_taskhub.utils import _now
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
 
@@ -34,7 +34,7 @@ def evolve_to_adr(idea_id: str, body: dict, db: Session = Depends(get_session)):
 
     _record_evolve_history(db, idea_id, i, old_type, old_status, body)
     _record_evolve_outbox(db, idea_id, i)
-    event = emit_event(db, type="idea_evolved_to_adr", entity="idea", entity_id=idea_id,
+    emit_event(db, type="idea_evolved_to_adr", entity="idea", entity_id=idea_id,
                        payload={"old_type": old_type, "new_type": i.idea_type.value})
 
     db.add(i)
@@ -97,7 +97,7 @@ def adr_action(idea_id: str, body: dict, db: Session = Depends(get_session)):
 
     _record_action_history(db, idea_id, i, action, old_adr_status, body)
     _record_action_outbox(db, idea_id, i, action)
-    event = emit_event(db, type="idea_adr_action", entity="idea", entity_id=idea_id,
+    emit_event(db, type="idea_adr_action", entity="idea", entity_id=idea_id,
                        payload={"action": action, "adr_status": i.adr_status.value})
 
     db.add(i)

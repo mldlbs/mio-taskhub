@@ -19,19 +19,19 @@
 state 写入用小写（DB 原生）；stage 写入用大写（DB 原生）。
 """
 from __future__ import annotations
+
 import argparse
 import csv
 import os
 import sys
-from typing import Optional
 
-from sqlalchemy import inspect, text
+from sqlalchemy import text
 
 
 # ---------- helpers ----------
 def _legal_combo_strings() -> set:
     """把 status.LEGAL_COMBOS 转为 (state_str, stage_str) 集合（小写）。"""
-    from mio_taskhub.workflow.state_machine import LEGAL_COMBOS, State, Stage
+    from mio_taskhub.workflow.state_machine import LEGAL_COMBOS
     return {(s.value, st.value) for s, st in LEGAL_COMBOS}
 
 
@@ -54,7 +54,7 @@ def _has_active_run(conn, task_id: str) -> bool:
 
 
 # ---------- 核心修复函数 ----------
-def fix_state_stage(conn, *, dry_run: bool = False) -> dict:
+def fix_state_stage(conn, *, dry_run: bool = False) -> dict:  # noqa: C901
     """读取全量 task，应用修复规则，返回摘要。
 
     conn: SQLAlchemy 连接（带事务）
@@ -185,8 +185,8 @@ def write_needs_review_report(needs_review: list, path: str) -> None:
 
 
 # ---------- CLI ----------
-def main(argv: Optional[list] = None) -> int:
-    from mio_taskhub.db import engine, DATA_DIR
+def main(argv: list | None = None) -> int:
+    from mio_taskhub.db import DATA_DIR, engine
     parser = argparse.ArgumentParser(description="M1 脏数据修复（state/stage 合法化）")
     parser.add_argument("--dry-run", action="store_true", help="只统计不写")
     parser.add_argument("--report", default=os.path.join(DATA_DIR, "migrate_v1_needs_review.csv"),

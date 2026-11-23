@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """③ FR-n 可追溯校验：diff 中引用的 FR-n 必须真实存在于「已批准」需求文档。
 
 返回 (allow: bool, reason: str)。
@@ -13,8 +12,11 @@ import urllib.error
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from doc_gate_common import (
-    collect_diff_frs, get_doc_content, extract_frs_from_text,
-    warn_allow, block,
+    block,
+    collect_diff_frs,
+    extract_frs_from_text,
+    get_doc_content,
+    warn_allow,
 )
 
 REQUIREMENT_KIND = "requirement"
@@ -34,7 +36,7 @@ def check_fr_trace(task_id, local_sha, remote_sha, requirement_content=None):
             return warn_allow("无法连接 taskhub（%s），跳过 FR-n 校验" % e)
         except OSError as e:
             return warn_allow("无法连接 taskhub（%s），跳过 FR-n 校验" % e)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             return warn_allow("读取需求文档失败：%s" % e)
         if not content or "文件不存在" in content or "缺失" in content:
             return warn_allow("任务 %s 无需求文档，跳过 FR-n 校验" % task_id)

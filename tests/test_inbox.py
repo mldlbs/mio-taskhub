@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """决策收件箱 GET /api/v1/tasks/inbox（E7 产品化）+ 门控 422 人话化。
 
 覆盖：
@@ -14,7 +13,7 @@ from sqlmodel import Session
 
 from mio_taskhub.db import engine
 from mio_taskhub.main import app
-from mio_taskhub.models import Run, RunState, Task, TaskState
+from mio_taskhub.models import Task, TaskState
 from mio_taskhub.noise import is_noise
 
 client = TestClient(app)
@@ -90,7 +89,7 @@ def test_inbox_three_queues_and_noise_filtered():
 def test_inbox_review_sorted_oldest_first():
     # created_at 由 DB default 决定，同秒内不稳定——这里只验证排序键方向：
     # 构造两个不同 created_at 的 review 项，老的应排前
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta, timezone
     now = datetime.now(timezone.utc)
     for tid, delta in (("b06old01", timedelta(days=40)), ("b06new01", timedelta(days=1))):
         with Session(engine) as s:

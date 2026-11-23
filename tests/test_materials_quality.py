@@ -1,9 +1,12 @@
-# -*- coding: utf-8 -*-
 """素材库 P1：硬闸与质量评分。"""
 from datetime import datetime, timedelta, timezone
 
 from mio_taskhub.materials.quality import (
-    Draft, density_score, evaluate_draft, expires_at, initial_status,
+    Draft,
+    density_score,
+    evaluate_draft,
+    expires_at,
+    initial_status,
     score_material,
 )
 

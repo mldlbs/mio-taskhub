@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """可复现构建校验（T4.2 / G1·M3）。
 
 用途：
@@ -13,6 +12,7 @@
   python scripts/repro_build.py compare-zip dist/a.zip dist/b.zip
 """
 from __future__ import annotations
+
 import hashlib
 import json
 import sys

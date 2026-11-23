@@ -1,12 +1,12 @@
-# -*- coding: utf-8 -*-
 """P11：归档脚本识别 idea 评审空转残留（task_kind=REVIEW 的 FAILED/CANCELLED）。"""
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
-import archive_spinning_tasks as a  # noqa: E402
-from mio_taskhub.models import Task, TaskKind, TaskState, TaskStage  # noqa: E402
+import archive_spinning_tasks as a
+
+from mio_taskhub.models import Task, TaskKind, TaskStage, TaskState
 
 
 def _mk(title, kind, state, stage):

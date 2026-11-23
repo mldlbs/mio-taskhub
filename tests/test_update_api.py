@@ -1,6 +1,6 @@
 # tests/test_update_api.py
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 
 from mio_taskhub.main import app
 
@@ -9,8 +9,8 @@ client = TestClient(app)
 
 @pytest.fixture()
 def fake_service(tmp_path):
-    from mio_taskhub.update.service import UpdateService
     from mio_taskhub.update.manifest import manifest_from_dict
+    from mio_taskhub.update.service import UpdateService
 
     M = {
         "schema": 1, "version": "0.4.0", "channel": "stable",
@@ -83,6 +83,7 @@ def test_lifespan_starts_update_service(tmp_path, monkeypatch):
     """回归：lifespan 必须真正把 update service 挂上 app.state（此前被 except 吞掉）。"""
     monkeypatch.setenv("MIO_UPDATE_DISABLED", "1")
     from fastapi.testclient import TestClient
+
     from mio_taskhub.main import app
-    with TestClient(app) as c:
+    with TestClient(app):
         assert getattr(app.state, "update_service", None) is not None

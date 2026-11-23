@@ -13,11 +13,12 @@ import json
 import os
 import sys
 import time
-from typing import List, Optional
 from urllib.parse import quote
+
 import httpx
-from pydantic import Field
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
+
 from mio_taskhub.observability.dep_metrics import DepMetrics
 
 HUB_URL = os.environ.get("MIO_TASKHUB_URL", "http://127.0.0.1:48620/api/v1")
@@ -74,25 +75,27 @@ def _audit_risk_block(method: str, path: str, reason: str):
         import logging
         logging.getLogger("mio_taskhub.mcp").warning(
             "MCP risk gate blocked: %s %s — %s", method, path, reason)
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     try:
+        import json as _json
+
+        from sqlmodel import Session
+
         from mio_taskhub.db import engine
         from mio_taskhub.models import Event
-        from sqlmodel import Session
-        import json as _json
         with Session(engine) as db:
             db.add(Event(type="mcp_risk_blocked", entity="mcp",
                          entity_id=f"{method} {path}",
                          payload=_json.dumps({"method": method, "path": path, "reason": reason},
                                              ensure_ascii=False)))
             db.commit()
-    except Exception:  # noqa: BLE001 — 审计失败不得阻断拒绝返回
+    except Exception:
         pass
 
 
-async def _request(method: str, path: str, params: Optional[dict] = None, body: Optional[dict] = None,
-                   headers: Optional[dict] = None) -> dict:
+async def _request(method: str, path: str, params: dict | None = None, body: dict | None = None,
+                   headers: dict | None = None) -> dict:
     """调用 hub HTTP API，统一处理错误。"""
     # 统一风险门控（task 7d7ff97a）：所有工具经此处收口，destructive 默认拒绝。
     from mio_taskhub import mcp_risk
@@ -123,7 +126,7 @@ async def _request(method: str, path: str, params: Optional[dict] = None, body: 
         body = None
         try:
             body = e.response.json()
-        except Exception:  # noqa: BLE001 — 非 JSON 响应按原文截断
+        except Exception:
             body = None
         detail = body.get("detail") if isinstance(body, dict) else None
         msg = None
@@ -227,11 +230,11 @@ async def taskhub_agent_heartbeat(
 @_tool(name="taskhub_claim", title="领取一个任务", method="POST", path="/tasks/claim", read_only=False, destructive=False, desc="按关联度 + 优先级 + FIFO 领取一个排队任务，或按 task_id 直接认领指定任务，返回 Run id + task 详情，并内联 branch / required_reads / required_fr / documents（预览）+ lessons（同项目参考）。**必须领指定任务时务必传 task_id**：不传将按相关度挑选，可能领到其他任务（trace claim-taskid-mcp-drop-20260927）。**内联预览不等于已读**：动手前必须对 required_reads 逐一调用 taskhub_read_document(task_id, kind, run_id=<本 run>) 产生 ReadEvidence，否则 taskhub_submit_result 会被 422 拦截。**动手前先看 lessons.test_hints**：那是同项目近期已完成任务的测试做法，照着写比事后被检查有效；为空数组表示该项目暂无历史，不是错误。**领不到时会说清原因**：传了 task_id 却领不到 → 409 且带 code（claim.agent_not_online / claim.task_not_queued / claim.not_ready）与 hint；不传 task_id 的轮询式领取 → 空 204，原因在 X-Claim-Reason 响应头；offline 的 agent 默认自动复活而非拒绝。")
 async def taskhub_claim(
     agent: str = Field(description="当前 agent 名称，需先注册", min_length=1, max_length=64),
-    agent_type: Optional[str] = Field(default=None, description="若设置，只领取匹配该类型的任务；不传则自动回查注册 agent_type", max_length=32),
-    task_id: Optional[str] = Field(default=None, description="指定领取某个任务（按 id 直接认领，无视阶段），用于点名提取特定任务", max_length=64),
-    project: Optional[str] = Field(default=None, description="关联项目名", max_length=200),
-    workspace: Optional[str] = Field(default=None, description="工作区根路径", max_length=500),
-    files: Optional[str] = Field(default=None, description="逗号分隔的文件路径列表", max_length=2000),
+    agent_type: str | None = Field(default=None, description="若设置，只领取匹配该类型的任务；不传则自动回查注册 agent_type", max_length=32),
+    task_id: str | None = Field(default=None, description="指定领取某个任务（按 id 直接认领，无视阶段），用于点名提取特定任务", max_length=64),
+    project: str | None = Field(default=None, description="关联项目名", max_length=200),
+    workspace: str | None = Field(default=None, description="工作区根路径", max_length=500),
+    files: str | None = Field(default=None, description="逗号分隔的文件路径列表", max_length=2000),
 ) -> str:
     # 取证日志：opencode 会把 MCP stderr 收进其 log，点名/相关度挑选争议可据此定责
     sys.stderr.write("[mcp-claim] agent=%s task_id=%r agent_type=%r\n" % (agent, task_id, agent_type))
@@ -269,8 +272,8 @@ async def taskhub_heartbeat(
     run_id: str = Field(description="Run 唯一标识（claim 返回的 id）", min_length=1),
     agent: str = Field(description="本次执行的 agent 名称（claim 时用的那个），用于所有权校验", min_length=1),
     progress: int = Field(default=50, description="进度百分比 0-100", ge=0, le=100),
-    checkpoint: Optional[str] = Field(default=None, description="阶段检查点描述", max_length=500),
-    run_token: Optional[str] = Field(default=None, description="per-run 凭据（claim 响应返回的 run_token），经 X-Run-Token 头携带"),
+    checkpoint: str | None = Field(default=None, description="阶段检查点描述", max_length=500),
+    run_token: str | None = Field(default=None, description="per-run 凭据（claim 响应返回的 run_token），经 X-Run-Token 头携带"),
 ) -> str:
     body = {"progress": progress, "pid": os.getpid()}
     if checkpoint is not None: body["checkpoint"] = checkpoint
@@ -283,7 +286,7 @@ async def taskhub_heartbeat(
         from mio_taskhub.observability.lifecycle import note_heartbeat_sent
         note_heartbeat_sent(run_id,
                             delivered=not (isinstance(resp, dict) and "error" in resp))
-    except Exception:  # noqa: BLE001 — 埋点失败不影响心跳返回
+    except Exception:
         pass
     return _fmt(resp)
 
@@ -294,9 +297,9 @@ async def taskhub_submit_result(
     agent: str = Field(description="本次执行的 agent 名称（claim 时用的那个），用于所有权校验", min_length=1),
     success: bool = Field(default=True, description="是否成功"),
     result: str = Field(default="", description="结果描述 / 产出摘要", max_length=4000),
-    exit_code: Optional[int] = Field(default=None, description="退出码（默认 0 成功 / 1 失败）"),
-    evidence: Optional[dict] = Field(default=None, description="完成证据：verification.commands/tests/artifacts"),
-    run_token: Optional[str] = Field(default=None, description="per-run 凭据（claim 响应返回的 run_token），经 X-Run-Token 头携带"),
+    exit_code: int | None = Field(default=None, description="退出码（默认 0 成功 / 1 失败）"),
+    evidence: dict | None = Field(default=None, description="完成证据：verification.commands/tests/artifacts"),
+    run_token: str | None = Field(default=None, description="per-run 凭据（claim 响应返回的 run_token），经 X-Run-Token 头携带"),
 ) -> str:
     body = {"success": success, "result": result}
     if exit_code is not None: body["exit_code"] = exit_code
@@ -308,8 +311,8 @@ async def taskhub_submit_result(
 
 @_tool(name="taskhub_list_tasks", title="列出任务", method="GET", path="/tasks", read_only=True, destructive=False, desc="列出任务看板，可按状态 / 目标 agent 类型过滤。用于了解待办、进行中和历史任务。")
 async def taskhub_list_tasks(
-    state: Optional[str] = Field(default=None, description="按状态过滤：queued/claimed/running/retrying/completed/failed"),
-    agent_type: Optional[str] = Field(default=None, description="只显示匹配该 agent 类型的任务"),
+    state: str | None = Field(default=None, description="按状态过滤：queued/claimed/running/retrying/completed/failed"),
+    agent_type: str | None = Field(default=None, description="只显示匹配该 agent 类型的任务"),
 ) -> str:
     query = {}
     if state: query["state"] = state
@@ -414,8 +417,8 @@ async def taskhub_list_documents(
 async def taskhub_read_document(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     kind: str = Field(description="文档类型：spec/plan/review/requirement/test/architecture/api/readme/changelog"),
-    run_id: Optional[str] = Field(default=None, description="本次执行的 run id（taskhub_claim 返回）。传入即记录 ReadEvidence，供 submit 门控校验。"),
-    agent: Optional[str] = Field(default=None, description="当前 agent 名称（可选，随 evidence 留存）", max_length=64),
+    run_id: str | None = Field(default=None, description="本次执行的 run id（taskhub_claim 返回）。传入即记录 ReadEvidence，供 submit 门控校验。"),
+    agent: str | None = Field(default=None, description="当前 agent 名称（可选，随 evidence 留存）", max_length=64),
 ) -> str:
     params = {"kind": kind}
     if run_id: params["run_id"] = run_id
@@ -442,9 +445,9 @@ async def taskhub_write_document(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     kind: str = Field(description="文档类型：spec/plan/review/requirement/test/architecture/api/readme/changelog"),
     content: str = Field(description="文档正文（Markdown）"),
-    path: Optional[str] = Field(default=None, description="相对 workspace 的路径；缺省沿用该类型已登记路径，再缺省为 docs/<kind>.md"),
-    mode: Optional[str] = Field(default=None, description="overwrite（默认，整篇替换）或 append（追加到末尾，适合 changelog/审查记录）"),
-    overwrite: Optional[bool] = Field(default=None, description="仅 overwrite 模式生效：传 false 且文件已存在时返回 409，避免误覆盖"),
+    path: str | None = Field(default=None, description="相对 workspace 的路径；缺省沿用该类型已登记路径，再缺省为 docs/<kind>.md"),
+    mode: str | None = Field(default=None, description="overwrite（默认，整篇替换）或 append（追加到末尾，适合 changelog/审查记录）"),
+    overwrite: bool | None = Field(default=None, description="仅 overwrite 模式生效：传 false 且文件已存在时返回 409，避免误覆盖"),
 ) -> str:
     body = {"content": content}
     if path is not None:
@@ -459,8 +462,8 @@ async def taskhub_write_document(
 @_tool(name="taskhub_scaffold_docs", title="生成文档链骨架", method="POST", path="/tasks/{task_id}/docs/scaffold", read_only=False, destructive=False, desc="按「软件项目文档链」一次性生成 7 份文档骨架：需求规格→架构设计→模块 Spec→状态模型→接口契约→测试验收→部署运维，含章节骨架与上下游追溯链接。已有文件不覆盖（overwrite=true 才重置模板）。适合在任务起步时为 agent 准备完整的开发文档框架。")
 async def taskhub_scaffold_docs(
     task_id: str = Field(description="任务唯一标识", min_length=1),
-    kinds: Optional[List[str]] = Field(default=None, description="只生成链内子集，缺省全部 7 份（requirement/architecture/spec/data-model/api/test/runbook）"),
-    overwrite: Optional[bool] = Field(default=None, description="默认 false：已存在的文件跳过不覆盖；true 时重置为模板（慎用）"),
+    kinds: list[str] | None = Field(default=None, description="只生成链内子集，缺省全部 7 份（requirement/architecture/spec/data-model/api/test/runbook）"),
+    overwrite: bool | None = Field(default=None, description="默认 false：已存在的文件跳过不覆盖；true 时重置为模板（慎用）"),
 ) -> str:
     body = {}
     if kinds is not None:
@@ -475,7 +478,7 @@ async def taskhub_set_doc_status(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     kind: str = Field(description="文档类型（需有生命周期的 kind）：requirement/spec/decision/plan/test/milestone/incident"),
     state: str = Field(description="目标状态，如 approved / review / accepted / superseded / done / passed / failed / released / resolved / closed"),
-    note: Optional[str] = Field(default=None, description="备注，如 ADR superseded 时的替代决策编号"),
+    note: str | None = Field(default=None, description="备注，如 ADR superseded 时的替代决策编号"),
 ) -> str:
     body = {"state": state}
     if note is not None:
@@ -502,24 +505,24 @@ async def taskhub_doc_revision(
 async def taskhub_create_task(
     title: str = Field(description="任务标题", min_length=1, max_length=200),
     description: str = Field(default="", description="任务详细描述", max_length=4000),
-    target_agent_type: Optional[str] = Field(default=None, description="指定可执行的 agent 类型，为空表示任意"),
-    fallback_after: Optional[int] = Field(default=None, description="从 created_at 起算的秒数，超过后允许非目标 agent 领取"),
+    target_agent_type: str | None = Field(default=None, description="指定可执行的 agent 类型，为空表示任意"),
+    fallback_after: int | None = Field(default=None, description="从 created_at 起算的秒数，超过后允许非目标 agent 领取"),
     priority: int = Field(default=0, description="优先级 0-3，越大越优先", ge=0, le=3),
     est_duration_min: int = Field(default=30, description="预估耗时（分钟）", ge=1, le=1440),
-    depends_on: Optional[list] = Field(default=None, description="前置任务 id 列表（依赖全部完成后才放行），如 [\"task1\", \"task2\"]。工作流组内用 depends_on 连边，GET /tasks/{id}/workstream 据此算依赖分层、阻塞与关键路径"),
+    depends_on: list | None = Field(default=None, description="前置任务 id 列表（依赖全部完成后才放行），如 [\"task1\", \"task2\"]。工作流组内用 depends_on 连边，GET /tasks/{id}/workstream 据此算依赖分层、阻塞与关键路径"),
     max_retries: int = Field(default=3, description="最大重试次数", ge=0, le=10),
     acceptance_criteria: str = Field(default="", description="验收标准 / 完成定义"),
-    due_at: Optional[str] = Field(default=None, description="截止时间 ISO 格式"),
-    labels: Optional[list] = Field(default=None, description="自定义状态标签列表。要归入工作流组，加 part-of:<owner>，owner 为该组根任务 id；带此标签的成员在看板隐藏，只在任务详情「工作流」tab 展示"),
+    due_at: str | None = Field(default=None, description="截止时间 ISO 格式"),
+    labels: list | None = Field(default=None, description="自定义状态标签列表。要归入工作流组，加 part-of:<owner>，owner 为该组根任务 id；带此标签的成员在看板隐藏，只在任务详情「工作流」tab 展示"),
     project: str = Field(default="", description="关联项目名"),
     workspace: str = Field(default="", description="工作区根路径"),
-    files: Optional[list] = Field(default=None, description="文件路径列表（相对工作区）"),
-    deliverables: Optional[list] = Field(default=None, description="预期产出物路径列表"),
+    files: list | None = Field(default=None, description="文件路径列表（相对工作区）"),
+    deliverables: list | None = Field(default=None, description="预期产出物路径列表"),
     stage: str = Field(default="brainstorming", description="研发阶段（brainstorming/design/planning/ready/implementing/review/done），ready 才可被领取"),
-    doc_paths: Optional[dict] = Field(default=None, description="文档路径映射（kind -> 路径）。kind 取 spec/plan/requirement/test/architecture/api/readme/changelog"),
-    spec_path: Optional[str] = Field(default=None, description="设计文档路径（等价于 doc_paths['spec']）"),
-    plan_path: Optional[str] = Field(default=None, description="实现计划路径（等价于 doc_paths['plan']）"),
-    complexity: Optional[str] = Field(default=None, description="复杂度声明 S/M/L；仅作提示，不自动拆分"),
+    doc_paths: dict | None = Field(default=None, description="文档路径映射（kind -> 路径）。kind 取 spec/plan/requirement/test/architecture/api/readme/changelog"),
+    spec_path: str | None = Field(default=None, description="设计文档路径（等价于 doc_paths['spec']）"),
+    plan_path: str | None = Field(default=None, description="实现计划路径（等价于 doc_paths['plan']）"),
+    complexity: str | None = Field(default=None, description="复杂度声明 S/M/L；仅作提示，不自动拆分"),
 ) -> str:
     body = {k: v for k, v in {
         "title": title, "description": description, "target_agent_type": target_agent_type,
@@ -554,16 +557,16 @@ async def taskhub_decompose_apply(
 @_tool(name="taskhub_update_task", title="更新任务细节", method="PATCH", path="/tasks/{task_id}", read_only=False, destructive=False, desc="更新任务细节字段。仅传需要修改的字段：title/description/acceptance_criteria/due_at/labels/project/fallback_after/doc_paths/spec_path/plan_path。**执行边界字段 workspace/files/deliverables/depends_on/target_agent_type 不在本工具签名里**（F-004 第 3 步收敛）：它们属管理面字段，由人/前端通过 REST PATCH + 管理面凭据修改；agent 建单时的初始边界用 taskhub_create_task（POST 不受字段级管理面校验，路径合法性由服务端 path_guard 兜底）。")
 async def taskhub_update_task(
     task_id: str = Field(description="任务唯一标识", min_length=1),
-    title: Optional[str] = Field(default=None, description="标题"),
-    description: Optional[str] = Field(default=None, description="描述"),
-    acceptance_criteria: Optional[str] = Field(default=None, description="验收标准"),
-    due_at: Optional[str] = Field(default=None, description="截止时间 ISO 格式"),
-    labels: Optional[list] = Field(default=None, description="自定义状态标签列表"),
-    project: Optional[str] = Field(default=None, description="项目名"),
-    fallback_after: Optional[int] = Field(default=None, description="从 created_at 起算的秒数，超过后允许非目标 agent 领取"),
-    doc_paths: Optional[dict] = Field(default=None, description="文档路径映射（kind -> 路径），与现有映射合并；传空字符串可清除该类型。kind 取 spec/plan/requirement/test/architecture/api/readme/changelog"),
-    spec_path: Optional[str] = Field(default=None, description="设计文档路径（等价于 doc_paths['spec']，传空字符串清除）"),
-    plan_path: Optional[str] = Field(default=None, description="实现计划路径（等价于 doc_paths['plan']，传空字符串清除）"),
+    title: str | None = Field(default=None, description="标题"),
+    description: str | None = Field(default=None, description="描述"),
+    acceptance_criteria: str | None = Field(default=None, description="验收标准"),
+    due_at: str | None = Field(default=None, description="截止时间 ISO 格式"),
+    labels: list | None = Field(default=None, description="自定义状态标签列表"),
+    project: str | None = Field(default=None, description="项目名"),
+    fallback_after: int | None = Field(default=None, description="从 created_at 起算的秒数，超过后允许非目标 agent 领取"),
+    doc_paths: dict | None = Field(default=None, description="文档路径映射（kind -> 路径），与现有映射合并；传空字符串可清除该类型。kind 取 spec/plan/requirement/test/architecture/api/readme/changelog"),
+    spec_path: str | None = Field(default=None, description="设计文档路径（等价于 doc_paths['spec']，传空字符串清除）"),
+    plan_path: str | None = Field(default=None, description="实现计划路径（等价于 doc_paths['plan']，传空字符串清除）"),
 ) -> str:
     body = {k: v for k, v in {
         "title": title, "description": description, "acceptance_criteria": acceptance_criteria,
@@ -588,9 +591,9 @@ async def taskhub_add_subtask(
 async def taskhub_update_subtask(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     subtask_id: str = Field(description="清单项唯一标识", min_length=1),
-    status: Optional[str] = Field(default=None, description="状态：pending/in_progress/done/blocked"),
-    title: Optional[str] = Field(default=None, description="标题"),
-    order: Optional[int] = Field(default=None, description="排序号"),
+    status: str | None = Field(default=None, description="状态：pending/in_progress/done/blocked"),
+    title: str | None = Field(default=None, description="标题"),
+    order: int | None = Field(default=None, description="排序号"),
 ) -> str:
     body = {k: v for k, v in {"title": title, "order": order, "status": status}.items() if v is not None}
     return _fmt(await _request("PATCH", f"/tasks/{task_id}/subtasks/{subtask_id}", body=body))
@@ -618,7 +621,7 @@ async def taskhub_add_gitref(
 async def taskhub_add_history(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     type: str = Field(description="事件类型：created/claimed/heartbeat/result/discussion/...", max_length=50),
-    payload: Optional[str] = Field(default=None, description="JSON 字符串格式的附加数据"),
+    payload: str | None = Field(default=None, description="JSON 字符串格式的附加数据"),
 ) -> str:
     import json as _json
     try:
@@ -636,7 +639,7 @@ async def taskhub_add_discussion(
     summary: str = Field(default="", description="讨论摘要"),
     conclusions: str = Field(default="", description="结论（非空则标记 closed）"),
     stage: str = Field(default="brainstorming", description="讨论发生的研发阶段：brainstorming/design/planning/review/..."),
-    messages: Optional[list] = Field(default=None, description="消息列表：[{author, role, content}]"),
+    messages: list | None = Field(default=None, description="消息列表：[{author, role, content}]"),
 ) -> str:
     body = {"topic": topic, "agent": agent, "summary": summary,
             "conclusions": conclusions, "stage": stage, "messages": messages or []}
@@ -647,12 +650,12 @@ async def taskhub_add_discussion(
 async def taskhub_advance_stage(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     target_stage: str = Field(description="目标阶段：design/planning/ready/review/done/cancelled"),
-    spec_path: Optional[str] = Field(default=None, description="设计文档路径（进 design 必填）"),
-    plan_path: Optional[str] = Field(default=None, description="计划文档路径（进 planning 必填）"),
-    review_result: Optional[str] = Field(default=None, description="审查结论（进 done 必填）"),
-    doc_paths: Optional[dict] = Field(default=None, description="文档路径映射（kind -> 路径），可与 spec_path/plan_path 混用"),
+    spec_path: str | None = Field(default=None, description="设计文档路径（进 design 必填）"),
+    plan_path: str | None = Field(default=None, description="计划文档路径（进 planning 必填）"),
+    review_result: str | None = Field(default=None, description="审查结论（进 done 必填）"),
+    doc_paths: dict | None = Field(default=None, description="文档路径映射（kind -> 路径），可与 spec_path/plan_path 混用"),
     force: bool = Field(default=False, description="跳过文档生命周期门控（契约/文档未达 required 状态也强行推进），会留痕"),
-    evidence: Optional[dict] = Field(default=None, description="完成证据（进 done 时使用）"),
+    evidence: dict | None = Field(default=None, description="完成证据（进 done 时使用）"),
 ) -> str:
     body = {"target_stage": target_stage}
     if spec_path is not None: body["spec_path"] = spec_path
@@ -668,10 +671,10 @@ async def taskhub_advance_stage(
 async def taskhub_move_to_stage(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     target_stage: str = Field(description="目标阶段：brainstorming/design/planning/ready/implementing/review/done/cancelled"),
-    spec_path: Optional[str] = Field(default=None, description="设计文档路径（目标为 design 时必填）"),
-    plan_path: Optional[str] = Field(default=None, description="计划文档路径（目标为 planning 时必填）"),
-    review_result: Optional[str] = Field(default=None, description="审查结论（目标为 done 时必填）"),
-    doc_paths: Optional[dict] = Field(default=None, description="文档路径映射（kind -> 路径），可与 spec_path/plan_path 混用"),
+    spec_path: str | None = Field(default=None, description="设计文档路径（目标为 design 时必填）"),
+    plan_path: str | None = Field(default=None, description="计划文档路径（目标为 planning 时必填）"),
+    review_result: str | None = Field(default=None, description="审查结论（目标为 done 时必填）"),
+    doc_paths: dict | None = Field(default=None, description="文档路径映射（kind -> 路径），可与 spec_path/plan_path 混用"),
     force: bool = Field(default=False, description="跳过文档生命周期门控（契约/文档未达 required 状态也强行跳转），会留痕"),
 ) -> str:
     body = {"target_stage": target_stage}
@@ -707,14 +710,14 @@ async def taskhub_add_idea(
     title: str = Field(description="想法/需求标题", min_length=1, max_length=200),
     description: str = Field(default="", description="详细描述", max_length=4000),
     project: str = Field(default="", description="关联项目名", max_length=200),
-    labels: Optional[list] = Field(default=None, description="标签列表"),
+    labels: list | None = Field(default=None, description="标签列表"),
 ) -> str:
     return _fmt(await _request("POST", "/ideas", body={"title": title, "description": description, "project": project, "labels": labels or []}))
 
 
 @_tool(name="taskhub_ideas", title="查看想法列表", method="GET", path="/ideas", read_only=True, destructive=False, desc="列出想法/需求（含状态），供用户随时回顾和管理。")
 async def taskhub_ideas(
-    status: Optional[str] = Field(default=None, description="状态过滤：new/fermenting/formed/broken_down/archived/cancelled"),
+    status: str | None = Field(default=None, description="状态过滤：new/fermenting/formed/broken_down/archived/cancelled"),
 ) -> str:
     params = {"status": status} if status else None
     return _fmt(await _request("GET", "/ideas", params=params))
@@ -723,12 +726,12 @@ async def taskhub_ideas(
 @_tool(name="taskhub_update_idea", title="更新想法/需求", method="PATCH", path="/ideas/{idea_id}", read_only=False, destructive=False, desc="更新想法内容或推进其状态（发酵/成形/已拆解），体现需求演进过程。")
 async def taskhub_update_idea(
     idea_id: str = Field(description="想法唯一标识", min_length=1),
-    title: Optional[str] = Field(default=None, description="标题"),
-    description: Optional[str] = Field(default=None, description="描述"),
-    status: Optional[str] = Field(default=None, description="状态：new/fermenting/formed/broken_down/archived/cancelled"),
-    change_reason: Optional[str] = Field(default=None, description="变更原因（写入版本历史与变更跟踪任务）"),
-    versioning: Optional[str] = Field(default=None, description="版本策略：full/history_only/none（缺省由后端决定，默认 full）"),
-    track_change: Optional[bool] = Field(default=None, description="是否生成/更新变更跟踪任务（缺省由后端决定，默认 true）"),
+    title: str | None = Field(default=None, description="标题"),
+    description: str | None = Field(default=None, description="描述"),
+    status: str | None = Field(default=None, description="状态：new/fermenting/formed/broken_down/archived/cancelled"),
+    change_reason: str | None = Field(default=None, description="变更原因（写入版本历史与变更跟踪任务）"),
+    versioning: str | None = Field(default=None, description="版本策略：full/history_only/none（缺省由后端决定，默认 full）"),
+    track_change: bool | None = Field(default=None, description="是否生成/更新变更跟踪任务（缺省由后端决定，默认 true）"),
 ) -> str:
     if status is not None:
         return _fmt(await _request("POST", f"/ideas/{idea_id}/status", body={"status": status}))
@@ -749,7 +752,7 @@ async def taskhub_open_discussion(
     agent: str = Field(default="", description="发起方 agent 名称", max_length=64),
     stage: str = Field(default="brainstorming", description="研发阶段：brainstorming/design/planning/review/..."),
     mode: str = Field(default="free", description="讨论模式：free=自由讨论 / review=结构化评审（roles 必填）"),
-    roles: Optional[List[str]] = Field(default=None, description="评审视角标签，如 [\"产品\",\"技术\",\"红队\"]（mode=review 时必填）"),
+    roles: list[str] | None = Field(default=None, description="评审视角标签，如 [\"产品\",\"技术\",\"红队\"]（mode=review 时必填）"),
 ) -> str:
     body = {"topic": topic, "idea_id": idea_id, "task_id": task_id,
             "agent": agent, "stage": stage, "mode": mode}
@@ -760,9 +763,9 @@ async def taskhub_open_discussion(
 
 @_tool(name="taskhub_discussion_messages", title="查看讨论消息", method="GET", path="/discussions", read_only=True, destructive=False, desc="读取讨论内容（含用户提问/agent 回复），用于加入或续接讨论。")
 async def taskhub_discussion_messages(
-    discussion_id: Optional[str] = Field(default=None, description="讨论 id（或用 idea_id/task_id 拉取该对象的讨论）", max_length=64),
-    idea_id: Optional[str] = Field(default=None, description="按想法查看其全部讨论", max_length=64),
-    task_id: Optional[str] = Field(default=None, description="按任务查看其全部讨论", max_length=64),
+    discussion_id: str | None = Field(default=None, description="讨论 id（或用 idea_id/task_id 拉取该对象的讨论）", max_length=64),
+    idea_id: str | None = Field(default=None, description="按想法查看其全部讨论", max_length=64),
+    task_id: str | None = Field(default=None, description="按任务查看其全部讨论", max_length=64),
 ) -> str:
     if discussion_id:
         return _fmt(await _request("GET", f"/discussions/{discussion_id}"))
@@ -789,7 +792,7 @@ async def taskhub_close_discussion(
     discussion_id: str = Field(description="讨论唯一标识", min_length=1),
     conclusions: str = Field(description="讨论结论", max_length=4000),
     summary: str = Field(default="", description="讨论摘要"),
-    review: Optional[dict] = Field(default=None, description="结构化评审结果（mode=review 必填）：{risks:[...], divergences:'...', suggestions:'...', decisions:[...], action_items:[{id,owner,action,due,status,task_id}]}"),
+    review: dict | None = Field(default=None, description="结构化评审结果（mode=review 必填）：{risks:[...], divergences:'...', suggestions:'...', decisions:[...], action_items:[{id,owner,action,due,status,task_id}]}"),
 ) -> str:
     body = {"conclusions": conclusions, "summary": summary}
     if review is not None:
@@ -903,9 +906,9 @@ async def taskhub_log_deviation(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     description: str = Field(description="偏离描述", min_length=1),
     severity: str = Field(default="medium", description="low|medium|high|critical"),
-    spec_ref: Optional[str] = Field(default=None, description="规格引用"),
-    attempted_fix: Optional[str] = Field(default=None, description="已尝试的修复"),
-    proposed_fix: Optional[str] = Field(default=None, description="建议修复"),
+    spec_ref: str | None = Field(default=None, description="规格引用"),
+    attempted_fix: str | None = Field(default=None, description="已尝试的修复"),
+    proposed_fix: str | None = Field(default=None, description="建议修复"),
     requires_user_decision: bool = Field(default=False, description="是否需要用户决策"),
 ) -> str:
     body = {"description": description, "severity": severity,
@@ -921,9 +924,9 @@ async def taskhub_resolve_deviation(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     dev_id: str = Field(description="偏离 id，如 D-1", min_length=1),
     status: str = Field(description="accepted|rejected|fixed"),
-    resolution: Optional[str] = Field(default=None, description="解决说明"),
-    decision_ref: Optional[str] = Field(default=None, description="决策引用，如 discussion:abc"),
-    decided_by: Optional[str] = Field(default=None, description="决策人"),
+    resolution: str | None = Field(default=None, description="解决说明"),
+    decision_ref: str | None = Field(default=None, description="决策引用，如 discussion:abc"),
+    decided_by: str | None = Field(default=None, description="决策人"),
 ) -> str:
     body = {"status": status}
     if resolution is not None: body["resolution"] = resolution
@@ -937,7 +940,7 @@ async def taskhub_resolve_deviation(
 async def taskhub_confirm_high_risk(
     task_id: str = Field(description="任务唯一标识", min_length=1),
     confirmed_by: str = Field(description="确认人", min_length=1),
-    note: Optional[str] = Field(default=None, description="确认备注"),
+    note: str | None = Field(default=None, description="确认备注"),
     scope: str = Field(default="high_risk", description="确认范围"),
 ) -> str:
     body = {"confirmed_by": confirmed_by, "scope": scope}

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """task.updated_at 独立迁移（先备份、可回滚、可验证）。
 
 不触碰 material_* 表，也不改变素材门禁。
@@ -17,7 +16,6 @@ import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 TRIGGER_INSERT = """
 create trigger if not exists task_updated_at_after_insert
@@ -88,7 +86,7 @@ def check(db: Path) -> dict:
         conn.close()
 
 
-def apply(db: Path, backup: Optional[Path] = None) -> dict:
+def apply(db: Path, backup: Path | None = None) -> dict:
     pre = check(db)
     if not pre.get("db"):
         return pre

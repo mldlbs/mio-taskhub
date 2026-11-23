@@ -1,8 +1,10 @@
 import asyncio
 import json as _json
+
 from fastapi.testclient import TestClient
-from mio_taskhub.main import app
+
 from mio_taskhub.events import ws_manager
+from mio_taskhub.main import app
 
 
 def test_ws_connect_and_receive_event():
@@ -27,8 +29,9 @@ def test_broadcast_task_event_publishes():
 
     asyncio.run(_connect())
     from sqlmodel import Session
+
     from mio_taskhub.db import engine
-    from mio_taskhub.events import emit_event, broadcast_for_event
+    from mio_taskhub.events import broadcast_for_event, emit_event
     with Session(engine) as s:
         ev = emit_event(s, type="task_created", entity="task", entity_id="abc123")
         s.add(ev); s.commit()

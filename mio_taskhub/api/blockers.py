@@ -543,10 +543,13 @@ def _parse_subtask(title: str) -> dict:
     return out
 
 
-def collect_blockers(db: Session, t: Task) -> list[dict]:
+def collect_blockers(db: Session, t: Task) -> list[dict]:  # noqa: C901, PLR0912, PLR0915
     """收集该任务当前的阻塞项（只读，不改任何状态）。"""
     from mio_taskhub.api.task_stages import (  # 复用门控实现，不复制规则
-        _doc_written, _gates_upto, _requirement_approved, _stage_requirement,
+        _doc_written,
+        _gates_upto,
+        _requirement_approved,
+        _stage_requirement,
     )
     from mio_taskhub.completion_gate import _unresolved_deviations
 
@@ -748,15 +751,13 @@ def collect_blockers(db: Session, t: Task) -> list[dict]:
             nxt_cn = _cn(_STAGE_CN, next_stage)
             if not cur:
                 title = f"{name}未登记状态"
-                state_desc = "文档状态这一栏没有记录"
                 cause = f"「{name}」的文件已经在任务里登记、也确实写出来了，但 doc_statuses 里没有它的状态记录。"
             elif cur == "failed":
                 title = f"{name}评审未通过"
-                state_desc = "上次评审结论为「未通过」"
                 cause = f"「{name}」上一次评审的结论是「未通过」，之后没有改到「{want}」。"
             else:
                 title = f"{name}未到「{want}」"
-                state_desc = f"当前状态是「{_cn(_DOC_STATE_CN, cur)}」"
+                f"当前状态是「{_cn(_DOC_STATE_CN, cur)}」"
                 cause = f"「{name}」的文件已经写出来了，但状态还停在「{_cn(_DOC_STATE_CN, cur)}」。"
             gate_blocked = True
             items.append(_item(

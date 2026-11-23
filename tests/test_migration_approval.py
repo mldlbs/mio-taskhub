@@ -1,7 +1,5 @@
-# -*- coding: utf-8 -*-
 """迁移审批：服务端绑定、签名、过期、伪造。"""
 import sqlite3
-from datetime import datetime, timezone
 
 from sqlalchemy import create_engine
 from sqlmodel import Session

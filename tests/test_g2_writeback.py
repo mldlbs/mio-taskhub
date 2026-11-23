@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """T2.5 实验结论回写定位文档单测。"""
 from pathlib import Path
 

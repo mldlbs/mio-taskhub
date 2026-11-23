@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """harness 单元测试（T1.2 DoD：summarize 自动判据 0 假阳性/0 假阴性）。
 
 覆盖：
@@ -13,7 +12,6 @@ import json
 import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -22,9 +20,9 @@ REPO = Path(__file__).resolve().parent.parent
 HARNESS = REPO / "experiments" / "harness"
 sys.path.insert(0, str(HARNESS))
 
-import profiles  # noqa: E402
-import run_m  # noqa: E402
-import summarize  # noqa: E402
+import profiles
+import run_m
+import summarize
 
 PY = str(REPO / ".venv" / "Scripts" / "python.exe")
 if not Path(PY).exists():
@@ -430,7 +428,6 @@ def test_s4b_refused_even_with_allow_flag(tmp_path):
 
 def test_s4b_scenarios_filtered_without_flag():
     """run_m 场景列表过滤逻辑：无 --allow-s4b 时 S4b 被剔除。"""
-    import argparse
     # 复现 cmd_run 的过滤分支（不跑探针）
     scen_list = ["S1", "S2", "S4b"]
     allow_s4b = False
@@ -468,8 +465,8 @@ def test_hub_instance_dual_independence(tmp_path):
     assert "hub_T.db" in t.db
     assert "hub_C.db" in c.db
     # 档位 env 独立（T 有 probe 阈值，C 无；或反之）
-    t_probe = t.env.get("MIO_TASKHUB_RATCHET_STRICT")
-    c_probe = c.env.get("MIO_TASKHUB_RATCHET_STRICT")
+    t.env.get("MIO_TASKHUB_RATCHET_STRICT")
+    c.env.get("MIO_TASKHUB_RATCHET_STRICT")
     # 至少 env 结构完整
     assert "MIO_TASKHUB_DB" in t.env
     assert "MIO_TASKHUB_DB" in c.env

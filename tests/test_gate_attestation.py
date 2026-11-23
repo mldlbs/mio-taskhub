@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """门禁报告与代码/数据库绑定校验。"""
 import json
 from pathlib import Path

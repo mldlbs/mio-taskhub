@@ -1,11 +1,10 @@
-# -*- coding: utf-8 -*-
 """T4.3/P1-OBS 执行链：任务移到终态时应关闭其活跃 run。"""
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from mio_taskhub.main import app
 from mio_taskhub.db import engine
-from mio_taskhub.models import Task, TaskState, Run, RunState
+from mio_taskhub.main import app
+from mio_taskhub.models import Run, RunState
 
 client = TestClient(app)
 

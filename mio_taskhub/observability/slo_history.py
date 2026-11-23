@@ -2,13 +2,12 @@
 
 Periodically captures SLI/SLO metrics and stores them for dashboard charts.
 """
-import json
-import time
 import logging
 import threading
-from dataclasses import dataclass
-from typing import Optional
-from sqlmodel import SQLModel, Field, Session, Column, JSON, text
+import time
+
+from sqlmodel import JSON, Column, Field, Session, SQLModel, text
+
 from mio_taskhub.db import engine
 from mio_taskhub.observability.metrics import render_metrics
 
@@ -18,22 +17,22 @@ _snapshot_lock = threading.Lock()
 
 
 class SLOSnapshot(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     ts: float = Field(index=True)  # unix timestamp
-    availability: Optional[float] = None
-    error_budget_remaining: Optional[float] = None
-    latency_avg_ms: Optional[float] = None
-    success_rate: Optional[float] = None
-    failure_rate: Optional[float] = None
-    throughput_24h: Optional[int] = None
-    task_total: Optional[int] = None
-    cpu_percent: Optional[float] = None
-    memory_percent: Optional[float] = None
-    db_pool_utilization: Optional[float] = None
-    extra: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    availability: float | None = None
+    error_budget_remaining: float | None = None
+    latency_avg_ms: float | None = None
+    success_rate: float | None = None
+    failure_rate: float | None = None
+    throughput_24h: int | None = None
+    task_total: int | None = None
+    cpu_percent: float | None = None
+    memory_percent: float | None = None
+    db_pool_utilization: float | None = None
+    extra: dict | None = Field(default=None, sa_column=Column(JSON))
 
 
-def _parse_val(lines: str, metric: str) -> Optional[float]:
+def _parse_val(lines: str, metric: str) -> float | None:
     for line in lines.split("\n"):
         if line.startswith("#") or not line.strip():
             continue
@@ -64,17 +63,16 @@ def capture_slo_snapshot():
             memory_percent=_parse_val(lines, "taskhub_process_memory_percent"),
             db_pool_utilization=_parse_val(lines, "taskhub_db_pool_utilization"),
         )
-        with _snapshot_lock:
-            with Session(engine) as db:
-                db.add(snap)
-                db.commit()
-                # Keep last 7 days (1 snapshot/5min = 2016 rows)
-                db.exec(text("""
+        with _snapshot_lock, Session(engine) as db:
+            db.add(snap)
+            db.commit()
+            # Keep last 7 days (1 snapshot/5min = 2016 rows)
+            db.exec(text("""
                     DELETE FROM slosnapshot WHERE id NOT IN (
                         SELECT id FROM slosnapshot ORDER BY ts DESC LIMIT 2016
                     )
                 """))
-                db.commit()
+            db.commit()
     except Exception as e:
         logger.debug("SLO snapshot capture failed: %s", e)
 

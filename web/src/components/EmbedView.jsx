@@ -6,6 +6,7 @@ import FlowView from './FlowView'
 
 const STAGE_FLOW = ['brainstorming', 'design', 'planning', 'ready', 'implementing', 'review', 'done']
 
+// eslint-disable-next-line complexity
 export default function EmbedView() {
   const [tasks, setTasks] = useState([])
   const [err, setErr] = useState(null)

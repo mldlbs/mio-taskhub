@@ -7,9 +7,10 @@
 import os
 import uuid
 from datetime import datetime, timezone
+
 from sqlmodel import Session, select
 
-from mio_taskhub.models import TaskTemplate, TaskTemplateVersion, ScheduledJob, ScheduledJobActionType
+from mio_taskhub.models import ScheduledJob, ScheduledJobActionType, TaskTemplate, TaskTemplateVersion
 
 
 def _utcnow():

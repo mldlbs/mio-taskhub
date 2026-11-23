@@ -3,12 +3,10 @@
 Backups are stored under ``~/.mio_taskhub/backups/`` (or ``$MIO_TASKHUB_DB/../backups/``).
 Retention: hourly × 24 + daily × 7 = 31 files max; oldest pruned automatically.
 """
+import logging
 import os
-import shutil
 import sqlite3
 import threading
-import time
-import logging
 from datetime import datetime
 
 logger = logging.getLogger("mio_taskhub.ops.backup")

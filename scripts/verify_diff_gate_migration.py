@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """窄门禁迁移幂等性验证（d468e633 FR-10）。
 
 场景：生产库尚未迁移（没有新列）→ 启动 hub → 迁移应：
@@ -107,6 +106,7 @@ def main() -> int:
 
     print("\n=== 迁移后新建任务默认不受门禁约束 ===")
     from sqlmodel import Session
+
     from mio_taskhub.models import Task as _Task
     with Session(engine) as s:
         s.add(_Task(id="post-migration-new", title="迁移后新建"))

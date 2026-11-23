@@ -3,13 +3,15 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
-from mio_taskhub.main import app
+from sqlmodel import Session
+
 from mio_taskhub.db import engine
+from mio_taskhub.main import app
 from mio_taskhub.models import Task
 from mio_taskhub.observability.metrics import (
-    DEFAULT_TERMINAL_WINDOW_DAYS, _terminal_window_days,
+    DEFAULT_TERMINAL_WINDOW_DAYS,
+    _terminal_window_days,
 )
-from sqlmodel import Session
 
 client = TestClient(app, raise_server_exceptions=False)
 
@@ -254,7 +256,7 @@ def test_primary_rate_null_labels_not_excluded():
 
 def test_stalled_metric_excludes_queued():
     """P1-OBS：stalled 指标只计 CLAIMED/RUNNING/RETRYING，不含正常排队的 QUEUED。"""
-    from mio_taskhub.models import TaskState, TaskStage
+    from mio_taskhub.models import TaskStage, TaskState
     with Session(engine) as s:
         s.add(Task(id="stall-q", title="queued", state=TaskState.QUEUED,
                    stage=TaskStage.READY,

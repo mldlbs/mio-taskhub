@@ -1,10 +1,8 @@
-# -*- coding: utf-8 -*-
 """P3 采集调度：按来源间隔/日上限运行适配器，单源失败隔离。"""
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import timedelta
 
 from sqlalchemy import func
 from sqlmodel import Session, select
@@ -56,7 +54,7 @@ class MaterialIngestJob(BackgroundWorker):
         for key in due:
             try:
                 self._run_source(key)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning("materials source %s failed: %s", key, exc)
                 self._mark_error(key, str(exc))
 
@@ -70,7 +68,7 @@ class MaterialIngestJob(BackgroundWorker):
         ).scalar_one() or 0)
 
     def _run_source(self, key: str) -> None:
-        now = _now()
+        _now()
         with Session(engine) as s:
             src = s.get(MaterialSource, key)
             if src is None or src.mode != "active":
@@ -103,8 +101,8 @@ class MaterialIngestJob(BackgroundWorker):
             stats_rejected += stats.rejected
         self._finish(key, batch.cursor, "partial" if stats_rejected else "ok", None)
 
-    def _finish(self, key: str, cursor: Optional[str], status: str,
-                error: Optional[str]) -> None:
+    def _finish(self, key: str, cursor: str | None, status: str,
+                error: str | None) -> None:
         with Session(engine) as s:
             src = s.get(MaterialSource, key)
             if src is None:

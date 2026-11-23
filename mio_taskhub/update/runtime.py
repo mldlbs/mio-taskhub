@@ -1,11 +1,11 @@
-# -*- coding: utf-8 -*-
 """运行时 sentinel（更新健康确认依据）+ 启动残留恢复。"""
 import json
 import os
 import time
 from pathlib import Path
 
-from mio_taskhub.update.apply import default_runtime_path, recover_residual as _recover
+from mio_taskhub.update.apply import default_runtime_path
+from mio_taskhub.update.apply import recover_residual as _recover
 
 
 def write_runtime_state(version: str, port: int, path=None) -> None:
@@ -28,7 +28,7 @@ def recover_residual(install_dir=None):
     target = install_dir or str(_id())
     try:
         return _recover(target)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return []
 
 

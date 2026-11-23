@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """latest.json Manifest 契约 + 语义化版本比较。
 
 只做纯逻辑，不触网（触网在 source.py）。解析/校验失败一律抛 ManifestError
@@ -6,7 +5,6 @@
 """
 import re
 from dataclasses import dataclass, field
-from typing import Optional, Tuple
 from urllib.parse import urlparse
 
 SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.\-]+))?$")
@@ -20,7 +18,7 @@ class ManifestError(ValueError):
     """Manifest 无效。"""
 
 
-def parse_version(s: str) -> Optional[Tuple[int, int, int, int, str]]:
+def parse_version(s: str) -> tuple[int, int, int, int, str] | None:
     """'1.2.3[-pre]' → (major, minor, patch, is_release, pre)。
 
     is_release: 正式版=1，预发布=0（故 1.0.0 > 1.0.0-rc.1）。
@@ -79,7 +77,7 @@ class UpdateManifest:
     assets: list = field(default_factory=list)
     weak_verify: bool = False
 
-    def asset_for(self, os_name: str = "windows", arch: str = "x64") -> Optional[Asset]:
+    def asset_for(self, os_name: str = "windows", arch: str = "x64") -> Asset | None:
         for a in self.assets:
             if a.os == os_name and a.arch == arch:
                 return a

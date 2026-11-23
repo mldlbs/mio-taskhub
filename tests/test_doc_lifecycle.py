@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """文档生命周期状态机回归测试（doc_lifecycle.py）。
 
 按用户定义的 8 类文档角色表：PRD→requirement、Spec、ADR→decision、Plan、
@@ -6,8 +5,8 @@ Task（即任务本身 state 机，无文档）、Test、Release→milestone、I
 """
 from fastapi.testclient import TestClient
 
-from mio_taskhub.main import app
 from mio_taskhub.doc_lifecycle import DOC_LIFECYCLE
+from mio_taskhub.main import app
 
 client = TestClient(app)
 
@@ -104,15 +103,14 @@ def test_status_requires_document_first(tmp_path):
 
 def test_lifecycle_kind_validation_and_coverage():
     """无生命周期 kind 400；非法状态 422；覆盖用户 8 行中的 7 行 + 接口契约 api。"""
-    ws = None  # kind 校验在 404 之后，需要真实任务
-    from fastapi.testclient import TestClient as _TC  # noqa: F401
+
     from mio_taskhub.doc_lifecycle import INITIAL_STATE
     # 用户表的 8 行：Task 行映射任务本身 state 机，其余 7 行 + task = 8
     # 另加 api（接口契约，2026-09-17 纳入，与 spec 同形）
     assert set(DOC_LIFECYCLE) == set(INITIAL_STATE) == {
         'requirement', 'spec', 'api', 'decision', 'plan', 'test', 'milestone', 'incident'}
     # 线性状态机无回边
-    for kind, lc in DOC_LIFECYCLE.items():
-        for src, dsts in lc['transitions'].items():
+    for _kind, lc in DOC_LIFECYCLE.items():
+        for _src, dsts in lc['transitions'].items():
             for d in dsts:
                 assert lc['transitions'].get(d) is not None or d in lc['states']

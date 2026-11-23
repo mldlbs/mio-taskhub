@@ -21,6 +21,7 @@ import { STAGE_META } from '../constants'
 import { api } from '../api'
 import { REVIEW_PRESETS } from '../stageDocs'
 
+// eslint-disable-next-line complexity
 export default function StageAdvanceDialog({ task, nextStage, spec, onCancel, onConfirm, busy, error }) {
   const [value, setValue] = useState(() => spec?.initial || '')
   const inputRef = useRef(null)
@@ -70,6 +71,7 @@ export default function StageAdvanceDialog({ task, nextStage, spec, onCancel, on
   // 后端可能返回的校验错误由外部传入，显示在浮层内部
   const shownError = localErr || error || ''
 
+  // eslint-disable-next-line complexity
   const submit = (e) => {
     e?.preventDefault?.()
     const v = value.trim()

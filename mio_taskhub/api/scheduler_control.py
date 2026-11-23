@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Observer 采集调度器状态与一键激活（素材生产链路的运维面）。
 
 背景（2026-10-10）：观察层素材的真正生产者是 `observer serve`（research scheduler，
@@ -26,7 +25,6 @@ import shutil
 import subprocess
 from datetime import date, datetime
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from fastapi import APIRouter
 
@@ -44,7 +42,7 @@ _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _HERMES_NODE = r"C:\Users\admin\AppData\Local\hermes\node\node.exe"
 
 
-def _node_exe() -> Optional[str]:
+def _node_exe() -> str | None:
     """node 可执行文件：env 覆盖 > PATH > hermes 内置。"""
     env = (os.environ.get("MIO_NODE_EXE") or "").strip()
     if env and Path(env).is_file():
@@ -55,7 +53,7 @@ def _node_exe() -> Optional[str]:
     return _HERMES_NODE if Path(_HERMES_NODE).is_file() else None
 
 
-def _cli_cmd(base_args: List[str]) -> Optional[List[str]]:
+def _cli_cmd(base_args: list[str]) -> list[str] | None:
     """基于 mio_runtime.mio_cli() 组装完整命令（node 直调优先）。"""
     cli = mio_runtime.mio_cli()
     if not cli:
@@ -72,7 +70,7 @@ def _cli_cmd(base_args: List[str]) -> Optional[List[str]]:
 
 # ── 进程扫描 ──────────────────────────────────────────────
 
-def _node_processes() -> List[Dict]:
+def _node_processes() -> list[dict]:
     """扫描 node.exe 进程，返回 [{pid, cmdline}]。wmic 优先，PowerShell 兜底。"""
     try:
         r = subprocess.run(
@@ -91,7 +89,7 @@ def _node_processes() -> List[Dict]:
                     out.append({"pid": int(parts[2].strip()), "cmdline": parts[1]})
             if out or "No Instance(s) Available" in r.stdout:
                 return out
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     # 兜底：PowerShell Get-CimInstance
     try:
@@ -107,11 +105,11 @@ def _node_processes() -> List[Dict]:
             if pid.strip().isdigit():
                 out.append({"pid": int(pid.strip()), "cmdline": cmd.strip()})
         return out
-    except Exception:  # noqa: BLE001
+    except Exception:
         return []
 
 
-def _classify(procs: List[Dict]) -> Dict[str, Optional[Dict]]:
+def _classify(procs: list[dict]) -> dict[str, dict | None]:
     serve = daemon = None
     for p in procs:
         cmd = p.get("cmdline") or ""
@@ -127,22 +125,22 @@ def _classify(procs: List[Dict]) -> Dict[str, Optional[Dict]]:
 
 # ── 数据新鲜度 ────────────────────────────────────────────
 
-def _today_data(base: Path) -> Dict:
+def _today_data(base: Path) -> dict:
     """今日 observations 落盘情况。mtime 是「最近采集」的地面真相。"""
     f = base / "observations" / f"{date.today().isoformat()}.json"
-    out: Dict = {"file": str(f), "exists": f.is_file(), "count": 0,
+    out: dict = {"file": str(f), "exists": f.is_file(), "count": 0,
                  "by_source": {}, "last_write_at": None, "minutes_since_write": None}
     if not f.is_file():
         return out
     try:
         r = json.loads(f.read_text(encoding="utf-8", errors="replace"))
         items = r.get("observations") or []
-        by_src: Dict[str, int] = {}
+        by_src: dict[str, int] = {}
         for it in items:
             if isinstance(it, dict):
                 by_src[str(it.get("source") or "?")] = by_src.get(str(it.get("source") or "?"), 0) + 1
         out.update(count=len(items), by_source=by_src)
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     mtime = datetime.fromtimestamp(f.stat().st_mtime)
     out["last_write_at"] = mtime.isoformat(timespec="seconds")
@@ -150,13 +148,13 @@ def _today_data(base: Path) -> Dict:
     return out
 
 
-def _status() -> Dict:
+def _status() -> dict:
     procs = _node_processes()
     found = _classify(procs)
     base = Path(mio_runtime.observer_base_dir())
     data = _today_data(base)
 
-    def info(p: Optional[Dict]) -> Dict:
+    def info(p: dict | None) -> dict:
         return {"running": p is not None, "pid": p["pid"] if p else None,
                 "cmdline": (p.get("cmdline") or "")[:200] if p else None}
 
@@ -186,9 +184,9 @@ def scheduler_status():
 def scheduler_activate():
     """一键激活：补启缺失的 serve / daemon，已在跑的不动（幂等）。"""
     found = _classify(_node_processes())
-    started: List[str] = []
-    already: List[str] = []
-    errors: List[str] = []
+    started: list[str] = []
+    already: list[str] = []
+    errors: list[str] = []
     base = Path(mio_runtime.observer_base_dir())
     log_file = base / "serve.log"
 
@@ -209,11 +207,12 @@ def scheduler_activate():
             kwargs: dict = {"creationflags": _DETACHED, "cwd": str(base.parent),
                             "stdin": subprocess.DEVNULL}
             if name == "serve":
-                kwargs["stdout"] = open(log_file, "ab")
+                # 句柄交给子进程长期持有，父进程不可关闭 → SIM115 豁免
+                kwargs["stdout"] = open(log_file, "ab")  # noqa: SIM115
                 kwargs["stderr"] = subprocess.STDOUT
             p = subprocess.Popen(cmd, **kwargs)
             started.append(f"{name} (pid {p.pid})")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             errors.append(f"{name}: {e}")
 
     return {"started": started, "already_running": already, "errors": errors,
@@ -226,7 +225,7 @@ def _kill(pid: int) -> bool:
                            capture_output=True, text=True, timeout=10,
                            creationflags=_NO_WINDOW)
         return r.returncode == 0
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False
 
 

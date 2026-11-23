@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """payload（绿色版 zip）的定位、解压与校验。
 
 payload 契约：zip **根目录**下直接是 `TaskHub.exe` 与 `_internal/...`。
@@ -99,10 +98,10 @@ def _embedded_zip():
         try:
             from .install import _EMBEDDED_DIRS
             _EMBEDDED_DIRS.append(d)
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
         return embedded.extract_embedded_payload(exe, d)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
 

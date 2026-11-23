@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """T1.4 first_start_stats（D1 决策门数据采集）单测。
 
 覆盖：
@@ -18,7 +17,7 @@ REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "scripts" / "first_start_stats.py"
 sys.path.insert(0, str(REPO / "scripts"))
 
-import first_start_stats  # noqa: E402
+import first_start_stats
 
 PY = str(REPO / ".venv" / "Scripts" / "python.exe")
 if not Path(PY).exists():

@@ -1,19 +1,20 @@
-# -*- coding: utf-8 -*-
 """UpdateService：更新状态机与编排（单例）。
 
 状态：idle→checking→up_to_date|needs_manual|available|dismissed|check_failed
       available→downloading→ready→applying→done|failed
 """
+import contextlib
 import json
 import os
 import threading
 import time
+from collections.abc import Callable
 from enum import Enum
 from pathlib import Path
-from typing import Callable
 
-from mio_taskhub.version import __version__, install_dir as _version_install_dir
 from mio_taskhub.update.manifest import is_newer, parse_version
+from mio_taskhub.version import __version__
+from mio_taskhub.version import install_dir as _version_install_dir
 
 
 def _below_min_supported(current: str, min_supported: str) -> bool:
@@ -53,12 +54,12 @@ def _default_update_dir() -> Path:
 
 
 class UpdateService:
-    def __init__(self, source=None, downloader: Callable = None,
-                 install_dir=None, current_version: str = None,
-                 prefs_path=None, update_dir=None, apply_runner: Callable = None,
-                 on_event: Callable[[dict], None] = None):
-        from mio_taskhub.update.source import default_source
+    def __init__(self, source=None, downloader: Callable | None = None,
+                 install_dir=None, current_version: str | None = None,
+                 prefs_path=None, update_dir=None, apply_runner: Callable | None = None,
+                 on_event: Callable[[dict], None] | None = None):
         from mio_taskhub.update.downloader import download as _download
+        from mio_taskhub.update.source import default_source
         self.source = source or default_source()
         self._download = downloader or (
             lambda url, dest, sha, size=None, progress=None:
@@ -84,7 +85,7 @@ class UpdateService:
         try:
             return str(json.loads(self.prefs_path.read_text(encoding="utf-8"))
                        .get("dismissed_version") or "")
-        except Exception:  # noqa: BLE001
+        except Exception:
             return ""
 
     def _save_dismissed(self) -> None:
@@ -98,10 +99,8 @@ class UpdateService:
 
     def _emit(self, kind: str) -> None:
         if self._on_event:
-            try:
+            with contextlib.suppress(Exception):
                 self._on_event({"kind": kind, "status": self.status()})
-            except Exception:  # noqa: BLE001
-                pass
 
     # ── 状态 ──
     def status(self) -> dict:
@@ -130,7 +129,7 @@ class UpdateService:
             self._error = ""
         try:
             m = self.source.fetch_manifest()
-        except Exception as e:  # noqa: BLE001 —— 静默失败
+        except Exception as e:
             with self._lock:
                 self._state = UpdateState.CHECK_FAILED
                 self._error = str(e)
@@ -144,9 +143,7 @@ class UpdateService:
             if asset is None:
                 self._state = UpdateState.CHECK_FAILED
                 self._error = "manifest 无 windows/x64 资产"
-            elif m.channel.strip().lower() != _configured_channel():
-                self._state = UpdateState.UP_TO_DATE
-            elif not is_newer(self.current, m.version):
+            elif m.channel.strip().lower() != _configured_channel() or not is_newer(self.current, m.version):
                 self._state = UpdateState.UP_TO_DATE
             elif _below_min_supported(self.current, m.min_supported):
                 self._state = UpdateState.NEEDS_MANUAL
@@ -183,7 +180,7 @@ class UpdateService:
         try:
             self._download(url, dest, self._asset.sha256, size=self._asset.size,
                            progress=self._on_progress)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             err = str(e)
             # 主直链（github.com）失败 → 尝试 api.github.com 资产 URL 兜底
             fb = self._fallback_url(url)
@@ -192,7 +189,7 @@ class UpdateService:
                     self._download(fb, dest, self._asset.sha256,
                                    size=self._asset.size, progress=self._on_progress)
                     err = ""           # 兜底成功
-                except Exception as e2:  # noqa: BLE001
+                except Exception as e2:
                     err = "%s；API 兜底也失败：%s" % (err, e2)
         if err:
             with self._lock:
@@ -212,7 +209,7 @@ class UpdateService:
             from mio_taskhub.update.source import release_asset_api_url
             return release_asset_api_url(primary,
                                          opener=getattr(self.source, "_opener", None))
-        except Exception:  # noqa: BLE001
+        except Exception:
             return None
 
     def _on_progress(self, done: int, total: int) -> None:
@@ -244,7 +241,7 @@ class UpdateService:
             return self.status()
         try:
             rc = self._apply_runner(self.install, zip_path, self._manifest, os.getpid())
-        except Exception as e:  # noqa: BLE001 —— 触发失败不得卡死 applying / 抛 500
+        except Exception as e:
             with self._lock:
                 self._state = UpdateState.FAILED
                 self._error = "触发更新失败：%s" % e
@@ -267,10 +264,8 @@ class UpdateService:
         def _loop():
             time.sleep(delay)
             while True:
-                try:
+                with contextlib.suppress(Exception):
                     self.check()
-                except Exception:  # noqa: BLE001
-                    pass
                 time.sleep(max(60.0, interval_h * 3600.0))
 
         self._thread = threading.Thread(target=_loop, name="update-check", daemon=True)
@@ -289,7 +284,7 @@ def _on_update_event(ev: dict) -> None:
         broadcast_json({"type": "update_status",
                         "kind": (ev or {}).get("kind", ""),
                         "status": (ev or {}).get("status") or {}})
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
 
 

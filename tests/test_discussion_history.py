@@ -1,8 +1,9 @@
 # tests/test_discussion_history.py
 """讨论关闭写 kind=discussion 轨迹测试"""
 from fastapi.testclient import TestClient
-from mio_taskhub.main import app
+
 from mio_taskhub.db import init_db
+from mio_taskhub.main import app
 
 
 def test_close_discussion_writes_history():

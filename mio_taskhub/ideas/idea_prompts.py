@@ -1,7 +1,6 @@
 """Idea templates for structured idea generation and quick capture."""
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Any
-import json
+from typing import Any
 
 
 @dataclass
@@ -12,9 +11,9 @@ class IdeaTemplate:
     description: str
     category: str
     icon: str
-    fields: List[Dict[str, Any]]
+    fields: list[dict[str, Any]]
     prompt: str
-    tags: List[str]
+    tags: list[str]
 
 
 DEFAULT_TEMPLATES = [
@@ -128,7 +127,7 @@ DEFAULT_TEMPLATES = [
 ]
 
 
-def get_template_by_id(template_id: str) -> Optional[IdeaTemplate]:
+def get_template_by_id(template_id: str) -> IdeaTemplate | None:
     """Get template by ID."""
     for t in DEFAULT_TEMPLATES:
         if t.id == template_id:
@@ -136,17 +135,17 @@ def get_template_by_id(template_id: str) -> Optional[IdeaTemplate]:
     return None
 
 
-def get_templates_by_category(category: str) -> List[IdeaTemplate]:
+def get_templates_by_category(category: str) -> list[IdeaTemplate]:
     """Get templates filtered by category."""
     return [t for t in DEFAULT_TEMPLATES if t.category == category]
 
 
-def get_all_templates() -> List[IdeaTemplate]:
+def get_all_templates() -> list[IdeaTemplate]:
     """Get all templates."""
     return DEFAULT_TEMPLATES
 
 
-def render_template_prompt(template: IdeaTemplate, values: Dict[str, str]) -> str:
+def render_template_prompt(template: IdeaTemplate, values: dict[str, str]) -> str:
     """Render template prompt with provided values."""
     prompt = template.prompt
     for field in template.fields:
@@ -156,14 +155,14 @@ def render_template_prompt(template: IdeaTemplate, values: Dict[str, str]) -> st
     return prompt
 
 
-def template_to_api_payload(template: IdeaTemplate, values: Dict[str, str]) -> Dict[str, Any]:
+def template_to_api_payload(template: IdeaTemplate, values: dict[str, str]) -> dict[str, Any]:
     """Convert template values to API payload for idea creation."""
     desc_parts = []
     for field in template.fields:
         key = field["key"]
-        if key in values and values[key]:
+        if values.get(key):
             desc_parts.append(f"{field['label']}：\n{values[key]}")
-    
+
     return {
         "title": values.get("title", template.name),
         "description": "\n\n".join(desc_parts) if desc_parts else "",

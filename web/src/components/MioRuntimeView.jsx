@@ -17,6 +17,7 @@ const clip = (s, n = 200) => {
   return str.length > n ? str.slice(0, n) + '…' : str
 }
 
+// eslint-disable-next-line complexity, max-lines-per-function
 export default function MioRuntimeView() {
   const [st, setSt] = useState(null)
   const [traces, setTraces] = useState([])

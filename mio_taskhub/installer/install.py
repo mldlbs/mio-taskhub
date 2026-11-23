@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """安装 / 卸载的**核心动作**（与 UI 解耦，便于单测）。
 
 安装：解压 payload → 校验 → 清理旧进程 → 写注册表 → 建快捷方式 → 写 install.json
@@ -6,6 +5,7 @@
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -67,6 +67,7 @@ def _extract_embedded():
     """
     try:
         import sys
+
         from . import embedded
 
         exe = sys.executable if getattr(sys, "frozen", False) else None
@@ -79,7 +80,7 @@ def _extract_embedded():
         d = tempfile.mkdtemp(prefix="mio_embedded_")
         _EMBEDDED_DIRS.append(d)
         return embedded.extract_embedded_payload(exe, d)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         _log_step("解出内嵌安装包", False, repr(e))
         return None
 
@@ -89,10 +90,8 @@ def _cleanup_embedded():
     from .paths import force_rmtree
     while _EMBEDDED_DIRS:
         d = _EMBEDDED_DIRS.pop()
-        try:
+        with contextlib.suppress(Exception):
             force_rmtree(d)
-        except Exception:  # noqa: BLE001
-            pass
 
 
 def _log_step(name: str, ok: bool, detail: str = "") -> None:
@@ -105,7 +104,7 @@ def _log_step(name: str, ok: bool, detail: str = "") -> None:
         with open(log_path("installer.log"), "a", encoding="utf-8") as f:
             f.write("[%s] %s%s\n" % ("OK" if ok else "!!", name,
                                      (" — " + detail) if detail else ""))
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
 
 
@@ -127,7 +126,7 @@ def install(payload_zip=None, install_dir=None, create_shortcuts=True,
         _cleanup_embedded()
 
 
-def _install_impl(payload_zip=None, install_dir=None, create_shortcuts=True,
+def _install_impl(payload_zip=None, install_dir=None, create_shortcuts=True,  # noqa: C901
                   register=True, uninstall_exe=None, progress=None,
                   allow_overwrite=False) -> InstallResult:
     """install() 的真正实现（外层 install() 负责 finally 清理）。"""
@@ -135,10 +134,8 @@ def _install_impl(payload_zip=None, install_dir=None, create_shortcuts=True,
 
     def _notify(msg):
         if progress:
-            try:
+            with contextlib.suppress(Exception):
                 progress(msg)
-            except Exception:  # noqa: BLE001
-                pass
 
     install_dir = Path(install_dir or default_install_dir())
     res.install_dir = str(install_dir)
@@ -158,7 +155,6 @@ def _install_impl(payload_zip=None, install_dir=None, create_shortcuts=True,
     # **优先用内嵌的安装包**（单文件安装包形态）：
     # setup.exe 自身尾部就带着 payload zip → 不需要用户另外下载一个文件。
     # 没有内嵌时才退回「找同目录 / 搜索路径」。
-    embedded_dir = None
     try:
         zip_path = payload_mod.find_payload(payload_zip)
     except FileNotFoundError:
@@ -194,7 +190,7 @@ def _install_impl(payload_zip=None, install_dir=None, create_shortcuts=True,
     _notify("正在解压程序文件…")
     try:
         prefix = payload_mod.extract_payload(zip_path, staging)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         force_rmtree(staging)
         res.step("解压程序文件", False, str(e))
         res.message = "解压失败：%s" % e
@@ -210,12 +206,11 @@ def _install_impl(payload_zip=None, install_dir=None, create_shortcuts=True,
     res.step("校验程序文件", True, msg)
 
     install_dir.parent.mkdir(parents=True, exist_ok=True)
-    if install_dir.exists():
-        if not force_rmtree(install_dir):
-            res.step("写入安装目录", False, "无法清空旧目录：%s" % install_dir)
-            res.message = "无法清空旧安装目录，请手动关闭程序后重试"
-            force_rmtree(staging)
-            return res
+    if install_dir.exists() and not force_rmtree(install_dir):
+        res.step("写入安装目录", False, "无法清空旧目录：%s" % install_dir)
+        res.message = "无法清空旧安装目录，请手动关闭程序后重试"
+        force_rmtree(staging)
+        return res
     try:
         os.rename(str(staging), str(install_dir))
     except OSError as e:
@@ -317,7 +312,7 @@ def _write_manifest(install_dir) -> None:
 def read_manifest(install_dir) -> dict:
     try:
         return json.loads(install_manifest_path(install_dir).read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
+    except Exception:
         return {}
 
 
@@ -360,10 +355,7 @@ def looks_like_install_dir(path) -> bool:
     path = Path(path)
     if not path.is_dir():
         return False
-    for name in (APP_EXE_NAME, "install.json"):
-        if (path / name).exists():
-            return True
-    return False
+    return any((path / name).exists() for name in (APP_EXE_NAME, "install.json"))
 
 
 def _is_self_inside(install_dir) -> bool:
@@ -372,7 +364,7 @@ def _is_self_inside(install_dir) -> bool:
         exe = Path(sys.executable).resolve() if getattr(sys, "frozen", False) \
             else Path(__file__).resolve()
         return str(exe).lower().startswith(str(Path(install_dir).resolve()).lower())
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False
 
 
@@ -423,17 +415,15 @@ def _self_delete_dir(install_dir) -> bool:
             creationflags=(getattr(subprocess, "CREATE_NO_WINDOW", 0)
                            | getattr(subprocess, "DETACHED_PROCESS", 0)),
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         if bat:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(bat)
-            except OSError:
-                pass
         return False
     return True
 
 
-def uninstall(install_dir=None, remove_data=False, remove_shortcuts=True,
+def uninstall(install_dir=None, remove_data=False, remove_shortcuts=True,  # noqa: C901
               remove_registry=True, progress=None) -> UninstallResult:
     """执行卸载。remove_data=True 时一并删除用户数据目录（默认保留）。"""
     res = UninstallResult()
@@ -441,10 +431,8 @@ def uninstall(install_dir=None, remove_data=False, remove_shortcuts=True,
 
     def _notify(msg):
         if progress:
-            try:
+            with contextlib.suppress(Exception):
                 progress(msg)
-            except Exception:  # noqa: BLE001
-                pass
 
     # **安全闸门**：只允许卸载「看起来真是安装目录」的路径。
     # 卸载会 rmtree 整个目录 —— 判据错了就是把用户的数据文件夹删了。

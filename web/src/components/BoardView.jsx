@@ -30,6 +30,7 @@ const SORTERS = {
     || String(b.created_at || '').localeCompare(String(a.created_at || '')),
 }
 
+// eslint-disable-next-line complexity
 export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, focus, groupBy = 'state' }) {
   const [dragging, setDragging] = useState(null)
   const [overPos, setOverPos] = useState(null)
@@ -159,6 +160,7 @@ export default function BoardView({ tasks, onMove, onCancel, onOpen, loading, fo
       </label>
 
       <div className="pipeline">
+        {/* eslint-disable-next-line complexity */}
         {lanes.map(lane => {
           const items = byLane[lane.id]
           const total = laneTotal(lane.id)

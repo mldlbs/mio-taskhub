@@ -1,10 +1,8 @@
-# -*- coding: utf-8 -*-
 """能力收敛：Plan 孤儿表移除的回归测试（task 1213d8ad）。
 
 Plan SQLModel 模型已删除（实际 night plan 走内存 NightPlan + 文件）。
 本测试防止该概念回潮，并验证迁移 DROP 幂等。
 """
-import sqlite3
 
 from mio_taskhub import models
 

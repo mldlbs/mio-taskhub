@@ -1,8 +1,10 @@
+import logging
 import os
 import time
-import logging
-from mio_taskhub.db import engine
+
 from sqlalchemy import text
+
+from mio_taskhub.db import engine
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +95,8 @@ class RemediationEngine:
         """Reset a stuck task back to queued state."""
         try:
             from sqlmodel import Session, select
-            from mio_taskhub.models import Task, TaskState, Run, RunState
+
+            from mio_taskhub.models import Run, RunState, Task, TaskState
             from mio_taskhub.utils import _now
             with Session(engine) as session:
                 task = session.get(Task, task_id)

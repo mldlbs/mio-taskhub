@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P4 标注：规则辅助双遍 + 争议标记。
 
 这不是人工金标准。规则版本见 calibration/RULES-20261028.md。
@@ -7,10 +6,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import re
 from pathlib import Path
-from typing import Dict, Tuple
 
 VERBS = (
     "是", "为", "必须", "禁止", "应", "需", "返回", "新增", "删除", "保留",
@@ -134,7 +131,7 @@ def classify_kind(row: dict) -> str:
     return "decision"
 
 
-def usable(row: dict, version: int) -> Tuple[bool, str]:
+def usable(row: dict, version: int) -> tuple[bool, str]:  # noqa: C901
     q = clean_ansi(row["quote"])
     src = row["source_key"]
     kind = classify_kind(row)
@@ -157,20 +154,17 @@ def usable(row: dict, version: int) -> Tuple[bool, str]:
     if TRUNCATED.search(q):
         return False, "truncated_fragment"
     low = q.lower()
-    if src in ("run.failure", "history.root_cause"):
-        if low in GENERIC_FAIL or q in GENERIC_FAIL:
-            return False, "generic_status"
-    if src == "run.result":
-        if LIST_FRAGMENT.match(q) and len(q) < 80:
-            return False, "list_fragment"
+    if src in ("run.failure", "history.root_cause") and (low in GENERIC_FAIL or q in GENERIC_FAIL):
+        return False, "generic_status"
+    if src == "run.result" and LIST_FRAGMENT.match(q) and len(q) < 80:
+        return False, "list_fragment"
     if src in ("doc.requirement", "doc.review", "discussion.closed"):
         if kind == "decision" and not has_verb(q):
             return False, "fragment_no_claim"
         if kind == "problem" and not has_verb(q):
             return False, "fragment_no_claim"
-    if src in ("hn", "github-trending"):
-        if not _signal_ok_label(q, src):
-            return False, "no_claim"
+    if src in ("hn", "github-trending") and not _signal_ok_label(q, src):
+        return False, "no_claim"
     return True, ""
 
 

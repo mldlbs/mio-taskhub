@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """确定性打包 zip（替代 PowerShell 的 Compress-Archive）。
 
 为什么不用 `Compress-Archive`：

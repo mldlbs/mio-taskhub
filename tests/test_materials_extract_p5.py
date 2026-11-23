@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P5 提取器修复：评审分类、原子切分、泛化失败、signal 主张。"""
 from datetime import datetime, timezone
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 
+// eslint-disable-next-line complexity
 export default function SideStatus() {
   const [summary, setSummary] = useState(null)
   const [collapsed, setCollapsed] = useState(false)

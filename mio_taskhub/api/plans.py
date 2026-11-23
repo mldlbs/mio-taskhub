@@ -1,13 +1,15 @@
-from datetime import time, datetime, timezone
 import json
 import os
+from datetime import datetime, time, timezone
 from pathlib import Path
-from fastapi import APIRouter, Depends, Query, HTTPException
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
+
 from mio_taskhub.db import get_session
+from mio_taskhub.dependency import normalize_depends
 from mio_taskhub.models import Task, TaskState
 from mio_taskhub.planner import generate_night_plan
-from mio_taskhub.dependency import normalize_depends
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 

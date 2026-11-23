@@ -1,15 +1,15 @@
-# -*- coding: utf-8 -*-
 """定时任务空转修复（task 883ebd09）：webhook 非 2xx 如实报错 + 生成去重/降级。
 
 不真调 LLM：_generate_ideas 用 monkeypatch 打桩。
 """
+import typing
+
 import httpx
 import pytest
 from fastapi import HTTPException
 
 from mio_taskhub.api import idea_templates as it
 from mio_taskhub.scheduling import cron_engine as ce
-
 
 # ---------- A：webhook 非 2xx 不再假绿 ----------
 
@@ -22,7 +22,7 @@ def _allow_loopback_webhook(monkeypatch):
 def _fake_job(status_code: int):
     class _J:
         # action_config 里的 allow_private 已不生效（F-008）；本模块靠上面的 env fixture 放行。
-        action_config = {"url": "http://127.0.0.1:1/x", "method": "POST", "body": {}}
+        action_config: typing.ClassVar = {"url": "http://127.0.0.1:1/x", "method": "POST", "body": {}}
         timeout_seconds = 5
     return _J()
 

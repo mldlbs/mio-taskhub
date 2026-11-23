@@ -7,15 +7,13 @@
 - claim 内联上下文（不等于已读）
 - API 端到端：未读 submit → 422；读取后 submit → 200；文档改动后 → 422 stale
 """
-import pytest
 from fastapi.testclient import TestClient
-
-from mio_taskhub.main import app
-from mio_taskhub.db import engine
-from mio_taskhub.models import Task
-from mio_taskhub import read_evidence as re_mod
 from sqlmodel import Session, select
 
+from mio_taskhub import read_evidence as re_mod
+from mio_taskhub.db import engine
+from mio_taskhub.main import app
+from mio_taskhub.models import Task
 
 client = TestClient(app)
 
@@ -68,7 +66,7 @@ def _mk_task(tmp_path, kinds=("spec", "api", "requirement")):
 
 def test_gate_missing_then_pass(tmp_path, monkeypatch):
     monkeypatch.delenv("MIO_READ_GATE", raising=False)
-    t = _mk_task(tmp_path)
+    _mk_task(tmp_path)
     with Session(engine) as db:
         task = db.get(Task, "t1")
         g = re_mod.check_read_gate(db, task, "run1")
@@ -84,7 +82,7 @@ def test_gate_missing_then_pass(tmp_path, monkeypatch):
 
 def test_gate_stale_after_doc_change(tmp_path, monkeypatch):
     monkeypatch.delenv("MIO_READ_GATE", raising=False)
-    t = _mk_task(tmp_path, kinds=("spec",))
+    _mk_task(tmp_path, kinds=("spec",))
     with Session(engine) as db:
         task = db.get(Task, "t1")
         re_mod.record_read(db, task, "spec", "run2")

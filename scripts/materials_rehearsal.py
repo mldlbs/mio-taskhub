@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """生产回填演练：在 taskhub.db 副本上跑两遍 30 天回填，核对业务表哈希与幂等。
 
 不写生产库。用法：
@@ -10,29 +9,27 @@ import argparse
 import hashlib
 import json
 import os
-import shutil
 import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from sqlalchemy import create_engine, event, text  # noqa: E402
-from sqlmodel import Session, select  # noqa: E402
+from sqlalchemy import create_engine, event
+from sqlmodel import Session
 
-from mio_taskhub.materials.adapters import ADAPTERS, run_adapter, source_health  # noqa: E402
-from mio_taskhub.materials.bootstrap import init_materials_db  # noqa: E402
-from mio_taskhub.materials.extract import extract_for_source  # noqa: E402
-from mio_taskhub.materials.models import (  # noqa: E402
-    Material, MaterialExtract, MaterialLink, MaterialRaw, MaterialSource,
-    MaterialWitness,
+from mio_taskhub.materials.adapters import ADAPTERS, run_adapter, source_health
+from mio_taskhub.materials.bootstrap import init_materials_db
+from mio_taskhub.materials.extract import extract_for_source
+from mio_taskhub.materials.models import (
+    MaterialSource,
 )
-from mio_taskhub.materials.pipeline import ingest_records  # noqa: E402
-from scripts.materials_audit import run_audit  # noqa: E402
+from mio_taskhub.materials.pipeline import ingest_records
+from scripts.materials_audit import run_audit
 
 BUSINESS_TABLES = [
     "task", "run", "event", "historyevent", "discussion",
@@ -56,7 +53,7 @@ def _hash_table(conn: sqlite3.Connection, table: str):
     return h.hexdigest()
 
 
-def _snapshot(path: Path) -> Dict[str, Any]:
+def _snapshot(path: Path) -> dict[str, Any]:
     with sqlite3.connect(path) as c:
         out = {}
         for t in BUSINESS_TABLES + MATERIAL_TABLES:
@@ -95,10 +92,10 @@ def _copy_engine(path: Path):
     return eng
 
 
-def _backfill(eng, days: int, root: str) -> Dict[str, Any]:
+def _backfill(eng, days: int, root: str) -> dict[str, Any]:
     totals = {"raw_new": 0, "raw_reused": 0, "accepted": 0,
               "rejected": 0, "materials_new": 0, "materials_merged": 0}
-    per_source: Dict[str, Any] = {}
+    per_source: dict[str, Any] = {}
     for key in ADAPTERS:
         with Session(eng) as s:
             src = s.get(MaterialSource, key)

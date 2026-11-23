@@ -30,8 +30,8 @@ def test_get_service_wires_on_event(monkeypatch):
 
 
 def test_update_event_bridge_publishes(monkeypatch):
-    from mio_taskhub.update import service as svc_mod
     from mio_taskhub import events
+    from mio_taskhub.update import service as svc_mod
     sent = []
     async def fake_broadcast(msg):
         sent.append(msg)

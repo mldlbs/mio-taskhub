@@ -57,6 +57,7 @@ export function adminHeaders() {
   return headers
 }
 
+// eslint-disable-next-line complexity
 async function req(method, path, body, extraHeaders) {
   // S-4：启用鉴权时统一注入 Authorization: Bearer；无 token 时 authHeaders 原样返回。
   const opts = { method, headers: authHeaders({ 'Content-Type': 'application/json', ...(extraHeaders || {}) }) }
@@ -233,8 +234,10 @@ export const api = {
         const [, name, labels, value] = match
         if (labels) {
           const labelMatch = labels.match(/(\w+)="([^"]+)"/)
+          // eslint-disable-next-line max-depth
           if (labelMatch) {
             const [, key, val] = labelMatch
+            // eslint-disable-next-line max-depth
             if (!result[name]) result[name] = []
             result[name].push({ label: key, value: val, count: parseFloat(value) })
           }

@@ -1,10 +1,11 @@
 # mio_taskhub/heartbeat.py
 from __future__ import annotations
+
 import os
 import threading
 import time as _time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, List, Optional
 
 from mio_taskhub.models import RunState
 
@@ -46,7 +47,7 @@ class RunInfo:
     attempt: int
     max_retries: int
     # None = 未指定，沿用 sweep 自身 timeout（生产侧 _get_runs 总会显式传入）
-    timeout_seconds: Optional[int] = None
+    timeout_seconds: int | None = None
     agent_offline: bool = False
     # 已上报进度（>0 说明 agent 在工作，用于区分 never_started）
     progress: int = 0
@@ -57,13 +58,13 @@ class HeartbeatSweep:
         self,
         timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
         poll_interval: float = 10.0,
-        get_runs: Callable[[], List[RunInfo]] = lambda: [],
+        get_runs: Callable[[], list[RunInfo]] = lambda: [],
         on_timeout: Callable[[str, str], None] = lambda rid, tid: None,
         on_alive: Callable[[str], None] = lambda rid: None,
         agent_offline_timeout: int = AGENT_OFFLINE_TIMEOUT_SECONDS,
         grace_period: int = GRACE_PERIOD_SECONDS,
-        on_tick: Optional[Callable[[], None]] = None,
-        on_error: Optional[Callable[[], None]] = None,
+        on_tick: Callable[[], None] | None = None,
+        on_error: Callable[[], None] | None = None,
     ):
         self.timeout = timeout_seconds
         self.interval = poll_interval
@@ -75,7 +76,7 @@ class HeartbeatSweep:
         self._on_tick = on_tick
         self._on_error = on_error
         self._stop = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
 
     def start(self):
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -121,10 +122,9 @@ class HeartbeatSweep:
             else:
                 # 从未启动：可快速回收（但仍以 offline 上限为准）
                 timeout = min(timeout, self.agent_offline_timeout)
-        else:
-            # agent 在线（未标记 OFFLINE）：若已上报进度，给予宽限期覆盖心跳抖动
-            if getattr(run, "progress", 0) and run.progress > 0:
-                timeout = timeout + self.grace_period
+        # agent 在线（未标记 OFFLINE）：若已上报进度，给予宽限期覆盖心跳抖动
+        elif getattr(run, "progress", 0) and run.progress > 0:
+            timeout = timeout + self.grace_period
         return timeout
 
     def _sweep(self):

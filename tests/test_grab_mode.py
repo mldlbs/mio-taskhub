@@ -8,12 +8,12 @@
 - INV-2：`grab_mode=true` 的任务不进dispatcher 候选，但能被现有 claim() 领取
 """
 from fastapi.testclient import TestClient
+from sqlmodel import Session, select
 
 from mio_taskhub import background
 from mio_taskhub.db import engine
 from mio_taskhub.main import app
-from mio_taskhub.models import Agent, AgentStatus, Task, TaskState, TaskStage
-from sqlmodel import Session, select
+from mio_taskhub.models import Agent, AgentStatus, Task, TaskStage, TaskState
 
 client = TestClient(app)
 
@@ -94,7 +94,7 @@ def test_fr2_item_shape_has_diagnostic_fields():
     tid = _mk("字段完整", grab_mode=True, priority=2,
               target_agent_type="frontend", est_duration_min=45,
               description="D" * 300, acceptance_criteria="AC" * 200)
-    item = [i for i in client.get("/api/v1/tasks/hall").json()["items"] if i["id"] == tid][0]
+    item = next(i for i in client.get("/api/v1/tasks/hall").json()["items"] if i["id"] == tid)
     for k in ("id", "title", "description", "target_agent_type", "priority",
               "est_duration_min", "created_at", "project", "labels",
               "depends_on", "acceptance_criteria"):
@@ -257,6 +257,6 @@ def test_migration_backfills_false():
     """存量行为空列时读作 False（迁移已兜底，read路径也or兜底）。"""
     with Session(engine) as s:
         nulls = s.exec(
-            select(Task).where(Task.grab_mode == None)  # noqa: E711
+            select(Task).where(Task.grab_mode.is_(None))
         ).all()
     assert not nulls, f"存在 grab_mode 为 NULL 的任务：{[t.id for t in nulls]}"

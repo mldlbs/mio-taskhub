@@ -1,7 +1,9 @@
 """Structured logging configuration tests."""
 import json
 import logging
+
 from mio_taskhub.observability.logging_config import setup_logging
+
 
 def test_setup_logging_configures_root():
     setup_logging()
@@ -59,7 +61,7 @@ def test_json_formatter_passes_through_extra_fields():
     """F3：extra 字段（path/status/duration_ms）必须透传，旧键保留只新增。"""
     from mio_taskhub.observability.logging_config import JSONFormatter
     fmt = JSONFormatter()
-    logger = logging.getLogger("t05.extra")
+    logging.getLogger("t05.extra")
     record = logging.LogRecord(
         name="t05.extra", level=logging.ERROR, pathname="x.py",
         lineno=1, msg="request_error", args=(), exc_info=None,

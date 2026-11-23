@@ -18,8 +18,6 @@ import json
 import os
 import threading
 import time
-from dataclasses import dataclass, field
-from typing import Optional
 
 # 数据文件路径
 _DATA_DIR = os.environ.get(
@@ -53,7 +51,7 @@ def _load_all() -> list[dict]:
     if not os.path.exists(_DATA_FILE):
         return []
     items = []
-    with open(_DATA_FILE, "r", encoding="utf-8") as f:
+    with open(_DATA_FILE, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -91,8 +89,8 @@ def _rewrite(items: list[dict]):
 
 # ---------- 查询 ----------
 
-def search_entities(keywords: list[str], kind: str = None,
-                    project: str = None, limit: int = 20) -> list[dict]:
+def search_entities(keywords: list[str], kind: str | None = None,
+                    project: str | None = None, limit: int = 20) -> list[dict]:
     """按关键词搜索实体，支持 kind/project 过滤。"""
     entities = _load_entities()
     keywords_lower = [k.lower() for k in keywords] if keywords else []
@@ -193,8 +191,8 @@ def add_entity(name: str, etype: str, observations: list[str],
 
 # ---------- 高层 API ----------
 
-def query_memories(kind: str = None, project: str = None,
-                   limit: int = 20, keyword: str = None) -> dict:
+def query_memories(kind: str | None = None, project: str | None = None,
+                   limit: int = 20, keyword: str | None = None) -> dict:
     """查询记忆。"""
     keywords = [keyword] if keyword else []
     if kind:
@@ -206,8 +204,8 @@ def query_memories(kind: str = None, project: str = None,
     }
 
 
-def record_memory(kind: str, context: str = "", payload: dict = None,
-                  project: str = None) -> dict:
+def record_memory(kind: str, context: str = "", payload: dict | None = None,
+                  project: str | None = None) -> dict:
     """记录记忆。"""
     etype = _KIND_MAP.get(kind, "note")
     observations = []
@@ -224,7 +222,7 @@ def record_memory(kind: str, context: str = "", payload: dict = None,
     return {"ok": True, "name": name}
 
 
-def policy_check(operation: str, context: dict = None) -> dict:
+def policy_check(operation: str, context: dict | None = None) -> dict:
     """策略检查（简单本地判断）。"""
     # 简单实现：高风险操作返回警告
     high_risk = {"delete_task", "migrate_db", "drop_table", "delete_user"}
@@ -237,7 +235,7 @@ def policy_check(operation: str, context: dict = None) -> dict:
     return {"allowed": True, "reason": "Low risk"}
 
 
-def observer_ingest(trace_id: str, event_type: str, payload: dict = None,
+def observer_ingest(trace_id: str, event_type: str, payload: dict | None = None,
                     outcome: str = "success") -> dict:
     """记录观察事件。"""
     observations = [
@@ -257,7 +255,7 @@ def observer_ingest(trace_id: str, event_type: str, payload: dict = None,
 def experience_reuse(source_agent: str, target_agent: str,
                      experience_id: str, reuse: bool,
                      behavior_changed: bool = False,
-                     outcome_improved: bool = None) -> dict:
+                     outcome_improved: bool | None = None) -> dict:
     """记录经验复用。"""
     observations = [
         f"source: {source_agent}",

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """T-EXTRACT：两个提取版本结果不同，历史与引用都保留。"""
 from datetime import datetime, timezone
 
@@ -7,7 +6,10 @@ from sqlmodel import Session, select
 
 from mio_taskhub.db import engine
 from mio_taskhub.materials.models import (
-    Material, MaterialExtract, MaterialLink, MaterialSource,
+    Material,
+    MaterialExtract,
+    MaterialLink,
+    MaterialSource,
 )
 from mio_taskhub.materials.pipeline import RawRecord, add_link, ingest_records
 from mio_taskhub.materials.quality import Draft

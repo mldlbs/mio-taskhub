@@ -1,12 +1,14 @@
+import contextlib
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
-from mio_taskhub.db import get_session
-from mio_taskhub.models import Discussion, DiscussionMessage, Idea, Task, TaskStage, IdeaHistory
-from mio_taskhub.utils import _now
-from mio_taskhub.events import emit_event
+
 from mio_taskhub import role_prompts as rp
+from mio_taskhub.db import get_session
+from mio_taskhub.events import emit_event
+from mio_taskhub.models import Discussion, DiscussionMessage, Idea, IdeaHistory, Task, TaskStage
+from mio_taskhub.utils import _now
 
 router = APIRouter(prefix="/discussions", tags=["discussions"])
 
@@ -49,7 +51,7 @@ def _validate_mode_roles(mode, roles) -> tuple:
     return mode, roles
 
 
-def _validate_review(review) -> dict:
+def _validate_review(review) -> dict:  # noqa: C901
     """FR-21：评审关闭五段结构门控（只验结构与条目数，不假装验质量）。"""
     if not isinstance(review, dict):
         raise HTTPException(422, "review is required when mode=review (missing review payload)")
@@ -99,7 +101,7 @@ def _validate_review(review) -> dict:
     if errors:
         raise HTTPException(422, "review gate: " + "；".join(errors))
     # 归一化落库结构
-    normalized = {
+    return {
         "risks": [str(r) for r in risks],
         "divergences": div.strip(),
         "suggestions": sug.strip(),
@@ -113,7 +115,6 @@ def _validate_review(review) -> dict:
             "task_id": it.get("task_id"),
         } for it in items],
     }
-    return normalized
 
 
 @router.post("", response_model=dict)
@@ -147,7 +148,7 @@ def create_discussion(body: dict, db: Session = Depends(get_session)):
     for m in body.get("messages", []):
         db.add(DiscussionMessage(discussion_id=d.id, author=m.get("author", ""),
                                  role=m.get("role", "user"), content=m.get("content", "")))
-    event = emit_event(db, type="discussion_created", entity="discussion",
+    emit_event(db, type="discussion_created", entity="discussion",
                        entity_id=d.id, payload={"idea_id": idea_id, "task_id": task_id, "mode": mode})
     db.commit()
     db.refresh(d)
@@ -155,7 +156,7 @@ def create_discussion(body: dict, db: Session = Depends(get_session)):
 
 
 @router.get("")
-def list_discussions(ref_type: str = None, ref_id: str = "", db: Session = Depends(get_session)):
+def list_discussions(ref_type: str | None = None, ref_id: str = "", db: Session = Depends(get_session)):
     if ref_type == "idea":
         q = select(Discussion).where(Discussion.idea_id == ref_id)
     elif ref_type == "task":
@@ -187,7 +188,7 @@ def add_message(discussion_id: str, body: dict, db: Session = Depends(get_sessio
                           role=body.get("role", "user"),
                           content=content)
     db.add(m)
-    event = emit_event(db, type="discussion_message", entity="discussion",
+    emit_event(db, type="discussion_message", entity="discussion",
                        entity_id=discussion_id, payload={"role": body.get("role", "user")})
     db.commit()
     db.refresh(m)
@@ -219,14 +220,14 @@ def close_discussion(discussion_id: str, body: dict, db: Session = Depends(get_s
             reasoning=d.conclusions or None,
             extra={"discussion_id": discussion_id, "conclusions": d.conclusions, "topic": d.topic},
         ))
-    event = emit_event(db, type="discussion_closed", entity="discussion",
+    emit_event(db, type="discussion_closed", entity="discussion",
                        entity_id=discussion_id, payload={"conclusions": d.conclusions})
     db.add(d); db.commit(); db.refresh(d)
     return _disc_full(d, db)
 
 
 @router.post("/{discussion_id}/convert")
-def convert_action_items(discussion_id: str, body: dict, db: Session = Depends(get_session)):
+def convert_action_items(discussion_id: str, body: dict, db: Session = Depends(get_session)):  # noqa: C901
     """FR-22：行动项幂等转任务。缺省转全部未转条目；已转条目跳过；单事务整体回滚。"""
     d = db.get(Discussion, discussion_id)
     if not d:
@@ -257,10 +258,9 @@ def convert_action_items(discussion_id: str, body: dict, db: Session = Depends(g
                 results.append({"item_id": it.get("id"), "task_id": it["task_id"], "created": False})
                 continue
             due = None
-            try:
+            # close 门控已保格式；此处兜底不阻塞
+            with contextlib.suppress(KeyError, TypeError, ValueError):
                 due = datetime.strptime(it["due"], "%Y-%m-%d")
-            except (KeyError, TypeError, ValueError):
-                pass  # close 门控已保格式；此处兜底不阻塞
             t = Task(
                 title=str(it.get("action", "")).strip()[:200] or "行动项",
                 description=f"行动项 {it.get('id', '')}｜负责人 {it.get('owner', '')}｜截止 {it.get('due', '')}"

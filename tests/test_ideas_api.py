@@ -1,7 +1,8 @@
 import asyncio
+
 import httpx
-import pytest
 from sqlmodel import Session
+
 from mio_taskhub.main import app
 
 
@@ -227,6 +228,7 @@ def test_change_tracking_task_is_claimable():
         assert det["attempt"] == 1
         # 注：_task_detail 不返回 claimed_at，DB 层另行核对
         from sqlmodel import Session
+
         from mio_taskhub.db import engine
         from mio_taskhub.models import Task
         with Session(engine) as s:
@@ -315,7 +317,7 @@ def test_adr_evolve_to_adr():
         iid = r.json()["id"]
         await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "fermenting"})
         await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "formed"})
-        
+
         # 演化为 ADR
         r = await c.post(f"/api/v1/ideas/{iid}/evolve-to-adr", json={
             "madr_context": "测试背景",
@@ -341,7 +343,7 @@ def test_adr_evolve_already_adr():
         iid = r.json()["id"]
         await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "fermenting"})
         await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "formed"})
-        
+
         # 第一次演化
         await c.post(f"/api/v1/ideas/{iid}/evolve-to-adr", json={})
         # 第二次演化应失败
@@ -398,7 +400,7 @@ def test_adr_action_accept():
         await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "fermenting"})
         await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "formed"})
         await c.post(f"/api/v1/ideas/{iid}/evolve-to-adr", json={})
-        
+
         r = await c.post(f"/api/v1/ideas/{iid}/adr-action", json={
             "action": "accept",
             "reason": "方案可行"
@@ -416,7 +418,7 @@ def test_adr_action_reject():
         await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "fermenting"})
         await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "formed"})
         await c.post(f"/api/v1/ideas/{iid}/evolve-to-adr", json={})
-        
+
         r = await c.post(f"/api/v1/ideas/{iid}/adr-action", json={
             "action": "reject",
             "reason": "方案不可行"
@@ -435,7 +437,7 @@ def test_adr_action_deprecate():
         await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "formed"})
         await c.post(f"/api/v1/ideas/{iid}/evolve-to-adr", json={})
         await c.post(f"/api/v1/ideas/{iid}/adr-action", json={"action": "accept"})
-        
+
         r = await c.post(f"/api/v1/ideas/{iid}/adr-action", json={
             "action": "deprecate",
             "reason": "已过时"
@@ -455,14 +457,14 @@ def test_adr_action_supersede():
         await c.post(f"/api/v1/ideas/{old_id}/status", json={"status": "formed"})
         await c.post(f"/api/v1/ideas/{old_id}/evolve-to-adr", json={})
         await c.post(f"/api/v1/ideas/{old_id}/adr-action", json={"action": "accept"})
-        
+
         r2 = await c.post("/api/v1/ideas", json={"title": "新ADR"})
         new_id = r2.json()["id"]
         await c.post(f"/api/v1/ideas/{new_id}/status", json={"status": "fermenting"})
         await c.post(f"/api/v1/ideas/{new_id}/status", json={"status": "formed"})
         await c.post(f"/api/v1/ideas/{new_id}/evolve-to-adr", json={})
         await c.post(f"/api/v1/ideas/{new_id}/adr-action", json={"action": "accept"})
-        
+
         # 旧 ADR 被新 ADR 取代
         r = await c.post(f"/api/v1/ideas/{old_id}/adr-action", json={
             "action": "supersede",
@@ -483,7 +485,7 @@ def test_adr_action_wrong_status():
         await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "fermenting"})
         await c.post(f"/api/v1/ideas/{iid}/status", json={"status": "formed"})
         await c.post(f"/api/v1/ideas/{iid}/evolve-to-adr", json={})
-        
+
         # proposed 状态不能 deprecate
         r = await c.post(f"/api/v1/ideas/{iid}/adr-action", json={"action": "deprecate"})
         assert r.status_code == 422
@@ -538,8 +540,9 @@ def test_adr_number_auto_increment():
 def test_outbox_event_created_on_evolve():
     """测试演化时创建 OutboxEvent"""
     from sqlmodel import select
-    from mio_taskhub.models import OutboxEvent, OutboxStatus
+
     from mio_taskhub.db import engine
+    from mio_taskhub.models import OutboxEvent, OutboxStatus
 
     async def k(c):
         r = await c.post("/api/v1/ideas", json={"title": "Outbox测试"})
@@ -565,8 +568,9 @@ def test_outbox_event_created_on_evolve():
 def test_outbox_event_created_on_adr_action():
     """测试 ADR 操作时创建 OutboxEvent"""
     from sqlmodel import select
-    from mio_taskhub.models import OutboxEvent, OutboxStatus
+
     from mio_taskhub.db import engine
+    from mio_taskhub.models import OutboxEvent
 
     async def k(c):
         r = await c.post("/api/v1/ideas", json={"title": "Outbox测试"})
@@ -590,9 +594,10 @@ def test_outbox_event_created_on_adr_action():
 
 def test_git_sync_render_adr_markdown():
     """测试 ADR Markdown 渲染"""
-    from mio_taskhub.ops.git_sync import _render_adr_markdown
-    from mio_taskhub.models import Idea, IdeaType, IdeaStatus
     from datetime import datetime
+
+    from mio_taskhub.models import Idea, IdeaStatus, IdeaType
+    from mio_taskhub.ops.git_sync import _render_adr_markdown
 
     idea = Idea(
         id="test-123",
@@ -619,9 +624,10 @@ def test_git_sync_render_adr_markdown():
 
 def test_git_sync_render_adr_alternatives_string():
     """madr_alternatives 为字符串时应整段渲染，而非逐字符拆成列表"""
-    from mio_taskhub.ops.git_sync import _render_adr_markdown
-    from mio_taskhub.models import Idea, IdeaType, IdeaStatus
     from datetime import datetime
+
+    from mio_taskhub.models import Idea, IdeaStatus, IdeaType
+    from mio_taskhub.ops.git_sync import _render_adr_markdown
 
     idea = Idea(
         id="test-456",
@@ -646,9 +652,10 @@ def test_git_sync_render_adr_alternatives_string():
 
 def test_git_sync_render_readme():
     """测试 README 索引渲染"""
-    from mio_taskhub.ops.git_sync import _render_readme
-    from mio_taskhub.models import Idea, IdeaType, IdeaStatus
     from datetime import datetime
+
+    from mio_taskhub.models import Idea, IdeaStatus, IdeaType
+    from mio_taskhub.ops.git_sync import _render_readme
 
     adrs = [
         Idea(

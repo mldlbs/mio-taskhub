@@ -1,8 +1,9 @@
 // Idea Template Picker Component
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { api } from '../api'
 
-export default function TemplatePicker({ onGenerate, onClose, initialTemplate }) {
+// eslint-disable-next-line max-lines-per-function
+function TemplatePicker({ onGenerate, onClose, initialTemplate }) {
   const [templates, setTemplates] = useState([])
   const [selectedTemplate, setSelectedTemplate] = useState(initialTemplate || '')
   const [formData, setFormData] = useState({})

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """业务表快照：行数 + 内容哈希；用于回填前后差异对比。
 
 用法：python scripts/materials_business_snapshot.py --db <db> --out <json>

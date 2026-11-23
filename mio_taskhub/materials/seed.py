@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """素材来源种子（spec §3.10）。表为空时插入 10 个来源，幂等。"""
 from __future__ import annotations
 

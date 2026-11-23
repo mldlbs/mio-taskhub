@@ -1,11 +1,10 @@
-# -*- coding: utf-8 -*-
 """安全默认值测试（task 3b5128b6）：net_guard SSRF 校验 + CLI host 默认/拒绝。"""
-import os
+
+import typing
 
 import pytest
 
-from mio_taskhub.net_guard import check_outbound_url, is_private_host, is_loopback_bind
-
+from mio_taskhub.net_guard import check_outbound_url, is_loopback_bind, is_private_host
 
 # ---------- 绑定地址语义（关键：0.0.0.0 不是 loopback）----------
 
@@ -67,7 +66,7 @@ def test_webhook_blocks_private_url_via_engine():
 
     class _J:
         timeout_seconds = 5
-        action_config = {"url": "http://127.0.0.1:1/x", "method": "POST", "body": {}}
+        action_config: typing.ClassVar = {"url": "http://127.0.0.1:1/x", "method": "POST", "body": {}}
 
     with pytest.raises(ce.WebhookFailed) as ei:
         ce.CronEngine(poll_interval=999)._fire_webhook(_J())
@@ -83,7 +82,7 @@ def test_webhook_allow_private_flag_ignored_from_config(monkeypatch):
 
     class _J:
         timeout_seconds = 5
-        action_config = {"url": "http://127.0.0.1:9999/x", "method": "POST",
+        action_config: typing.ClassVar = {"url": "http://127.0.0.1:9999/x", "method": "POST",
                          "body": {}, "allow_private": True}
 
     with pytest.raises(ce.WebhookFailed) as ei:
@@ -94,6 +93,7 @@ def test_webhook_allow_private_flag_ignored_from_config(monkeypatch):
 def test_webhook_allow_private_env_passes_guard(monkeypatch):
     """部署级 env 显式放行时通过 guard（随后由请求本身决定成败）。"""
     import httpx
+
     from mio_taskhub.scheduling import cron_engine as ce
 
     monkeypatch.setenv("MIO_WEBHOOK_ALLOW_PRIVATE", "1")
@@ -104,7 +104,7 @@ def test_webhook_allow_private_env_passes_guard(monkeypatch):
 
     class _J:
         timeout_seconds = 5
-        action_config = {"url": "http://127.0.0.1:9999/x", "method": "POST", "body": {}}
+        action_config: typing.ClassVar = {"url": "http://127.0.0.1:9999/x", "method": "POST", "body": {}}
 
     out = ce.CronEngine(poll_interval=999)._fire_webhook(_J())
     assert out.startswith("200")
@@ -126,6 +126,7 @@ def test_webhook_allowed_hosts_env(monkeypatch):
 def test_cli_host_default_is_loopback():
     """run() 的 --host 默认应为 127.0.0.1（安全默认）。"""
     import inspect
+
     import mio_taskhub.main as m
     src = inspect.getsource(m.run)
     assert 'default="127.0.0.1"' in src

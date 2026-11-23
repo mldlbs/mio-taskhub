@@ -1,11 +1,10 @@
-from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlmodel import Session, select
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
-from mio_taskhub.db import get_session
-from mio_taskhub.models import (Idea, Discussion, DiscussionMessage, Task,
-                                IdeaChange, IdeaHistory)
-from mio_taskhub.api.ideas import _idea_json
+from sqlmodel import Session, select
 
+from mio_taskhub.api.ideas import _idea_json
+from mio_taskhub.db import get_session
+from mio_taskhub.models import Discussion, DiscussionMessage, Idea, IdeaChange, IdeaHistory, Task
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
 
@@ -15,8 +14,7 @@ def get_idea_history(idea_id: str, page: int = 1, page_size: int = 50, db: Sessi
     i = db.get(Idea, idea_id)
     if not i:
         raise HTTPException(404, "idea not found")
-    if page < 1:
-        page = 1
+    page = max(page, 1)
     if page_size < 1 or page_size > 200:
         page_size = 50
     total = db.exec(select(func.count(IdeaHistory.id)).where(IdeaHistory.idea_id == idea_id)).one()

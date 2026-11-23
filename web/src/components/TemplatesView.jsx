@@ -3,11 +3,12 @@ import { api } from '../api'
 import { confirm } from '../confirm'
 import { fmtAgo } from '../constants'
 
-function emptyForm() {
+function _emptyForm() {
   return { title: '', description: '', category: '', priority: 0, est_duration_min: 30, target_agent_type: '', acceptance_criteria: '', labels: '', tags: '' }
 }
 
 function TemplateForm({ initial, submitLabel, busy, onSubmit, onCancel }) {
+  // eslint-disable-next-line complexity
   const [form, setForm] = useState(() => ({
     title: initial?.title || '',
     description: initial?.description || '',
@@ -191,6 +192,7 @@ export default function TemplatesView() {
         <div className="empty-state">暂无模板</div>
       ) : (
         <div className="tpl-grid">
+          {/* eslint-disable-next-line complexity */}
           {filtered.map(t => (
             <div key={t.id} className="tpl-card" onClick={() => setDetail(detail?.id === t.id ? null : t)}>
               <div className="tpl-card__head">

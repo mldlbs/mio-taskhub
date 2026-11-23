@@ -1,13 +1,13 @@
 from fastapi.testclient import TestClient
+
 from mio_taskhub.main import app
-from mio_taskhub.db import init_db
-from mio_taskhub.models import Task
 
 client = TestClient(app)
 
 def _mk(title, dur, priority=0, depends_on=None, state="queued"):
-    from mio_taskhub.db import engine
     from sqlmodel import Session
+
+    from mio_taskhub.db import engine
     with Session(engine) as s:
         from mio_taskhub.models import Task, TaskState
         t = Task(title=title, description="", est_duration_min=dur, priority=priority,

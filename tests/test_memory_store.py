@@ -1,14 +1,11 @@
 """Memory Store 测试：本地 JSONL 知识图谱（替代 MCP 子进程）。"""
 import json
 import os
-import tempfile
-import time
 
 import pytest
 from fastapi.testclient import TestClient
 
 import mio_taskhub.memory_store as store
-import mio_taskhub.api.memory as api_memory
 from mio_taskhub.main import app
 
 client = TestClient(app)
@@ -110,7 +107,7 @@ def test_record_writes_to_jsonl(_tmp_store):
         "kind": "note", "context": "test note", "payload": {"k": "v"}
     })
     assert os.path.exists(_tmp_store)
-    with open(_tmp_store, "r", encoding="utf-8") as f:
+    with open(_tmp_store, encoding="utf-8") as f:
         lines = [l.strip() for l in f if l.strip()]
     assert len(lines) >= 1
     item = json.loads(lines[-1])
@@ -156,7 +153,7 @@ def test_observer_ingest_writes_jsonl(_tmp_store):
     client.post("/api/v1/memory/observer/ingest", json={
         "trace_id": "trace-1", "event_type": "test", "payload": {}, "outcome": "ok"
     })
-    with open(_tmp_store, "r", encoding="utf-8") as f:
+    with open(_tmp_store, encoding="utf-8") as f:
         lines = [l.strip() for l in f if l.strip()]
     assert len(lines) >= 1
     item = json.loads(lines[-1])

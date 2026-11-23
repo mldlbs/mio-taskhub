@@ -3,18 +3,18 @@
 Evaluates alert rules against live metrics and exposes them via /api/v1/alerts.
 No external Prometheus/Alertmanager required — suitable for single-EXE deployment.
 """
-import time
 import logging
+import time
 from dataclasses import dataclass, field
 from threading import Lock
 
 from sqlmodel import Session, text
 
-from mio_taskhub.db import engine
+from mio_taskhub import mio_runtime as mio_rt
 from mio_taskhub.background import get_thread_health
+from mio_taskhub.db import engine
 from mio_taskhub.middleware import get_http_metrics
 from mio_taskhub.observability.audit import AlertAudit
-from mio_taskhub import mio_runtime as mio_rt
 
 logger = logging.getLogger("mio_taskhub.observability.alerts")
 
@@ -237,7 +237,7 @@ class AlertManager:
             labels={"source": "mio-contract"},
         )]
 
-    def evaluate(self) -> list[Alert]:
+    def evaluate(self) -> list[Alert]:  # noqa: C901
         now = time.time()
         if now - self._last_eval < self._eval_interval:
             return [a for a in self._alerts.values() if a.active]

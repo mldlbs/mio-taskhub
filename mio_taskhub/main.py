@@ -1,24 +1,67 @@
+import asyncio
+import logging
 import os
+import secrets
 import sys
 import time
-import logging
-import asyncio
+from contextlib import asynccontextmanager, suppress
+
 import uvicorn
-from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Response, WebSocket
-from fastapi.staticfiles import StaticFiles
-import secrets
 from fastapi.responses import JSONResponse
-from mio_taskhub.db import get_session, init_db
-from mio_taskhub.api import tasks, task_stages, task_graph, task_subtasks, templates, agents, runs, plans, board, ideas, idea_templates, idea_scoring, adr, discussions, events, nightrun, memory, scheduled_jobs, task_documents, reviews, ideas_breakdown, ideas_discussion, cockpit, draft, observability, update, mio_runtime, material_panel, value_discovery, scheduler_control, config as app_config, hall, decompose, deviations
-from mio_taskhub.api.insights import router as insights_router
+from fastapi.staticfiles import StaticFiles
+
+from mio_taskhub.api import (
+    adr,
+    agents,
+    board,
+    cockpit,
+    decompose,
+    deviations,
+    discussions,
+    draft,
+    events,
+    hall,
+    idea_scoring,
+    idea_templates,
+    ideas,
+    ideas_breakdown,
+    ideas_discussion,
+    material_panel,
+    memory,
+    mio_runtime,
+    nightrun,
+    observability,
+    plans,
+    reviews,
+    runs,
+    scheduled_jobs,
+    scheduler_control,
+    task_documents,
+    task_graph,
+    task_stages,
+    task_subtasks,
+    tasks,
+    templates,
+    update,
+    value_discovery,
+)
+from mio_taskhub.api import config as app_config
 from mio_taskhub.api.board import board_summary as _board_summary
-from mio_taskhub.observability.logging_config import setup_logging
-from mio_taskhub.middleware import RequestIDMiddleware, RateLimitMiddleware
-from mio_taskhub.events import ws_manager
-from mio_taskhub.observability.otel import init_otel, instrument_app, instrument_sqlalchemy, instrument_httpx, shutdown_otel
-from mio_taskhub.observability.alerts import init_alert_manager, get_alert_manager
+from mio_taskhub.api.insights import router as insights_router
 from mio_taskhub.db import engine as db_engine
+from mio_taskhub.db import get_session, init_db
+from mio_taskhub.events import ws_manager
+from mio_taskhub.middleware import RateLimitMiddleware, RequestIDMiddleware
+from mio_taskhub.observability.alerts import get_alert_manager, init_alert_manager
+from mio_taskhub.observability.logging_config import setup_logging
+from mio_taskhub.observability.otel import (
+    init_otel,
+    instrument_app,
+    instrument_httpx,
+    instrument_sqlalchemy,
+    shutdown_otel,
+)
 from mio_taskhub.version import __version__
 
 
@@ -38,7 +81,7 @@ def make_auth_middleware():
         # 2026-11-07（F-011）：/logs 与 /metrics 此前不在保护范围，任意调用方可读
         # 最近 1000 条结构化日志（含异常栈与请求路径）。开鉴权后一并纳入。
         path = request.url.path
-        if not (path.startswith("/api/") or path == "/metrics" or path == "/logs"):
+        if not (path.startswith("/api/") or path in {"/metrics", "/logs"}):
             return await call_next(request)
         auth = request.headers.get("authorization", "")
         if secrets.compare_digest(auth, f"Bearer {token}"):
@@ -50,17 +93,18 @@ setup_logging()
 
 
 @asynccontextmanager
-async def lifespan(app):
+async def lifespan(app):  # noqa: C901, PLR0915
     # Initialize OpenTelemetry
     init_otel()
     instrument_app(app)
     instrument_sqlalchemy(db_engine)
     instrument_httpx()
 
-    from .background import start_background_jobs, _thread_registry, register_thread
     from mio_taskhub.ops.git_sync import start_git_sync_worker, stop_git_sync_worker
-    from mio_taskhub.scheduling.night_runner import start_night_runner, stop_night_runner
     from mio_taskhub.scheduling.cron_engine import start_cron_engine, stop_cron_engine
+    from mio_taskhub.scheduling.night_runner import start_night_runner, stop_night_runner
+
+    from .background import _thread_registry, register_thread, start_background_jobs
     app.state.background = start_background_jobs()
     start_git_sync_worker()
 
@@ -73,14 +117,14 @@ async def lifespan(app):
             _t = _th.Timer(15.0, _mio_core.observer_ensure)
             _t.daemon = True
             _t.start()
-    except Exception as _e:  # noqa: BLE001
+    except Exception as _e:
         logging.getLogger("mio_taskhub.main").warning(
             "observer autostart skipped: %s", _e)
     start_night_runner()
-    cron_engine = start_cron_engine()
+    start_cron_engine()
     # SQLite auto-backup (hourly snapshots, 31 kept)
-    from mio_taskhub.ops.backup import SQLiteBackup
     from mio_taskhub.db import DB_PATH
+    from mio_taskhub.ops.backup import SQLiteBackup
     backup = SQLiteBackup(DB_PATH)
     backup.start()
     register_thread("backup", backup._thread, backup)
@@ -117,33 +161,30 @@ async def lifespan(app):
             _dep_persist.snapshot()
             # P1-OBS：周期性清理超保留期的快照——此前只 snapshot 不 cleanup，
             # 致 depmetricssnapshot 无界增长（实测 33 天 44754 行）。
-            try:
+            with suppress(Exception):
                 _dep_persist.cleanup()
-            except Exception:
-                pass
     _dep_persist_thread = threading.Thread(target=_dep_persist_loop, daemon=True, name="dep-persist")
     _dep_persist_thread.start()
     register_thread("dep-persist", _dep_persist_thread, _dep_persist)
 
     # Start insights evaluator (every 60 seconds)
-    from mio_taskhub.observability.insights import InsightsEngine
     from mio_taskhub.observability.insight_remediator import InsightsRemediator
+    from mio_taskhub.observability.insights import InsightsEngine
     _insights_engine = InsightsEngine()
     _insights_remediator = InsightsRemediator()
     async def _insights_eval_loop():
         while True:
             await asyncio.sleep(60)
             try:
-                from mio_taskhub.observability.metrics import render_metrics
                 import re
+
+                from mio_taskhub.observability.metrics import render_metrics
                 metrics_text = render_metrics()
                 metrics = {}
                 for match in re.finditer(r'(\w+)\s+([\d.]+)', metrics_text):
                     name, val = match.groups()
-                    try:
+                    with suppress(ValueError):
                         metrics[name] = float(val)
-                    except ValueError:
-                        pass
                 _insights_engine.evaluate(metrics)
                 # P2-4 闭环消费：把未确认的 critical 洞察转成跟进任务（幂等 + 可关闭）
                 _insights_remediator.consume(_insights_engine.recent(limit=50))
@@ -172,7 +213,8 @@ async def lifespan(app):
 
     # 更新：启动残留恢复 + 后台检查线程 + runtime sentinel
     from mio_taskhub.update import runtime as update_runtime
-    from mio_taskhub.version import __version__ as _ver, is_frozen as _frozen
+    from mio_taskhub.version import __version__ as _ver
+    from mio_taskhub.version import is_frozen as _frozen
     update_runtime.startup_recovery()
     try:
         from mio_taskhub.update.service import get_service
@@ -180,7 +222,7 @@ async def lifespan(app):
         _interval = float(os.environ.get("MIO_UPDATE_INTERVAL_H", "6") or 6)
         _svc.start_background(delay=20.0, interval_h=_interval)
         app.state.update_service = _svc
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logging.getLogger("mio_taskhub.update").warning("update service 启动失败：%s", e)
     if _frozen():
         update_runtime.write_runtime_state(
@@ -212,6 +254,7 @@ app = FastAPI(
 # v3 UX: gzip 响应压缩（仅 > 1KB 才有收益）
 # 注意：GZipMiddleware 必须先 add（在最内层），否则会被 BaseHTTPMiddleware 拦截
 from fastapi.middleware.gzip import GZipMiddleware
+
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(RequestIDMiddleware)
@@ -220,10 +263,12 @@ app.add_middleware(RequestIDMiddleware)
 # 无 API 凭据先 401；带 API 凭据但无**管理面**凭据的 destructive 请求 403——
 # REST 直连与 MCP 工具调用同一把尺，MIO_MCP_ALLOW_DESTRUCTIVE 只影响 MCP 客户端层。
 from mio_taskhub.destructive_guard import make_destructive_guard_middleware
+
 app.middleware("http")(make_destructive_guard_middleware())
 init_db()
 
 from mio_taskhub.materials.api import router as materials_router
+
 app.include_router(materials_router, prefix="/api/v1", tags=["materials"])
 
 app.include_router(templates.router, prefix="/api/v1", tags=["tasks"])
@@ -237,14 +282,17 @@ app.include_router(hall.router, prefix="/api/v1", tags=["tasks"])
 # 决策收件箱（E7 产品化）：待决策 / 待验收 / 失败待处置。
 # ⚠️ 必须在 tasks.router 之前注册：/tasks/inbox 会被 /tasks/{task_id} 抢先匹配（404）
 from mio_taskhub.api import inbox
+
 app.include_router(inbox.router, prefix="/api/v1", tags=["tasks"])
 # 阻塞源聚合（GET /tasks/{id}/blockers）：回答「这个任务为什么动不了」。
 # 与 tasks.router 同前缀，注册在其之前——避免将来有人在 tasks 里加同路径时被抢先匹配。
 from mio_taskhub.api import blockers
+
 app.include_router(blockers.router, prefix="/api/v1", tags=["tasks"])
 # 执行就绪度（GET /tasks/{id}/readiness）：在流程约束之上回答
 # 「能不能开工 / 缺什么输入 / 风险在哪 / 先解哪个」，内部复用 blockers 的流程层结果。
 from mio_taskhub.api import readiness
+
 app.include_router(readiness.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(tasks.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(decompose.router, prefix="/api/v1", tags=["tasks"])
@@ -252,9 +300,11 @@ app.include_router(deviations.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(task_documents.router, prefix="/api/v1", tags=["tasks"])
 # FR-07（任务 c8316737）：任务级只读 diff 路由
 from mio_taskhub.api import task_diff
+
 app.include_router(task_diff.router, prefix="/api/v1", tags=["task-diff"])
 # Decision 一等公民实体（任务 89a90af6，FR-02）
 from mio_taskhub.api import decisions
+
 app.include_router(decisions.router, prefix="/api/v1", tags=["decisions"])
 app.include_router(agents.router, prefix="/api/v1", tags=["agents"])
 app.include_router(runs.router, prefix="/api/v1", tags=["runs"])
@@ -288,7 +338,7 @@ app.include_router(insights_router)
 
 
 @app.get("/api/v1/status", tags=["status"])
-def status_alias(agent: str = None, db=Depends(get_session)):
+def status_alias(agent: str | None = None, db=Depends(get_session)):
     """调度器与心跳状态别名：复用 board_summary，满足验收中 GET /status 要求。"""
     return _board_summary(agent=agent, db=db)
 
@@ -303,10 +353,12 @@ def get_alerts():
     return {"alerts": [], "active_count": 0}
 
 
-from fastapi.responses import HTMLResponse
 from pathlib import Path
-import sys
+
+from fastapi.responses import HTMLResponse
+
 from mio_taskhub.observability.logging_config import log_buffer
+
 
 @app.get("/dashboard", response_class=HTMLResponse, tags=["dashboard"])
 def dashboard():
@@ -339,8 +391,9 @@ def landing():
     return HTMLResponse(content="<h1>Landing page not found</h1>", status_code=404)
 
 
-from collections import deque
 import threading
+from collections import deque
+
 
 class LogBuffer:
     """In-memory ring buffer for recent log entries (last 1000)."""
@@ -352,7 +405,7 @@ class LogBuffer:
         with self._lock:
             self._buf.append(entry)
 
-    def query(self, level: str = None, logger: str = None, limit: int = 100) -> list:
+    def query(self, level: str | None = None, logger: str | None = None, limit: int = 100) -> list:
         with self._lock:
             items = list(self._buf)
         if level:
@@ -368,7 +421,7 @@ def _install_buffer_handler():
 
 
 @app.get("/api/v1/logs", tags=["logs"])
-def query_logs(level: str = None, logger: str = None, limit: int = 100):
+def query_logs(level: str | None = None, logger: str | None = None, limit: int = 100):
     """查询最近日志（支持按级别/logger 过滤）"""
     return {"logs": log_buffer.query(level=level, logger=logger, limit=limit)}
 
@@ -416,7 +469,7 @@ def healthz():
     description="Checks SQLite connectivity via SELECT 1. Returns 200 when DB is reachable, 503 with {status:degraded, db:error} otherwise. Use for k8s readiness probes.",
 )
 def readyz():
-    from mio_taskhub.db import check_connection, DB_PATH
+    from mio_taskhub.db import DB_PATH, check_connection
     from mio_taskhub.ops.backup import get_backup_status
     result = check_connection()
     status = "ok" if result["ok"] else "degraded"
@@ -439,15 +492,16 @@ from mio_taskhub.observability.metrics import render_metrics
 )
 def metrics():
     from fastapi import Response as _Resp
+
     from mio_taskhub.memory_store import get_metrics as _mem_metrics
     body = render_metrics()
     # v2: append memory store metrics
     mem = _mem_metrics()
     extra = []
     for tool, count in sorted(mem.get("calls_5m", {}).items()):
-        extra.append('taskhub_memory_calls_total{{tool="{}",outcome="ok"}} {}'.format(tool, count))
+        extra.append(f'taskhub_memory_calls_total{{tool="{tool}",outcome="ok"}} {count}')
     for tool, outcome in sorted(mem.get("last_error", {}).items()):
-        extra.append('taskhub_memory_calls_total{{tool="{}",outcome="{}"}} 1'.format(tool, outcome))
+        extra.append(f'taskhub_memory_calls_total{{tool="{tool}",outcome="{outcome}"}} 1')
     if extra:
         body = body.rstrip("\n") + "\n# HELP taskhub_memory_calls_total Memory store call counts\n# TYPE taskhub_memory_calls_total counter\n" + "\n".join(extra) + "\n"
     return _Resp(content=body, media_type="text/plain; version=0.0.4")

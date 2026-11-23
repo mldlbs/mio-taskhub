@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """「待我处理」收件箱（E7 结论产品化，任务 c8316737 后续，2026-11-04）。
 
 GET /api/v1/tasks/inbox —— 三个决策队列，机器噪声恒过滤（mio_taskhub.noise）：
@@ -23,10 +22,10 @@ from fastapi import APIRouter, Depends
 from sqlmodel import Session, select
 
 from mio_taskhub.db import get_session
-from mio_taskhub.models import Decision, Task, TaskState, TaskStage
+from mio_taskhub.dependency import dependency_satisfied, task_deps
+from mio_taskhub.models import Decision, Task, TaskState
 from mio_taskhub.noise import is_noise
 from mio_taskhub.workflow.state_machine import is_terminal
-from mio_taskhub.dependency import task_deps, dependency_satisfied
 
 router = APIRouter(prefix="/tasks", tags=["inbox"])
 

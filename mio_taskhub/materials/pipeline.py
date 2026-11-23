@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """素材库流水线：单批事务、raw 版本化、幂等归并、提取历史、重建。
 
 设计：docs/taskhub/materials/spec.md §3.1 / §3.2 / §3.7
@@ -9,10 +8,11 @@ import json
 import os
 import time
 import uuid
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any
 
 from sqlalchemy import func
 from sqlalchemy.exc import OperationalError
@@ -20,24 +20,35 @@ from sqlmodel import Session, select
 
 from mio_taskhub.db import engine
 from mio_taskhub.materials.common import (
-    canonical_json, content_fingerprint, draft_fingerprint,
+    canonical_json,
+    content_fingerprint,
+    draft_fingerprint,
 )
 from mio_taskhub.materials.constants import BATCH_MAX_ROWS, REBUILD_LOCK_SECONDS
 from mio_taskhub.materials.extract import (
-    has_citable_signal, is_generic_failure,
+    has_citable_signal,
+    is_generic_failure,
 )
 from mio_taskhub.materials.models import (
-    Material, MaterialExtract, MaterialLink, MaterialRaw, MaterialSource,
+    Material,
+    MaterialExtract,
+    MaterialLink,
+    MaterialRaw,
+    MaterialSource,
     MaterialWitness,
 )
 from mio_taskhub.materials.quality import (
-    Draft, GateResult, evaluate_draft, expires_at, initial_status,
+    Draft,
+    GateResult,
+    evaluate_draft,
+    expires_at,
+    initial_status,
     score_material,
 )
 from mio_taskhub.materials.sanitize import sanitize_payload, scan_text
 from mio_taskhub.utils import _now
 
-Extractor = Callable[[Dict[str, Any], MaterialSource], List[Draft]]
+Extractor = Callable[[dict[str, Any], MaterialSource], list[Draft]]
 
 
 class ExtractNondeterminism(RuntimeError):
@@ -53,9 +64,9 @@ class RawRecord:
     source_key: str
     external_id: str
     observed_at: datetime
-    payload: Dict[str, Any]
-    source_ref: Optional[dict] = None
-    project: Optional[str] = None
+    payload: dict[str, Any]
+    source_ref: dict | None = None
+    project: str | None = None
     occurrence_hint: int = 1
 
 
@@ -167,10 +178,10 @@ def _recount(session: Session, material: Material) -> tuple[int, int]:
     return material.occurrences, material.corroboration
 
 
-def draft_reject_reason(draft: Draft, payload: Dict[str, Any], source_key: str,
+def draft_reject_reason(draft: Draft, payload: dict[str, Any], source_key: str,
                         scope: str, raw_revision: int,
                         sanitizer_version: int,
-                        gate: Optional[GateResult] = None) -> Optional[str]:
+                        gate: GateResult | None = None) -> str | None:
     """按 pipeline 顺序返回拒绝原因；None 表示可入库。供测试与归档复用。"""
     if gate is None:
         gate = evaluate_draft(draft, payload, source_key, scope,
@@ -262,7 +273,7 @@ def _accept_draft(session: Session, source: MaterialSource, raw: MaterialRaw,
         primary_count = session.execute(
             select(func.count()).select_from(MaterialWitness).where(
                 MaterialWitness.material_id == material.id,
-                MaterialWitness.is_primary == True,  # noqa: E712
+                MaterialWitness.is_primary.is_(True),
             )
         ).scalar_one()
         witness = MaterialWitness(
@@ -311,7 +322,7 @@ def _accept_draft(session: Session, source: MaterialSource, raw: MaterialRaw,
 
 def _extract_raw(session: Session, source: MaterialSource, raw: MaterialRaw,
                  extractor: Extractor, stats: IngestStats, now: datetime,
-                 force: bool = False, project: Optional[str] = None) -> None:
+                 force: bool = False, project: str | None = None) -> None:
     if not force and raw.extract_version >= source.extract_version \
             and raw.extract_status in ("extracted", "rejected", "skipped"):
         stats.skipped += 1
@@ -369,7 +380,7 @@ def _extract_raw(session: Session, source: MaterialSource, raw: MaterialRaw,
 
 
 def _ingest_records_once(source_key: str, records: Sequence[RawRecord],
-                         extractor: Extractor, cursor: Optional[str],
+                         extractor: Extractor, cursor: str | None,
                          now: datetime, target_engine) -> IngestStats:
     stats = IngestStats()
     with Session(target_engine or engine) as session:
@@ -389,13 +400,13 @@ def _ingest_records_once(source_key: str, records: Sequence[RawRecord],
 
 
 def ingest_records(source_key: str, records: Sequence[RawRecord],
-                   extractor: Extractor, cursor: Optional[str] = None,
-                   now: Optional[datetime] = None,
+                   extractor: Extractor, cursor: str | None = None,
+                   now: datetime | None = None,
                    target_engine=None) -> IngestStats:
     """单批采集入库；整批一个事务，失败回滚；锁冲突退避重试。"""
     now = now or _now()
     delays = (0.0, 0.2, 0.5, 1.0)
-    last_exc: Optional[Exception] = None
+    last_exc: Exception | None = None
     for delay in delays:
         if delay:
             time.sleep(delay)
@@ -413,8 +424,8 @@ def ingest_records(source_key: str, records: Sequence[RawRecord],
 
 
 def add_link(session: Session, material_id: str, ref_type: str, ref_id: str,
-             relation: str, note: Optional[str] = None,
-             created_by: Optional[str] = None) -> MaterialLink:
+             relation: str, note: str | None = None,
+             created_by: str | None = None) -> MaterialLink:
     material = session.get(Material, material_id)
     if material is None:
         raise ValueError(f"material not found: {material_id}")
@@ -449,12 +460,12 @@ def _read_cursor(source: MaterialSource) -> int:
 
 
 def rebuild_source(source_key: str, extractor: Extractor,
-                   to_version: Optional[int] = None,
-                   to_config_hash: Optional[str] = None,
+                   to_version: int | None = None,
+                   to_config_hash: str | None = None,
                    batch_size: int = BATCH_MAX_ROWS,
-                   crash_after_batches: Optional[int] = None,
+                   crash_after_batches: int | None = None,
                    resume: bool = False,
-                   now: Optional[datetime] = None) -> Dict[str, int]:
+                   now: datetime | None = None) -> dict[str, int]:
     """版本化重建；批次原子，不是全局原子。
 
     resume=True 时要求 rebuild_state=running 且 lock 已过期，从 rebuild_cursor 续跑。

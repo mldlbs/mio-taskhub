@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """idle_worker agent 保活心跳测试（P1-OBS/T4.3）。
 
 空闲 worker 若不续 agent 心跳，会被 `_mark_stale_agents` 置 OFFLINE，且 claim 防御
@@ -7,11 +6,11 @@
 """
 import http.server
 import json
-import socket
 import subprocess
 import sys
 import threading
 import time
+import typing
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -25,7 +24,7 @@ def test_source_has_agent_keepalive():
 
 
 class _FakeHub(http.server.BaseHTTPRequestHandler):
-    calls = []
+    calls: typing.ClassVar = []
 
     def log_message(self, *a):
         pass

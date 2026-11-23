@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """幽灵 agent 发现 + 修复单测（P1-OBS 后续）。"""
 import sys
 from pathlib import Path

@@ -3,13 +3,13 @@
 验证：回放 TaskEvent 序列 → 重建的字段与 Task 实际字段一致。
 TaskEvent 是 source of truth，Task 字段是投影。
 """
-import pytest
-from sqlmodel import Session, select
-from datetime import datetime, timezone
+from datetime import datetime
 
-from mio_taskhub.db import engine, init_db
-from mio_taskhub.models import Task, TaskState, TaskStage, TaskEvent
-from mio_taskhub.workflow.state_machine import State, Stage, ActorType
+from sqlmodel import Session, select
+
+from mio_taskhub.db import engine
+from mio_taskhub.models import Task, TaskEvent, TaskStage, TaskState
+from mio_taskhub.workflow.state_machine import ActorType, Stage, State
 from mio_taskhub.workflow.transitions import apply_transition
 
 

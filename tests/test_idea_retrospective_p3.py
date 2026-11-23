@@ -3,12 +3,12 @@ import asyncio
 from datetime import datetime, timedelta
 
 import httpx
-from sqlmodel import Session, select
+from sqlmodel import Session
 
-from mio_taskhub.main import app
-from mio_taskhub.db import engine
 from mio_taskhub.api import cockpit
-from mio_taskhub.models import Discussion, Run, RunState, Task
+from mio_taskhub.db import engine
+from mio_taskhub.main import app
+from mio_taskhub.models import Discussion, Run, RunState
 
 
 def _with_client(coro):

@@ -1,7 +1,9 @@
-import time
 import logging
-from mio_taskhub.db import engine
+import time
+
 from sqlalchemy import text
+
+from mio_taskhub.db import engine
 
 logger = logging.getLogger(__name__)
 
@@ -15,14 +17,20 @@ class DepMetricsPersist:
             rows = []
             for dep, ops in DepMetrics.get_all().items():
                 for op, info in ops.items():
-                    rows.append((now, dep, op, info["count"], info["errors"], info["avg_ms"], info["p50_ms"], info["p90_ms"], info["p99_ms"], info["max_ms"], info["error_rate"]))
+                    rows.append((now, dep, op, info["count"], info["errors"], info["avg_ms"],
+                                 info["p50_ms"], info["p90_ms"], info["p99_ms"], info["max_ms"],
+                                 info["error_rate"]))
 
             if rows:
                 with engine.connect() as conn:
                     for row in rows:
                         conn.execute(
-                            text("INSERT INTO depmetricssnapshot (ts, dep, op, count, errors, avg_ms, p50_ms, p90_ms, p99_ms, max_ms, error_rate) VALUES (:ts, :dep, :op, :count, :errors, :avg_ms, :p50, :p90, :p99, :max_ms, :error_rate)"),
-                            {"ts": row[0], "dep": row[1], "op": row[2], "count": row[3], "errors": row[4], "avg_ms": row[5], "p50": row[6], "p90": row[7], "p99": row[8], "max_ms": row[9], "error_rate": row[10]}
+                            text("INSERT INTO depmetricssnapshot (ts, dep, op, count, errors, avg_ms, "
+                                 "p50_ms, p90_ms, p99_ms, max_ms, error_rate) "
+                                 "VALUES (:ts, :dep, :op, :count, :errors, :avg_ms, :p50, :p90, :p99, :max_ms, :error_rate)"),
+                            {"ts": row[0], "dep": row[1], "op": row[2], "count": row[3], "errors": row[4],
+                             "avg_ms": row[5], "p50": row[6], "p90": row[7], "p99": row[8], "max_ms": row[9],
+                             "error_rate": row[10]}
                         )
                     conn.commit()
         except Exception:

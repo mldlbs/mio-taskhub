@@ -1,11 +1,12 @@
 # tests/test_mcp_server.py
 import asyncio
 import json
+
 import httpx
 import pytest
-from mio_taskhub.main import app
+
 from mio_taskhub import mcp_server
-from mio_taskhub.db import init_db
+from mio_taskhub.main import app
 
 
 @pytest.fixture()
@@ -138,6 +139,7 @@ def test_cancel_tool(mcp_ctx):
     assert res["reason"] == "obsolete"
     # F17/T0.6：MCP 取消的事件 payload 必须含 reason（非 null）
     from sqlmodel import Session, select
+
     from mio_taskhub.db import engine
     from mio_taskhub.models import Event
     with Session(engine) as s:
@@ -523,9 +525,11 @@ def test_claim_carries_lessons(mcp_ctx):
     # 造一条同 workspace 的已完成历史任务，含测试证据
     old = _call("taskhub_create_task", {"title": "历史任务", "workspace": ws,
                                         "project": "lp", "stage": "ready"})
-    from mio_taskhub.db import Session as _S, engine
-    from mio_taskhub.models import Task, TaskState, Run, RunState
     import uuid as _uuid
+
+    from mio_taskhub.db import Session as _S
+    from mio_taskhub.db import engine
+    from mio_taskhub.models import Run, RunState, Task, TaskState
     with _S(engine) as s:
         t = s.get(Task, old["id"])
         t.state = TaskState.COMPLETED

@@ -1,9 +1,7 @@
-# -*- coding: utf-8 -*-
 """素材库 SQLModel：7 张表（spec v1.1 / data-model v1.1）。"""
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import Index, UniqueConstraint, text
 from sqlmodel import Field, SQLModel
@@ -23,22 +21,22 @@ class MaterialSource(SQLModel, table=True):
     config: str = "{}"
     independence_group: str = ""           # 默认等于 key；seed 时写入
     independence_version: int = 1
-    cursor: Optional[str] = None
-    rebuild_cursor: Optional[str] = None
+    cursor: str | None = None
+    rebuild_cursor: str | None = None
     extract_version: int = 1
     extract_config_hash: str = ""
     sanitizer_version: int = 1
     sanitizer_config_hash: str = ""
     min_interval_s: int = 600
     daily_cap: int = 300
-    lock_owner: Optional[str] = None
-    lock_heartbeat_at: Optional[datetime] = None
-    lock_until: Optional[datetime] = None
+    lock_owner: str | None = None
+    lock_heartbeat_at: datetime | None = None
+    lock_until: datetime | None = None
     rebuild_state: str = "idle"            # idle / running / done / failed
     rebuild_resumed_count: int = 0
-    last_run_at: Optional[datetime] = None
+    last_run_at: datetime | None = None
     last_status: str = "never"             # never / ok / partial / error
-    last_error: Optional[str] = None
+    last_error: str | None = None
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
@@ -58,7 +56,7 @@ class MaterialRaw(SQLModel, table=True):
         ),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     source_key: str = Field(foreign_key="material_source.key", index=True)
     external_id: str = Field(index=True)
     raw_revision: int = 1
@@ -71,11 +69,11 @@ class MaterialRaw(SQLModel, table=True):
     sanitizer_version: int = 1
     sanitizer_config_hash: str = ""
     extract_version: int = 0
-    extract_config_hash: Optional[str] = None
+    extract_config_hash: str | None = None
     extract_status: str = "pending"        # pending / extracted / rejected / skipped
-    reject_reason: Optional[str] = None
+    reject_reason: str | None = None
     payload_truncated: bool = False
-    encoding_used: Optional[str] = None
+    encoding_used: str | None = None
     created_at: datetime = Field(default_factory=_now)
 
 
@@ -93,17 +91,17 @@ class Material(SQLModel, table=True):
     kind: str = Field(index=True)
     origin: str
     scope_key: str = ""
-    project: Optional[str] = None
+    project: str | None = None
     quote: str
     content_fingerprint: str = Field(index=True)
-    title: Optional[str] = None
-    url: Optional[str] = None
+    title: str | None = None
+    url: str | None = None
     observed_at: datetime
     first_seen_at: datetime = Field(default_factory=_now)
     last_seen_at: datetime = Field(default_factory=_now)
-    expires_at: Optional[datetime] = None
+    expires_at: datetime | None = None
     status: str = "quarantine"
-    status_reason: Optional[str] = None
+    status_reason: str | None = None
     quality: float = 0.0
     quality_detail: str = "{}"
     quality_model_version: int = 1
@@ -129,7 +127,7 @@ class MaterialWitness(SQLModel, table=True):
         ),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     material_id: str = Field(foreign_key="material.id", index=True)
     raw_id: int = Field(foreign_key="material_raw.id", index=True)
     source_key: str
@@ -139,7 +137,7 @@ class MaterialWitness(SQLModel, table=True):
     sanitized_payload_hash: str
     quote_exact: str
     locator: str
-    source_ref: Optional[str] = None
+    source_ref: str | None = None
     is_primary: bool = False
     occurrence_count: int = 1
     independence_group: str = ""
@@ -159,7 +157,7 @@ class MaterialExtract(SQLModel, table=True):
         ),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     material_id: str = Field(foreign_key="material.id", index=True)
     raw_id: int = Field(foreign_key="material_raw.id", index=True)
     extract_version: int
@@ -181,13 +179,13 @@ class MaterialLink(SQLModel, table=True):
         ),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     material_id: str = Field(foreign_key="material.id", index=True)
     ref_type: str
     ref_id: str
     relation: str
-    note: Optional[str] = None
-    created_by: Optional[str] = None
+    note: str | None = None
+    created_by: str | None = None
     created_at: datetime = Field(default_factory=_now)
 
 
@@ -195,22 +193,22 @@ class MaterialSourceAudit(SQLModel, table=True):
     """来源配置审计；只增不改不删。"""
     __tablename__ = "material_source_audit"
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     source_key: str = Field(index=True)
     field: str
-    old_value: Optional[str] = None
-    new_value: Optional[str] = None
+    old_value: str | None = None
+    new_value: str | None = None
     actor: str
     reason: str
     at: datetime = Field(default_factory=_now)
 
 
 __all__ = [
-    "MaterialSource",
-    "MaterialRaw",
     "Material",
-    "MaterialWitness",
     "MaterialExtract",
     "MaterialLink",
+    "MaterialRaw",
+    "MaterialSource",
     "MaterialSourceAudit",
+    "MaterialWitness",
 ]

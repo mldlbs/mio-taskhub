@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """评审人身份验证（F-004 收尾，2026-11-12）回归。
 
 契约：
@@ -15,14 +14,13 @@
 """
 import uuid
 
-import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from mio_taskhub.api.runs import issue_run_token, run_token_hash
-from mio_taskhub.main import app
 from mio_taskhub.db import engine
-from mio_taskhub.models import Task, TaskStage, Run, RunState
+from mio_taskhub.main import app
+from mio_taskhub.models import Run, RunState, Task, TaskStage
 
 client = TestClient(app)
 
@@ -38,7 +36,7 @@ def _mk(stage="review") -> str:
         return t.id
 
 
-def _add_run(tid, agent, token: str = None) -> str:
+def _add_run(tid, agent, token: str | None = None) -> str:
     with Session(engine) as s:
         rid = f"run-{uuid.uuid4().hex[:8]}"
         r = Run(id=rid, task_id=tid, agent_name=agent, state=RunState.FINISHED)
@@ -161,9 +159,11 @@ def test_unverified_claim_has_no_proof():
 # ── 迁移幂等 ─────────────────────────────────────────────────────────────────
 
 def test_migration_adds_review_identity_columns(tmp_path, monkeypatch):
-    from sqlalchemy import inspect as sa_inspect, text
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text
     from sqlmodel import SQLModel
-    from mio_taskhub.migrations import run_migrations, _migrate_task_review_identity
+
+    from mio_taskhub.migrations import _migrate_task_review_identity, run_migrations
 
     db_path = tmp_path / "mig_review.db"
     url = f"sqlite:///{db_path}"

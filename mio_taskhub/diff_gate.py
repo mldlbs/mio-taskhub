@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """窄门禁：拦截「声明成功但零改动」的提交。
 
 背景（需求 `docs/taskhub/d468e633/requirement.md` FR-1 ~ FR-11）：
@@ -23,8 +22,8 @@ import hashlib
 import json
 import os
 import subprocess
-from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, field
+from typing import Any
 
 # git 子进程超时（秒）。超时按 fail-open 跳过判定。
 GIT_TIMEOUT_SEC = 5
@@ -64,14 +63,14 @@ class Snapshot:
     files: int = 0
     insertions: int = 0
     deletions: int = 0
-    paths: List[str] = field(default_factory=list)
+    paths: list[str] = field(default_factory=list)
     captured_at: str = ""
     # 工作区变更文件的内容指纹（sha256 聚合）。fingerprint_ok=False 表示
     # 指纹不可用（文件过多/读失败）→ 判定时按 fail-open 视为「有改动」。
     fingerprint: str = ""
     fingerprint_ok: bool = True
 
-    def brief(self) -> Dict[str, Any]:
+    def brief(self) -> dict[str, Any]:
         """摘要形态（入库用）。不返回 error 的绝对路径等敏感信息。"""
         return {
             "head": self.head,
@@ -98,7 +97,7 @@ class Verdict:
     deletions: int = 0
     mode: str = DEFAULT_GATE_MODE
 
-    def brief(self) -> Dict[str, Any]:
+    def brief(self) -> dict[str, Any]:
         return {
             "blocked": self.blocked,
             "skipped": self.skipped,
@@ -127,7 +126,7 @@ def _git(workspace: str, *args: str) -> tuple[int, str, str]:
     return proc.returncode, proc.stdout or "", proc.stderr or ""
 
 
-def _numstat(workspace: str) -> tuple[int, int, List[str]]:
+def _numstat(workspace: str) -> tuple[int, int, list[str]]:
     """解析 `git diff --numstat HEAD` → (新增行合计, 删除行合计, 路径列表)。
 
     空仓库（无 HEAD）时该命令失败 → 降级为 (0, 0, [])。
@@ -140,7 +139,7 @@ def _numstat(workspace: str) -> tuple[int, int, List[str]]:
     if rc != 0:
         return 0, 0, []
     ins = dele = 0
-    paths: List[str] = []
+    paths: list[str] = []
     for line in out.splitlines():
         if not line.strip():
             continue
@@ -218,7 +217,7 @@ def _fingerprint(workspace: str, status_out: str) -> tuple[str, bool]:
     指纹只对**变更文件**计算（已跟踪改动 + 未跟踪），成本与变更规模成正比，
     与仓库总大小无关。
     """
-    entries: List[str] = []
+    entries: list[str] = []
     try:
         for line in status_out.splitlines():
             if not line.strip():
@@ -237,7 +236,7 @@ def _fingerprint(workspace: str, status_out: str) -> tuple[str, bool]:
                 entries.append(f"{xy}:{rel}:DELETED")
                 continue
             entries.append(f"{xy}:{rel}:{_path_digest(workspace, rel)}")
-    except Exception:                   # noqa: BLE001 — 指纹采集不得影响主链路
+    except Exception:
         return "", False
 
     if len(entries) > MAX_FINGERPRINT_FILES:
@@ -344,6 +343,7 @@ def _has_concurrent_run(db, task) -> bool:
     任务，再查这些任务下是否有除本 run 外的活跃 run。
     """
     from sqlmodel import select
+
     from mio_taskhub.models import Run, RunState, Task
 
     if not task.workspace:
@@ -381,7 +381,7 @@ def _has_concurrent_run(db, task) -> bool:
     return len(same_task) > 1
 
 
-def _before_snapshot(run) -> Optional[Snapshot]:
+def _before_snapshot(run) -> Snapshot | None:
     """从 run.diff_summary['before'] 还原前快照。"""
     raw = None
     try:
@@ -467,9 +467,9 @@ def check_diff_gate(db, task, run, body=None) -> Verdict:
 
 # ── 标注合并 ──────────────────────────────────────────────────────────
 
-def merge_annotations(existing, new_items) -> List[dict]:
+def merge_annotations(existing, new_items) -> list[dict]:
     """合并标注列表。同一 code 只保留最新一条（避免同一 run 反复提交刷屏）。"""
-    items: List[dict] = []
+    items: list[dict] = []
     if isinstance(existing, str):
         try:
             existing = json.loads(existing)

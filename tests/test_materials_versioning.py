@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """T-RAWVER：脱敏升级后旧 witness 仍按旧 raw revision 回读。"""
 import json
 from datetime import datetime, timezone
@@ -9,7 +8,10 @@ from sqlmodel import Session, select
 import mio_taskhub.materials.sanitize as san
 from mio_taskhub.db import engine
 from mio_taskhub.materials.models import (
-    Material, MaterialExtract, MaterialRaw, MaterialWitness,
+    Material,
+    MaterialExtract,
+    MaterialRaw,
+    MaterialWitness,
 )
 from mio_taskhub.materials.pipeline import RawRecord, ingest_records
 from mio_taskhub.materials.quality import Draft

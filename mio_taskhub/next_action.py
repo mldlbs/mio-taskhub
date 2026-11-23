@@ -221,7 +221,7 @@ def _dismissed_alive(pref: IdeaUserPref, snapshot: dict, now) -> bool:
     return (pref.condition_snapshot or {}) == snapshot
 
 
-def compute_next_action(db: Session, idea: Idea, user: str = "local", order: list = None):
+def compute_next_action(db: Session, idea: Idea, user: str = "local", order: list | None = None):
     """按优先级序取第一条存活（未被有效 dismiss）的命中规则；无命中返回 None。"""
     order = order or next_action_order()
     ctx = _build_ctx(db, idea)

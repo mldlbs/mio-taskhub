@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """素材库不变量审计（I1~I18 的核心子集）。用法：python scripts/materials_audit.py"""
 from __future__ import annotations
 
@@ -10,13 +9,16 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from sqlalchemy import func  # noqa: E402
-from sqlmodel import Session, select  # noqa: E402
+from sqlalchemy import func
+from sqlmodel import Session, select
 
-from mio_taskhub.db import engine  # noqa: E402
-from mio_taskhub.materials.bootstrap import init_materials_db  # noqa: E402
-from mio_taskhub.materials.models import (  # noqa: E402
-    Material, MaterialExtract, MaterialRaw, MaterialWitness,
+from mio_taskhub.db import engine
+from mio_taskhub.materials.bootstrap import init_materials_db
+from mio_taskhub.materials.models import (
+    Material,
+    MaterialExtract,
+    MaterialRaw,
+    MaterialWitness,
 )
 
 
@@ -24,7 +26,7 @@ def _check(name: str, rows: list) -> dict:
     return {"check": name, "ok": not rows, "count": len(rows), "sample": rows[:5]}
 
 
-def run_audit(target_engine=None) -> dict:
+def run_audit(target_engine=None) -> dict:  # noqa: C901
     eng = target_engine or engine
     if target_engine is None:
         init_materials_db(eng)
@@ -42,7 +44,7 @@ def run_audit(target_engine=None) -> dict:
             n = s.execute(
                 select(func.count()).select_from(MaterialWitness).where(
                     MaterialWitness.material_id == mid,
-                    MaterialWitness.is_primary == True,  # noqa: E712
+                    MaterialWitness.is_primary.is_(True),
                 )
             ).scalar_one()
             if int(n) != 1:
@@ -54,7 +56,7 @@ def run_audit(target_engine=None) -> dict:
             w = s.exec(
                 select(MaterialWitness).where(
                     MaterialWitness.material_id == m.id,
-                    MaterialWitness.is_primary == True,  # noqa: E712
+                    MaterialWitness.is_primary.is_(True),
                 )
             ).first()
             if w is None or m.quote != w.quote_exact:

@@ -3,7 +3,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { api } from '../api'
 import { parseUtc } from '../constants'
 
-export default function IdeaSearch({ ideas: initialIdeas, onSelect, onRefresh }) {
+// eslint-disable-next-line complexity, max-lines-per-function
+function IdeaSearch({ ideas: initialIdeas, onSelect, onRefresh: _onRefresh }) {
   const [query, setQuery] = useState('')
   const [filters, setFilters] = useState({
     status: [],
@@ -18,7 +19,7 @@ export default function IdeaSearch({ ideas: initialIdeas, onSelect, onRefresh })
   const [sortBy, setSortBy] = useState('updated_at')
   const [sortOrder, setSortOrder] = useState('desc')
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(20)
+  const [pageSize] = useState(20)
   const [results, setResults] = useState({ ideas: [], count: 0, total_pages: 1 })
   const [loading, setLoading] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
@@ -27,7 +28,7 @@ export default function IdeaSearch({ ideas: initialIdeas, onSelect, onRefresh })
   const [error, setError] = useState(null)
 
   // Debounced search
-  const debouncedSearch = useMemo(
+  const _debouncedSearch = useMemo(
     () => {
       let timeoutId
       return (fn) => {
@@ -38,6 +39,7 @@ export default function IdeaSearch({ ideas: initialIdeas, onSelect, onRefresh })
     []
   )
 
+  // eslint-disable-next-line complexity
   const performSearch = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -84,14 +86,17 @@ export default function IdeaSearch({ ideas: initialIdeas, onSelect, onRefresh })
   // Also load scores for initial ideas if no search
   useEffect(() => {
     if (!query && initialIdeas?.length) {
-      try {
-        const res = await api.post('/api/v1/ideas/scores', {
-          idea_ids: initialIdeas.map(i => i.id),
-        })
-        setScores(res.scores || {})
-      } catch (e) {
-        console.warn('Failed to fetch initial scores', e)
+      const load = async () => {
+        try {
+          const res = await api.post('/api/v1/ideas/scores', {
+            idea_ids: initialIdeas.map(i => i.id),
+          })
+          setScores(res.scores || {})
+        } catch (e) {
+          console.warn('Failed to fetch initial scores', e)
+        }
       }
+      load()
     }
   }, [initialIdeas])
 
@@ -286,13 +291,14 @@ export default function IdeaSearch({ ideas: initialIdeas, onSelect, onRefresh })
           )}
 
           <div className="idea-search__list">
+            {/* eslint-disable-next-line complexity */}
             {(results.ideas || []).map(idea => {
               const scoreInfo = getScoreInfo(idea.id)
               return (
                 <div key={idea.id} className={`idea-search__item${onSelect ? ' clickable' : ''}`} onClick={() => onSelect?.(idea)}>
                   <div className="idea-search__item-main">
                     <div className="idea-search__item-title">
-                      <span className={`badge badge--${(idea.idea_type === 'adr' ? { proposed: 'live', accepted: 'ok', rejected: 'dim', deprecated: 'dim', superseded: 'dim' }[idea.adr_status] || 'live') : { new: 'dim', fermenting: 'live', formed: 'ok', broken_down: 'ok', archived: 'dim', cancelled: 'danger' }[idea.status] || 'dim')}`}>
+                      <span className={`badge badge--${(idea.idea_type === 'adr' ? { proposed: 'live', accepted: 'ok', rejected: 'dim', deprecated: 'dim', superseded: 'dim' }[idea.adr_status] || 'live' : { new: 'dim', fermenting: 'live', formed: 'ok', broken_down: 'ok', archived: 'dim', cancelled: 'danger' }[idea.status] || 'dim')}`}>
                         {idea.idea_type === 'adr' ? (idea.adr_status === 'proposed' ? 'ADR提议' : idea.adr_status === 'accepted' ? 'ADR接受' : idea.adr_status === 'rejected' ? 'ADR拒绝' : idea.adr_status === 'deprecated' ? 'ADR废弃' : 'ADR取代') : ({ new: '记录中', fermenting: '发酵中', formed: '已成形', broken_down: '已拆解', archived: '已归档', cancelled: '已取消' }[idea.status] || idea.status)}
                       </span>
                       <span className="idea-search__item-title-text">{idea.title}</span>

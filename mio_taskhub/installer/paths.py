@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """安装 / 卸载的路径与常量**单一事实源**。
 
 安装器、卸载器、更新器（`mio_taskhub.update.apply`）三方共用这里的常量，
@@ -90,14 +89,14 @@ def force_rmtree(path) -> bool:
         try:
             os.chmod(p, stat.S_IWRITE)
             func(p)
-        except Exception:  # noqa: BLE001 —— 删除失败不应中断整体流程
+        except Exception:
             pass
 
     try:
         shutil.rmtree(path, onerror=_onerror)
     except TypeError:
         # Python 3.12+ 用 onexc，3.11 用 onerror
-        shutil.rmtree(path, onexc=lambda f, p, e: _onerror(f, p, e))
+        shutil.rmtree(path, onexc=_onerror)
     return not path.exists()
 
 

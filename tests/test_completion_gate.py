@@ -1,5 +1,4 @@
-﻿# -*- coding: utf-8 -*-
-"""Phase 1 完成门禁核心测试。"""
+﻿"""Phase 1 完成门禁核心测试。"""
 import uuid
 
 from fastapi.testclient import TestClient
@@ -210,9 +209,10 @@ def test_done_gate_block_passes_with_completion_run(monkeypatch, tmp_path):
 
 
 def test_legacy_done_is_readable(monkeypatch):
+    from sqlmodel import Session
+
     from mio_taskhub.db import engine
     from mio_taskhub.models import Task, TaskStage
-    from sqlmodel import Session
     with Session(engine) as db:
         task = Task(title="legacy", stage=TaskStage.DONE)
         db.add(task)

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """构造式修复基准：生成独立快照，验证“基线失败 / 回归通过 / 参考修复通过”。
 
 不运行“有无素材”实验；只验证基准是否可构造、可复现、可自动判定。
@@ -9,7 +8,6 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -17,7 +15,6 @@ import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
 
 ROOT = Path(__file__).resolve().parents[1]
 CUTOFF = "2026-10-29 00:00:00"
@@ -86,7 +83,7 @@ def snapshot_hash(repo: Path) -> str:
     return h.hexdigest()
 
 
-def build(out_dir: Path) -> List[dict]:
+def build(out_dir: Path) -> list[dict]:
     if out_dir.exists():
         shutil.rmtree(out_dir)
     samples = []

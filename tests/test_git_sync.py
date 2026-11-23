@@ -1,10 +1,10 @@
 from datetime import datetime, timedelta
 
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from mio_taskhub.db import engine, init_db
-from mio_taskhub.ops.git_sync import cleanup_old_outbox_events
 from mio_taskhub.models import OutboxEvent, OutboxStatus
+from mio_taskhub.ops.git_sync import cleanup_old_outbox_events
 
 
 def _seed_event(age_days: int, status: OutboxStatus = OutboxStatus.SYNCED):

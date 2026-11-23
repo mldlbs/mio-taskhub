@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Query
-from mio_taskhub.observability.insights import InsightsEngine
+
 from mio_taskhub.observability.audit import AlertAudit
+from mio_taskhub.observability.insights import InsightsEngine
 from mio_taskhub.observability.remediation import RemediationEngine
 
 router = APIRouter(prefix="/api/v1", tags=["insights"])

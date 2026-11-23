@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """发布脚本的资产清单（发版时该上传哪些文件、latest.json 怎么写）。
 
 **单一事实源**：`packaging/release.ps1` 与 `scripts/release_checklist.py`
@@ -51,4 +50,4 @@ PAYLOAD_ARCH = "x64"
 
 def all_release_assets() -> tuple:
     """所有需要上传的资产（相对 dist/ 目录）。"""
-    return (PAYLOAD_ASSET,) + INSTALLER_BUNDLE_ASSETS
+    return (PAYLOAD_ASSET, *INSTALLER_BUNDLE_ASSETS)

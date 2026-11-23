@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """生产 apply_runner：以独立进程触发 --apply-update，并请求 hub 优雅退出。
 
 架构：hub 进程 → 本 runner 先把 updater **拷到临时 spool 目录**再 spawn（TaskHub.exe
@@ -6,20 +5,21 @@ apply-update …）→ 请求 hub 优雅退出 → updater 等 hub PID 退出 �
 本 runner 的返回值仅表示"已成功触发"，**不代表更新成功**（成功以 updater 的 sentinel 健康确认为准，
 见 apply.run_apply_update 与 ~/.mio_taskhub/update/apply.log）。
 """
+import contextlib
 import os
 import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
 
 from mio_taskhub.update.apply import default_runtime_path
 
-_EXIT_CALLBACK: Optional[Callable[[], None]] = None
+_EXIT_CALLBACK: Callable[[], None] | None = None
 
 
-def set_exit_callback(cb: Optional[Callable[[], None]]) -> None:
+def set_exit_callback(cb: Callable[[], None] | None) -> None:
     """由 hub 启动器注册：请求进程优雅退出（如 uvicorn server.should_exit=True）。"""
     global _EXIT_CALLBACK
     _EXIT_CALLBACK = cb
@@ -29,10 +29,8 @@ def _request_exit() -> None:
     cb = _EXIT_CALLBACK
     if cb is None:
         return
-    try:
+    with contextlib.suppress(Exception):
         cb()
-    except Exception:  # noqa: BLE001
-        pass
 
 
 def _spool_root() -> Path:
@@ -55,7 +53,7 @@ def _prune_spools(root: Path, max_age_s: float = 3600.0) -> None:
             pass
 
 
-def _prepare_spool(install: Path) -> Optional[Path]:
+def _prepare_spool(install: Path) -> Path | None:
     """把 updater 运行所需文件（exe + _internal）拷到临时 spool 目录，返回 spool 路径。
 
     必要性（2026-10-06 探针实测 PermissionError(13)）：Windows 不允许 rename 一个

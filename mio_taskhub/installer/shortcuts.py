@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """开始菜单 / 桌面快捷方式（.lnk）。
 
 用 COM（`WScript.Shell`）创建快捷方式；不依赖 pywin32，也不需要管理员权限。

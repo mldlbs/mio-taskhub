@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """README 统计生成/校验脚本（T3.4 / M2）。
 
 从代码派生 README 表格中的数字，避免人工维护导致漂移。
@@ -8,16 +7,16 @@
   python scripts/gen_readme_stats.py --write  # 就地更新 README 表格
 """
 from __future__ import annotations
+
+import contextlib
 import re
 import sys
 from pathlib import Path
 
 # 强制 UTF-8 输出：CI（Windows cp1252）下打印中文 drift 详情会 UnicodeEncodeError（T4.3）。
 for _stream in (sys.stdout, sys.stderr):
-    try:
+    with contextlib.suppress(Exception):
         _stream.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -181,9 +180,8 @@ def write(readme_text: str, stats: dict) -> str:
     text = re.sub(r'(文件\s*/\s*)[\d,]+(\s*行)',
                   lambda m: m.group(1) + f'{stats["frontend_loc"]:,}' + m.group(2), text, count=1)
     # 前端文件数：`· N 文件 /`
-    text = re.sub(r'(·\s*)\d+(\s*文件\s*/)',
+    return re.sub(r'(·\s*)\d+(\s*文件\s*/)',
                   lambda m: m.group(1) + f'{stats["frontend_files"]}' + m.group(2), text)
-    return text
 
 
 def check(readme_text: str, stats: dict) -> list[str]:

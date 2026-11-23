@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """T4.2 repro_build.py 单测。"""
 import sys
 import zipfile

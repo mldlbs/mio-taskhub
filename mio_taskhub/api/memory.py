@@ -11,18 +11,14 @@
 """
 from __future__ import annotations
 
-import os
-from typing import Optional
-
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from mio_taskhub import memory_observatory as observatory
 from mio_taskhub import memory_store as store
-from mio_taskhub.events import emit_event
 from mio_taskhub.db import get_session
-
+from mio_taskhub.events import emit_event
 
 router = APIRouter(prefix="/api/v1/memory", tags=["memory"])
 
@@ -33,7 +29,7 @@ class RecordRequest(BaseModel):
     kind: str = Field(..., description="decision/context/problem/note")
     context: str = Field("", description="决策/上下文简述")
     payload: dict = Field(default_factory=dict, description="结构化详情")
-    project: Optional[str] = Field(None, description="项目名")
+    project: str | None = Field(None, description="项目名")
 
 
 class PolicyRequest(BaseModel):
@@ -54,7 +50,7 @@ class ExperienceReuseRequest(BaseModel):
     experienceId: str = Field(..., description="经验 ID")
     reuse: bool = Field(..., description="是否复用")
     behaviorChanged: bool = Field(False, description="行为是否变化")
-    outcomeImproved: Optional[bool] = Field(None, description="结果是否改善")
+    outcomeImproved: bool | None = Field(None, description="结果是否改善")
 
 
 # ---------- 事件广播 ----------
@@ -91,9 +87,9 @@ def health():
 
 @router.get("/query")
 def query(
-    kind: Optional[str] = Query(None, description="decision/context/problem/note"),
-    project: Optional[str] = Query(None),
-    keyword: Optional[str] = Query(None, description="搜索关键词"),
+    kind: str | None = Query(None, description="decision/context/problem/note"),
+    project: str | None = Query(None),
+    keyword: str | None = Query(None, description="搜索关键词"),
     limit: int = Query(20, ge=1, le=200),
 ):
     """查询记忆。"""

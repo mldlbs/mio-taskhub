@@ -1,5 +1,8 @@
-import sys, os
+import os
+import sys
+
 import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'mio_taskhub'))
 
 @pytest.fixture(autouse=True)
@@ -11,6 +14,7 @@ def setup_db():
 @pytest.fixture
 def client():
     from fastapi.testclient import TestClient
+
     from mio_taskhub.main import app
     return TestClient(app)
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """评审门控测试（2026-10-10 审计 P0-4）。
 
 修复的两个缺口：
@@ -7,13 +6,14 @@
 2. approve 结论内容下限 —— 原先 `summary` 是自由字符串，写 "x" 也会写入
    `review_result` 并满足 done 门控。现未登记 review 文档时长度不足即 422。
 """
-from fastapi.testclient import TestClient
-from sqlmodel import Session
 import uuid
 
-from mio_taskhub.main import app
+from fastapi.testclient import TestClient
+from sqlmodel import Session
+
 from mio_taskhub.db import engine
-from mio_taskhub.models import Task, TaskStage, Run, RunState
+from mio_taskhub.main import app
+from mio_taskhub.models import Run, RunState, Task, TaskStage
 
 client = TestClient(app)
 

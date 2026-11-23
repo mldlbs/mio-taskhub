@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """安装 / 卸载前的进程清理。
 
 复用 `mio_taskhub.update.apply` 里已验证的 psutil 探测逻辑（同一份语义：
@@ -12,6 +11,7 @@
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
@@ -30,7 +30,7 @@ def _norm(p: str) -> str:
         return ""
     try:
         return os.path.normcase(os.path.realpath(p))
-    except Exception:  # noqa: BLE001
+    except Exception:
         return os.path.normcase(p)
 
 
@@ -48,7 +48,7 @@ def list_processes_under(root) -> list:
     """枚举映像路径位于 root 目录下的 (pid, exe)。无 psutil / 无权限时跳过。"""
     try:
         import psutil
-    except ImportError:  # noqa: F401
+    except ImportError:
         return []
     root_s = _norm(str(root))
     me = os.getpid()
@@ -59,7 +59,7 @@ def list_processes_under(root) -> list:
     out = []
     try:
         iterator = psutil.process_iter(["pid", "exe", "ppid"])
-    except Exception:  # noqa: BLE001
+    except Exception:
         return []
     for info in iterator:
         try:
@@ -73,7 +73,7 @@ def list_processes_under(root) -> list:
                 continue  # 自己的 bootloader 父进程
             if _is_under(exe, root_s):
                 out.append((pid, exe))
-        except Exception:  # noqa: BLE001 —— 进程可能已退出 / 无权限
+        except Exception:
             continue
     return out
 
@@ -90,7 +90,7 @@ def _debug(msg: str) -> None:
         from .entry_support import log_path
         with open(log_path("installer.log"), "a", encoding="utf-8") as f:
             f.write("[debug] %s\n" % msg)
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
 
 
@@ -105,7 +105,7 @@ def _journal(msg: str) -> None:
         from .entry_support import log_path
         with open(log_path("installer.log"), "a", encoding="utf-8") as f:
             f.write("[proc] %s\n" % msg)
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
 
 
@@ -122,14 +122,12 @@ def _taskkill_tree(pid: int) -> None:
     子孙进程由 `psutil` 的 `children(recursive=True)` 单独枚举，
     避免把无关的祖先/兄弟进程卷进来。
     """
-    try:
+    with contextlib.suppress(Exception):
         subprocess.run(
             ["taskkill", "/F", "/PID", str(pid)],
             capture_output=True, timeout=15,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-    except Exception:  # noqa: BLE001
-        pass
 
 
 def purge_processes_under(root, timeout: float = 10.0) -> bool:
@@ -179,13 +177,11 @@ def purge_processes_under(root, timeout: float = 10.0) -> bool:
                 p.kill()
                 # 等它真的死掉再往下走 —— 死了 pid 就被系统回收，
                 # 下一个进程可能立刻复用它。
-                try:
+                with contextlib.suppress(Exception):
                     p.wait(timeout=3)
-                except Exception:  # noqa: BLE001
-                    pass
                 killed = True
                 _journal("kill sent pid=%s" % pid)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 _journal("kill pid=%s failed: %r" % (pid, e))
 
             # **psutil 杀成功就不再 taskkill**：进程已经死了，pid 已释放，
@@ -217,7 +213,7 @@ def _depth_of(pid: int) -> int:
             if p is None:
                 break
             depth += 1
-    except Exception:  # noqa: BLE001
+    except Exception:
         return 99
     return depth
 
@@ -234,10 +230,10 @@ def _still_same_process(pid: int, expected_exe) -> bool:
             return False
         if expected_exe:
             cur = p.exe() or ""
-            if not _norm(cur) == _norm(expected_exe):
+            if _norm(cur) != _norm(expected_exe):
                 return False
         return True
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False
 
 
@@ -251,6 +247,6 @@ def hub_running() -> bool:
         try:
             if (info.info.get("name") or "").lower() in ("TaskHub.exe",):
                 return True
-        except Exception:  # noqa: BLE001
+        except Exception:
             continue
     return False

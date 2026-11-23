@@ -5,8 +5,8 @@ FR-18 双模式 · FR-19 prompt DB+快照 · FR-20 词表优先级 · FR-21 五�
 """
 from fastapi.testclient import TestClient
 
-from mio_taskhub.main import app
 from mio_taskhub.db import init_db
+from mio_taskhub.main import app
 
 
 def _full_review(**over):

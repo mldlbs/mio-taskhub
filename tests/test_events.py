@@ -1,12 +1,12 @@
 # tests/test_events.py
 import asyncio
 import json
-import pytest
+
 from sqlmodel import Session, select
+
 from mio_taskhub.db import engine
+from mio_taskhub.events import broadcast_for_event, emit_event, event_to_dict, ws_manager
 from mio_taskhub.models import Event
-from mio_taskhub.events import emit_event, event_to_dict, broadcast_for_event
-from mio_taskhub.events import ws_manager
 
 
 def test_emit_event_returns_object_with_seq():
@@ -95,9 +95,10 @@ def test_broadcast_for_event_maps_entity_and_fallback():
 
 def test_write_operations_emit_events():
     from fastapi.testclient import TestClient
+
     from mio_taskhub.main import app
     c = TestClient(app)
-    tid = c.post("/api/v1/tasks", json={"title": "E", "stage": "ready"}).json()["id"]
+    c.post("/api/v1/tasks", json={"title": "E", "stage": "ready"}).json()["id"]
     c.post("/api/v1/agents/register", json={"name": "a", "agent_type": "t"})
     claim = c.post("/api/v1/tasks/claim", params={"agent": "a"}).json()
     c.post(f"/api/v1/runs/{claim['id']}/heartbeat", json={"progress": 50})

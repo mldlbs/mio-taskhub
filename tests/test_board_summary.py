@@ -1,8 +1,9 @@
 from fastapi.testclient import TestClient
-from mio_taskhub.main import app
-from mio_taskhub.db import engine
-from mio_taskhub.models import Task, TaskStage, TaskState
 from sqlmodel import Session
+
+from mio_taskhub.db import engine
+from mio_taskhub.main import app
+from mio_taskhub.models import Task, TaskStage
 
 client = TestClient(app)
 
@@ -122,7 +123,7 @@ def test_completed_dependency_no_alert():
     claim = client.post("/api/v1/tasks/claim", params={"agent": "b-a"}).json()
     client.post(f"/api/v1/runs/{claim['id']}/heartbeat", json={"progress": 100})
     client.post(f"/api/v1/runs/{claim['id']}/result", json={"success": True, "result": "ok"})
-    child = _mk("cc", stage="planning", depends_on=[parent["id"]])
+    _mk("cc", stage="planning", depends_on=[parent["id"]])
     data = client.get("/api/v1/board/summary").json()
     assert not any("依赖阻塞" in a["message"] for a in data["alerts"])
 
@@ -137,7 +138,7 @@ def test_ready_dependency_not_flagged_as_blocked():
 
 def test_done_stage_dependency_no_alert():
     parent = _mk("dp", stage="done")
-    child = _mk("dc", stage="planning", depends_on=[parent["id"]])
+    _mk("dc", stage="planning", depends_on=[parent["id"]])
     data = client.get("/api/v1/board/summary").json()
     assert not any("依赖阻塞" in a["message"] for a in data["alerts"])
 

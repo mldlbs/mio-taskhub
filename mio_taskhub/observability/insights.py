@@ -1,7 +1,9 @@
-import time
 import logging
-from mio_taskhub.db import engine
+import time
+
 from sqlalchemy import text
+
+from mio_taskhub.db import engine
 
 logger = logging.getLogger(__name__)
 
@@ -73,8 +75,8 @@ class InsightsEngine:
         return insights
 
     def store(self, kind: str, title: str, description: str, severity: str = "info",
-              metric_name: str = None, metric_value: float = None, baseline: float = None,
-              recommendation: str = None, auto_action: str = None, low: bool = False) -> dict:
+              metric_name: str | None = None, metric_value: float | None = None, baseline: float | None = None,
+              recommendation: str | None = None, auto_action: str | None = None, low: bool = False) -> dict:
         try:
             with engine.connect() as conn:
                 # Dedup: skip re-inserting an already-unacknowledged insight with the
@@ -108,7 +110,10 @@ class InsightsEngine:
                     return {"id": existing[0], "ts": time.time(), "kind": kind, "title": title, "severity": severity,
                             "metric_value": metric_value, "recovered": recovered}
                 result = conn.execute(
-                    text("INSERT INTO insight (ts, kind, title, description, severity, metric_name, metric_value, baseline, recommendation, auto_action) VALUES (:ts, :kind, :title, :description, :severity, :metric_name, :metric_value, :baseline, :recommendation, :auto_action)"),
+                    text("INSERT INTO insight (ts, kind, title, description, severity, metric_name, "
+                         "metric_value, baseline, recommendation, auto_action) "
+                         "VALUES (:ts, :kind, :title, :description, :severity, :metric_name, "
+                         ":metric_value, :baseline, :recommendation, :auto_action)"),
                     {"ts": time.time(), "kind": kind, "title": title, "description": description,
                      "severity": severity, "metric_name": metric_name, "metric_value": metric_value,
                      "baseline": baseline, "recommendation": recommendation, "auto_action": auto_action}
@@ -139,7 +144,7 @@ class InsightsEngine:
         except (TypeError, ValueError):
             return False
 
-    def recent(self, limit: int = 20, kind: str = None) -> list:
+    def recent(self, limit: int = 20, kind: str | None = None) -> list:
         try:
             with engine.connect() as conn:
                 if kind:

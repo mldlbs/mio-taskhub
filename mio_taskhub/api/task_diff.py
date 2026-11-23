@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """FR-07（任务 c8316737）：任务级只读 diff 路由。
 
 GET /api/v1/tasks/{task_id}/diff —— 提交结果前给「唯一用户」核对一眼：
@@ -23,7 +22,6 @@ GET /api/v1/tasks/{task_id}/diff —— 提交结果前给「唯一用户」核�
 import json
 import os
 import re
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
@@ -83,8 +81,7 @@ def _match_fr(path: str, fr_map: dict) -> str:
     norm = path.replace("\\", "/")
     base = norm.rsplit("/", 1)[-1]
     for token, fr in fr_map.items():
-        if token and (token == norm or token == base
-                      or norm.endswith("/" + token) or token.endswith("/" + base)):
+        if token and (token in (norm, base) or norm.endswith("/" + token) or token.endswith("/" + base)):
             return fr
     return "UNMAPPED"
 
@@ -104,7 +101,8 @@ def _file_stat(workspace: str, rel_path: str) -> dict:
 # 路径可用 MIO_E3_VIEW_LOG 覆盖（测试隔离用），缺省 ~/.mio_taskhub/e3_diff_view.jsonl。
 def _e3_log_view(task_id: str, status: int, n_files: int, fr_ref: str = ""):
     try:
-        from datetime import datetime, timezone as _tz
+        from datetime import datetime
+        from datetime import timezone as _tz
         path = os.environ.get("MIO_E3_VIEW_LOG") or os.path.join(
             os.path.expanduser("~/.mio_taskhub"), "e3_diff_view.jsonl")
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -117,12 +115,12 @@ def _e3_log_view(task_id: str, status: int, n_files: int, fr_ref: str = ""):
                 "fr_ref": fr_ref,
                 "files": n_files,
             }, ensure_ascii=False) + "\n")
-    except Exception:  # noqa: BLE001 — 埋点失败绝不影响路由本身
+    except Exception:
         pass
 
 
 @router.get("/{task_id}/diff")
-def task_diff(task_id: str, fr_ref: str = "", db: Session = Depends(get_session)):
+def task_diff(task_id: str, fr_ref: str = "", db: Session = Depends(get_session)):  # noqa: C901
     # E3 假门埋点（FR-03）：任何出口（200/403/404）都记一行本地 jsonl
     _status = [0]
     stat = {"files": 0}  # finally 引用兜底（404/403 路径不会走到 ④）
@@ -190,7 +188,7 @@ def task_diff(task_id: str, fr_ref: str = "", db: Session = Depends(get_session)
                     stat["files"] = snap.files
                 stat["insertions"] += snap.insertions
                 stat["deletions"] += snap.deletions
-        except Exception:  # noqa: BLE001 — 采集失败 fail-open，返回 run 级子集
+        except Exception:
             pass
 
         # ⑥ 合并去重（run 证据优先；工作树当前态补充）
@@ -203,7 +201,7 @@ def task_diff(task_id: str, fr_ref: str = "", db: Session = Depends(get_session)
         if req_rel:
             req_full = os.path.join(ws, req_rel)
             try:
-                with open(req_full, "r", encoding="utf-8", errors="replace") as f:
+                with open(req_full, encoding="utf-8", errors="replace") as f:
                     fr_map = _build_fr_map(f.read())
             except OSError:
                 pass

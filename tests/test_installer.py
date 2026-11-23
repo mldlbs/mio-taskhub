@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """安装 / 卸载子系统单测。
 
 覆盖：
@@ -11,10 +10,12 @@
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
 import time
+import typing
 import zipfile
 from pathlib import Path
 
@@ -49,7 +50,7 @@ def _payload_entries(prefix: str = "") -> dict:
     return {
         p + APP_EXE_NAME: b"fake-exe",
         p + "_internal/web/dist/index.html": b"<html></html>",
-        p + "使用说明.txt": "说明".encode("utf-8"),
+        p + "使用说明.txt": "说明".encode(),
     }
 
 
@@ -99,8 +100,7 @@ def test_extract_zip_rejects_path_traversal(tmp_path):
 # ──────────────────── 安装 / 卸载 ────────────────────
 
 def _build_fake_payload(tmp_path: Path) -> Path:
-    z = _make_zip(tmp_path / "payload.zip", _payload_entries())
-    return z
+    return _make_zip(tmp_path / "payload.zip", _payload_entries())
 
 
 def test_install_writes_tree_and_manifest(tmp_path):
@@ -492,10 +492,10 @@ def test_updater_and_installer_share_required_entries():
     from mio_taskhub.update.apply import REQUIRED_ENTRIES as updater_entries
 
     assert tuple(updater_entries) == tuple(payload_layout.REQUIRED_ENTRIES)
-    assert payload_layout.REQUIRED_ENTRIES == (
+    assert (
         APP_EXE_NAME,
         os.path.join("_internal", "web", "dist", "index.html"),
-    )
+    ) == payload_layout.REQUIRED_ENTRIES
 
 
 def test_installer_payload_module_uses_shared_contract():
@@ -584,7 +584,7 @@ def test_gui_window_size_is_fixed():
 
     try:
         root = tk.Tk()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         pytest.skip("无显示环境：%r" % e)
 
     try:
@@ -608,10 +608,8 @@ def test_gui_window_size_is_fixed():
         assert (w2, h2) == (w1, h1), (
             "日志展开后窗口尺寸变了：%dx%d → %dx%d" % (w1, h1, w2, h2))
     finally:
-        try:
+        with contextlib.suppress(Exception):
             root.destroy()
-        except Exception:  # noqa: BLE001
-            pass
 
 
 def test_gui_window_is_centered_and_uses_project_logo():
@@ -630,7 +628,7 @@ def test_gui_window_is_centered_and_uses_project_logo():
 
     try:
         root = tk.Tk()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         pytest.skip("无显示环境：%r" % e)
 
     try:
@@ -652,10 +650,8 @@ def test_gui_window_is_centered_and_uses_project_logo():
         # 标题栏图标（项目 logo 的 PNG）
         assert gui._ICON_KEEPALIVE, "项目 logo 没被加载"
     finally:
-        try:
+        with contextlib.suppress(Exception):
             root.destroy()
-        except Exception:  # noqa: BLE001
-            pass
 
 
 def test_gui_window_opens_directly_in_center_without_flicker():
@@ -684,7 +680,7 @@ def test_gui_window_opens_directly_in_center_without_flicker():
 
     try:
         root = tk.Tk()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         pytest.skip("无显示环境：%r" % e)
 
     seen = []
@@ -711,10 +707,8 @@ def test_gui_window_opens_directly_in_center_without_flicker():
             "窗口首次显示时不在中心（会先在左上角闪一下）："
             "首次 (%d,%d)，期望 (%d,%d)" % (first_x, first_y, exp_x, exp_y))
     finally:
-        try:
+        with contextlib.suppress(Exception):
             root.destroy()
-        except Exception:  # noqa: BLE001
-            pass
 
 
 def test_frame_borders_measured_by_win32_while_hidden():
@@ -732,7 +726,7 @@ def test_frame_borders_measured_by_win32_while_hidden():
 
     try:
         root = tk.Tk()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         pytest.skip("无显示环境：%r" % e)
 
     try:
@@ -744,10 +738,8 @@ def test_frame_borders_measured_by_win32_while_hidden():
         assert 0 <= off_x <= 20, "左边框偏移异常：%s" % off_x
         assert 0 <= off_y <= 60, "标题栏偏移异常：%s" % off_y
     finally:
-        try:
+        with contextlib.suppress(Exception):
             root.destroy()
-        except Exception:  # noqa: BLE001
-            pass
 
 
 def test_browse_buttons_are_icon_only():
@@ -777,11 +769,11 @@ def test_installer_window_offers_uninstall_when_already_installed(tmp_path,
     """
     import tkinter as tk
 
-    from mio_taskhub.installer import gui, install as install_mod
+    from mio_taskhub.installer import gui
 
     try:
         root = tk.Tk()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         pytest.skip("无显示环境：%r" % e)
 
     try:
@@ -804,10 +796,8 @@ def test_installer_window_offers_uninstall_when_already_installed(tmp_path,
         assert app.var_dir.get() == str(fake_install), (
             "应把安装目录指向已安装的那份")
     finally:
-        try:
+        with contextlib.suppress(Exception):
             root.destroy()
-        except Exception:  # noqa: BLE001
-            pass
 
 
 def test_installer_window_has_no_uninstall_button_when_fresh(tmp_path,
@@ -819,7 +809,7 @@ def test_installer_window_has_no_uninstall_button_when_fresh(tmp_path,
 
     try:
         root = tk.Tk()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         pytest.skip("无显示环境：%r" % e)
 
     try:
@@ -837,10 +827,8 @@ def test_installer_window_has_no_uninstall_button_when_fresh(tmp_path,
         assert not app._btn_uninstall.winfo_ismapped(), (
             "未安装时不该显示「卸载」按钮")
     finally:
-        try:
+        with contextlib.suppress(Exception):
             root.destroy()
-        except Exception:  # noqa: BLE001
-            pass
 
 
 # ──────────────────── 单文件安装包（内嵌 payload） ────────────────────
@@ -1046,7 +1034,7 @@ def test_purge_rechecks_process_identity_before_kill():
             return self._exe
 
     class _FakePsutil:
-        exe_of = {}
+        exe_of: typing.ClassVar = {}
 
         @staticmethod
         def Process(pid):
@@ -1130,9 +1118,7 @@ def test_gui_install_runs_under_real_mainloop(tmp_path, monkeypatch):
              的模块作用域，patch `install` 模块无效）；
           ③ 断言放在 `_start` **之前**，时序将来再变也是在删除前红。
     """
-    import os
     import time
-
     import tkinter as tk
 
     import mio_taskhub.installer.gui as gui_mod
@@ -1145,7 +1131,7 @@ def test_gui_install_runs_under_real_mainloop(tmp_path, monkeypatch):
 
     try:
         root = tk.Tk()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         pytest.skip("无显示环境：%r" % e)
 
     target = tmp_path / "install"
@@ -1185,10 +1171,8 @@ def test_gui_install_runs_under_real_mainloop(tmp_path, monkeypatch):
         root.after(400, _poll)
         root.mainloop()
     finally:
-        try:
+        with contextlib.suppress(Exception):
             root.destroy()
-        except Exception:  # noqa: BLE001
-            pass
         # **必须清注册表**：GUI 走的是 install() 的默认参数
         # （register=True）→ 会真的往 HKCU 写「应用和功能」条目。
         # 不清的话，跑一次测试就往用户机器上留一个指向临时目录的
@@ -1196,7 +1180,7 @@ def test_gui_install_runs_under_real_mainloop(tmp_path, monkeypatch):
         try:
             from mio_taskhub.installer import registry
             registry.remove_entry()
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
     assert state.get("status") == "安装完成", (

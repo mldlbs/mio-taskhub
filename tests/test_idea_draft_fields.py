@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P5（FR-34/FR-36）：驾驶舱草稿生成 + 本地假设 hid 补全。
 
 LLM 一律 monkeypatch（不打外网）。
@@ -10,7 +9,6 @@ import httpx
 from sqlmodel import Session, select
 
 from mio_taskhub.api import draft as draft_api
-from mio_taskhub.api import ideas as ideas_api
 from mio_taskhub.db import engine
 from mio_taskhub.main import app
 from mio_taskhub.models import Idea, IdeaChange
@@ -70,7 +68,6 @@ def test_draft_fields_ok_and_zero_write(monkeypatch):
     monkeypatch.setattr(draft_api.mio_runtime, "llm_config", _fake_cfg())
     fake, calls = _fake_llm()
     monkeypatch.setattr(draft_api, "_call_llm", fake)
-    state = {}
 
     async def k(c):
         base = await _make_idea(c, description="汛期告警靠电话汇总，平均 20 分钟才分派")
@@ -251,7 +248,7 @@ def test_assumptions_hid_backfill_and_writeback():
     _with_client(k)
     with Session(engine) as s:
         idea = s.get(Idea, state["iid"])
-        row = [x for x in idea.assumptions if x.get("hid") == state["hid"]][0]
+        row = next(x for x in idea.assumptions if x.get("hid") == state["hid"])
         assert row["status"] == "validated" and row["note"] == "回写可用"
 
 

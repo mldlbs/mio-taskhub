@@ -1,15 +1,12 @@
-# -*- coding: utf-8 -*-
 """analyze_reaper 三分分类与门槛的纯逻辑测试（不触生产 DB）。"""
 import json
 import os
 import sqlite3
 import sys
 
-import pytest
-
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
-import analyze_reaper as ar  # noqa: E402
+import analyze_reaper as ar
 
 
 def test_classify_probe_overrides_status():

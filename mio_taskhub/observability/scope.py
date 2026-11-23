@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """交付面口径（278）的唯一实现。
 
 页面、observability report、Prometheus metrics 都必须引用本模块，
@@ -7,7 +6,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Dict
 
 from sqlmodel import Session, text
 
@@ -15,7 +13,7 @@ DELIVERY_NOISE_BEFORE = "2026-10-21"
 DELIVERY_SCOPE_ID = "delivery"
 
 
-def delivery_stats(session: Session) -> Dict[str, dict]:
+def delivery_stats(session: Session) -> dict[str, dict]:
     scope_rows = {
         str(st): int(c) for st, c in session.exec(text(
             "SELECT state, COUNT(*) FROM task "

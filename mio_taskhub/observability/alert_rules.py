@@ -2,11 +2,10 @@
 import json
 import logging
 import time
-import threading
-from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional, Callable
-from sqlmodel import SQLModel, Field, Session, Column, JSON, text
+
+from sqlmodel import JSON, Column, Field, Session, SQLModel, text
+
 from mio_taskhub.db import engine
 from mio_taskhub.observability.alerts import Alert, get_alert_manager
 from mio_taskhub.observability.metrics import render_metrics
@@ -43,7 +42,7 @@ class AlertRuleSeverity(str, Enum):
 
 
 class AlertRule(SQLModel, table=True):
-    id: Optional[str] = Field(default_factory=lambda: __import__("uuid").uuid4().hex[:8], primary_key=True)
+    id: str | None = Field(default_factory=lambda: __import__("uuid").uuid4().hex[:8], primary_key=True)
     name: str = Field(index=True)
     metric: str  # AlertRuleMetric value
     condition: str  # gt, lt, eq, gte, lte
@@ -51,14 +50,14 @@ class AlertRule(SQLModel, table=True):
     severity: str = "warning"  # AlertRuleSeverity
     enabled: bool = True
     cooldown_seconds: int = 300
-    last_fired_at: Optional[float] = None
-    notify_channels: Optional[list] = Field(default=None, sa_column=Column(JSON))
-    notify_config: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    last_fired_at: float | None = None
+    notify_channels: list | None = Field(default=None, sa_column=Column(JSON))
+    notify_config: dict | None = Field(default=None, sa_column=Column(JSON))
     created_at: float = Field(default_factory=time.time)
     updated_at: float = Field(default_factory=time.time)
 
 
-def _parse_prometheus_value(lines: str, metric_name: str, labels: dict = None) -> Optional[float]:
+def _parse_prometheus_value(lines: str, metric_name: str, labels: dict | None = None) -> float | None:
     """Extract a single metric value from Prometheus text format."""
     for line in lines.split("\n"):
         if line.startswith("#") or not line.strip():
@@ -82,12 +81,10 @@ def _parse_prometheus_value(lines: str, metric_name: str, labels: dict = None) -
     return None
 
 
-def _evaluate_metric(rule: AlertRule) -> Optional[float]:
+def _evaluate_metric(rule: AlertRule) -> float | None:
     """Fetch current value for the rule's metric."""
     lines = render_metrics()
     m = rule.metric
-    cond = rule.condition
-    threshold = rule.threshold
 
     if m == AlertRuleMetric.TASK_FAILURE_RATE:
         val = _parse_prometheus_value(lines, "taskhub_task_failure_rate")

@@ -3,8 +3,10 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
 from mio_taskhub.middleware import RequestIDMiddleware
 from mio_taskhub.observability.logging_config import request_id_var
+
 
 def test_request_id_in_response():
     app = FastAPI()
@@ -88,6 +90,7 @@ def test_request_error_record_carries_path_status_duration(caplog):
 
     # 格式化后（生产 console.log 路径）JSON 必须含这三个字段
     import json
+
     from mio_taskhub.observability.logging_config import JSONFormatter
     data = json.loads(JSONFormatter().format(rec))
     assert data["path"] == "/boom"

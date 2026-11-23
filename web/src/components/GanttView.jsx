@@ -155,7 +155,7 @@ export default function GanttView({ tasks, onOpen }) {
           })}
         </svg>
 
-        {rows.map((row, ri) => {
+        {rows.map((row, _ri) => {
           const conn = connectedIds(hoveredId)
           return (
             <div key={row.key} className="gantt__row" style={{ height: ROW_H }}>

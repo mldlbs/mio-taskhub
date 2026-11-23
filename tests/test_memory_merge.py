@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """记忆视图合并 + 旧路径修复 回归守卫（task e4c3bc51）
 
 FR-1 双 tab 单入口 / FR-2 前端无旧路径 / FR-3 docstring 与路由一致 /

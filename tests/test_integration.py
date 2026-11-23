@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
+
 from mio_taskhub.main import app
-from mio_taskhub.db import init_db
 
 client = TestClient(app)
 
@@ -23,7 +23,7 @@ def test_full_task_lifecycle():
     assert res.json()["state"] == "finished"
     # Task state should be completed
     tasks = client.get("/api/v1/tasks").json()
-    e2e = [t for t in tasks if t["title"] == "E2E"][0]
+    e2e = next(t for t in tasks if t["title"] == "E2E")
     assert e2e["state"] == "completed"
 
 def test_no_tasks_returns_204():

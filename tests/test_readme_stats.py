@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """T3.4 gen_readme_stats.py 单测。"""
 import re
 import subprocess

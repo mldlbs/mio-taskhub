@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """安装 / 卸载子系统。
 
 提供 Windows 用户级安装（无需管理员）所需的能力：安装目录管理、
@@ -11,7 +10,7 @@
 """
 from __future__ import annotations
 
-from .paths import (  # noqa: F401 —— 对外统一出口
+from .paths import (
     APP_DISPLAY_NAME,
     APP_EXE_NAME,
     APP_NAME,

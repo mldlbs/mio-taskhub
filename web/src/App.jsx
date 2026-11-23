@@ -8,10 +8,8 @@ import StageAdvanceDialog from './components/StageAdvanceDialog'
 import DecisionInbox from './components/DecisionInbox'
 import Rail from './components/Rail'
 import MissionBar from './components/MissionBar'
-import BoardView from './components/BoardView'
 import ListView from './components/ListView'
 import PlanView from './components/PlanView'
-import FlowView from './components/FlowView'
 import TopoView from './components/TopoView'
 import GanttView from './components/GanttView'
 import EmbedView from './components/EmbedView'
@@ -68,11 +66,18 @@ function ViewSkeleton({ label = '正在加载…' }) {
   )
 }
 
+// 壳组件：isEmbed 分流必须在 hooks 之前无条件完成，
+// AppMain 内的 hooks 数量保持恒定（rules-of-hooks）
 export default function App() {
   const isEmbed = typeof window !== 'undefined' && window.location.hash === '#/embed'
   if (isEmbed) {
     return <EmbedView />
   }
+  return <AppMain />
+}
+
+// eslint-disable-next-line complexity, max-lines-per-function, max-statements
+function AppMain() {
 
   const [allTasks, setAllTasks] = useState([])  // 全量（含已取消/机器噪声），展示时按 showCancelled / showNoise 过滤
   const [showCancelled, setShowCancelled] = useState(false)
@@ -254,6 +259,7 @@ export default function App() {
       s.onopen = () => { setWs(true); retry = 0; nextRetryAt = null; setWsRetryIn(null) }
       s.onclose = () => { setWs(false); schedule() }
       s.onerror = () => { try { s.close() } catch { /* ignore */ } }
+      // eslint-disable-next-line complexity
       s.onmessage = (e) => {
         try {
           const data = JSON.parse(e.data)
@@ -345,7 +351,7 @@ export default function App() {
 
   const retryTask = async (id) => {
     try {
-      const r = await api.retryTask(id)
+      await api.retryTask(id)
       loadTasks()
       // 重试后**不关详情**（用户 2026-11-04）：任务从 failed 变成 queued/ready，
       // 详情里的「重试」按钮要消失、「推进阶段」要从 ready 起算——不刷新快照的话
@@ -374,7 +380,7 @@ export default function App() {
     }
   }
 
-  const moveToStage = async (id, body) => {
+  const _moveToStage = async (id, body) => {
     try { await api.moveToStage(id, body); loadTasks() }
     catch (e) { setError('移动阶段失败: ' + (e.message || '阶段不合法')) }
   }
@@ -472,6 +478,7 @@ export default function App() {
   // 键盘快捷键（必须在 openTask 定义之后）
   useEffect(() => {
       const VIEW_IDS = ['workflow', 'list', 'plan', 'topo', 'gantt', 'ideas', 'templates', 'scheduled', 'stats', 'memory']
+    // eslint-disable-next-line complexity
     const handler = (e) => {
       // 排雷（Phase 2 F2 / R2 C-2）：中文输入法组词中不响应任何单键快捷键 ——
       // 拼音候选词面板打开时按 1-9 是选字、按 n 是输入，不是切视图/新建。
@@ -522,7 +529,7 @@ export default function App() {
 
   const refreshDetail = useCallback(async () => {
     if (detail) {
-      try { setDetail(await api.getTask(detail.id)) } catch (e) { /* 静默刷新失败 */ }
+      try { setDetail(await api.getTask(detail.id)) } catch { /* 静默刷新失败 */ }
     }
   }, [detail])
 
@@ -536,7 +543,7 @@ export default function App() {
     }
   }, [detail, refreshDetail])
 
-  const focusLane = useCallback((id) => {
+  const _focusLane = useCallback((id) => {
     setView('workflow')
     setFocus({ id, t: Date.now() })
   }, [setView])
@@ -647,8 +654,8 @@ export default function App() {
                     payload: { name: e?.name, message: e?.message?.slice(0, 200) },
                     outcome: 'failure',
                   }),
-                }).catch(() => {});
-              } catch {}
+                }).catch(() => { /* 后台刷新失败不打断交互 */ });
+              } catch { /* 上报失败静默 */ }
             }}>
             {view === 'workflow' && (
               <WorkflowView

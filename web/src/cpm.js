@@ -17,6 +17,7 @@ export function taskDuration(task) {
   return est
 }
 
+// eslint-disable-next-line complexity, max-statements
 export function computeCPM(tasks, opts = {}) {
   const byId = Object.fromEntries(tasks.map(t => [t.id, t]))
   const dur = {}

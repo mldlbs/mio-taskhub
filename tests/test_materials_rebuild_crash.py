@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """T-CRASH：重建中途崩溃，重启后从最后成功批次续跑。"""
 from datetime import datetime, timedelta, timezone
 
@@ -7,10 +6,18 @@ from sqlmodel import Session, select
 
 from mio_taskhub.db import engine
 from mio_taskhub.materials.models import (
-    Material, MaterialExtract, MaterialLink, MaterialSource, MaterialWitness,
+    Material,
+    MaterialExtract,
+    MaterialLink,
+    MaterialSource,
+    MaterialWitness,
 )
 from mio_taskhub.materials.pipeline import (
-    RawRecord, SimulatedCrash, add_link, ingest_records, rebuild_source,
+    RawRecord,
+    SimulatedCrash,
+    add_link,
+    ingest_records,
+    rebuild_source,
 )
 from mio_taskhub.materials.quality import Draft
 

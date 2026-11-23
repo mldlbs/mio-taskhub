@@ -1,11 +1,10 @@
 """评审带宽感知：基于历史吞吐动态计算可用槽位，反馈给闸门阈值。"""
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Optional
-from sqlmodel import Session, select, func
+
+from sqlmodel import Session, func, select
 
 from mio_taskhub.models import Task, TaskState
-from mio_taskhub.db import engine
 
 
 @dataclass
@@ -19,7 +18,7 @@ class CapacityInfo:
 
 def compute_review_capacity(
     db: Session,
-    now: Optional[datetime] = None,
+    now: datetime | None = None,
     lookahead_days: int = 3
 ) -> CapacityInfo:
     """计算评审带宽（最近 7 天完成量 / 7 = 日均吞吐）。"""

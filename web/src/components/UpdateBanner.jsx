@@ -4,6 +4,7 @@ import { api } from '../api'
 
 const ACTIONABLE = ['available', 'downloading', 'ready', 'applying', 'done', 'needs_manual', 'failed']
 
+// eslint-disable-next-line complexity
 export default function UpdateBanner({ eventTick, onOpenSettings }) {
   const [st, setSt] = useState(null)
   const [busy, setBusy] = useState(false)

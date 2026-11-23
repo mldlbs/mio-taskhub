@@ -1,16 +1,13 @@
-# -*- coding: utf-8 -*-
 """MCP 风险门控测试（task 7d7ff97a / 评估 round3 P1-C）。
 
 覆盖：风险分级、默认拒绝 destructive、放行开关、read/write 不受影响、
 统一收口（_request）不可绕过。
 """
-import os
 
 import pytest
 
 from mio_taskhub import mcp_risk
-from mio_taskhub.mcp_risk import READ, WRITE, DESTRUCTIVE
-
+from mio_taskhub.mcp_risk import DESTRUCTIVE, READ, WRITE
 
 # ---------- 分级 ----------
 
@@ -76,6 +73,7 @@ def test_destructive_allowed_when_env_set(monkeypatch):
 def test_request_gate_blocks_destructive(monkeypatch):
     """直接调用 mcp_server._request 的 destructive 路径也被拒（无第二收口）。"""
     import asyncio
+
     import mio_taskhub.mcp_server as ms
     monkeypatch.delenv("MIO_MCP_ALLOW_DESTRUCTIVE", raising=False)
 
@@ -88,6 +86,7 @@ def test_request_gate_blocks_destructive(monkeypatch):
 def test_request_gate_allows_when_enabled(monkeypatch):
     """开启放行后，因测试无 hub，会走 HTTP 分支返回连接错误而非 blocked。"""
     import asyncio
+
     import mio_taskhub.mcp_server as ms
     monkeypatch.setenv("MIO_MCP_ALLOW_DESTRUCTIVE", "1")
     out = asyncio.run(ms._request("DELETE", "/tasks/abc"))
@@ -97,7 +96,9 @@ def test_request_gate_allows_when_enabled(monkeypatch):
 
 def test_read_request_not_blocked(monkeypatch):
     import asyncio
+
     import httpx
+
     import mio_taskhub.mcp_server as ms
     monkeypatch.delenv("MIO_MCP_ALLOW_DESTRUCTIVE", raising=False)
 
@@ -114,6 +115,7 @@ def test_read_request_not_blocked(monkeypatch):
 
 def test_high_risk_tools_annotated_destructive():
     import inspect
+
     import mio_taskhub.mcp_server as ms
     src = inspect.getsource(ms)
     for nm in ("taskhub_cancel_task", "taskhub_set_doc_status",

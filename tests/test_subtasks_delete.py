@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """子任务删除与依赖缺失错误。"""
 from fastapi.testclient import TestClient
 

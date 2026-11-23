@@ -1,15 +1,14 @@
-# -*- coding: utf-8 -*-
 """更新事务：同卷 rename + 可恢复替换，失败回滚。
 
 放到独立进程执行（TaskHub.exe --apply-update ...），因此不持有 hub 的文件句柄。
 """
+import contextlib
 import os
 import sys
 import time
-import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional, Tuple
 
 from mio_taskhub.payload_layout import REQUIRED_ENTRIES
 
@@ -38,7 +37,7 @@ def _rename_retry(src, dst, timeout: float = 30.0, interval: float = 0.5) -> Non
             time.sleep(interval)
 
 
-def verify_staging(staging) -> Tuple[bool, str]:
+def verify_staging(staging) -> tuple[bool, str]:
     """校验解压出的程序目录含关键项。"""
     staging = Path(staging)
     for rel in REQUIRED_ENTRIES:
@@ -139,7 +138,7 @@ def list_processes_under(root) -> list:
     """枚举映像路径位于 root 目录下的 (pid, exe)；无 psutil/无权限时跳过。"""
     try:
         import psutil
-    except ImportError:  # noqa: F401 —— 打包产物恒有 psutil，源码环境缺依赖时降级
+    except ImportError:
         return []
 
     def _norm(p: str) -> str:
@@ -194,10 +193,8 @@ def purge_processes_under(root, timeout: float = 10.0) -> bool:
         for pid, _exe in left:
             if pid == me:
                 continue
-            try:
+            with contextlib.suppress(Exception):
                 psutil.Process(pid).kill()
-            except Exception:  # noqa: BLE001 —— 进程可能已先行退出
-                pass
         if time.monotonic() >= deadline:
             time.sleep(1.0)
             return not list_processes_under(root)
@@ -209,7 +206,7 @@ def read_runtime(path=None) -> dict:
     try:
         import json
         return json.loads(p.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
+    except Exception:
         return {}
 
 
@@ -226,7 +223,7 @@ def wait_healthy(target_version: str, after_ts: float, runtime_path=None,
             st = read_runtime(p)
             ok = (str(st.get("version")) == str(target_version)
                   and float(st.get("started_at") or 0) > float(after_ts))
-        except Exception:  # noqa: BLE001 —— 畸形数据按未就绪处理
+        except Exception:
             ok = False
         if ok:
             return True
@@ -264,7 +261,7 @@ def _preserve_uninstaller(install: Path, staging: Path) -> bool:
     return True
 
 
-def recover_residual(install_dir, log: Callable[[str], None] = None) -> list:
+def recover_residual(install_dir, log: Callable[[str], None] | None = None) -> list:
     """hub 启动时调用：清理 staging、在 install 缺失时从 backup 恢复。"""
     install = Path(install_dir)
     parent = install.parent
@@ -340,7 +337,7 @@ def _parse_args(argv):
     return out
 
 
-def run_apply_update(argv) -> int:
+def run_apply_update(argv) -> int:  # noqa: C901
     """--apply-update 模式入口。返回 0=成功，1=失败，2=参数错误。"""
     args = _parse_args(argv)
     if not args:
@@ -388,13 +385,14 @@ def run_apply_update(argv) -> int:
     #    历史上发布的 zip 顶层带一层 `mio-taskhub-v3/`，而 verify_staging 按
     #    「根目录即内容」校验 → 校验必失败 → **自动更新永远装不上**（2026-10-21 实测）。
     import shutil
+
     from mio_taskhub.payload_layout import extract_zip
     staging = target.with_name(target.name + ".staging-" + version)
     if staging.exists():
         shutil.rmtree(staging, ignore_errors=True)
     try:
         prefix = extract_zip(zip_path, staging)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         _apply_log("解压失败：%s" % e)
         shutil.rmtree(staging, ignore_errors=True)
         return 1
@@ -424,7 +422,7 @@ def run_apply_update(argv) -> int:
     # 5) 启动新版本 + 健康确认
     try:
         _spawn_hub(target)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         _apply_log("启动新版本失败：%s，回滚" % e)
         _rollback(backup, target)
         _spawn_hub_safe(target)
@@ -455,5 +453,5 @@ def _rollback(backup: Path, target: Path) -> None:
 def _spawn_hub_safe(target: Path) -> None:
     try:
         _spawn_hub(target)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         _apply_log("重启旧版本失败：%s" % e)

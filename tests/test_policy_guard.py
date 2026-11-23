@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """#5 policy check：Mio 历史风险 → 危险调用点 409 门控（fail-open）。"""
 import json
 

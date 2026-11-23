@@ -1,10 +1,12 @@
 import enum
 import uuid
 from datetime import datetime
-from typing import Optional
-from sqlalchemy import Column, JSON, Text, UniqueConstraint
-from sqlmodel import SQLModel, Field
+
+from sqlalchemy import JSON, Column, Text, UniqueConstraint
+from sqlmodel import Field, SQLModel
+
 from mio_taskhub.utils import _now
+
 
 def _uuid() -> str:
     return str(uuid.uuid4())[:8]
@@ -46,7 +48,7 @@ class TaskStage(str, enum.Enum):
     @classmethod
     def can_advance(cls, src: "TaskStage", dst: "TaskStage") -> bool:
         if dst == cls.CANCELLED:
-            return src != cls.CANCELLED and src != cls.DONE
+            return src not in (cls.CANCELLED, cls.DONE)
         valid = {
             cls.BRAINSTORMING: {cls.DESIGN},
             cls.DESIGN: {cls.PLANNING},
@@ -93,7 +95,7 @@ class AgentStatus(str, enum.Enum):
     IDLE = "idle"
 
 class TaskTemplate(SQLModel, table=True):
-    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    id: str | None = Field(default_factory=_uuid, primary_key=True)
     title: str = Field(index=True)
     description: str = ""
     author: str = ""
@@ -101,7 +103,7 @@ class TaskTemplate(SQLModel, table=True):
     priority: int = 0
     est_duration_min: int = 30
     est_cost_min: int = 60
-    target_agent_type: Optional[str] = None
+    target_agent_type: str | None = None
     acceptance_criteria: str = ""
     files_template: list = Field(default_factory=list, sa_column=Column(JSON))
     deliverables_template: list = Field(default_factory=list, sa_column=Column(JSON))
@@ -115,7 +117,7 @@ class TaskTemplate(SQLModel, table=True):
     tags: list = Field(default_factory=list, sa_column=Column(JSON))
 
 class TaskTemplateVersion(SQLModel, table=True):
-    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    id: str | None = Field(default_factory=_uuid, primary_key=True)
     template_id: str = Field(index=True)
     version: int = Field(default=1, index=True)
     content: dict = Field(default_factory=dict, sa_column=Column(JSON))
@@ -125,26 +127,26 @@ class TaskTemplateVersion(SQLModel, table=True):
     description: str = ""
 
 class Task(SQLModel, table=True):
-    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    id: str | None = Field(default_factory=_uuid, primary_key=True)
     title: str
     description: str = ""
-    target_agent_type: Optional[str] = None
-    fallback_after: Optional[int] = None  # 从 created_at 起算的秒数，超过后允许非目标 agent 领取
+    target_agent_type: str | None = None
+    fallback_after: int | None = None  # 从 created_at 起算的秒数，超过后允许非目标 agent 领取
     priority: int = 0
     schedule_type: str = "once"
-    run_at: Optional[datetime] = None
-    cron_expr: Optional[str] = None
+    run_at: datetime | None = None
+    cron_expr: str | None = None
     est_duration_min: int = 30
     depends_on: list = Field(default_factory=list, sa_column=Column(JSON))
     state: TaskState = TaskState.QUEUED
-    timeout_min: Optional[int] = None
+    timeout_min: int | None = None
     max_retries: int = 3
     task_kind: TaskKind = TaskKind.NORMAL
     attempt: int = 0
-    retry_at: Optional[datetime] = Field(default=None, index=True)
+    retry_at: datetime | None = Field(default=None, index=True)
     retry_count: int = 0
     acceptance_criteria: str = ""
-    due_at: Optional[datetime] = None
+    due_at: datetime | None = None
     labels: list = Field(default_factory=list, sa_column=Column(JSON))
     project: str = ""
     workspace: str = ""
@@ -169,30 +171,30 @@ class Task(SQLModel, table=True):
     # P2a 任务层级（doc: task-decomposition-phase2-spec.md）
     # parent_id 为空 = 顶层任务；只允许一层（子任务不能再有子任务）。
     # role: leaf=普通任务（存量默认）、child=可领取的子任务、main=主任务（普通 worker 不可领）。
-    parent_id: Optional[str] = Field(default=None, index=True)
+    parent_id: str | None = Field(default=None, index=True)
     role: str = Field(default="leaf")
     # P2b 拆分校验（doc: task-decomposition-phase2-spec.md）
     # complexity 只是声明与提示，NULL = 未分类；不自动改写。
-    complexity: Optional[str] = None
+    complexity: str | None = None
     # context_package / decomposition 均为 JSON 文本，读接口统一反序列化。
-    context_package: Optional[str] = Field(default=None, sa_column=Column(Text))
-    decomposition: Optional[str] = Field(default=None, sa_column=Column(Text))
+    context_package: str | None = Field(default=None, sa_column=Column(Text))
+    decomposition: str | None = Field(default=None, sa_column=Column(Text))
     # Phase 1 完成门禁（doc: completion-gate-phase1-spec.md）
     gate_tier: str = "light"
     gate_tier_reason: str = ""
     deviations: list = Field(default_factory=list, sa_column=Column(JSON))
-    human_confirmed_at: Optional[datetime] = None
+    human_confirmed_at: datetime | None = None
     human_confirmed_by: str = ""
     human_confirm_note: str = ""
     completion_run_id: str = ""
     # M1: 生命周期时间戳 + 计数器
-    claimed_at: Optional[datetime] = None
-    running_started_at: Optional[datetime] = None
-    review_started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    failed_at: Optional[datetime] = None
-    cancelled_at: Optional[datetime] = None
-    last_transition_at: Optional[datetime] = Field(default=None, index=True)
+    claimed_at: datetime | None = None
+    running_started_at: datetime | None = None
+    review_started_at: datetime | None = None
+    completed_at: datetime | None = None
+    failed_at: datetime | None = None
+    cancelled_at: datetime | None = None
+    last_transition_at: datetime | None = Field(default=None, index=True)
     block_reason: str = ""
     bounce_count: int = 0
     # 调度方式：True = 仅允许 Agent 主动领取（不进入 dispatcher 自动派单候选）
@@ -209,34 +211,34 @@ class TaskEvent(SQLModel, table=True):
     任务当前状态是 task_events 的最新投影。每一次合法转换追加一行。
     不可变，只追加，用于 M5 指标（周期/首次成功/介入次数/Review 等待等）。
     """
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     task_id: str = Field(index=True)
     event_type: str = Field(index=True)  # created/claimed/started/state_changed/stage_changed/completed/bounced/retried/failed/cancelled/reopened
-    from_state: Optional[str] = None
-    from_stage: Optional[str] = None
-    to_state: Optional[str] = None
-    to_stage: Optional[str] = None
-    actor_type: Optional[str] = None  # user/agent/system
-    actor_id: Optional[str] = None
+    from_state: str | None = None
+    from_stage: str | None = None
+    to_state: str | None = None
+    to_stage: str | None = None
+    actor_type: str | None = None  # user/agent/system
+    actor_id: str | None = None
     reason: str = ""
     # Python 属性名 event_metadata → DB 列名 metadata（避开 SQLAlchemy Base.metadata 保留字）
-    event_metadata: Optional[dict] = Field(default=None, sa_column=Column("metadata", JSON))
+    event_metadata: dict | None = Field(default=None, sa_column=Column("metadata", JSON))
     created_at: datetime = Field(default_factory=_now)
 
 class TaskReview(SQLModel, table=True):
     """任务审阅记录（task_reviews）。每次审阅追加一行，不可变。"""
-    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    id: str | None = Field(default_factory=_uuid, primary_key=True)
     task_id: str = Field(index=True)
     decision: str = Field(index=True)  # approve / reject / comment
-    checklist: Optional[dict] = Field(default=None, sa_column=Column(JSON))  # {"功能完整": true, "代码质量": false, ...}
+    checklist: dict | None = Field(default=None, sa_column=Column(JSON))  # {"功能完整": true, "代码质量": false, ...}
     summary: str = ""                  # 审阅摘要
     comments: str = ""                 # 详细批注/意见
     artifacts: list = Field(default_factory=list, sa_column=Column(JSON))  # 关联文档路径
     reviewer: str = ""                 # 审阅人 (agent name / user / system)
     # server_default="0"：裸 SQL INSERT（如 scripts/migration_approval.py）不写该列时取 0
     reviewer_verified: bool = Field(default=False, sa_column_kwargs={"server_default": "0"})
-    verified_run_id: Optional[str] = None  # 验证通过时对应的 run id（审计回溯）
-    review_duration_sec: Optional[int] = None  # 从 review_started_at 到本次审阅的秒数
+    verified_run_id: str | None = None  # 验证通过时对应的 run id（审计回溯）
+    review_duration_sec: int | None = None  # 从 review_started_at 到本次审阅的秒数
     created_at: datetime = Field(default_factory=_now)
 
 class ReadEvidence(SQLModel, table=True):
@@ -249,7 +251,7 @@ class ReadEvidence(SQLModel, table=True):
     一行对应一个 `(run_id, document_kind)`，重复读取原地更新（upsert）。
     见 mio_taskhub/read_evidence.py。
     """
-    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    id: str | None = Field(default_factory=_uuid, primary_key=True)
     task_id: str = Field(index=True)
     run_id: str = Field(index=True)
     agent_name: str = ""
@@ -269,7 +271,7 @@ class RatchetBaseline(SQLModel, table=True):
     后续推进到受控状态（review/approved/done）时，current < baseline → 阻断；
     current > baseline → 抬高基线（棘轮）。唯一键 (task_id, kind, metric)。
     """
-    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    id: str | None = Field(default_factory=_uuid, primary_key=True)
     task_id: str = Field(index=True)
     kind: str = Field(index=True)
     metric: str = ""
@@ -282,60 +284,60 @@ class Agent(SQLModel, table=True):
     name: str = Field(primary_key=True)
     agent_type: str = ""
     status: AgentStatus = AgentStatus.OFFLINE
-    last_heartbeat: Optional[datetime] = None
-    capabilities: Optional[str] = None
+    last_heartbeat: datetime | None = None
+    capabilities: str | None = None
     registered_at: datetime = Field(default_factory=_now)
 
 class Run(SQLModel, table=True):
-    id: Optional[str] = Field(default=None, primary_key=True)
+    id: str | None = Field(default=None, primary_key=True)
     task_id: str = Field(index=True)
     agent_name: str
     state: RunState = RunState.CLAIMED
     attempt: int = 1
-    checkpoint: Optional[str] = None
+    checkpoint: str | None = None
     progress: int = 0
     started_at: datetime = Field(default_factory=_now)
-    last_heartbeat: Optional[datetime] = None
-    finished_at: Optional[datetime] = None
-    result: Optional[str] = None
-    exit_code: Optional[int] = None
+    last_heartbeat: datetime | None = None
+    finished_at: datetime | None = None
+    result: str | None = None
+    exit_code: int | None = None
     # 窄门禁（d468e633 FR-11）：本次 run 期间的改动证据。
     # diff_summary = {before: Snapshot摘要, after: Snapshot摘要, changed: bool, reason: str}
     # 未采集为 None（不是 {}）——「没采到」与「采到空」是两种不同状态。
-    diff_summary: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    diff_summary: dict | None = Field(default=None, sa_column=Column(JSON))
     # 标注列表：每项 {code, level, message, at}；level ∈ {block, warn}
     annotations: list = Field(default_factory=list, sa_column=Column(JSON))
-    evidence: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    evidence: dict | None = Field(default=None, sa_column=Column(JSON))
     # 本 run 累计被拒次数（窄门禁拒绝不消耗 attempt，达上限才判本次执行失败）
     rejections: int = 0
     # per-run 凭据（F-005 第 2 步，2026-11-11）：claim 时下发明文（仅出现在 claim
     # 响应里一次），这里只存 sha256。heartbeat / submit_result 带 X-Run-Token 比对，
     # 关闭「凭 run_id 冒充他人 agent」的残余缺口。旧 run / 迁移前 run 为 None（宽松兼容）。
-    token_hash: Optional[str] = Field(default=None, index=False)
+    token_hash: str | None = Field(default=None, index=False)
 
 class Subtask(SQLModel, table=True):
-    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    id: str | None = Field(default_factory=_uuid, primary_key=True)
     task_id: str = Field(index=True)
     order: int = 0
     title: str
     status: SubtaskStatus = SubtaskStatus.PENDING
 
 class GitRef(SQLModel, table=True):
-    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    id: str | None = Field(default_factory=_uuid, primary_key=True)
     task_id: str = Field(index=True)
     ref_type: RefType = RefType.BRANCH
     value: str
     note: str = ""
 
 class HistoryEvent(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     task_id: str = Field(index=True)
     type: str
-    payload: Optional[str] = None
+    payload: str | None = None
     at: datetime = Field(default_factory=_now)
 
 class Discussion(SQLModel, table=True):
-    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    id: str | None = Field(default_factory=_uuid, primary_key=True)
     task_id: str = Field(index=True, default="")
     idea_id: str = Field(index=True, default="")
     topic: str
@@ -346,16 +348,16 @@ class Discussion(SQLModel, table=True):
     stage: str = "brainstorming"
     # 想法落地闭环 P2 包 C（FR-18）：讨论双模式 + 评审结构 + prompt 快照，全部可空/默认值兼容旧行
     mode: str = "free"                                          # free=自由讨论 / review=结构化评审
-    roles: Optional[list] = Field(default=None, sa_column=Column(JSON))            # ["产品","技术","红队",...]
-    review: Optional[dict] = Field(default=None, sa_column=Column(JSON))            # 评审关闭五段结构
-    prompt_snapshot: Optional[dict] = Field(default=None, sa_column=Column(JSON))   # 创建时 roles+prompt 版本快照
+    roles: list | None = Field(default=None, sa_column=Column(JSON))            # ["产品","技术","红队",...]
+    review: dict | None = Field(default=None, sa_column=Column(JSON))            # 评审关闭五段结构
+    prompt_snapshot: dict | None = Field(default=None, sa_column=Column(JSON))   # 创建时 roles+prompt 版本快照
     started_at: datetime = Field(default_factory=_now)
-    ended_at: Optional[datetime] = None
+    ended_at: datetime | None = None
 
 
 class RolePrompt(SQLModel, table=True):
     """Agent 角色 prompt（FR-19）：数据库+缓存，创建评审时按 roles 快照 version。"""
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     role: str = Field(index=True, unique=True)
     prompt: str = ""
     version: int = 1
@@ -364,13 +366,13 @@ class RolePrompt(SQLModel, table=True):
 
 class AppConfig(SQLModel, table=True):
     """通用应用配置（FR-20：高风险词表等，key -> JSON value）。"""
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     key: str = Field(index=True, unique=True)
-    value: Optional[list] = Field(default=None, sa_column=Column(JSON))
+    value: list | None = Field(default=None, sa_column=Column(JSON))
     updated_at: datetime = Field(default_factory=_now)
 
 class DiscussionMessage(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     discussion_id: str = Field(index=True)
     author: str
     role: str = "user"
@@ -378,12 +380,12 @@ class DiscussionMessage(SQLModel, table=True):
     at: datetime = Field(default_factory=_now)
 
 class Event(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)   # 自增 seq
+    id: int | None = Field(default=None, primary_key=True)   # 自增 seq
     type: str
     entity: str = Field(default="", index=True)
     entity_id: str = Field(default="", index=True)
     run_id: str = Field(default="", index=True)                 # 兼容旧字段
-    payload: Optional[str] = None
+    payload: str | None = None
     at: datetime = Field(default_factory=_now)
 
 class IdeaType(str, enum.Enum):
@@ -442,7 +444,7 @@ class IdeaStatus(str, enum.Enum):
         return status in (cls.PROPOSED, cls.ACCEPTED, cls.REJECTED, cls.DEPRECATED, cls.SUPERSEDED)
 
 class Idea(SQLModel, table=True):
-    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    id: str | None = Field(default_factory=_uuid, primary_key=True)
     title: str
     description: str = ""
     status: IdeaStatus = IdeaStatus.NEW
@@ -451,33 +453,33 @@ class Idea(SQLModel, table=True):
     labels: list = Field(default_factory=list, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
-    last_reviewed_at: Optional[datetime] = Field(default=None, index=True)
+    last_reviewed_at: datetime | None = Field(default=None, index=True)
     review_count: int = 0
     # ADR 扩展字段
     idea_type: IdeaType = IdeaType.IDEA
-    adr_number: Optional[int] = Field(default=None, index=True)  # ADR 序号（自增，如 ADR-001）
-    adr_status: Optional[IdeaStatus] = Field(default=None, index=True)
-    superseded_by: Optional[str] = Field(default=None, index=True)  # 被哪个 ADR 取代
-    madr_context: Optional[str] = None      # MADR: 背景/上下文
-    madr_decision: Optional[str] = None     # MADR: 决策内容
-    madr_consequences: Optional[str] = None # MADR: 后果（正面/负面）
-    madr_alternatives: Optional[list] = Field(default=None, sa_column=Column(JSON))  # MADR: 备选方案
-    adr_file_path: Optional[str] = None     # Git 中的 ADR 文件路径
+    adr_number: int | None = Field(default=None, index=True)  # ADR 序号（自增，如 ADR-001）
+    adr_status: IdeaStatus | None = Field(default=None, index=True)
+    superseded_by: str | None = Field(default=None, index=True)  # 被哪个 ADR 取代
+    madr_context: str | None = None      # MADR: 背景/上下文
+    madr_decision: str | None = None     # MADR: 决策内容
+    madr_consequences: str | None = None # MADR: 后果（正面/负面）
+    madr_alternatives: list | None = Field(default=None, sa_column=Column(JSON))  # MADR: 备选方案
+    adr_file_path: str | None = None     # Git 中的 ADR 文件路径
     # 想法落地闭环 P0 结构化字段（FR-1，字段模型一次定型；旧数据 NULL 兼容）
     goal: str = ""                          # 模板：给【谁】解决【什么问题】，因为【为什么现在】
     success_metric: str = ""                # 模板：【指标】从【现状】到【目标】，在【期限】内
     constraints: str = ""                   # 外部约束：时间/预算/人手/合规底线
     out_of_scope: str = ""                  # 明确不做什么，防范围蔓延
-    assumptions: Optional[list] = Field(default=None, sa_column=Column(JSON))  # P0 录入缓存 [{hid,text,status,note}]
-    risks: Optional[list] = Field(default=None, sa_column=Column(JSON))        # [{text,level,mitigation}]
+    assumptions: list | None = Field(default=None, sa_column=Column(JSON))  # P0 录入缓存 [{hid,text,status,note}]
+    risks: list | None = Field(default=None, sa_column=Column(JSON))        # [{text,level,mitigation}]
     mvp_scope: str = ""                     # MVP 范围
-    tags: Optional[list] = Field(default=None, sa_column=Column(JSON))         # ["高风险","合规",...]
+    tags: list | None = Field(default=None, sa_column=Column(JSON))         # ["高风险","合规",...]
     # 想法落地闭环 P1 包 B（FR-11）：Mio 假设 id 引用列表（真源=Mio，只存引用不存分数）
-    hypotheses: Optional[list] = Field(default=None, sa_column=Column(JSON))   # ["hyp_id",...]
+    hypotheses: list | None = Field(default=None, sa_column=Column(JSON))   # ["hyp_id",...]
     # 价值评分（用于闸门加权）：novelty/feasibility/impact ∈ [0,100]，NULL 兼容旧数据
-    novelty: Optional[int] = Field(default=None, index=True)
-    feasibility: Optional[int] = Field(default=None, index=True)
-    impact: Optional[int] = Field(default=None, index=True)
+    novelty: int | None = Field(default=None, index=True)
+    feasibility: int | None = Field(default=None, index=True)
+    impact: int | None = Field(default=None, index=True)
 
 class ChangeType(str, enum.Enum):
     FIELD_CHANGE = "field_change"      # 普通字段变更
@@ -485,7 +487,7 @@ class ChangeType(str, enum.Enum):
     ADR_ACTION = "adr_action"          # ADR 状态操作（accept/reject/deprecate/supersede）
 
 class IdeaChange(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)  # 自增，供 before_id 游标分页（同 Event.id 模式）
+    id: int | None = Field(default=None, primary_key=True)  # 自增，供 before_id 游标分页（同 Event.id 模式）
     idea_id: str = Field(index=True)
     version: int                          # 该条变更发生时 idea 的版本号
     created_at: datetime = Field(default_factory=_now)
@@ -498,19 +500,19 @@ class IdeaChange(SQLModel, table=True):
 
 class IdeaHistory(SQLModel, table=True):
     """想法完整轨迹：评审/流转/讨论/操作记录。kind ∈ review/status/discussion/operation"""
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     idea_id: str = Field(index=True)
     kind: str                                 # review/status/discussion/operation
     actor: str = ""
     content: str = ""
-    reasoning: Optional[str] = None           # 决策摘要（非完整 CoT）
+    reasoning: str | None = None           # 决策摘要（非完整 CoT）
     extra: dict = Field(default_factory=dict, sa_column=Column(JSON))  # 结构化上下文
     at: datetime = Field(default_factory=_now, index=True)
 
 
 class IdeaUserPref(SQLModel, table=True):
     """想法驾驶舱用户偏好（FR-7：dismiss 服务端存储，条件变化即复活）。"""
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     idea_id: str = Field(index=True)
     user: str = Field(default="local", index=True)
     rule_id: str = Field(index=True)
@@ -524,7 +526,7 @@ class IdeaAssumptionLink(SQLModel, table=True):
     与 `Idea.hypotheses`/`Idea.assumptions` **双写兼容**——读路径零改动，
     本表按 (idea_id, hypothesis_id) 唯一，供复盘/后续按假设反查。
     """
-    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    id: str | None = Field(default_factory=_uuid, primary_key=True)
     idea_id: str = Field(index=True)
     hypothesis_id: str = Field(index=True)
     status: str = "unverified"       # unverified / active / validated / rejected ...
@@ -547,31 +549,31 @@ class ScheduledJobStatus(str, enum.Enum):
 
 class ScheduledJob(SQLModel, table=True):
     """独立定时任务：cron 表达式 + 动作（创建任务 / Webhook）。"""
-    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    id: str | None = Field(default_factory=_uuid, primary_key=True)
     name: str = Field(index=True)
     cron_expr: str  # 5-field cron: 分 时 日 月 周
-    next_run_at: Optional[datetime] = Field(default=None, index=True)
+    next_run_at: datetime | None = Field(default=None, index=True)
     action_type: ScheduledJobActionType = ScheduledJobActionType.CREATE_TASK
     action_config: dict = Field(default_factory=dict, sa_column=Column(JSON))
     enabled: bool = True
     max_retries: int = 3
     timeout_seconds: int = 30
-    last_run_at: Optional[datetime] = None
-    last_status: Optional[ScheduledJobStatus] = None
-    last_error: Optional[str] = None
+    last_run_at: datetime | None = None
+    last_status: ScheduledJobStatus | None = None
+    last_error: str | None = None
     run_count: int = 0
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
 class ScheduledJobExecution(SQLModel, table=True):
     """定时任务执行日志。"""
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     job_id: str = Field(index=True)
     started_at: datetime = Field(default_factory=_now)
-    finished_at: Optional[datetime] = None
+    finished_at: datetime | None = None
     status: str = "ok"  # ok | error | skipped
-    result: Optional[str] = None
-    error: Optional[str] = None
+    result: str | None = None
+    error: str | None = None
 
 class OutboxStatus(str, enum.Enum):
     PENDING = "pending"
@@ -582,7 +584,7 @@ class OutboxStatus(str, enum.Enum):
 
 class OutboxEvent(SQLModel, table=True):
     """领域事件 Outbox：DB 事务写入，异步 Worker 消费投影到 Git 等外部系统"""
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     event_type: str                           # evolve-to-adr, accept, reject, deprecate, supersede
     aggregate_type: str = "idea"              # 聚合类型
     aggregate_id: str = Field(index=True)     # 聚合 ID（idea_id）
@@ -590,9 +592,9 @@ class OutboxEvent(SQLModel, table=True):
     status: OutboxStatus = OutboxStatus.PENDING
     retry_count: int = 0
     max_retries: int = 3
-    error: Optional[str] = None
+    error: str | None = None
     created_at: datetime = Field(default_factory=_now)
-    processed_at: Optional[datetime] = None
+    processed_at: datetime | None = None
 
 # ── TH-01：历史决策闭环（FR-4 / FR-5）────────────────────────────────────
 # 两张表都只增不改既有表；create_all 建表，无存量数据迁移。
@@ -607,16 +609,16 @@ class RouteDecision(SQLModel, table=True):
     project: str = ""
     query: str = ""
     route_count: int = 0
-    top_experience_id: Optional[str] = None
-    agent_health_best: Optional[str] = None
-    degraded_reason: Optional[str] = None
+    top_experience_id: str | None = None
+    agent_health_best: str | None = None
+    degraded_reason: str | None = None
     at: datetime = Field(default_factory=_now)
 
 
 class MioOutbox(SQLModel, table=True):
     """runtime 结果写回的投递队列（key 唯一 = 幂等；runtime 侧无幂等）。"""
     __tablename__ = "mio_outbox"
-    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    id: str | None = Field(default_factory=_uuid, primary_key=True)
     key: str = Field(index=True, unique=True)         # run:<run_id>:outcome
     run_id: str = Field(index=True)
     task_id: str = Field(index=True)
@@ -624,7 +626,7 @@ class MioOutbox(SQLModel, table=True):
     status: str = "pending"                           # pending|sent|failed|dead
     attempts: int = 0
     next_at: datetime = Field(default_factory=_now, index=True)
-    last_error: Optional[str] = None
+    last_error: str | None = None
     at: datetime = Field(default_factory=_now)
 
 
@@ -636,18 +638,18 @@ class Decision(SQLModel, table=True):
     状态机严格向前：open → resolved / open → superseded，终态不可回退。
     未裁决（open）的决策会进入收件箱 decide 队列（api/inbox.py FR-03）。
     """
-    id: Optional[str] = Field(default_factory=_uuid, primary_key=True)
+    id: str | None = Field(default_factory=_uuid, primary_key=True)
     question: str = Field(index=True)                # 必填：要决策的问题
     context: str = ""                                # 背景：为什么需要决策
-    options: Optional[list] = Field(default=None, sa_column=Column(JSON))   # [{label, note}]
+    options: list | None = Field(default=None, sa_column=Column(JSON))   # [{label, note}]
     recommendation: str = ""                         # 建议选项 label（登记方给出）
     status: str = Field(default="open", index=True)  # open / resolved / superseded
     choice: str = ""                                 # 裁决结果（resolved 时必填）
     rationale: str = ""                              # 裁决理由（resolved 时必填）
     decider: str = ""                                # 裁决人
-    deadline: Optional[datetime] = None              # 可选截止
+    deadline: datetime | None = None              # 可选截止
     task_id: str = Field(default="", index=True)     # 可选关联任务
     successor_id: str = ""                           # superseded 时指向替代决策
     source: str = ""                                 # 登记来源（agent 名 / "user"）
     created_at: datetime = Field(default_factory=_now, index=True)
-    resolved_at: Optional[datetime] = None
+    resolved_at: datetime | None = None

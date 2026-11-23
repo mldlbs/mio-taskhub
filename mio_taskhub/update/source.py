@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """更新源：从 GitHub Releases 获取 latest.json（含缺失回退）。
 
 - 首选 CDN 固定 URL `.../releases/latest/download/latest.json`（免 token、不吃 API 限额）。
@@ -9,7 +8,7 @@ import json
 import os
 import urllib.request
 
-from mio_taskhub.update.manifest import manifest_from_dict, UpdateManifest
+from mio_taskhub.update.manifest import UpdateManifest, manifest_from_dict
 
 DEFAULT_BASE = "https://github.com/mldlbs/mio-taskhub"
 ASSET_NAME = "mio-taskhub-win64.zip"
@@ -38,7 +37,7 @@ def _default_opener(url: str, timeout: float = 10.0) -> bytes:
 
 
 class GitHubReleaseSource:
-    def __init__(self, base_url: str = None, timeout: float = 12.0, opener=None):
+    def __init__(self, base_url: str | None = None, timeout: float = 12.0, opener=None):
         # 12s：CDN 别名 latest.json 命中通常 1.5~6.5s；失败会挂到 20s+，
         # 用 12s 封顶后迅速回退到 API 路径（该路径有 digest，可强校验）。
         self.base = (base_url or os.environ.get("MIO_UPDATE_BASE_URL") or DEFAULT_BASE).rstrip("/")
@@ -62,11 +61,11 @@ class GitHubReleaseSource:
         try:
             raw = self._opener(self.manifest_url())
             return manifest_from_dict(json.loads(raw.decode("utf-8")))
-        except Exception as e:  # noqa: BLE001 —— latest.json 缺失/非法 → 回退
+        except Exception as e:
             first_err = e
         try:
             return self._fetch_via_api()
-        except Exception as second_err:  # noqa: BLE001
+        except Exception as second_err:
             raise SourceError("无法获取更新清单：%s；回退也失败：%s"
                               % (first_err, second_err)) from second_err
 
@@ -128,7 +127,7 @@ def release_asset_api_url(primary_url: str, opener=None) -> str:
     try:
         rel = json.loads(op("https://api.github.com/repos/%s/%s/releases/tags/%s"
                             % (owner, repo, tag)).decode("utf-8"))
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         raise SourceError("release API 资产查询失败：%s" % e) from e
     for a in rel.get("assets") or []:
         if a.get("name") == filename and a.get("id"):

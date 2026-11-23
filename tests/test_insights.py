@@ -1,6 +1,7 @@
-import time
 import pytest
+
 from mio_taskhub.db import init_db
+
 
 @pytest.fixture(autouse=True)
 def setup_db():
@@ -10,7 +11,7 @@ def setup_db():
 def test_insights_engine_stores_insights():
     from mio_taskhub.observability.insights import InsightsEngine
     engine = InsightsEngine()
-    result = engine.store("test_kind", "Test Title", "Test description", severity="warning", recommendation="Do something")
+    engine.store("test_kind", "Test Title", "Test description", severity="warning", recommendation="Do something")
     recent = engine.recent(limit=10)
     assert len(recent) >= 1
     assert recent[0]["title"] == "Test Title"
@@ -45,8 +46,9 @@ def test_insights_engine_evaluate():
 # ---------- 变更 4：dedup 刷新 + 恢复检测（task e83cc9e2） ----------
 
 def _ack_of(engine, insight_id):
-    from mio_taskhub.db import engine as db_engine
     from sqlalchemy import text
+
+    from mio_taskhub.db import engine as db_engine
     with db_engine.connect() as conn:
         row = conn.execute(text("SELECT acknowledged FROM insight WHERE id = :i"),
                            {"i": insight_id}).fetchone()
@@ -69,8 +71,9 @@ def test_dedup_refreshes_metric_value():
     )
     # 同一行被复用（dedup），值已刷新到 0.37
     assert second["id"] == first["id"]
-    from mio_taskhub.db import engine as db_engine
     from sqlalchemy import text
+
+    from mio_taskhub.db import engine as db_engine
     with db_engine.connect() as conn:
         row = conn.execute(text("SELECT metric_value FROM insight WHERE id = :i"),
                            {"i": first["id"]}).fetchone()
@@ -140,9 +143,10 @@ def test_is_recovered_low_threshold_direction():
 
 def test_low_insight_not_acked_when_still_breaching():
     """低阈值指标仍在告警时，重复 evaluate 不应产生新洞察（不误 ack）。"""
-    from mio_taskhub.observability.insights import InsightsEngine
-    from mio_taskhub.db import engine
     from sqlalchemy import text
+
+    from mio_taskhub.db import engine
+    from mio_taskhub.observability.insights import InsightsEngine
     e = InsightsEngine()
     e.evaluate({"taskhub_task_success_rate": 0.86})   # 首次
     e.evaluate({"taskhub_task_success_rate": 0.86})   # 再次（同值）

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """下游实验预审计：只做数据/泄漏/功效检查，不跑正式测试。
 
 输出：重复任务、跨切分泄漏、标签分布、标签噪声、素材覆盖、功效估计。
@@ -6,7 +5,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import re
@@ -14,7 +12,6 @@ import sqlite3
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
 
 TERMINAL = ("COMPLETED", "FAILED", "CANCELLED")
 EXTERNAL = ("hn", "github-trending")
@@ -29,7 +26,7 @@ def _bucket(n: int) -> str:
     return "0" if n == 0 else ("1" if n == 1 else "2+")
 
 
-def load_tasks(db: Path) -> List[dict]:
+def load_tasks(db: Path) -> list[dict]:
     conn = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
@@ -42,15 +39,15 @@ def load_tasks(db: Path) -> List[dict]:
     return [dict(r) for r in rows]
 
 
-def group_tasks(rows: List[dict]) -> Dict[str, List[dict]]:
-    groups: Dict[str, List[dict]] = defaultdict(list)
+def group_tasks(rows: list[dict]) -> dict[str, list[dict]]:
+    groups: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
         key = _norm(row["title"]) + "||" + _norm(row["description"])
         groups[key].append(row)
     return groups
 
 
-def material_coverage(db: Path, tasks: List[dict], k: int = 5) -> dict:
+def material_coverage(db: Path, tasks: list[dict], k: int = 5) -> dict:
     conn = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     mats = conn.execute(
@@ -139,7 +136,7 @@ def audit(db: Path, cutoff: str) -> dict:
     test_neg = len(test) - test_pos
     power = power_estimate(test_pos, test_neg)
 
-    report = {
+    return {
         "db": str(db).replace("\\", "/"),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "cutoff": cutoff,
@@ -192,7 +189,6 @@ def audit(db: Path, cutoff: str) -> dict:
         },
         "note": "只读审计；未训练模型、未使用测试标签做选择、未运行对照实验。",
     }
-    return report
 
 
 def main() -> int:

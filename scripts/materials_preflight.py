@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """生产回填前只读预检：不改库、不跑迁移、不建表。
 
 用法：
@@ -17,7 +16,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -38,32 +37,33 @@ def _ro(path: Path) -> sqlite3.Connection:
     return sqlite3.connect(uri, uri=True, timeout=3.0)
 
 
-def _tables(conn: sqlite3.Connection) -> List[str]:
+def _tables(conn: sqlite3.Connection) -> list[str]:
     return [r[0] for r in conn.execute(
         "select name from sqlite_master where type='table' order by 1")]
 
 
-def _columns(conn: sqlite3.Connection, table: str) -> List[Dict[str, Any]]:
+def _columns(conn: sqlite3.Connection, table: str) -> list[dict[str, Any]]:
     return [
         {"name": r[1], "type": r[2], "notnull": bool(r[3]), "pk": bool(r[5])}
         for r in conn.execute(f"pragma table_info('{table}')")
     ]
 
 
-def _count(conn: sqlite3.Connection, table: str) -> Optional[int]:
+def _count(conn: sqlite3.Connection, table: str) -> int | None:
     try:
         return int(conn.execute(f"select count(*) from '{table}'").fetchone()[0])
     except Exception:
         return None
 
 
-def _hash_table(conn: sqlite3.Connection, table: str) -> Optional[str]:
+def _hash_table(conn: sqlite3.Connection, table: str) -> str | None:
     try:
         cols = [r[1] for r in conn.execute(f"pragma table_info('{table}')")]
         if not cols:
             return None
         h = hashlib.sha256()
-        query = f"select {', '.join('\"' + c + '\"' for c in cols)} from '{table}' order by rowid"
+        quoted = ", ".join('"' + c + '"' for c in cols)
+        query = f"select {quoted} from '{table}' order by rowid"
         for row in conn.execute(query):
             h.update(json.dumps(row, ensure_ascii=False, default=str).encode("utf-8"))
         return h.hexdigest()
@@ -71,7 +71,7 @@ def _hash_table(conn: sqlite3.Connection, table: str) -> Optional[str]:
         return None
 
 
-def _process_info() -> List[Dict[str, Any]]:
+def _process_info() -> list[dict[str, Any]]:
     if os.name != "nt":
         return []
     cmd = (
@@ -92,7 +92,7 @@ def _process_info() -> List[Dict[str, Any]]:
         return []
 
 
-def _backups(path: Path, limit: int = 5) -> List[Dict[str, Any]]:
+def _backups(path: Path, limit: int = 5) -> list[dict[str, Any]]:
     out = []
     if not path.exists():
         return out
@@ -117,11 +117,11 @@ def _backups(path: Path, limit: int = 5) -> List[Dict[str, Any]]:
     return out
 
 
-def preflight(db_path: Path, backup_dir: Path) -> Dict[str, Any]:
+def preflight(db_path: Path, backup_dir: Path) -> dict[str, Any]:
     if not db_path.exists():
         raise SystemExit(f"db not found: {db_path}")
     stat = db_path.stat()
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "db_path": str(db_path),
         "db_size": stat.st_size,
@@ -179,9 +179,8 @@ def preflight(db_path: Path, backup_dir: Path) -> Dict[str, Any]:
             result["blockers"].append("生产库 quick_check 未通过。")
         if not result["backups"]:
             result["blockers"].append("未找到可用备份。")
-        else:
-            if result["backups"][0]["quick_check"] != "ok":
-                result["blockers"].append("最近备份 quick_check 未通过。")
+        elif result["backups"][0]["quick_check"] != "ok":
+            result["blockers"].append("最近备份 quick_check 未通过。")
     return result
 
 

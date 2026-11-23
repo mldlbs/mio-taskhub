@@ -6,19 +6,18 @@
 - 幂等：重启/重复消费不产生错误状态
 - 只处理 ADR 相关事件，不扩展到所有 Idea 事件
 """
+import logging
 import os
 import subprocess
-import logging
 import threading
 import time
-from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Optional
+from pathlib import Path
 
 from sqlmodel import Session, select
 
 from mio_taskhub.db import engine
-from mio_taskhub.models import OutboxEvent, OutboxStatus, Idea, IdeaType
+from mio_taskhub.models import Idea, IdeaType, OutboxEvent, OutboxStatus
 from mio_taskhub.observability.dep_metrics import DepMetrics
 
 logger = logging.getLogger("git_sync")
@@ -40,7 +39,7 @@ def _run_git(*args: str) -> bool:
     start = time.perf_counter()
     try:
         result = subprocess.run(
-            ["git"] + list(args),
+            ["git", *list(args)],
             capture_output=True,
             text=True,
             encoding='utf-8',
@@ -265,7 +264,7 @@ class GitSyncWorker:
     def __init__(self, poll_interval: float = POLL_INTERVAL):
         self.poll_interval = poll_interval
         self._stop_event = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._last_cleanup = datetime.now()
 
     def start(self):
@@ -299,7 +298,7 @@ class GitSyncWorker:
 
 
 # 全局 Worker 实例
-_worker: Optional[GitSyncWorker] = None
+_worker: GitSyncWorker | None = None
 
 
 def start_git_sync_worker():

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """T3.6 能力地图定档 + 技术债取舍单测。"""
 from pathlib import Path
 

@@ -3,7 +3,7 @@ import { api } from '../api'
 import { fmtAgo, parseUtc } from '../constants'
 import { confirm } from '../confirm'
 
-export default function ScheduledJobsView({ onNavigateToTask }) {
+export default function ScheduledJobsView() {
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
@@ -159,6 +159,7 @@ export default function ScheduledJobsView({ onNavigateToTask }) {
 }
 
 
+// eslint-disable-next-line complexity, max-lines-per-function
 function ScheduledJobModal({ editJob, onClose, onSaved }) {
   const [form, setForm] = useState({
     name: editJob?.name || '',
@@ -195,13 +196,14 @@ function ScheduledJobModal({ editJob, onClose, onSaved }) {
   const isWebhook = form.action_type === 'webhook'
   const cfg = form.action_config
 
+  // eslint-disable-next-line complexity
   const submit = async (e) => {
     e.preventDefault()
     if (!form.name.trim() || !form.cron_expr.trim()) return
     // Webhook 的 Headers/Body 在此处统一解析（失败明确提示，不再静默）
     let actionCfg = cfg
     if (isWebhook) {
-      let headers = {}, bodyObj = {}
+      let headers, bodyObj  // 初值不会被读到（两条路径都先整体赋值再使用）
       try {
         headers = headersText.trim() ? JSON.parse(headersText) : {}
         if (headers === null || typeof headers !== 'object' || Array.isArray(headers)) {

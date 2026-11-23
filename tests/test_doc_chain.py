@@ -1,15 +1,13 @@
-# -*- coding: utf-8 -*-
 """软件项目文档链（七件套）scaffold 回归测试。
 
 POST /tasks/{id}/docs/scaffold：需求规格→架构设计→模块 Spec→状态模型→
 接口契约→测试验收→部署运维，一次生成全部骨架；已有文件不覆盖。
 """
-import pathlib
 
 from fastapi.testclient import TestClient
 
-from mio_taskhub.main import app
 from mio_taskhub.doc_chain import DOC_CHAIN
+from mio_taskhub.main import app
 
 client = TestClient(app)
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """生产回填前的 bootstrap：只建素材表、幂等、不碰业务表。"""
 import sqlite3
 

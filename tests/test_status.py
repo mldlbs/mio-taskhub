@@ -10,21 +10,30 @@
  - 回归：原有 is_terminal / dependency_satisfied / normalize_depends 行为不变
 """
 import pytest
-from mio_taskhub.workflow.state_machine import (
-    TERMINAL_STATES, is_terminal,
-    State, Stage, ActorType,
-    LEGAL_COMBOS, is_legal_combo, is_fully_done, initial_state,
-    TRANSITIONS, find_transition,
-    validate_transition, IllegalTransition,
-)
+
+from mio_taskhub.composite import COMPOSITE_LABEL, composite_status, export_mapping_json
 from mio_taskhub.dependency import dependency_satisfied, normalize_depends, task_deps
-from mio_taskhub.composite import composite_status, export_mapping_json, COMPOSITE_LABEL
+from mio_taskhub.workflow.state_machine import (
+    LEGAL_COMBOS,
+    TERMINAL_STATES,
+    TRANSITIONS,
+    ActorType,
+    IllegalTransition,
+    Stage,
+    State,
+    find_transition,
+    initial_state,
+    is_fully_done,
+    is_legal_combo,
+    is_terminal,
+    validate_transition,
+)
 
 
 # ---------- 回归：原有 API 行为不变 ----------
 class TestLegacyAPI:
     def test_terminal_states_unchanged(self):
-        assert TERMINAL_STATES == {"completed", "cancelled", "failed", "blocked_failed"}
+        assert {"completed", "cancelled", "failed", "blocked_failed"} == TERMINAL_STATES
 
     def test_is_terminal_scheduling_terminal(self):
         class T:

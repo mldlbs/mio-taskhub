@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P5（FR-34）：驾驶舱结构化字段「一键生成草稿」。
 
 读 Mio 的 LLM 配置（`mio config llm` → ~/.mio-intelligence/config.json）
@@ -13,7 +12,6 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
@@ -21,7 +19,6 @@ from sqlmodel import Session
 from mio_taskhub import mio_runtime
 from mio_taskhub.db import get_session
 from mio_taskhub.models import Idea
-
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
 
@@ -80,7 +77,7 @@ def _build_user_prompt(idea: Idea, fields: list) -> str:
     return "\n".join(lines)
 
 
-def _extract_json(text: str) -> Optional[dict]:
+def _extract_json(text: str) -> dict | None:
     """三级兜底：直接解析 → ```json 代码块 → 首尾花括号截取。"""
     text = str(text or "").strip()
     if not text:
@@ -89,7 +86,7 @@ def _extract_json(text: str) -> Optional[dict]:
         data = json.loads(text)
         if isinstance(data, dict):
             return data
-    except Exception:  # noqa: BLE001 —— 继续兜底
+    except Exception:
         pass
     if "```" in text:
         for part in text.split("```"):
@@ -101,19 +98,19 @@ def _extract_json(text: str) -> Optional[dict]:
                     data = json.loads(p)
                     if isinstance(data, dict):
                         return data
-                except Exception:  # noqa: BLE001
+                except Exception:
                     continue
     i, j = text.find("{"), text.rfind("}")
     if 0 <= i < j:
         try:
             data = json.loads(text[i:j + 1])
             return data if isinstance(data, dict) else None
-        except Exception:  # noqa: BLE001
+        except Exception:
             return None
     return None
 
 
-def _normalize_draft(raw: dict, fields: list) -> dict:
+def _normalize_draft(raw: dict, fields: list) -> dict:  # noqa: C901
     """白名单过滤 + 类型规范化（未知键丢弃，缺字段补空值）。"""
     draft = {}
     for f in fields:
@@ -130,10 +127,7 @@ def _normalize_draft(raw: dict, fields: list) -> dict:
         elif f == "assumptions":
             rows = []
             for a in (raw.get("assumptions") or []):
-                if isinstance(a, dict):
-                    text = str(a.get("text") or a.get("title") or "").strip()
-                else:
-                    text = str(a or "").strip()
+                text = str(a.get("text") or a.get("title") or "").strip() if isinstance(a, dict) else str(a or "").strip()
                 if not text:
                     continue
                 rows.append({"hid": "as-" + uuid.uuid4().hex[:8],
@@ -184,25 +178,25 @@ def _call_llm(cfg: dict, messages: list, timeout: float = LLM_TIMEOUT):
     except urllib.error.HTTPError as e:
         # 不回显上游 body（可能含内部信息）；只报状态码
         return "http_%s" % e.code, None
-    except (socket.timeout, TimeoutError):
+    except TimeoutError:
         return "timeout", None
     except urllib.error.URLError as e:
         if isinstance(getattr(e, "reason", None), (socket.timeout, TimeoutError)):
             return "timeout", None
         return "unavailable", None
-    except Exception:  # noqa: BLE001
+    except Exception:
         return "unavailable", None
     try:
         data = json.loads(body)
         choices = data.get("choices") or [{}]
         content = ((choices[0].get("message") or {}).get("content")) or ""
         return "ok", content
-    except Exception:  # noqa: BLE001
+    except Exception:
         return "unavailable", None
 
 
 @router.post("/{idea_id}/draft-fields")
-def draft_idea_fields(idea_id: str, body: Optional[dict] = None,
+def draft_idea_fields(idea_id: str, body: dict | None = None,
                       db: Session = Depends(get_session)):
     """FR-34：LLM 生成驾驶舱 8 字段草稿（纯读端点，零写库）。"""
     i = db.get(Idea, idea_id)

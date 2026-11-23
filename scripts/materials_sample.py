@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P4 抽样：按 kind × origin 分层，输出可追溯的标注模板（不写标签）。
 
 用法：
@@ -11,14 +10,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import random
 import sqlite3
 import sys
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -28,7 +25,7 @@ KINDS = ["signal", "fact", "result", "problem", "decision", "lesson"]
 ORIGINS = ["external", "internal", "task", "log"]
 
 
-def allocate(counts: Dict[str, int], n: int) -> Dict[str, int]:
+def allocate(counts: dict[str, int], n: int) -> dict[str, int]:  # noqa: C901
     """分层配额：先给每个非空层保底，再按剩余容量做水位均衡。"""
     total = sum(counts.values())
     if total <= n:
@@ -71,7 +68,7 @@ def allocate(counts: Dict[str, int], n: int) -> Dict[str, int]:
     return out
 
 
-def build_sample(db: Path, n: int, seed: int) -> tuple[List[dict], dict]:
+def build_sample(db: Path, n: int, seed: int) -> tuple[list[dict], dict]:
     conn = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
@@ -83,7 +80,7 @@ def build_sample(db: Path, n: int, seed: int) -> tuple[List[dict], dict]:
     ).fetchall()
     conn.close()
 
-    by_status: Dict[str, List[dict]] = defaultdict(list)
+    by_status: dict[str, list[dict]] = defaultdict(list)
     for r in rows:
         by_status[r["status"]].append(dict(r))
 
@@ -94,7 +91,7 @@ def build_sample(db: Path, n: int, seed: int) -> tuple[List[dict], dict]:
     if len(q_rows) <= n:
         q_selected = q_rows
     else:
-        q_cells: Dict[str, List[dict]] = defaultdict(list)
+        q_cells: dict[str, list[dict]] = defaultdict(list)
         for r in q_rows:
             q_cells[f"{r['kind']}|{r['origin']}"].append(r)
         q_quotas = allocate({k: len(v) for k, v in q_cells.items()}, n)
@@ -105,7 +102,7 @@ def build_sample(db: Path, n: int, seed: int) -> tuple[List[dict], dict]:
 
     remaining = max(0, n - len(q_selected))
     active_rows = by_status["active"]
-    active_cells: Dict[str, List[dict]] = defaultdict(list)
+    active_cells: dict[str, list[dict]] = defaultdict(list)
     for r in active_rows:
         active_cells[f"{r['kind']}|{r['origin']}"].append(r)
     active_counts = {k: len(v) for k, v in active_cells.items()}
@@ -118,11 +115,11 @@ def build_sample(db: Path, n: int, seed: int) -> tuple[List[dict], dict]:
         minimum = max(1, remaining // max(1, len(populated)))
     quotas = allocate(active_counts, remaining) if remaining else {}
 
-    q_by_cell: Dict[str, List[dict]] = defaultdict(list)
+    q_by_cell: dict[str, list[dict]] = defaultdict(list)
     for r in q_selected:
         q_by_cell[f"{r['kind']}|{r['origin']}"].append(r)
 
-    sampled: List[dict] = []
+    sampled: list[dict] = []
     per_cell = {}
     all_cells = sorted(set(
         [f"{k}|{o}" for k in KINDS for o in ORIGINS]

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """POST /api/v1/mio/policy/check —— Mio 历史风险预检（只读、fail-open）。"""
 from fastapi.testclient import TestClient
 

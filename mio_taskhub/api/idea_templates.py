@@ -1,16 +1,16 @@
-import subprocess
 import json
-from typing import List, Optional, Dict
+import subprocess
 
 # Windows：隐藏子进程控制台窗口（观测台 insights / creativity generate 走 node 直调）
 _CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from sqlmodel import Session, select
-from mio_taskhub.db import get_session
-from mio_taskhub.models import Idea
+from sqlmodel import select
+
 from mio_taskhub import mio_runtime
+from mio_taskhub.db import get_session
 from mio_taskhub.ideas.idea_prompts import DEFAULT_TEMPLATES, get_template_by_id, get_templates_by_category
+from mio_taskhub.models import Idea
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
 
@@ -21,13 +21,13 @@ class TemplateResponse(BaseModel):
     description: str
     category: str
     icon: str
-    fields: List[dict]
-    tags: List[str]
+    fields: list[dict]
+    tags: list[str]
 
 
 class TemplateGenerateRequest(BaseModel):
     template_id: str
-    values: Dict[str, str]
+    values: dict[str, str]
     num_ideas: int = 3
     sync_to_hub: bool = False
     recently_seen: list = []       # 最近已生成标题（避开重复角度；可从求体显式传入）
@@ -45,15 +45,14 @@ def _fetch_observer_insights(limit: int = 5, timeout: float = 15.0) -> list:
     if not cli:
         return []
     try:
-        proc = subprocess.run(cli + ["--json", "observer", "insights",
-                                     "--base-dir", mio_runtime.observer_base_dir()],
+        proc = subprocess.run([*cli, "--json", "observer", "insights", "--base-dir", mio_runtime.observer_base_dir()],
                               capture_output=True, text=True,
                               encoding="utf-8", errors="replace", timeout=timeout,
                               creationflags=_CREATE_NO_WINDOW)
         if proc.returncode != 0:
             return []
         data = json.loads(proc.stdout or "[]")
-    except Exception:  # noqa: BLE001
+    except Exception:
         return []
     if not isinstance(data, list):
         return []
@@ -75,8 +74,8 @@ def _fetch_observer_insights(limit: int = 5, timeout: float = 15.0) -> list:
     return out
 
 
-def _generate_ideas(goal: str, context: str, timeout: float = 120.0,
-                    recently_seen: list = None,
+def _generate_ideas(goal: str, context: str, timeout: float = 120.0,  # noqa: C901
+                    recently_seen: list | None = None,
                     strategy: str = "",
                     sources_limit: int = 5,
                     cross_domain: bool = True) -> list:
@@ -111,11 +110,11 @@ def _generate_ideas(goal: str, context: str, timeout: float = 120.0,
                     "产出至少一个跨域迁移的新假设，而不是同域内的微调。"]
     for extra in _fetch_observer_insights(limit=max(2, sources_limit)):
         sources += ["--source", f"{extra['name']}: {extra['content']}"]
-    args = cli + ["--json", "creativity", "generate", *sources]
+    args = [*cli, "--json", "creativity", "generate", *sources]
     if strategy:
         args += ["--strategy", strategy]
     reason = ""
-    for attempt in range(2):
+    for _attempt in range(2):
         try:
             proc = subprocess.run(args, capture_output=True, text=True,
                                   encoding="utf-8", errors="replace", timeout=timeout,
@@ -127,7 +126,7 @@ def _generate_ideas(goal: str, context: str, timeout: float = 120.0,
             raise HTTPException(502, f"creativity generate failed: {tail}")
         try:
             data = json.loads(proc.stdout or "{}")
-        except Exception:  # noqa: BLE001
+        except Exception:
             raise HTTPException(502, "creativity generate 输出非 JSON")
         ideas = data.get("ideas") if isinstance(data, dict) else None
         if not isinstance(ideas, list):
@@ -137,7 +136,7 @@ def _generate_ideas(goal: str, context: str, timeout: float = 120.0,
         # 空产出：上游 creativity 在 LLM 失败/空内容时静默返回空
         # （llm-client chatJson 永不抛错、引擎只判 result.data）——重试一次；
         # 带 reason 的空（如 all pairs already explored）是确定性结果，不重试。
-        reason = str((data.get("reason") or "")).strip() if isinstance(data, dict) else ""
+        reason = str(data.get("reason") or "").strip() if isinstance(data, dict) else ""
         # 引擎的 errors（逐 pair 的 LLM 失败）必须显式透出：LLM 402/超时
         # 不能被伪装成「素材重复」或纯空产出（用户边界 2，2026-10-08）。
         errors = data.get("errors") if isinstance(data, dict) else None
@@ -158,7 +157,7 @@ _DEGRADE_STRATEGIES = ("signal", "stable")
 
 
 def _generate_with_degrade(goal: str, context: str, timeout: float = 120.0,
-                           recently_seen: list = None,
+                           recently_seen: list | None = None,
                            sources_limit: int = 5,
                            cross_domain: bool = True) -> tuple:
     """先生成；遇 409（素材重复/无可新增组合）则换 strategy 重试，返回 (ideas, strategy_used)。
@@ -209,7 +208,7 @@ def _map_hypothesis(h: dict) -> dict:
 
 
 @router.get("/templates")
-def list_templates(category: Optional[str] = None):
+def list_templates(category: str | None = None):
     """List available idea templates."""
     templates = get_templates_by_category(category) if category else DEFAULT_TEMPLATES
     return {
@@ -264,7 +263,7 @@ def _recent_generated_titles(request, limit: int = 20) -> list:
                     break
         finally:
             db.close()
-    except Exception:  # noqa: BLE001 —— 取不到就不带（fail-open）
+    except Exception:
         pass
     return seen[:limit]
 
@@ -282,7 +281,7 @@ def generate_from_template(request: TemplateGenerateRequest):
     context_parts = []
     for field in template.fields:
         key = field["key"]
-        if key in request.values and request.values[key]:
+        if request.values.get(key):
             context_parts.append(f"{field['label']}：{request.values[key]}")
     context = "\n\n".join(context_parts)
     goal = request.values.get("title", "生成想法")

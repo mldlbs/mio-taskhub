@@ -5,8 +5,9 @@ with duration, actor, and reason.
 """
 import json
 import logging
-from typing import Optional
+
 from sqlmodel import Session, text
+
 from mio_taskhub.db import engine
 from mio_taskhub.utils import parse_utc
 

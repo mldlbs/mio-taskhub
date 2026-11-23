@@ -10,14 +10,13 @@
 不在此实现（需求证据不足，见 requirement.md §7 Future）：悬赏、匹配评分、
 竞争人数、拒单、失约冷却。派单让位谓词在 background.py。
 """
-from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session, select
 
 from mio_taskhub.db import get_session
-from mio_taskhub.models import Task, TaskStage, TaskState
 from mio_taskhub.hierarchy import claimable_task_clause
+from mio_taskhub.models import Task, TaskStage, TaskState
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -29,8 +28,8 @@ MAX_LIMIT = 200
 @router.get("/hall", response_model=dict)
 def list_hall(
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
-    target_agent_type: Optional[str] = Query(None),
-    project: Optional[str] = Query(None),
+    target_agent_type: str | None = Query(None),
+    project: str | None = Query(None),
     db: Session = Depends(get_session),
 ):
     """列出所有标记为主动领取（`grab_mode=true`）且待领的任务。
@@ -40,7 +39,7 @@ def list_hall(
     本接口不提供领取能力。
     """
     q = select(Task).where(
-        Task.grab_mode == True,  # noqa: E712 —— SQLAlchemy 需用 == True 而非 is True
+        Task.grab_mode.is_(True),
         Task.state == TaskState.QUEUED,
         Task.stage == TaskStage.READY,
         claimable_task_clause(),

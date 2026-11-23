@@ -1,9 +1,11 @@
 # tests/test_agent_heartbeat.py
 from datetime import datetime, timedelta, timezone
+
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
-from mio_taskhub.main import app
+
 from mio_taskhub.db import engine
+from mio_taskhub.main import app
 from mio_taskhub.models import Agent, AgentStatus
 
 client = TestClient(app)
@@ -54,7 +56,7 @@ def test_heartbeat_requires_name():
     assert r.status_code in (400, 422)
 
 
-import mio_taskhub.background as background
+from mio_taskhub import background
 
 
 def _mk_agent(name, status=AgentStatus.ONLINE, hb_age_sec=None):
@@ -247,7 +249,7 @@ def test_task_detail_marks_reaped_run():
     用户反馈「run 被标记 finished，但我并未提交结果」——数据层补一个显式标记，
     界面就能显示「系统回收 · 未提交结果」，而不是看起来像 agent 报的结论。
     """
-    from mio_taskhub.models import Run, RunState, Task
+    from mio_taskhub.models import Run, RunState
     _mk_agent("reap-agent")
     t = client.post("/api/v1/tasks", json={"title": "reap-marker-task", "stage": "ready"}).json()
     with Session(engine) as s:
@@ -300,7 +302,7 @@ def test_stale_agent_no_longer_assigned():
     background._mark_stale_agents()
     background._assign_to_idle_agents()
     with Session(engine) as s:
-        from mio_taskhub.models import Task, Run, TaskState
+        from mio_taskhub.models import Task, TaskState
         t = s.exec(select(Task).where(Task.title == "stale-task")).first()
         assert t.state == TaskState.QUEUED  # 离线 agent 不再被分配
 
@@ -309,7 +311,7 @@ def test_agent_offline_recycles_run():
     """agent OFFLINE 后其 run 被 _on_timeout 回收（即使 task.timeout_min 很大）。"""
     # P1-OBS/T4.3：claim 现拒绝 OFFLINE agent → 先 ONLINE 领取再置 OFFLINE（模拟掉线）
     _mk_agent("zombie", status=AgentStatus.ONLINE)
-    from mio_taskhub.models import Task, TaskState, Run, RunState, TaskStage
+    from mio_taskhub.models import Run, RunState, Task, TaskStage, TaskState
     with Session(engine) as s:
         t = Task(title="zombie-task", stage=TaskStage.READY, timeout_min=600)  # 10 分钟超时
         s.add(t); s.commit(); s.refresh(t)
@@ -343,7 +345,7 @@ def test_scheduler_tick_runs_all_three():
 def test_sweep_recycles_offline_agent_run_despite_large_timeout():
     """端到端：agent OFFLINE 时，即使 task.timeout_min 很大，sweep 也回收其 run。"""
     _mk_agent("sweep-zombie", status=AgentStatus.ONLINE)
-    from mio_taskhub.models import Task, TaskStage, TaskState, Run, RunState
+    from mio_taskhub.models import Run, RunState, Task, TaskStage, TaskState
     with Session(engine) as s:
         t = Task(title="sweep-zombie-task", stage=TaskStage.READY, timeout_min=600)
         s.add(t); s.commit(); s.refresh(t)
@@ -390,7 +392,7 @@ def _claim_offline_agent_task(agent_name, title, timeout_min=None):
 
 def test_sweep_keeps_fresh_run_when_agent_offline():
     """agent OFFLINE 但 run 刚心跳过 → 不得判死（生产误判的核心场景）。"""
-    from mio_taskhub.models import Task, Run, RunState, TaskState
+    from mio_taskhub.models import Run, RunState, Task, TaskState
     tid, rid = _claim_offline_agent_task("fresh-offline", "fresh-offline-task", 600)
 
     timed_out = []
@@ -407,7 +409,7 @@ def test_sweep_keeps_fresh_run_when_agent_offline():
 
 def test_sweep_keeps_run_within_baseline_when_agent_offline():
     """run 心跳落后 71s（实测生产值）仍在基线内 → 不得判死。"""
-    from mio_taskhub.models import Task, Run, RunState
+    from mio_taskhub.models import Run, RunState
     tid, rid = _claim_offline_agent_task("baseline-offline", "baseline-offline-task", 600)
     with Session(engine) as s:
         run = s.get(Run, rid)
@@ -426,7 +428,7 @@ def test_sweep_keeps_run_within_baseline_when_agent_offline():
 
 def test_offline_agent_reclaim_capped_at_baseline():
     """agent OFFLINE 时有效超时被收紧到基线：落后 130s 仍超出基线 → 回收。"""
-    from mio_taskhub.models import Task, Run, RunState, TaskState
+    from mio_taskhub.models import Run
     tid, rid = _claim_offline_agent_task("capped-offline", "capped-offline-task", 600)
     with Session(engine) as s:
         run = s.get(Run, rid)
@@ -447,7 +449,8 @@ def test_list_agents_exposes_can_claim_and_counts():
     巡检/前端 agent 总览用这一个端点取全量，不必逐个调 /agents/{name}。
     """
     import os
-    from mio_taskhub.models import Agent, AgentStatus
+
+    from mio_taskhub.models import AgentStatus
     _mk_agent("lst-online", status=AgentStatus.ONLINE)
     _mk_agent("lst-offline", status=AgentStatus.OFFLINE, hb_age_sec=86400)
     prev = os.environ.get("MIO_CLAIM_REVIVE_OFFLINE_AGENT")

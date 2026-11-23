@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """closed-loop insight consumer（P2-4）。
 
 把「内置洞察」（insight 表 kind=anomaly）从"只记录"变成"有行动"：
@@ -18,11 +17,11 @@
 - **可关闭**：env MIO_INSIGHT_AUTOTASK=0/off 关闭；默认开启。
 - **可观测**：每次消费写 kind=remediation 的 insight 记录（复用 RemediationEngine.log）。
 """
+import contextlib
 import datetime as _dt
 import logging
 import os
 import pathlib
-from typing import Optional
 
 from sqlmodel import Session, select, text
 
@@ -59,7 +58,7 @@ def _cooldown_hours() -> float:
     return hours if hours >= 0 else float(DEFAULT_COOLDOWN_HOURS)
 
 
-def _parse_ts(value) -> Optional[_dt.datetime]:
+def _parse_ts(value) -> _dt.datetime | None:
     """把 last_transition_at / created_at 归一成 naive UTC 便于比较。"""
     if isinstance(value, _dt.datetime):
         return value.replace(tzinfo=None) if value.tzinfo else value
@@ -79,16 +78,15 @@ def _severities_from_env() -> set:
 def _current_metrics() -> dict:
     """渲染当前 /metrics 并解析成 {name: float}，供派生前复核实时值。"""
     try:
-        from mio_taskhub.observability.metrics import render_metrics
         import re
+
+        from mio_taskhub.observability.metrics import render_metrics
         out = {}
         for m in re.finditer(r"(\w+)\s+(-?[\d.]+)", render_metrics()):
-            try:
+            with contextlib.suppress(ValueError):
                 out[m.group(1)] = float(m.group(2))
-            except ValueError:
-                pass
         return out
-    except Exception:  # noqa: BLE001 — 复核失败时按「未恢复」处理，不误吞告警
+    except Exception:
         logger.exception("failed to render current metrics for pre-dispatch recheck")
         return {}
 
@@ -131,7 +129,7 @@ class InsightsRemediator:
             return []
         want = _severities_from_env()
         created = []
-        current: Optional[dict] = None
+        current: dict | None = None
         for ins in insights or []:
             sev = str(ins.get("severity", "")).lower()
             if sev not in want:
@@ -170,11 +168,11 @@ class InsightsRemediator:
             db.exec(text("UPDATE insight SET acknowledged = 1 WHERE id = :id"), params={"id": ins_id})
             db.commit()
             logger.info("insight %s acknowledged: its follow-up task completed", ins_id)
-        except Exception:  # noqa: BLE001
+        except Exception:
             db.rollback()
             logger.exception("failed to acknowledge insight %s", ins_id)
 
-    def _create_followup(self, ins: dict) -> Optional[Task]:
+    def _create_followup(self, ins: dict) -> Task | None:
         metric = ins.get("metric_name") or ins.get("title") or "unknown"
         title = f"{TITLE_PREFIX} {metric}"
         with Session(self._engine) as db:
@@ -245,7 +243,7 @@ class InsightsRemediator:
                 f"critical insight on {metric} → task {task.id} ({ins.get('description', '')[:120]})",
                 success=True,
             )
-        except Exception:  # noqa: BLE001 — 记录失败不影响建任务
+        except Exception:
             logger.exception("failed to log insight autotask")
         return task
 
@@ -286,6 +284,6 @@ class InsightsRemediator:
             (base / req_rel).write_text(req, encoding="utf-8")
             (base / spec_rel).write_text(spec, encoding="utf-8")
             return {"requirement": req_rel, "spec": spec_rel}
-        except Exception:  # noqa: BLE001 — 生成文档失败不阻塞建任务（但会记日志）
+        except Exception:
             logger.exception("failed to write insight docs for %s", getattr(task, "id", "?"))
             return {}

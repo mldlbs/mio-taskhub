@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { STAGE_META, fmtDur } from '../constants'
 
+// eslint-disable-next-line complexity
 export default function WorkstreamPanel({ task, onOpen }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)

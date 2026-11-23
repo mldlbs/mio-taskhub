@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Read Evidence：把「agent 读过规定版本的文档」变成可校验事实，并作为 submit 前置门控。
 
 设计（见 doc-consult-enforcement-plan.md）：
@@ -20,7 +19,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from sqlmodel import Session, select
 
@@ -40,7 +39,7 @@ def gate_enabled() -> bool:
     return (os.environ.get("MIO_READ_GATE") or "").strip().lower() not in _OFF
 
 
-def gate_kinds() -> List[str]:
+def gate_kinds() -> list[str]:
     raw = (os.environ.get("MIO_READ_GATE_KINDS") or "").strip()
     if not raw:
         return list(DEFAULT_READ_KINDS)
@@ -49,7 +48,7 @@ def gate_kinds() -> List[str]:
 
 # ── 文档定位 / 指纹 / 抽取 ──────────────────────────────────────────────────
 
-def resolve_doc_path(task: Any, kind: str) -> Optional[Path]:
+def resolve_doc_path(task: Any, kind: str) -> Path | None:
     """按 kind 解析文档的绝对路径（相对路径以 task.workspace 为基准）。"""
     rel = doc_path_of(task, kind)
     if not rel:
@@ -66,7 +65,7 @@ def resolve_doc_path(task: Any, kind: str) -> Optional[Path]:
         return None
 
 
-def file_fingerprint(path: Optional[Path]) -> str:
+def file_fingerprint(path: Path | None) -> str:
     """文件内容指纹（sha256），文件不存在 / 不可读 → ""。"""
     if path is None or not path.is_file():
         return ""
@@ -80,7 +79,7 @@ def file_fingerprint(path: Optional[Path]) -> str:
     return "sha256:" + h.hexdigest()
 
 
-def read_doc_text(task: Any, kind: str, cap: Optional[int] = None):
+def read_doc_text(task: Any, kind: str, cap: int | None = None):
     """返回 (text, truncated, path)。文件缺失 → ("", False, path)。"""
     path = resolve_doc_path(task, kind)
     if path is None or not path.is_file():
@@ -95,7 +94,7 @@ def read_doc_text(task: Any, kind: str, cap: Optional[int] = None):
     return text, truncated, path
 
 
-def extract_fr_ids(text: str) -> List[str]:
+def extract_fr_ids(text: str) -> list[str]:
     """抽取 FR-n 编号（去重、按序号排序）。"""
     if not text:
         return []
@@ -110,13 +109,13 @@ def extract_fr_ids(text: str) -> List[str]:
     return sorted(found, key=_num)
 
 
-def doc_status(task: Any, kind: str) -> Optional[dict]:
+def doc_status(task: Any, kind: str) -> dict | None:
     return (getattr(task, "doc_statuses", None) or {}).get(kind)
 
 
 # ── required / evidence ────────────────────────────────────────────────────
 
-def required_read_kinds(task: Any) -> List[str]:
+def required_read_kinds(task: Any) -> list[str]:
     """按 gate_tier 计算要求的 kind（仅已登记项；env 显式覆盖优先）。"""
     if (os.environ.get("MIO_READ_GATE_KINDS") or "").strip():
         return [k for k in gate_kinds() if doc_path_of(task, k)]
@@ -129,7 +128,7 @@ def required_read_kinds(task: Any) -> List[str]:
     return [k for k in kinds if doc_path_of(task, k)]
 
 
-def latest_evidence(db: Session, run_id: str, kind: str) -> Optional[ReadEvidence]:
+def latest_evidence(db: Session, run_id: str, kind: str) -> ReadEvidence | None:
     return db.exec(
         select(ReadEvidence)
         .where(ReadEvidence.run_id == run_id, ReadEvidence.document_kind == kind)
@@ -138,7 +137,7 @@ def latest_evidence(db: Session, run_id: str, kind: str) -> Optional[ReadEvidenc
 
 
 def record_read(db: Session, task: Any, kind: str, run_id: str,
-                agent_name: str = "") -> Dict[str, Any]:
+                agent_name: str = "") -> dict[str, Any]:
     """记录一次阅读 evidence（按 (run_id, kind) upsert）。返回 evidence 摘要。"""
     path = resolve_doc_path(task, kind)
     fp = file_fingerprint(path)
@@ -170,17 +169,17 @@ def record_read(db: Session, task: Any, kind: str, run_id: str,
             "recorded_at": ev.read_at.isoformat()}
 
 
-def check_read_gate(db: Session, task: Any, run_id: str) -> Dict[str, Any]:
+def check_read_gate(db: Session, task: Any, run_id: str) -> dict[str, Any]:
     """校验本次 run 是否满足 required reads（存证 + 版本一致）。
 
     已登记但文件缺失：`MIO_READ_GATE_MISSING` 默认 block 记为 missing；warn 放行。
     """
     required = required_read_kinds(task)
     missing_mode = (os.environ.get("MIO_READ_GATE_MISSING") or "block").strip().lower()
-    ok: List[str] = []
-    missing: List[str] = []
-    stale: List[str] = []
-    missing_files: List[str] = []
+    ok: list[str] = []
+    missing: list[str] = []
+    stale: list[str] = []
+    missing_files: list[str] = []
     for kind in required:
         fp = file_fingerprint(resolve_doc_path(task, kind))
         if not fp:
@@ -211,7 +210,7 @@ def check_read_gate(db: Session, task: Any, run_id: str) -> Dict[str, Any]:
 
 # ── claim 内联上下文 ───────────────────────────────────────────────────────
 
-def _lessons_for(task: Any) -> Dict[str, Any]:
+def _lessons_for(task: Any) -> dict[str, Any]:
     """取同项目已完成任务的参考信息（任务 28f8fceb FR-2）。
 
     **只提供信息，不阻断任何流程**：内部开独立短会话，异常一律降级为空结构。
@@ -225,7 +224,8 @@ def _lessons_for(task: Any) -> Dict[str, Any]:
         if not workspace and not project:
             # 无scope 依据时不查询，直接给空结构（避免全库扫描）
             return empty_lessons()
-        from mio_taskhub.db import Session as _S, engine as _E
+        from mio_taskhub.db import Session as _S
+        from mio_taskhub.db import engine as _E
         with _S(_E) as s:
             return recent_lessons(s, workspace=workspace, project=project)
     except Exception:
@@ -233,7 +233,7 @@ def _lessons_for(task: Any) -> Dict[str, Any]:
         return empty_lessons()
 
 
-def _json_obj(value: Any) -> Optional[Dict[str, Any]]:
+def _json_obj(value: Any) -> dict[str, Any] | None:
     if isinstance(value, dict):
         return value
     if not value:
@@ -245,10 +245,10 @@ def _json_obj(value: Any) -> Optional[Dict[str, Any]]:
     return data if isinstance(data, dict) else None
 
 
-def _package_doc_preview(task: Any, package: Dict[str, Any]) -> Dict[str, Any]:
+def _package_doc_preview(task: Any, package: dict[str, Any]) -> dict[str, Any]:
     """P2c：只内联 context_package 指定章节，不返回父任务文档全文。"""
     from mio_taskhub.decomposition import read_context_sections
-    docs: Dict[str, Any] = {}
+    docs: dict[str, Any] = {}
     for idx, entry in enumerate(package.get("documents") or []):
         if not isinstance(entry, dict):
             continue
@@ -269,7 +269,7 @@ def _package_doc_preview(task: Any, package: Dict[str, Any]) -> Dict[str, Any]:
     return docs
 
 
-def build_claim_context(task: Any, package_only: Optional[bool] = None) -> Dict[str, Any]:
+def build_claim_context(task: Any, package_only: bool | None = None) -> dict[str, Any]:
     """claim 成功时内联返回文档上下文（预览 + 必读项 + FR + 同项目参考）。
 
     **内联 ≠ 已读**：不产生 evidence；agent 仍须 read_document(run_id=...) 才能过 submit 门控。
@@ -284,8 +284,8 @@ def build_claim_context(task: Any, package_only: Optional[bool] = None) -> Dict[
         package_only = bool(package) and stage_at_least(STAGE_CONTEXT)
 
     required = required_read_kinds(task)
-    docs: Dict[str, Any] = {}
-    required_fr: List[str] = []
+    docs: dict[str, Any] = {}
+    required_fr: list[str] = []
     for kind in required:
         if kind == "requirement":
             full, _, _ = read_doc_text(task, kind, cap=None)

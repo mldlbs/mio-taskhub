@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """出站网络地址校验（SSRF 防护，task 3b5128b6 / 评估 round2 P2-A）。
 
 cron webhook 的 URL 来自用户配置，可直接指向内网/元数据地址

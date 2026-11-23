@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P4 标注规则：边界案例回归。"""
 from scripts.materials_label import classify_kind, usable
 

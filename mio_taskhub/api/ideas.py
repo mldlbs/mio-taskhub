@@ -1,16 +1,26 @@
 import threading
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Query
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
+
 from mio_taskhub import mio_runtime
 from mio_taskhub.db import get_session
-from mio_taskhub.models import (Idea, IdeaChange, IdeaStatus, IdeaType, Task,
-                                IdeaHistory, TaskKind, TaskStage, TaskState,
-                                IdeaAssumptionLink)
-from mio_taskhub.utils import _now
 from mio_taskhub.events import emit_event
-
+from mio_taskhub.models import (
+    Idea,
+    IdeaAssumptionLink,
+    IdeaChange,
+    IdeaHistory,
+    IdeaStatus,
+    IdeaType,
+    Task,
+    TaskKind,
+    TaskStage,
+    TaskState,
+)
+from mio_taskhub.utils import _now
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
 
@@ -159,10 +169,10 @@ def _idea_json(i: Idea) -> dict:
 
 @router.get("")
 def list_ideas(
-    status: str = None,
+    status: str | None = None,
     project: str = "",
-    idea_type: str = None,
-    adr_status: str = None,
+    idea_type: str | None = None,
+    adr_status: str | None = None,
     db: Session = Depends(get_session)
 ):
     q = select(Idea)
@@ -200,7 +210,7 @@ def create_idea(body: dict, db: Session = Depends(get_session)):
         **_collect_new_fields(body),
     )
     db.add(i)
-    event = emit_event(db, type="idea_created", entity="idea", entity_id=i.id,
+    emit_event(db, type="idea_created", entity="idea", entity_id=i.id,
                        payload={"title": i.title})
     db.commit()
     db.refresh(i)
@@ -208,7 +218,7 @@ def create_idea(body: dict, db: Session = Depends(get_session)):
 
 
 @router.patch("/{idea_id}")
-def update_idea(idea_id: str, body: dict, db: Session = Depends(get_session)):
+def update_idea(idea_id: str, body: dict, db: Session = Depends(get_session)):  # noqa: C901
     i = db.get(Idea, idea_id)
     if not i:
         raise HTTPException(404, "idea not found")
@@ -220,7 +230,7 @@ def update_idea(idea_id: str, body: dict, db: Session = Depends(get_session)):
         track_change = str(track_change).lower() not in ("false", "0", "no", "")
 
     diff = {}
-    for f in ("title", "description", "project", "labels") + IDEA_NEW_FIELDS:
+    for f in ("title", "description", "project", "labels", *IDEA_NEW_FIELDS):
         if f in body and body[f] is not None:
             if f in IDEA_STR_FIELDS and not isinstance(body[f], str):
                 body[f] = str(body[f])
@@ -239,8 +249,7 @@ def update_idea(idea_id: str, body: dict, db: Session = Depends(get_session)):
             if "[" in f:
                 continue  # assumptions[hid] 单条写回已在 _apply_assumption_entry_diff 中应用
             setattr(i, f, d["new"])
-        if any(k == "hypotheses" or k == "assumptions"
-               or k.startswith(_ASSUMPTION_KEY_PREFIX) for k in diff):
+        if any(k in {"hypotheses", "assumptions"} or k.startswith(_ASSUMPTION_KEY_PREFIX) for k in diff):
             _sync_link_rows(db, i)  # P3 FR-28：关联/回写字段变化同步关联表
         if versioning == "full":
             i.version += 1
@@ -248,7 +257,7 @@ def update_idea(idea_id: str, body: dict, db: Session = Depends(get_session)):
             db.add(IdeaChange(idea_id=idea_id, version=i.version, diff=diff,
                               reason=body.get("change_reason", "")))
         i.updated_at = _now()
-        event = emit_event(db, type="idea_updated", entity="idea", entity_id=i.id,
+        emit_event(db, type="idea_updated", entity="idea", entity_id=i.id,
                            payload={"version": i.version})
         db.add(i)
         db.commit()
@@ -260,7 +269,7 @@ def update_idea(idea_id: str, body: dict, db: Session = Depends(get_session)):
                 db.commit()
         return _idea_json(i)
     i.updated_at = _now()
-    event = emit_event(db, type="idea_updated", entity="idea", entity_id=i.id,
+    emit_event(db, type="idea_updated", entity="idea", entity_id=i.id,
                        payload={"version": i.version})
     db.add(i)
     db.commit()
@@ -329,7 +338,7 @@ def _mio_fetch_hypotheses(timeout: float = 10.0) -> dict | None:
     """拉取 Mio 发酵假设库；Mio 不可用/CLI 失败 → None（调用方转 503）。"""
     try:
         cr = mio_runtime.creativity(limit=100, timeout=timeout, with_status=False)
-    except Exception:  # noqa: BLE001 —— Mio 跨服务失败一律降级为不可用
+    except Exception:
         return None
     if not cr.get("available") or not cr.get("ok", True):
         return None
@@ -455,9 +464,8 @@ def _upsert_change_tracking_task(i: Idea, diff: dict, db: Session, reason: str =
     if existing:
         existing.title = title
         existing.description = description
-        ev = emit_event(db, type="task_updated", entity="task", entity_id=existing.id,
+        return emit_event(db, type="task_updated", entity="task", entity_id=existing.id,
                         payload={"title": title})
-        return ev
     t = Task(
         id=str(uuid.uuid4())[:8],
         title=title,
@@ -486,13 +494,11 @@ def _upsert_change_tracking_task(i: Idea, diff: dict, db: Session, reason: str =
         if existing:
             existing.title = title
             existing.description = description
-            ev = emit_event(db, type="task_updated", entity="task", entity_id=existing.id,
+            return emit_event(db, type="task_updated", entity="task", entity_id=existing.id,
                             payload={"title": title})
-            return ev
         raise
-    ev = emit_event(db, type="task_created", entity="task", entity_id=t.id,
+    return emit_event(db, type="task_created", entity="task", entity_id=t.id,
                     payload={"title": title})
-    return ev
 
 
 @router.post("/{idea_id}/status")
@@ -537,11 +543,11 @@ def submit_review(idea_id: str, body: dict, db: Session = Depends(get_session)):
             idea_id=idea_id,
             kind="review",
             actor=actor,
-            content=f"评审：暂不推进（recommend=nothing）",
+            content="评审：暂不推进（recommend=nothing）",
             reasoning=reasoning,
             extra={"recommend": "nothing"},
         ))
-        event = emit_event(db, type="idea_review", entity="idea", entity_id=idea_id,
+        emit_event(db, type="idea_review", entity="idea", entity_id=idea_id,
                            payload={"recommend": "nothing", "reasoning": reasoning, "actor": actor})
         db.commit()
         db.refresh(i)
@@ -576,7 +582,7 @@ def submit_review(idea_id: str, body: dict, db: Session = Depends(get_session)):
         reasoning=reasoning,
         extra={"recommend": recommend, "from": from_status, "to": dst.value},
     ))
-    event = emit_event(db, type="idea_review", entity="idea", entity_id=idea_id,
+    emit_event(db, type="idea_review", entity="idea", entity_id=idea_id,
                        payload={"recommend": recommend, "reasoning": reasoning, "actor": actor})
     db.commit()
     db.refresh(i)
@@ -598,7 +604,7 @@ def transition_idea_status(idea: Idea, dst: IdeaStatus, db: Session, actor: str 
         reasoning=None,
         extra={"from": from_status, "to": dst.value, "source": source},
     ))
-    event = emit_event(db, type="idea_status", entity="idea", entity_id=idea.id,
+    emit_event(db, type="idea_status", entity="idea", entity_id=idea.id,
                        payload={"status": dst.value, "source": source})
 
 
@@ -630,8 +636,8 @@ def gate_status(db: Session = Depends(get_session)):
 @router.post("/gate/force-generate")
 def force_generate(job_id: str = "1271eac5", db: Session = Depends(get_session)):
     """强制触发每日灵感生成（绕过闸门，留痕审计）。失败返回 success=false + 原因。"""
-    from mio_taskhub.scheduling.gate import force_generate as _force_generate
     from mio_taskhub.scheduling.cron_engine import WebhookFailed
+    from mio_taskhub.scheduling.gate import force_generate as _force_generate
     try:
         success, msg = _force_generate(job_id, db)
     except WebhookFailed as e:
@@ -649,6 +655,7 @@ def list_inbox(
 ):
     """列出 INBOX 想法（批量初筛入口）。"""
     from sqlmodel import select
+
     from mio_taskhub.models import Idea, IdeaStatus
     q = select(Idea).where(Idea.status == IdeaStatus.INBOX).order_by(Idea.created_at.desc())
     total = len(db.exec(q).all())
@@ -659,7 +666,7 @@ def list_inbox(
 @router.post("/{idea_id}/triage")
 def triage_idea(idea_id: str, body: dict, db: Session = Depends(get_session)):
     """人工初筛：promote / archive / defer。
-    
+
     Body: {"action": "promote|archive|defer", "actor": "user"}
     """
     from mio_taskhub.scheduling.auto_triage import manual_triage
@@ -677,7 +684,7 @@ def triage_idea(idea_id: str, body: dict, db: Session = Depends(get_session)):
 @router.post("/batch-triage")
 def batch_triage(body: dict, db: Session = Depends(get_session)):
     """批量初筛。
-    
+
     Body: {"idea_ids": ["id1", "id2"], "action": "promote|archive|defer", "actor": "user"}
     """
     from mio_taskhub.scheduling.auto_triage import batch_triage as _batch_triage

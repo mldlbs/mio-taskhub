@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P2b 拆分校验 / apply（FR-9 / FR-11）测试。"""
 import copy
 import json

@@ -7,14 +7,12 @@
  - data_fixes.fix_state_stage 各规则
  - 幂等：跑两次无副作用
 """
-import pytest
-from datetime import datetime, timezone, timedelta
 from sqlalchemy import inspect, text
 from sqlmodel import Session
 
 from mio_taskhub.db import engine, init_db
-from mio_taskhub.models import Task, TaskEvent, TaskState, TaskStage, Run, RunState, SQLModel
-from mio_taskhub.ops.data_fixes import fix_state_stage, _legal_combo_strings
+from mio_taskhub.models import Run, RunState, Task, TaskEvent, TaskStage, TaskState
+from mio_taskhub.ops.data_fixes import _legal_combo_strings, fix_state_stage
 
 
 # ---------- Schema 迁移 ----------
@@ -89,10 +87,9 @@ def _mk_task(state_val, stage_val, title="t"):
 
 def _read_task(tid):
     with engine.connect() as conn:
-        row = conn.execute(text(
+        return conn.execute(text(
             "SELECT state, stage, block_reason FROM task WHERE id=:id"
         ), {"id": tid}).first()
-    return row
 
 
 class TestFixRules:
@@ -189,7 +186,7 @@ class TestFixIdempotency:
     def test_running_twice_no_change(self):
         _mk_task("running", "DESIGN", "i1")
         with engine.connect() as conn:
-            s1 = fix_state_stage(conn)
+            fix_state_stage(conn)
         row1 = _read_task("i1")
         with engine.connect() as conn:
             s2 = fix_state_stage(conn)

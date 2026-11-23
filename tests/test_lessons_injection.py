@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """F-009：lessons 提示注入防护 + 溯源（sources）回归。
 
 威胁模型：lessons 内容源是其他 agent 的 run.result / review_result /
@@ -9,7 +8,6 @@ memory_store observations——被攻陷的 agent 可以写「忽略之前的指
 - 命中已知指令注入模式的句子直接丢弃（test_hints / pitfalls / experience 三条路）；
 - recent_lessons 返回 sources（来源任务 task_id/title/state）供消费方判断可信度。
 """
-from sqlmodel import Session
 
 from mio_taskhub.api.task_lessons import (
     _extract_pitfalls,
@@ -117,7 +115,7 @@ def test_recent_lessons_returns_sources():
     assert isinstance(out["sources"], list)
     src_ids = [x.get("task_id") for x in out["sources"]]
     assert tid in src_ids
-    item = [x for x in out["sources"] if x["task_id"] == tid][0]
+    item = next(x for x in out["sources"] if x["task_id"] == tid)
     assert item["title"] == "lessons-src"
     assert item["state"] == "completed"
 

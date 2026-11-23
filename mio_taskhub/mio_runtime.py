@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Mio Agent Runtime 低耦合适配（只读文件 + CLI 白名单 + digest 定时）。
 
 设计原则（低耦合）：
@@ -27,7 +26,6 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
 
 from mio_taskhub.scheduling.scheduler import Scheduler
 
@@ -64,7 +62,7 @@ def available() -> bool:
 def _read_json(p: Path) -> dict:
     try:
         return json.loads(p.read_text(encoding="utf-8", errors="replace"))
-    except Exception:  # noqa: BLE001 —— 配置缺失/损坏都当空
+    except Exception:
         return {}
 
 
@@ -106,7 +104,7 @@ def llm_enabled() -> bool:
     return bool(c["apiUrl"] and c["apiKey"])
 
 
-def _tail_jsonl(name: str, limit: int = 20) -> List[dict]:
+def _tail_jsonl(name: str, limit: int = 20) -> list[dict]:
     """容错读取 JSONL 末尾 limit 条（坏行跳过）。返回**新的在前**。"""
     p = home() / name
     if not p.is_file():
@@ -127,7 +125,7 @@ def _tail_jsonl(name: str, limit: int = 20) -> List[dict]:
             continue
         try:
             out.append(json.loads(line))
-        except Exception:  # noqa: BLE001
+        except Exception:
             continue
     out.reverse()
     return out[:max(1, min(limit, 200))]
@@ -165,7 +163,7 @@ def _count_records(name: str) -> int:
         try:
             json.loads(line)
             n += 1
-        except Exception:  # noqa: BLE001
+        except Exception:
             continue
     return n
 
@@ -174,14 +172,14 @@ def _pid_alive(pid: int) -> bool:
     try:
         from mio_taskhub.update.apply import pid_alive
         return pid_alive(pid)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False
 
 
 def _read_pid_file(p: Path) -> int:
     try:
         return int((p.read_text(encoding="utf-8", errors="replace") or "0").strip() or 0)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return 0
 
 
@@ -223,7 +221,7 @@ def research_state() -> dict:
         f = _today_observations_path()
         if f.is_file() and (time.time() - f.stat().st_mtime) < 1800:
             return {"running": True, "pid": None, "source": "recent-activity"}
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     return {"running": False,
             "pid": pid or (hub_pid if isinstance(hub_pid, int) else None),
@@ -262,23 +260,21 @@ def observer_start() -> dict:
         else:
             try:
                 log_path = home() / "research_serve.log"
-                fh = open(log_path, "ab")
-                try:
+                # Popen 已复制 fd，父进程侧可立即关闭
+                with open(log_path, "ab") as fh:
                     base = observer_base_dir()
                     Path(base).mkdir(parents=True, exist_ok=True)
                     proc = subprocess.Popen(
-                        list(cmd) + ["observer", "serve", "--base-dir", base],
+                        [*list(cmd), "observer", "serve", "--base-dir", base],
                         stdout=fh, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                         creationflags=_CREATE_NO_WINDOW, cwd=str(Path.cwd()))
-                finally:
-                    fh.close()
                 (home() / "research_hub.json").write_text(
                     json.dumps({"pid": proc.pid,
                                 "started_at": datetime.now().isoformat(timespec="seconds")}),
                     encoding="utf-8")
                 out["started"].append("research")
                 time.sleep(1.5)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 out["research_error"] = str(e)
     out["observer"] = observer_state()
     out["research"] = research_state()
@@ -294,7 +290,7 @@ def observer_ensure() -> dict:
                     (st.get("observer") or {}).get("running"),
                     (st.get("research") or {}).get("running"))
         return st
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("observer ensure failed (ignored): %s", e)
         return {"ok": False, "error": str(e)}
 
@@ -353,7 +349,7 @@ def memory(limit: int = 20) -> dict:
 _RUNTIME_JS_REL = ("node_modules", "mio-agent-runtime", "bin", "mio.js")
 
 
-def _node_direct_from_shim(shim: str) -> Optional[List[str]]:
+def _node_direct_from_shim(shim: str) -> list[str] | None:
     """mio.cmd/mio.bat shim → node 直调包内 bin/mio.js。
 
     背景（2026-10-08 实证）：cmd shim 末行 `%*` 无引号转发会吞中文参数、
@@ -370,7 +366,7 @@ def _node_direct_from_shim(shim: str) -> Optional[List[str]]:
     return [node, str(js)]
 
 
-def mio_cli() -> Optional[List[str]]:
+def mio_cli() -> list[str] | None:
     """解析 mio CLI 命令。优先 env MIO_CLI（可为 .cmd 或 .js 路径）。
 
     .cmd/.bat shim 一律尝试转 node 直调（绕过 cmd.exe 的 %* 吞参缺陷，
@@ -398,7 +394,7 @@ def mio_cli() -> Optional[List[str]]:
     return None
 
 
-def _check_allowed(args: List[str]) -> Optional[str]:
+def _check_allowed(args: list[str]) -> str | None:
     """白名单校验（允许前置全局 flag `--json`）。返回 None=允许，否则返回原因。"""
     a = list(args)
     while a and a[0] in ("--json", "-j"):
@@ -412,14 +408,14 @@ def _check_allowed(args: List[str]) -> Optional[str]:
     return "subcommand not allowed"
 
 
-def _json_stdout(args: List[str], timeout: float = 300.0) -> tuple:
+def _json_stdout(args: list[str], timeout: float = 300.0) -> tuple:
     """跑 CLI 并解析 stdout 的 JSON。返回 (ok, data)。失败/为空 → (False, None)。"""
     res = run_mio(args, timeout=timeout)
     if not res["ok"] or not (res["stdout"] or "").strip():
         return False, None
     try:
         return True, json.loads(res["stdout"])
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False, None
 
 
@@ -482,12 +478,12 @@ def _project_name() -> str:
         for parent in Path(__file__).resolve().parents:
             if (parent / ".git").exists():
                 return parent.name
-    except OSError:  # noqa: BLE001
+    except OSError:
         pass
     return Path.cwd().name
 
 
-def policy_check(action: str, project: Optional[str] = None,
+def policy_check(action: str, project: str | None = None,
                  timeout: float = 3.0) -> dict:
     """历史风险评估（只读，best-effort）。
 
@@ -519,7 +515,7 @@ def policy_check(action: str, project: Optional[str] = None,
             "suggestion": data.get("suggestion"),
             "failureExamples": list(data.get("failureExamples") or [])[:3],
         }
-    except Exception:  # noqa: BLE001 —— schema 变动也 fail-open
+    except Exception:
         return base
 
 
@@ -565,7 +561,7 @@ def task_route_status(task: str, agent: str, project: str,
         return None, "schema_error"
     try:
         data = json.loads(res["stdout"] or "")
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None, "schema_error"
     if not isinstance(data, dict) or not all(k in data for k in _ROUTE_KEYS):
         return None, "schema_error"
@@ -573,7 +569,7 @@ def task_route_status(task: str, agent: str, project: str,
 
 
 def task_route(task: str, agent: str, project: str,
-               limit: int = 5, timeout: float = 1.5) -> Optional[dict]:
+               limit: int = 5, timeout: float = 1.5) -> dict | None:
     """跨项目历史路由建议（FR-2）。不可用 / project 为空 / 失败 → None。"""
     data, _ = task_route_status(task, agent, project, limit=limit, timeout=timeout)
     return data
@@ -581,7 +577,7 @@ def task_route(task: str, agent: str, project: str,
 
 def task_outcome(outcome: str, task: str, agent: str, project: str,
                  summary: str = "", verification: str = "",
-                 trace_id: str = "", timeout: float = 3.0) -> Optional[dict]:
+                 trace_id: str = "", timeout: float = 3.0) -> dict | None:
     """把一次真实执行结果写回 runtime（FR-5/FR-6）。失败 → None（由 outbox 重试）。"""
     if not available():
         return None
@@ -610,7 +606,7 @@ def task_outcome(outcome: str, task: str, agent: str, project: str,
 
 
 def experience_pending(project: str = "", limit: int = 20,
-                       timeout: float = 3.0) -> Optional[dict]:
+                       timeout: float = 3.0) -> dict | None:
     """待人工确认的 auto-claim 经验（FR-8）。不可用 / 失败 → None。"""
     if not available():
         return None
@@ -625,7 +621,7 @@ def experience_pending(project: str = "", limit: int = 20,
 
 
 def experience_confirm(record_id: str, by: str = "taskhub",
-                       timeout: float = 3.0) -> Optional[dict]:
+                       timeout: float = 3.0) -> dict | None:
     """确认一条 pending 经验（FR-8）。必须命中 runtime 真实确认逻辑（不本地改写）。"""
     if not available() or not (record_id or "").strip():
         return None
@@ -639,7 +635,7 @@ def experience_confirm(record_id: str, by: str = "taskhub",
     return data
 
 
-def run_mio(args: List[str], timeout: float = 300.0) -> dict:
+def run_mio(args: list[str], timeout: float = 300.0) -> dict:
     """白名单内调用 mio CLI。返回 {ok, code, stdout, stderr}；不可用/超时 → ok=False。
 
     注意文档约定：`--json` 是全局 flag（须写在子命令前）；失败时 usage 落 stderr、
@@ -659,7 +655,7 @@ def run_mio(args: List[str], timeout: float = 300.0) -> dict:
                 "stdout": r.stdout or "", "stderr": r.stderr or ""}
     except subprocess.TimeoutExpired:
         return {"ok": False, "code": None, "stdout": "", "stderr": "timeout"}
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         return {"ok": False, "code": None, "stdout": "", "stderr": str(e)}
 
 
@@ -707,7 +703,7 @@ class MioDigestJob(Scheduler):
         while not self._stop.is_set():
             try:
                 self.tick()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.exception("mio digest tick failed")
             if self._stop.wait(self.interval):
                 return
@@ -726,7 +722,7 @@ _MCP_SCRIPT_LEGACY = (
 _NODE_LEGACY = r"C:\Users\admin\.workbuddy\binaries\node\versions\22.22.2\node.exe"
 
 
-def _prefix_from_cli(cli: List[str]) -> Optional[Path]:
+def _prefix_from_cli(cli: list[str]) -> Path | None:
     """mio shim（prefix/mio.cmd）或包内 js（.../node_modules/<pkg>/...）→ npm prefix。"""
     first = (cli[1] if len(cli) >= 2
              and cli[0].lower().endswith(("node", "node.exe")) else cli[0])
@@ -739,8 +735,8 @@ def _prefix_from_cli(cli: List[str]) -> Optional[Path]:
     return None
 
 
-def _prefix_candidates() -> List[Path]:
-    out: List[Path] = []
+def _prefix_candidates() -> list[Path]:
+    out: list[Path] = []
     cli = mio_cli()
     if cli:
         pref = _prefix_from_cli(cli)
@@ -758,12 +754,12 @@ def _prefix_candidates() -> List[Path]:
                 rp = Path((root.stdout or "").strip())
                 if rp.is_dir():
                     out.append(rp)
-        except Exception:  # noqa: BLE001 —— npm 不可用就走兜底
+        except Exception:
             pass
     return out
 
 
-def resolve_mcp_script() -> Optional[str]:
+def resolve_mcp_script() -> str | None:
     """mio-intelligence MCP 入口脚本（可移植）。
 
     顺序：env `MIO_MCP_SCRIPT`（显式覆盖，缺失不静默回退，交给存在性检查暴露）
@@ -779,7 +775,7 @@ def resolve_mcp_script() -> Optional[str]:
     return _MCP_SCRIPT_LEGACY if Path(_MCP_SCRIPT_LEGACY).is_file() else None
 
 
-def resolve_node() -> Optional[str]:
+def resolve_node() -> str | None:
     """node 可执行（可移植）：env `MIO_NODE` → PATH → 便携硬编码兜底。"""
     override = (os.environ.get("MIO_NODE") or "").strip()
     if override:
@@ -843,7 +839,7 @@ def _has_path(obj, path: str) -> bool:
     return True
 
 
-def contract_check(timeout: float = 120.0) -> dict:
+def contract_check(timeout: float = 120.0) -> dict:  # noqa: C901
     """跑全部契约探针并缓存结果。
 
     返回 {ok, available, checked_at, epoch, interval_s, probes:[{name, ok, missing, error}]}。
@@ -852,7 +848,7 @@ def contract_check(timeout: float = 120.0) -> dict:
     global _contract_last
     interval = contract_interval_s()
     now_iso = datetime.now(timezone.utc).isoformat()
-    probes_out: List[dict] = []
+    probes_out: list[dict] = []
 
     if not available() or mio_cli() is None:
         result = {"ok": False, "available": False,
@@ -965,7 +961,7 @@ class ContractJob(Scheduler):
         while not self._stop.is_set():
             try:
                 self.tick()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.exception("mio contract tick failed")
             if self._stop.wait(self.interval):
                 return

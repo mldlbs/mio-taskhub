@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """idle_worker per-run token 测试（B22，强模式配套）。
 
 `MIO_TASKHUB_RUN_TOKEN_REQUIRED=1` 上线后（2026-11-12），heartbeat / submit_result
@@ -11,7 +10,7 @@ import os
 import subprocess
 import sys
 import threading
-import time
+import typing
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -27,7 +26,7 @@ def test_source_carries_run_token():
 
 
 class _FakeHub(http.server.BaseHTTPRequestHandler):
-    calls = []  # (path, headers dict)
+    calls: typing.ClassVar = []  # (path, headers dict)
 
     def log_message(self, *a):
         pass

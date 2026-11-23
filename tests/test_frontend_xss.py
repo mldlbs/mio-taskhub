@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """前端 XSS 防护回归（task b7a55b74 / 评估 round3 P1-B）。
 
 没有 JS 测试框架，用源码断言：任何 `dangerouslySetInnerHTML` 的 __html

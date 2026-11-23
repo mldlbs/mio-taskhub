@@ -1,5 +1,4 @@
-﻿# -*- coding: utf-8 -*-
-"""task.updated_at 迁移的端到端自动化流程（预检 → 授权 → 迁移 → 验证 → 失败回滚）。
+﻿"""task.updated_at 迁移的端到端自动化流程（预检 → 授权 → 迁移 → 验证 → 失败回滚）。
 
 授权走既有 taskhub 评审状态机：要求指定任务存在一条 approve 评审，
 且 artifacts 同时包含 scope / db_content_hash / code_commit，防止复用旧审批。
@@ -15,17 +14,15 @@ import sqlite3
 import subprocess
 import sys
 import urllib.request
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.migrate_task_updated_at import (  # noqa: E402
-    TRIGGER_INSERT, TRIGGER_UPDATE, apply as apply_migration,
-    rollback as rollback_migration,
+from scripts.migrate_task_updated_at import (
+    TRIGGER_INSERT,
+    TRIGGER_UPDATE,
 )
 
 EXCLUDE_TABLE = "task"
@@ -40,7 +37,7 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _content_hash(db: Path, conn: Optional[sqlite3.Connection] = None) -> str:
+def _content_hash(db: Path, conn: sqlite3.Connection | None = None) -> str:
     """逻辑内容哈希：跨 sqlite backup 稳定，用于审批绑定。"""
     own = conn is None
     if own:
@@ -64,11 +61,11 @@ def _content_hash(db: Path, conn: Optional[sqlite3.Connection] = None) -> str:
     return h.hexdigest()
 
 
-def _columns(conn: sqlite3.Connection, table: str) -> List[str]:
+def _columns(conn: sqlite3.Connection, table: str) -> list[str]:
     return [r[1] for r in conn.execute(f"pragma table_info({table})")]
 
 
-def _triggers(conn: sqlite3.Connection) -> Dict[str, str]:
+def _triggers(conn: sqlite3.Connection) -> dict[str, str]:
     return {r[0]: r[1] for r in conn.execute(
         "select name, sql from sqlite_master where type='trigger' "
         "and name like 'task_updated_at_%'")}
@@ -88,7 +85,7 @@ def _trigger_ok(name: str, sql: str) -> bool:
         "after update of last_transition_at on task", "new.last_transition_at"))
 
 
-def _table_hashes(db: Path, exclude: str = EXCLUDE_TABLE) -> Dict[str, str]:
+def _table_hashes(db: Path, exclude: str = EXCLUDE_TABLE) -> dict[str, str]:
     conn = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
     names = [r[0] for r in conn.execute(
         "select name from sqlite_master where type='table' "
@@ -148,9 +145,9 @@ def _fetch_reviews_db(db: Path, task_id: str) -> list:
         conn.close()
 
 
-def approval_check(hub: Optional[str], task_id: Optional[str],
+def approval_check(hub: str | None, task_id: str | None,
                    db_hash: str, commit: str,
-                   approval_db: Optional[Path] = None) -> dict:
+                   approval_db: Path | None = None) -> dict:
     if not task_id:
         return {"ok": False, "error": "approval_task_required"}
     secret = os.environ.get("MIO_APPROVAL_SECRET", "")
@@ -180,7 +177,7 @@ def approval_check(hub: Optional[str], task_id: Optional[str],
     return {"ok": False, "error": last_error}
 
 
-def app_read(db: Path) -> Tuple[bool, str]:
+def app_read(db: Path) -> tuple[bool, str]:
     code = (
         "import json, os;"
         "from sqlmodel import Session, select;"
@@ -266,10 +263,10 @@ def inverse_rollback(db: Path, expected_rows: int) -> dict:
         conn.close()
 
 
-def run_flow(db: Path, expect_content_hash: str, backup: Path, hub: str,
+def run_flow(db: Path, expect_content_hash: str, backup: Path, hub: str,  # noqa: C901
              approval_task: str, app_read_check: bool = True,
-             approval_db: Optional[Path] = None) -> dict:
-    checks: List[dict] = []
+             approval_db: Path | None = None) -> dict:
+    checks: list[dict] = []
 
     def add(name: str, ok: bool, detail=None) -> None:
         checks.append({"name": name, "ok": bool(ok), "detail": detail})

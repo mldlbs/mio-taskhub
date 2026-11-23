@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """task.updated_at 迁移：备份、回填、触发器、回滚。"""
 import sqlite3
 from pathlib import Path

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """同项目已完成任务的参考信息（lessons）——**只提供信息，不做任何阻断**。
 
 设计（见 docs/taskhub/28f8fceb/spec.md，任务 28f8fceb）：
@@ -19,7 +18,8 @@
 """
 import logging
 import re
-from typing import Any, Dict, Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Any
 
 from sqlmodel import Session, col, select
 
@@ -58,7 +58,7 @@ _TASK_SCAN_CAP = 50
 TEST_EVIDENCE_PATTERNS = _TEST_PATTERNS
 
 
-def split_sentences(text: Optional[str]) -> List[str]:
+def split_sentences(text: str | None) -> list[str]:
     """按中英文句号、分号、换行和列表项切句；保留原文片段。"""
     if not text:
         return []
@@ -71,7 +71,7 @@ def has_test_evidence(text: str) -> bool:
     return any(p in low for p in TEST_EVIDENCE_PATTERNS)
 
 
-def empty_lessons() -> Dict[str, Any]:
+def empty_lessons() -> dict[str, Any]:
     """空结构。字段与有数据时完全一致，避免消费方判空分支。"""
     return {
         "test_hints": [],
@@ -132,7 +132,7 @@ def _is_command_shaped(s: str) -> bool:
     return bool(_CMD_SHAPE_RE.search(s or ""))
 
 
-def _clean(text: Optional[str], max_chars: int) -> str:
+def _clean(text: str | None, max_chars: int) -> str:
     """压缩空白 + 截断。"""
     if not text:
         return ""
@@ -142,14 +142,14 @@ def _clean(text: Optional[str], max_chars: int) -> str:
     return s
 
 
-def _extract_test_hints(results: Iterable[Optional[str]], limit: int,
-                        max_chars: int) -> List[str]:
+def _extract_test_hints(results: Iterable[str | None], limit: int,
+                        max_chars: int) -> list[str]:
     """从历史 run.result 文本中提取「测试怎么跑」的线索。
 
     做法：按句切分 → 命中关键词的句子保留 → 去重 → 截断 → 限条数。
     保留原出现顺序（先出现的通常是该项目最典型的做法）。
     """
-    out: List[str] = []
+    out: list[str] = []
     seen = set()
     patterns = tuple(p.lower() for p in _TEST_PATTERNS)
     for raw in results:
@@ -181,9 +181,9 @@ def _extract_test_hints(results: Iterable[Optional[str]], limit: int,
 
 
 def _extract_file_layout(path_lists: Iterable[Iterable[str]], limit: int,
-                         max_chars: int) -> List[str]:
+                         max_chars: int) -> list[str]:
     """从历史 files / deliverables 提取文件布局习惯（按目录前缀出现频次降序）。"""
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     for paths in path_lists:
         for p in paths or []:
             if not p or not isinstance(p, str):
@@ -201,10 +201,10 @@ def _extract_file_layout(path_lists: Iterable[Iterable[str]], limit: int,
     return [_clean(k, max_chars) for k, _ in ordered[:limit]]
 
 
-def _extract_pitfalls(failures: Iterable[Optional[str]], limit: int,
-                      max_chars: int) -> List[str]:
+def _extract_pitfalls(failures: Iterable[str | None], limit: int,
+                      max_chars: int) -> list[str]:
     """从失败任务的 summary / review_result 提取已知坑。"""
-    out: List[str] = []
+    out: list[str] = []
     seen = set()
     for raw in failures:
         s = _clean(raw, max_chars)
@@ -226,7 +226,7 @@ def _extract_pitfalls(failures: Iterable[Optional[str]], limit: int,
 
 
 def _query_history(db: Session, workspace: str, project: str,
-                   scan_cap: int) -> List[Task]:
+                   scan_cap: int) -> list[Task]:
     """查同 workspace（退化到 project）的近期**已完成**任务。"""
     stmt = _scope_stmt(select(Task).where(Task.state == TaskState.COMPLETED),
                        workspace, project)
@@ -237,7 +237,7 @@ def _query_history(db: Session, workspace: str, project: str,
 
 
 def _query_failures(db: Session, workspace: str, project: str,
-                    scan_cap: int) -> List[Task]:
+                    scan_cap: int) -> list[Task]:
     """查同 workspace（退化到 project）的近期**失败**任务，用于提取已知坑。
 
     注意：必须**独立于** `_query_history` 查询 —— 失败任务与已完成任务是互斥的
@@ -266,7 +266,7 @@ def _scope_stmt(stmt, workspace: str, project: str):
     return None
 
 
-def _load_run_results(db: Session, task_ids: List[str]) -> Dict[str, str]:
+def _load_run_results(db: Session, task_ids: list[str]) -> dict[str, str]:
     """批量取这些任务最新一条有内容的 run.result。
 
     只取 FINISHED 的 run —— 未跑完的 run 没有参考价值。
@@ -277,7 +277,7 @@ def _load_run_results(db: Session, task_ids: List[str]) -> Dict[str, str]:
             .where(col(Run.task_id).in_(task_ids))
             .where(Run.state == RunState.FINISHED)
             .order_by(col(Run.finished_at).desc()))
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     try:
         rows = db.exec(stmt).all()
     except Exception:
@@ -295,7 +295,7 @@ def _load_run_results(db: Session, task_ids: List[str]) -> Dict[str, str]:
     return out
 
 
-def _load_experience(project: str, limit: int, max_chars: int) -> List[str]:
+def _load_experience(project: str, limit: int, max_chars: int) -> list[str]:
     """从 memory_store 取历史经验（FR-3）。失败降级为空。"""
     if not project:
         return []
@@ -305,7 +305,7 @@ def _load_experience(project: str, limit: int, max_chars: int) -> List[str]:
     except Exception:
         logger.warning("lessons: 读取 memory_store 经验失败", exc_info=True)
         return []
-    out: List[str] = []
+    out: list[str] = []
     for ent in rows or []:
         for obs in (ent.get("observations") or [])[:limit]:
             s = _clean(obs, max_chars)
@@ -320,7 +320,7 @@ def _load_experience(project: str, limit: int, max_chars: int) -> List[str]:
 
 def recent_lessons(db: Session, workspace: str = "", project: str = "",
                    limit: int = _DEFAULT_LIMIT,
-                   max_chars: int = _DEFAULT_MAX_CHARS) -> Dict[str, Any]:
+                   max_chars: int = _DEFAULT_MAX_CHARS) -> dict[str, Any]:
     """返回同项目近期已完成任务的参考信息。
 
     **本函数不抛异常**（FR-2 / AC-6）：任何失败都返回 `empty_lessons()`，
@@ -392,7 +392,7 @@ def recent_lessons(db: Session, workspace: str = "", project: str = "",
 
 # ── 经验沉淀（FR-3）────────────────────────────────────────────────────────
 
-def write_experience(task: Any, run_result: Optional[str]) -> bool:
+def write_experience(task: Any, run_result: str | None) -> bool:
     """把本次完成的可复用经验写入 memory_store（任务 28f8fceb FR-3）。
 
     **失败不影响任务状态**：任何异常只记日志并返回 False（AC-3.4 / TC-14）。
@@ -421,7 +421,7 @@ def write_experience(task: Any, run_result: Optional[str]) -> bool:
             _DEFAULT_LIMIT, _DEFAULT_MAX_CHARS)
 
         # 3) observations 必须含项目名，否则后续按 project 检索不到
-        obs: List[str] = [f"project={project or workspace} 测试方式: {h}" for h in hints]
+        obs: list[str] = [f"project={project or workspace} 测试方式: {h}" for h in hints]
         if layout:
             obs.append(f"project={project or workspace} 文件布局: {', '.join(layout)}")
 

@@ -1,10 +1,7 @@
-import time
-import sys, os
-import pytest
 
 # Ensure test DB env is set before importing anything from mio_taskhub
 # (conftest.py handles this, but we re-import to be safe)
-from mio_taskhub.db import DB_PATH, init_db
+from mio_taskhub.db import init_db
 from mio_taskhub.observability.audit import AlertAudit
 
 # Ensure the alertaudit table exists (migrations run via conftest init_db)

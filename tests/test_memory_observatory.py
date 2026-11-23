@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Mio 记忆观测投影测试：对标 mneme 只读观测层（server 投影 + 其测试覆盖面）。
 
 FR-1 只读源与响应结构 / FR-2 日志可见性与环境强制隐藏 /
@@ -153,10 +152,7 @@ def test_reuse_score_formula():
 
 def test_kind_map_clean_title(mio_home):
     """FR-4：kind→类型映射、[agent] 前缀剥离、标题截断与兜底。"""
-    rows = _default_mem_rows() + [
-        _mem(id="m5", kind="decision", content="长" * 100, tags=[], project=None),
-        _mem(id="m6", kind="context", content="", tags=[], project=None),
-    ]
+    rows = [*_default_mem_rows(), _mem(id="m5", kind="decision", content="长" * 100, tags=[], project=None), _mem(id="m6", kind="context", content="", tags=[], project=None)]
     _write(mio_home / "memory.jsonl", rows)
     _write(mio_home / "experience_reuse.jsonl", _default_reuse_rows())
 
@@ -176,7 +172,7 @@ def test_kind_map_clean_title(mio_home):
 
 def test_relations_and_ids(mio_home):
     """FR-1/FR-4：顺序编号、来源/项目关系、同名实体去重、无项目无「属于」。"""
-    rows = _default_mem_rows() + [_mem()]  # 重复 id=m1
+    rows = [*_default_mem_rows(), _mem()]  # 重复 id=m1
     _write(mio_home / "memory.jsonl", rows)
     _write(mio_home / "experience_reuse.jsonl", _default_reuse_rows())
 

@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { prio, fmtDur, fmtAgo, fmtDate, LANES, agMono, agColor, compositeLabel } from '../constants'
 
+// eslint-disable-next-line complexity
 export default function TaskCard({ task, index, onCancel, onDragStart, onOpen, onMove, canDrag = true }) {
   const moved = useRef(false)
   const meta = { 'queued': 'dim', 'claimed': 'dim', 'running': 'live', 'retrying': 'warn', 'completed': 'dim', 'failed': 'danger' }[task.state] || 'dim'
@@ -52,7 +53,7 @@ export default function TaskCard({ task, index, onCancel, onDragStart, onOpen, o
         : `任务 ${task.title}，状态 ${task.state}。回车查看详情`}
       onDragStart={e => { if (!canDrag) return; moved.current = true; e.dataTransfer.effectAllowed = 'move'; onDragStart && onDragStart(task.id) }}
       onDragEnd={() => onDragStart && onDragStart(null)}
-      onClick={(e) => { if (moved.current) { moved.current = false; return } open() }}
+      onClick={() => { if (moved.current) { moved.current = false; return } open() }}
       onKeyDown={onKey}
       onMouseMove={onMouseMove}
       onMouseLeave={onMouseLeave}

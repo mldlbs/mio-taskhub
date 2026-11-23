@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """更新 REST API。"""
 from fastapi import APIRouter, Query
 

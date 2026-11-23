@@ -12,13 +12,16 @@
  - actor_type / actor_id 必填；系统动作用 ActorType.SYSTEM
 """
 from __future__ import annotations
-from datetime import datetime, timezone
-from typing import Optional, Tuple
 
-from mio_taskhub.models import Task, TaskEvent, TaskState, TaskStage
+from datetime import datetime, timezone
+
+from mio_taskhub.models import Task, TaskEvent, TaskStage
 from mio_taskhub.workflow.state_machine import (
-    State, Stage, ActorType, Transition,
-    validate_transition, IllegalTransition,
+    ActorType,
+    Stage,
+    State,
+    Transition,
+    validate_transition,
 )
 
 
@@ -47,8 +50,8 @@ def apply_transition(
     actor_type: ActorType,
     actor_id: str,
     reason: str = "",
-    metadata: Optional[dict] = None,
-) -> Tuple[Transition, TaskEvent]:
+    metadata: dict | None = None,
+) -> tuple[Transition, TaskEvent]:
     """
     校验 + 应用一次合法状态转换，返回 (Transition, TaskEvent)。
     调用方负责把 event 加入 session 并 commit。
@@ -102,7 +105,7 @@ def apply_transition(
     return t, event
 
 
-def record_post_claim(task: Task, actor_id: str) -> Optional[TaskEvent]:
+def record_post_claim(task: Task, actor_id: str) -> TaskEvent | None:
     """原子 claim 成功后补记 T1 TaskEvent + 设置 claimed_at / last_transition_at。
 
     调用时机：_claim_for 的 UPDATE ... WHERE state=queued 成功后，

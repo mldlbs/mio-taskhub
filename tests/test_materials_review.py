@@ -1,7 +1,5 @@
-# -*- coding: utf-8 -*-
 """P5.1 独立复核分析：一致率、kappa、分歧清单。"""
 import json
-from pathlib import Path
 
 import pytest
 

@@ -4,6 +4,7 @@
  * - onRetry: 重试回调（可选）
  * - error: ApiError 实例（可选，优先于 message/errorType）
  */
+// eslint-disable-next-line complexity
 export default function ErrorBar({ message, errorType = 'unknown', onRetry, onDismiss, error }) {
   // 从 ApiError 提取信息
   const displayMsg = error?.userMessage || message

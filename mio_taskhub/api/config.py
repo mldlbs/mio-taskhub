@@ -9,8 +9,8 @@ import os
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
-from mio_taskhub.db import get_session
 from mio_taskhub import role_prompts as rp
+from mio_taskhub.db import get_session
 from mio_taskhub.next_action import risk_tag_vocab
 
 router = APIRouter(prefix="/config", tags=["config"])

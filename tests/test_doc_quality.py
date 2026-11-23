@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """文档质量校验回归测试（doc_quality.py）。
 
 写阶段拦空心文档：结构完整性 / 模板注释残留 / 必需表格数据行 / 链接有效 /
@@ -6,8 +5,8 @@ FR↔测试追溯；质量门控在 set_doc_status（review/approved/done，forc
 """
 from fastapi.testclient import TestClient
 
-from mio_taskhub.main import app
 from mio_taskhub.doc_quality import check_content, traceability
+from mio_taskhub.main import app
 
 client = TestClient(app)
 
@@ -206,7 +205,7 @@ def test_check_content_template_has_errors_good_content_passes():
 
 def test_check_content_missing_section_and_empty_table():
     bad = "# Spec\n## 模块职责与边界\nok\n## 详细设计\n| 列 | 列 |\n|---|---|\n"
-    q = check_content('spec', bad)
+    check_content('spec', bad)
     # 详细设计无指引注释但表格 0 数据行 — spec 无必需表格要求，故无 error；构造缺章节：
     worse = "# Spec\n## 模块职责与边界\nok\n"
     q2 = check_content('spec', worse)
@@ -219,7 +218,8 @@ def test_check_content_missing_section_and_empty_table():
 
 def test_broken_link_warns():
     content = GOOD_SPEC + "\n参考 [架构](docs/architecture.md)\n"
-    import pathlib, tempfile
+    import pathlib
+    import tempfile
     ws = pathlib.Path(tempfile.mkdtemp())
     q = check_content('spec', content, ws)
     assert any('architecture' in w for w in q['warns'])
@@ -417,9 +417,8 @@ def test_quality_gate_env_off_ratchet_still_applies(monkeypatch, tmp_path):
     # 用空心契约替换（质量门旁路时棘轮仍应拦：分数跌破基线）
     monkeypatch.setenv('MIO_DOC_QUALITY_GATE', '0')
     # 清空文档内容并重写（需新 PUT）
-    ws = tmp_path / f'ws_{tid}'
+    tmp_path / f'ws_{tid}'
     # 直接改 DB 里的 doc 不便；改用 ratchet check 直接验证逻辑
-    from mio_taskhub.ratchet import check_ratchet
     # 简化断言：基线分 = good_score，空心内容分数 < 基线 → blocked
     empty_score = check_content('api', '空')['score']
     assert empty_score < good_score, '空心契约分数应低于基线'
@@ -442,7 +441,7 @@ def _api_without_recommended():
 
 def test_api_low_score_blocks_status_advance(tmp_path):
     """api 有分数底线 MIN_SCORE：0 error 但缺建议章节导致低分 → 不得推进；force 可绕过。"""
-    from mio_taskhub.doc_quality import check_content, MIN_SCORE
+    from mio_taskhub.doc_quality import MIN_SCORE, check_content
     content = _api_without_recommended()
     q = check_content('api', content)
     assert q['errors'] == [], q['errors']
@@ -509,7 +508,7 @@ def test_issues_carry_fix_hints_and_revision_prompt(tmp_path):
 
 def test_template_injects_info_section():
     """所有模板都在 H1 之后注入统一「文档信息」表（含版本/最后更新/状态/负责人/范围）。"""
-    from mio_taskhub.doc_chain import render_chain, INFO_TITLE, INFO_DATE_PLACEHOLDER
+    from mio_taskhub.doc_chain import INFO_DATE_PLACEHOLDER, INFO_TITLE, render_chain
     for kind in ('requirement', 'architecture', 'spec', 'data-model', 'api', 'test', 'runbook'):
         body = render_chain(kind)
         assert f'## {INFO_TITLE}' in body, kind
@@ -539,6 +538,7 @@ def test_info_date_placeholder_is_error():
 def test_set_doc_status_autofills_info(tmp_path):
     """推进状态时系统自动写入 最后更新(日期+时间)/状态；approved 时递增 文档版本。"""
     import re
+
     from mio_taskhub.doc_chain import INFO_DATETIME_PLACEHOLDER
     content = GOOD_SPEC.replace('| 最后更新 | 2026-09-23 |',
                                f'| 最后更新 | {INFO_DATETIME_PLACEHOLDER} |')

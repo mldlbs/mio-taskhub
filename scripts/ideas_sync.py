@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """ideas_sync.py — mio-intelligence 创意想法 → taskhub Idea 批量同步（HOWTO「方式二」）。
 
 - 扫描 ~/.mio-intelligence/ideas.jsonl（MIO_HOME / MIO_DATA_DIR 可覆盖）
@@ -14,6 +13,7 @@
 Base URL 默认 http://127.0.0.1:48620，可用环境变量 MIO_TASKHUB_BASE 覆盖。
 """
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -29,10 +29,8 @@ TIMEOUT = 15.0
 def _io_fix():
     """控制台统一 UTF-8（含 GBK 控制台），避免中文/emoji 打印崩溃或乱码。"""
     for stream in (sys.stdout, sys.stderr):
-        try:
+        with contextlib.suppress(Exception):
             stream.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
 
 
 def intel_home() -> Path:
@@ -109,7 +107,7 @@ def build_payload(idea: dict, project: str) -> dict:
     return body
 
 
-def main(argv=None) -> int:
+def main(argv=None) -> int:  # noqa: C901
     _io_fix()
     ap = argparse.ArgumentParser(description="同步 ~/.mio-intelligence/ideas.jsonl 到 taskhub Idea 系统")
     ap.add_argument("--dry-run", action="store_true", help="预览待同步的想法，不创建、不写状态")
@@ -137,7 +135,7 @@ def main(argv=None) -> int:
         print(f"[ideas_sync] ERROR 无法连接 taskhub {args.base}: {e}")
         return 1
 
-    created = skipped_state = skipped_title = skipped_dup = failed = 0
+    created = skipped_state = skipped_title = failed = 0
     pending = []
     seen_titles = set()
     for sid, idea in source.items():

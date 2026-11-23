@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """FR-07（任务 c8316737）：任务级只读 diff 路由 GET /api/v1/tasks/{id}/diff。
 
 验收标准覆盖：404 / 403 / 405 / 200 空集 / FR-n 映射（UNMAPPED）。

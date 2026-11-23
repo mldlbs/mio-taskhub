@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """当前交付面口径：278 口径的 SQL 与比率。"""
 from datetime import datetime, timezone
 
@@ -6,8 +5,8 @@ from sqlmodel import Session
 
 from mio_taskhub.db import engine
 from mio_taskhub.models import Task, TaskStage, TaskState
-from mio_taskhub.observability.report import _collect_tasks
 from mio_taskhub.observability.metrics import render_metrics
+from mio_taskhub.observability.report import _collect_tasks
 
 
 def _task(state, kind="NORMAL", labels=None, created=None):

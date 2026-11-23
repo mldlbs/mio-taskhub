@@ -10,8 +10,8 @@ import uuid
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from mio_taskhub.main import app
 from mio_taskhub.db import engine
+from mio_taskhub.main import app
 from mio_taskhub.models import Run, RunState, Task
 
 client = TestClient(app)

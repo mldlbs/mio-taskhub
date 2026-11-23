@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Mio Agent Runtime 只读端点（低耦合：仅读 MIO_HOME，不写、不依赖 Node）。
 
 - GET  /api/v1/mio/status     — 运行时概览（配置安全子集 / 观察器状态 / 文件计数 / CLI 可用性）

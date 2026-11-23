@@ -1,4 +1,5 @@
-from mio_taskhub.models import Task, Agent, Run, TaskState, RunState
+from mio_taskhub.models import Agent, Run, RunState, Task, TaskState
+
 
 def test_task_default_state():
     t = Task(title="test", description="")
@@ -22,9 +23,9 @@ def test_task_state_machine_valid_transitions():
 
 def test_task_rich_fields():
     from sqlmodel import Session
+
     from mio_taskhub.db import engine
-    from mio_taskhub.models import Task, Subtask, GitRef, HistoryEvent, Discussion, DiscussionMessage
-    from mio_taskhub.models import _now
+    from mio_taskhub.models import Discussion, DiscussionMessage, GitRef, HistoryEvent, Subtask, Task, _now
     with Session(engine) as s:
         t = Task(title="rich", acceptance_criteria="AC", due_at=_now(),
                  labels=["blocked"], project="p", workspace="/w", files=["a.py"],
@@ -50,6 +51,7 @@ def test_task_rich_fields():
 
 def test_task_stage_and_artifacts():
     from sqlmodel import Session
+
     from mio_taskhub.db import engine
     from mio_taskhub.models import Task, TaskStage
     with Session(engine) as s:
@@ -62,6 +64,7 @@ def test_task_stage_and_artifacts():
 
 def test_task_default_stage_is_ready():
     from sqlmodel import Session
+
     from mio_taskhub.db import engine
     from mio_taskhub.models import Task, TaskStage
     with Session(engine) as s:
@@ -99,10 +102,10 @@ def test_task_kind_default_normal():
 
 
 def test_ideachange_db_roundtrip():
-    from mio_taskhub.models import IdeaChange
-    from mio_taskhub.db import get_session
     from sqlalchemy import inspect
-    from mio_taskhub.db import engine
+
+    from mio_taskhub.db import engine, get_session
+    from mio_taskhub.models import IdeaChange
     s = next(get_session())
     try:
         c1 = IdeaChange(idea_id="i-roundtrip-1", version=1,
@@ -131,9 +134,10 @@ def test_ideachange_db_roundtrip():
 
 
 def test_task_kind_db_roundtrip():
-    from mio_taskhub.models import Task, TaskKind
-    from mio_taskhub.db import get_session
     from sqlalchemy import text
+
+    from mio_taskhub.db import get_session
+    from mio_taskhub.models import Task, TaskKind
     s = next(get_session())
     try:
         t = Task(title="roundtrip-ct", task_kind=TaskKind.CHANGE_TRACKING)

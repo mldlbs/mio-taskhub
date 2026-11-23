@@ -1,11 +1,14 @@
 """价值加权闸门：替代硬编码计数，基于 novelty/feasibility/impact 加权 + 时间衰减。"""
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Optional
-from sqlmodel import Session, select, func
+from datetime import datetime
+from typing import TYPE_CHECKING
+
+from sqlmodel import Session, select
 
 from mio_taskhub.models import Idea, IdeaStatus
-from mio_taskhub.db import engine
+
+if TYPE_CHECKING:
+    from mio_taskhub.scheduling.capacity import CapacityInfo
 
 
 @dataclass
@@ -70,9 +73,9 @@ def _get_config() -> GateConfig:
 CFG = _get_config()
 
 
-def idea_weight(idea: Idea, now: Optional[datetime] = None) -> float:
+def idea_weight(idea: Idea, now: datetime | None = None) -> float:
     """单条想法的加权分，含时间衰减。
-    
+
     分数 = (novelty*w_n + feasibility*w_f + impact*w_i) * decay
     decay = 0.5 ** (age_days / half_life)
     缺失分数按 0 处理（旧数据兼容）。
@@ -88,13 +91,12 @@ def idea_weight(idea: Idea, now: Optional[datetime] = None) -> float:
         (idea.impact or 0) * CFG.w_impact
     )
     age_days = (now - idea.created_at).days
-    if age_days < 0:
-        age_days = 0
+    age_days = max(age_days, 0)
     decay = 0.5 ** (age_days / CFG.decay_half_life_days)
     return base * decay
 
 
-def compute_gate_status(db: Session, now: Optional[datetime] = None) -> GateStatus:
+def compute_gate_status(db: Session, now: datetime | None = None) -> GateStatus:
     """计算当前闸门状态（供 cron_engine / API / 面板调用）。"""
     if now is None:
         now = datetime.now()
@@ -136,15 +138,15 @@ def compute_gate_status(db: Session, now: Optional[datetime] = None) -> GateStat
     )
 
 
-def compute_review_capacity(db: Session, now: Optional[datetime] = None) -> "CapacityInfo":
+def compute_review_capacity(db: Session, now: datetime | None = None) -> "CapacityInfo":
     """计算评审带宽（复用 capacity.py 逻辑，避免循环导入）。"""
     from mio_taskhub.scheduling.capacity import compute_review_capacity as _compute
     return _compute(db, now)
 
 
-def should_generate_now(job_id: str, db: Session, now: Optional[datetime] = None) -> tuple[bool, str]:
+def should_generate_now(job_id: str, db: Session, now: datetime | None = None) -> tuple[bool, str]:
     """判定是否应在本次执行生成（供 cron_engine 调用）。
-    
+
     返回: (should_generate, reason)
     - ok: 生成
     - degraded: 生成但记录降级
@@ -162,21 +164,20 @@ def should_generate_now(job_id: str, db: Session, now: Optional[datetime] = None
 
     if status.level == "ok":
         return True, "ok"
-    elif status.level == "degraded":
+    if status.level == "degraded":
         # degraded 仍生成，但降级频率由 cron 控制（见 cron_engine）
         return True, f"degraded: weight={status.total_weight}/{CFG.soft_threshold}"
-    else:
-        # critical：不生成，返回原因供执行记录
-        return False, (
-            f"critical: weight={status.total_weight}/{CFG.hard_threshold}, "
-            f"inbox={status.inbox_count}, new={status.new_count}, "
-            f"capacity={status.capacity_available}, throughput={status.throughput_per_day}/day"
-        )
+    # critical：不生成，返回原因供执行记录
+    return False, (
+        f"critical: weight={status.total_weight}/{CFG.hard_threshold}, "
+        f"inbox={status.inbox_count}, new={status.new_count}, "
+        f"capacity={status.capacity_available}, throughput={status.throughput_per_day}/day"
+    )
 
 
 def force_generate(job_id: str, db: Session, reason: str = "") -> tuple[bool, str]:
     """强制生成（绕过闸门，留痕审计）。
-    
+
     调用者需记录 force_reason、operator 到 job 执行记录。
     """
     import os

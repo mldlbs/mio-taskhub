@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """发布前 checklist 全绿校验（T4.3 / G4 收口）。
 
 7 项发布门槛，逐项验证并输出 是/否/部分：
@@ -12,6 +11,8 @@
   python scripts/release_checklist.py --ci       # 附加查询 GitHub CI（需 gh）
 """
 from __future__ import annotations
+
+import contextlib
 import json
 import re
 import subprocess
@@ -19,10 +20,8 @@ import sys
 from pathlib import Path
 
 for _s in (sys.stdout, sys.stderr):
-    try:
+    with contextlib.suppress(Exception):
         _s.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
 
 ROOT = Path(__file__).resolve().parent.parent
 

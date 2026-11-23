@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P1-OBS/F10：HighHttpErrorRate 只计 5xx，4xx（正常客户端错误）不应触发。"""
 import mio_taskhub.observability.alerts as al
 

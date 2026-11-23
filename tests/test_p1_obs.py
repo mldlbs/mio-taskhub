@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P1-OBS 重观测报告单测（8820176b）。"""
 from pathlib import Path
 

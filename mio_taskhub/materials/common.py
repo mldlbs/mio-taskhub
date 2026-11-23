@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """素材库公共工具：规范化、哈希、指纹。"""
 from __future__ import annotations
 
@@ -25,8 +24,7 @@ def normalize_text(text: str) -> str:
     s = unicodedata.normalize("NFKC", text or "")
     s = _WS.sub(" ", s).strip()
     # 脱敏升级可能导致掩码长度变化；折叠后同一证据仍能合并（spec §3.4）
-    s = _MASK_RUN.sub("<mask>", s)
-    return s
+    return _MASK_RUN.sub("<mask>", s)
 
 
 def content_fingerprint(quote: str) -> str:

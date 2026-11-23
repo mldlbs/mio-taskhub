@@ -2,6 +2,7 @@
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+
 from mio_taskhub.main import app
 
 client = TestClient(app, raise_server_exceptions=False)

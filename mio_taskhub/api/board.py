@@ -1,16 +1,21 @@
 from datetime import timezone
+
 from fastapi import APIRouter, Depends, Query
-from sqlmodel import Session, select, func
+from sqlmodel import Session, func, select
+
 from mio_taskhub.db import get_session
-from mio_taskhub.models import Task, TaskStage, TaskState, Run, RunState, TaskEvent
-from mio_taskhub.workflow.state_machine import (
-    is_terminal, State, Stage as M1Stage, LEGAL_COMBOS, is_legal_combo,
-)
-from mio_taskhub.dependency import task_deps, dependency_satisfied
-from mio_taskhub.composite import composite_status, COMPOSITE_LABEL
+from mio_taskhub.dependency import dependency_satisfied, task_deps
 from mio_taskhub.heartbeat import DEFAULT_TIMEOUT_SECONDS
 from mio_taskhub.hierarchy import claimable_task_clause
+from mio_taskhub.models import Run, RunState, Task, TaskEvent, TaskStage, TaskState
 from mio_taskhub.utils import _now
+from mio_taskhub.workflow.state_machine import (
+    Stage as M1Stage,
+)
+from mio_taskhub.workflow.state_machine import (
+    State,
+    is_terminal,
+)
 
 router = APIRouter(prefix="/board", tags=["board"])
 
@@ -314,7 +319,7 @@ def board_summary(agent: str = Query(None), db: Session = Depends(get_session)):
 @router.get("/overview")
 def stats_overview(db: Session = Depends(get_session)):
     """返回 M1 统计概览：composite counts、by_state、by_stage、事件分布。"""
-    from mio_taskhub.workflow.transitions import _orm_to_status_state, _orm_to_status_stage
+    from mio_taskhub.workflow.transitions import _orm_to_status_stage, _orm_to_status_state
 
     tasks = db.exec(select(Task)).all()
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """T4.3 release_checklist.py 单测。"""
 import sys
 from pathlib import Path

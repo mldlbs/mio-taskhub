@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """工作流面板接口：part-of 聚合、依赖层、阻塞统计。"""
 from fastapi.testclient import TestClient
 
@@ -55,6 +54,7 @@ def test_workstream_empty_group():
 
 def test_workstream_hides_cancelled_members():
     from sqlmodel import Session
+
     from mio_taskhub.db import engine
     from mio_taskhub.models import Task, TaskStage, TaskState
 

@@ -90,6 +90,7 @@ function joinRel(dir, src) {
 const RISK_RE = /(风险|隐患|注意|警告|⚠️?|❗|‼|危险|禁止|必须|关键点|坑|caveat|risk|warning|caution|danger|important)/i
 const RISK_TAGS = ['strong', 'em', 'li', 'p', 'blockquote', 'td']
 
+// eslint-disable-next-line complexity
 function markRisks(root) {
   if (!root) return 0
   let count = 0
@@ -126,6 +127,7 @@ function readingTime(wc) {
   return min < 1 ? '< 1 分钟' : `~${min} 分钟`
 }
 
+// eslint-disable-next-line complexity, max-lines-per-function
 export default function DocPanel({ task, onClose }) {
   const [docs, setDocs] = useState(null)
   const [selected, setSelected] = useState(null)
@@ -204,7 +206,7 @@ export default function DocPanel({ task, onClose }) {
     // S-4 通道 ④：启用鉴权时标签请求带不上 Authorization，/raw 改走 fetch + blob URL。
     // 未启用鉴权时 authed=false，下面两条分支完全保持原行为。
     const authed = api.hasToken()
-    root.querySelectorAll('pre code').forEach(b => { try { hljs.highlightElement(b) } catch {} })
+    root.querySelectorAll('pre code').forEach(b => { try { hljs.highlightElement(b) } catch { /* 高亮失败不阻塞 */ } })
     root.querySelectorAll('a[href]').forEach(a => {
       a.target = '_blank'
       a.rel = 'noopener noreferrer'

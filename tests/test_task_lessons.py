@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """task_lessons：同项目参考信息（任务 28f8fceb FR-1/ FR-3）。
 
 覆盖用例（见 docs/taskhub/28f8fceb/test.md）：
@@ -15,19 +14,18 @@
 """
 import uuid
 
-import pytest
 from sqlmodel import Session
 
-from mio_taskhub.db import engine
-from mio_taskhub.models import Run, RunState, Task, TaskState
 from mio_taskhub.api.task_lessons import (
-    empty_lessons,
-    recent_lessons,
-    write_experience,
     _extract_file_layout,
     _extract_pitfalls,
     _extract_test_hints,
+    empty_lessons,
+    recent_lessons,
+    write_experience,
 )
+from mio_taskhub.db import engine
+from mio_taskhub.models import Run, RunState, Task, TaskState
 
 WS = "E:/work/lessons-test/proj-a"
 PRJ = "proj-a"

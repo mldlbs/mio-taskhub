@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """构造式修复基准：独立快照、基线失败、回归通过、参考修复通过。"""
 from scripts import repair_benchmark as rb
 

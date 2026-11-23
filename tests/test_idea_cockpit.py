@@ -4,8 +4,8 @@ import asyncio
 import httpx
 import pytest
 
-from mio_taskhub.main import app
 from mio_taskhub.api import cockpit
+from mio_taskhub.main import app
 
 
 def _with_client(coro):
@@ -126,6 +126,7 @@ def test_cockpit_null_fields_safe():
 
 def _mk_task(iid, title, depends_on=None, **kw):
     from sqlmodel import Session
+
     from mio_taskhub.db import engine
     from mio_taskhub.models import Task
     with Session(engine) as s:
@@ -161,6 +162,7 @@ def test_cockpit_tasks_cycle_degrades_to_list():
         b = _mk_task("other", "任务B", depends_on=[a])
         # 造环：A 依赖 B
         from sqlmodel import Session
+
         from mio_taskhub.db import engine
         from mio_taskhub.models import Task
         with Session(engine) as s:

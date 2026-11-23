@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P1-OBS P2：reaper_decision 记录真实 run_state_before / run_heartbeated。"""
 import json
 import uuid
@@ -9,7 +8,14 @@ from sqlmodel import Session, select
 import mio_taskhub.background as bg
 from mio_taskhub.db import engine
 from mio_taskhub.models import (
-    Agent, AgentStatus, Run, RunState, Task, TaskState, TaskStage, Event,
+    Agent,
+    AgentStatus,
+    Event,
+    Run,
+    RunState,
+    Task,
+    TaskStage,
+    TaskState,
 )
 
 

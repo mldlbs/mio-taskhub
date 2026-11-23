@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """价值发现实验（R292）：人工触发、只读资产、允许 0 结果。
 
 与已暂停的每日创意 job 的本质区别——价值函数代替组合解释：
@@ -20,7 +19,6 @@ import time
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -42,13 +40,15 @@ _SYSTEM_PROMPT = """你是一名严格的技术价值评估员，不是创意写
 2. 每个机会回答五个问题：发现了什么？为什么重要？与内部什么问题相关？为什么现在值得做？如何用一周内的小实验验证（含明确的成功判据）？
 3. 给每个机会标注 origin："external"（主要由外部素材触发的、原本不知道的机会）或 "internal-led"（主要由内部问题触发、外部素材提供辅助证据）。
 4. 宁缺毋滥：如果素材里没有值得行动的东西，输出 {"opportunities": []} 并在 verdict 说明原因。不允许为了凑数量创造假说。
-5. 输出 JSON：{"opportunities": [{"title", "origin", "evidence"(数组,引用素材编号+原文片段), "what", "why_important", "internal_link", "why_now", "one_week_experiment"(含成功判据)}], "verdict"(对素材整体价值与机会来源的一句话判断)}。所有文本用简体中文。"""
+5. 输出 JSON：{"opportunities": [{"title", "origin", "evidence"(数组,引用素材编号+原文片段), "
+   "what", "why_important", "internal_link", "why_now", "one_week_experiment"(含成功判据)}], "
+   "verdict"(对素材整体价值与机会来源的一句话判断)}。所有文本用简体中文。"""
 
 
 class ValueDiscoveryRequest(BaseModel):
     date: str = Field(..., description="素材日期（observations 文件名，如 2026-10-08）")
-    internal_issues: List[str] = Field(..., min_length=1, description="内部近期真实问题清单")
-    label: Optional[str] = Field(None, max_length=100, description="本批实验的人读标签")
+    internal_issues: list[str] = Field(..., min_length=1, description="内部近期真实问题清单")
+    label: str | None = Field(None, max_length=100, description="本批实验的人读标签")
 
 
 def _clean_observation(s: str) -> str:
@@ -67,7 +67,7 @@ def _load_material(base: Path, date: str) -> dict:
     try:
         raw = p.read_text(encoding="utf-8", errors="replace")
         r = json.loads(raw[:_MAX_OBS_READ])
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         raise HTTPException(502, f"观测数据损坏: {e}")
     items = r.get("observations") or []
     out = {}
@@ -100,7 +100,7 @@ def _call_llm(system: str, user: str) -> dict:
         payload = json.load(resp)
     except urllib.error.HTTPError as e:
         raise HTTPException(502, f"LLM 调用失败: HTTP {e.code} {e.read().decode()[:200]}")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         raise HTTPException(502, f"LLM 调用失败: {e}")
     duration = round(time.time() - t0, 1)
     content = ((payload.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
@@ -114,7 +114,7 @@ def _call_llm(system: str, user: str) -> dict:
         text = text[:-3]
     try:
         return json.loads(text.strip()), duration
-    except Exception:  # noqa: BLE001
+    except Exception:
         raise HTTPException(502, f"LLM 输出不可解析 JSON（{duration}s）: {content[:200]}")
 
 
@@ -162,7 +162,7 @@ def run_value_discovery(req: ValueDiscoveryRequest):
 def list_value_discovery():
     """历史实验记录 + 指标统计（R292 的 6 指标，human acceptance 除外——那项只能人工判）。"""
     archive = _archive_dir() / "runs.jsonl"
-    runs: List[dict] = []
+    runs: list[dict] = []
     if archive.is_file():
         for line in archive.read_text(encoding="utf-8", errors="replace").splitlines():
             line = line.strip()
@@ -170,7 +170,7 @@ def list_value_discovery():
                 continue
             try:
                 runs.append(json.loads(line))
-            except Exception:  # noqa: BLE001
+            except Exception:
                 continue
     runs.sort(key=lambda r: r.get("createdAt") or "")
     ops_all = [o for r in runs for o in (r.get("opportunities") or [])]

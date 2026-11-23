@@ -49,6 +49,7 @@ const DEFAULT_ISSUES = `- mio-taskhub 文档链门控在 UI 无法操作（DocPa
 - mio-taskhub 抢单模式（grab mode）A 批 9 项设计完成，代码未实施
 - hub 前端 1.4MB 单 chunk 未做代码分割`
 
+// eslint-disable-next-line complexity
 function ValueDiscoverySection({ obsDates }) {
   const [date, setDate] = useState(obsDates[0] || '')
   const [issues, setIssues] = useState(DEFAULT_ISSUES)
@@ -100,7 +101,7 @@ function ValueDiscoverySection({ obsDates }) {
       {last && (
         <div style={{ border: '1px solid var(--border, #ddd)', borderRadius: 8, padding: 10, marginTop: 8 }}>
           <b style={{ fontSize: 13 }}>{last.date}{last.label ? ` · ${last.label}` : ''}</b>
-          <span className="detail-muted" style={{ fontSize: 12 }}>　{last.opportunities.length} 个机会 · {last.duration_s}s</span>
+          <span className="detail-muted" style={{ fontSize: 12 }}> {last.opportunities.length} 个机会 · {last.duration_s}s</span>
           {last.opportunities.length === 0 && (
             <p style={{ fontSize: 12 }}>本轮 0 个机会（合法结果）。verdict：{last.verdict}</p>
           )}

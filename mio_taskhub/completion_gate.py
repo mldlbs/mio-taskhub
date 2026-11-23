@@ -1,5 +1,4 @@
-﻿# -*- coding: utf-8 -*-
-"""Phase 1 完成门禁：风险分级、领取就绪、完成证据与 done 校验。"""
+﻿"""Phase 1 完成门禁：风险分级、领取就绪、完成证据与 done 校验。"""
 from __future__ import annotations
 
 import glob
@@ -8,12 +7,12 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from sqlmodel import Session, select
 
 from mio_taskhub.doc_paths import doc_path_of
-from mio_taskhub.models import Run, RunState, Task, TaskStage
+from mio_taskhub.models import Run, Task
 
 HIGH_LABELS = {"destructive", "migration", "credential", "production", "schema"}
 CORE_LABELS = {"core-design", "api-change"}
@@ -94,7 +93,7 @@ def completion_checks(tier: str) -> list[str]:
     return list(CHECK_ORDER)
 
 
-def _safe_rel(path: str) -> Optional[Path]:
+def _safe_rel(path: str) -> Path | None:
     raw = str(path or "").strip()
     if not raw:
         return None
@@ -104,7 +103,7 @@ def _safe_rel(path: str) -> Optional[Path]:
     return p
 
 
-def resolve_task_path(task: Task, path: str) -> Optional[Path]:
+def resolve_task_path(task: Task, path: str) -> Path | None:
     rel = _safe_rel(path)
     if rel is None:
         return None
@@ -226,11 +225,10 @@ def _unresolved_deviations(task: Task) -> list[dict]:
     for dev in getattr(task, "deviations", None) or []:
         if not isinstance(dev, dict):
             continue
-        if dev.get("severity") in ("high", "critical"):
-            if dev.get("status") not in ("accepted", "resolved", "decided"):
-                out.append(dev)
-            elif dev.get("status") == "accepted" and not dev.get("decision_ref"):
-                out.append(dev)
+        if dev.get("severity") in ("high", "critical") and (
+                dev.get("status") not in ("accepted", "resolved", "decided")
+                or (dev.get("status") == "accepted" and not dev.get("decision_ref"))):
+            out.append(dev)
     return out
 
 
@@ -265,11 +263,11 @@ def collect_submit_problems(db: Session, task: Task, run: Run, body: dict) -> tu
     for dev in _unresolved_deviations(task):
         issues.append({"code": "gate.deviation_needs_decision",
                        "message": "high deviation needs decision", "detail": dev.get("id")})
-    if (task.gate_tier or "light") in ("standard", "high") and is_zero_diff(run):
-        if str(getattr(task, "task_kind", "") or "") not in ("idea_review", "change_tracking") \
-                and not getattr(task, "diff_gate_exempt", False):
-            if not evidence["verification"]["artifacts"]:
-                issues.append({"code": "gate.no_changes", "message": "zero diff without artifacts"})
+    if ((task.gate_tier or "light") in ("standard", "high") and is_zero_diff(run)
+            and str(getattr(task, "task_kind", "") or "") not in ("idea_review", "change_tracking")
+            and not getattr(task, "diff_gate_exempt", False)
+            and not evidence["verification"]["artifacts"]):
+        issues.append({"code": "gate.no_changes", "message": "zero diff without artifacts"})
     if (task.gate_tier or "light").lower() == "high" and (
             not getattr(task, "human_confirmed_at", None)
             or not getattr(task, "human_confirmed_by", "")):
@@ -327,7 +325,7 @@ def contract_outputs_for(task: Task) -> dict:
     return out
 
 
-def _integration_issues(db: Session, task: Task) -> list[dict]:
+def _integration_issues(db: Session, task: Task) -> list[dict]:  # noqa: C901
     """P2d：主子任务集成门禁（FR-13）。"""
     from mio_taskhub.hierarchy import STAGE_INTEGRATE, stage_at_least
 

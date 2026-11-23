@@ -1,21 +1,17 @@
-# -*- coding: utf-8 -*-
 """窄门禁灰度观测端点测试（任务 d468e633 的配套观测）。
 
 对应 `docs/taskhub/diff-gate-grayscale-log.md` 的指标 M1/M3/M5。
 端点是**纯只读统计**，不参与任何流程判定 —— 与 `_delivery_quality` 同性质。
 """
-import os
-import sys
 from datetime import datetime, timezone
 
-import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, select
 from sqlalchemy import delete
+from sqlmodel import Session
 
 from mio_taskhub.db import engine
 from mio_taskhub.main import app
-from mio_taskhub.models import Run, RunState, Task, TaskState, TaskStage
+from mio_taskhub.models import Run, RunState, Task, TaskStage, TaskState
 
 client = TestClient(app)
 

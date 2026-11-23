@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """真服务 E2E + 并发 claim 压测（task f72fde6e / P1-4）。
 
 与 tests/test_integration.py（TestClient 进程内桩）不同，本模块**起真实 uvicorn 进程**
@@ -11,6 +10,7 @@
 标记 `e2e`：默认单测不跑；用 `pytest -m e2e` 单独运行。
     pytest -m e2e tests/test_e2e_real_service.py -v
 """
+import json
 import os
 import socket
 import subprocess
@@ -20,7 +20,6 @@ import threading
 import time
 import urllib.error
 import urllib.request
-import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 

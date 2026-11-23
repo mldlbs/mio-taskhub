@@ -191,6 +191,7 @@ function TrendChart({ data, outliers, days }) {
 
 /* ---------- 主视图 ---------- */
 
+// eslint-disable-next-line complexity
 export default function StatsView() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -211,6 +212,7 @@ export default function StatsView() {
   // 批量日剔除：某天一次性批量创建的任务（如 2026-10-19 历史 creativity 实验
   // 留下的 1483 个「想法评审」）会把 y 轴尺度拉爆，日常节奏全部压平。
   // 单日创建数 > max(30, 次大值×3) 视为批量事件，剔除出趋势序列并在脚注说明。
+  // eslint-disable-next-line complexity
   const { series: trendSeries, outliers } = useMemo(() => {
     if (!trendTasks) return { series: null, outliers: [] }
     const days = []

@@ -70,7 +70,7 @@ async def _build_hypotheses(idea: Idea, db: Session) -> dict:
     try:
         cr = await asyncio.to_thread(mio_runtime.creativity,
                                      limit=100, timeout=2.5, with_status=False)
-    except Exception:  # noqa: BLE001 —— 跨服务异常一律按超时降级
+    except Exception:
         raise SectionDegraded("mio_timeout")
     if not cr.get("available"):
         raise SectionDegraded("mio_unavailable")
@@ -106,10 +106,11 @@ async def _build_mvp(idea: Idea, db: Session) -> dict:
     return {"data": {"mvp_scope": idea.mvp_scope or ""}}
 
 
-async def _build_tasks(idea: Idea, db: Session) -> dict:
+async def _build_tasks(idea: Idea, db: Session) -> dict:  # noqa: C901
     """任务图（P0 FR-9 + P3 FR-26）：直接关联为根，多层上游/下游闭包；
     节点上限 100 截断置 truncated；含环返回环路径 cycles 并按 P0 降级列表；>20 折叠保留。"""
     from sqlmodel import select
+
     from mio_taskhub.models import Task
 
     rows = db.exec(select(Task.id, Task.title, Task.state, Task.stage,
@@ -131,7 +132,7 @@ async def _build_tasks(idea: Idea, db: Session) -> dict:
             return set()
         room = CAP - len(node_ids)
         if len(fresh) > room:
-            added = {c for c in sorted(fresh)[:max(0, room)]}
+            added = set(sorted(fresh)[:max(0, room)])
             node_ids |= added
             into |= added
             truncated = True
@@ -222,7 +223,7 @@ def _find_cycles(node_ids, edges, limit: int = 5) -> list:
         if e["from"] in graph and e["to"] in graph and e["from"] != e["to"]:
             graph[e["from"]].append(e["to"])
     WHITE, GRAY, BLACK = 0, 1, 2
-    color = {n: WHITE for n in node_ids}
+    color = dict.fromkeys(node_ids, WHITE)
     cycles: list = []
     seen: set = set()
     stack: list = []
@@ -265,6 +266,7 @@ async def _build_retrospective(idea: Idea, db: Session) -> dict:
     数据源全本地（Run/Discussion），单区异常照走 SectionDegraded；空数据 status=ok。
     """
     from sqlmodel import select
+
     from mio_taskhub.models import Discussion, Run, Task
 
     task_rows = db.exec(select(Task.id, Task.title)
@@ -361,7 +363,7 @@ async def build_sections(idea: Idea, db: Session) -> dict:
             results[name] = entry
         except asyncio.TimeoutError:
             results[name] = {"status": "degraded", "reason": "timeout"}
-        except Exception as e:  # noqa: BLE001 —— 单区失败不拖垮整包（FR-4）
+        except Exception as e:
             # SectionDegraded 透传业务 reason（mio_timeout/mio_unavailable），其余用异常类名
             results[name] = {"status": "degraded",
                              "reason": getattr(e, "reason", None) or type(e).__name__}
@@ -376,7 +378,7 @@ async def idea_cockpit(idea_id: str, user: str = Query("local"), db: Session = D
     sections = await build_sections(idea, db)
     try:
         next_action = compute_next_action(db, idea, user=user)
-    except Exception:  # noqa: BLE001 —— 规则引擎异常不拖垮驾驶舱（FR-4 精神）
+    except Exception:
         next_action = None
     return {
         "idea_id": idea_id,

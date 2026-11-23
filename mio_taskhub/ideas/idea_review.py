@@ -7,13 +7,14 @@
 - MIO_IDEA_REVIEW_ENABLED          默认 1
 """
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
+
 from sqlmodel import Session, select
+
 from mio_taskhub.db import engine
-from mio_taskhub.models import (Idea, IdeaStatus, Task, TaskKind, TaskStage,
-                                TaskState)
+from mio_taskhub.events import broadcast_for_event, emit_event
+from mio_taskhub.models import Idea, IdeaStatus, Task, TaskKind, TaskStage, TaskState
 from mio_taskhub.scheduling.scheduler import Scheduler
-from mio_taskhub.events import emit_event, broadcast_for_event
 
 INTERVAL_MIN = int(os.environ.get("MIO_IDEA_REVIEW_INTERVAL_MIN", "1440"))
 INITIAL_DELAY_MIN = int(os.environ.get("MIO_IDEA_REVIEW_INITIAL_DELAY_MIN", "60"))
@@ -81,9 +82,8 @@ def _due_idea_ids() -> list:
             if last is None:
                 if (now - created).total_seconds() >= INITIAL_DELAY_MIN * 60:
                     due.append(i.id)
-            else:
-                if (now - last).total_seconds() >= INTERVAL_MIN * 60:
-                    due.append(i.id)
+            elif (now - last).total_seconds() >= INTERVAL_MIN * 60:
+                due.append(i.id)
         return due
 
 

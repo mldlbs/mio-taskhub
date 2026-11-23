@@ -1,8 +1,10 @@
 from datetime import datetime, timezone
+
 from fastapi import HTTPException
 from sqlmodel import select
-from mio_taskhub.models import Task
+
 from mio_taskhub.dependency import task_deps
+from mio_taskhub.models import Task
 from mio_taskhub.planner import detect_cycle
 
 
@@ -13,11 +15,7 @@ def parse_dt(value, name: str):
         dt = datetime.fromisoformat(value)
     except ValueError:
         raise HTTPException(400, f"invalid {name}: {value}")
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    else:
-        dt = dt.astimezone(timezone.utc)
-    return dt
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
 
 
 def parse_enum(enum_cls, value, default=None):

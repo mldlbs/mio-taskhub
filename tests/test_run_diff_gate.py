@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """窄门禁测试：拦截「声明成功但零改动」的提交（任务 d468e633）。
 
 对应 `docs/taskhub/d468e633/test.md` 的 TC-1 ~ TC-10。
@@ -16,20 +15,24 @@
 | TC-9 | FR-6 FR-9 | warn 档 → 200 + warn 标注（含「不影响放行」），不产生 toast 事件 |
 | TC-10 | FR-8 | off / warn / block 三档生效 |
 """
-import os
 import subprocess
-import sys
 from datetime import datetime, timezone
 
-import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, select
 from sqlalchemy import delete
+from sqlmodel import Session, select
 
 from mio_taskhub.db import engine
 from mio_taskhub.main import app
 from mio_taskhub.models import (
-    Event, HistoryEvent, Run, RunState, Task, TaskKind, TaskState, TaskStage,
+    Event,
+    HistoryEvent,
+    Run,
+    RunState,
+    Task,
+    TaskKind,
+    TaskStage,
+    TaskState,
 )
 
 client = TestClient(app)
@@ -464,7 +467,7 @@ def test_tc10_gate_modes(tmp_path, monkeypatch):
         with Session(engine) as s:
             run = s.get(Run, "tc10ar")
             codes = [a.get("code") for a in (run.annotations or [])]
-            assert "gate_off" not in codes or True   # off 档不产生标注
+            assert True   # off 档不产生标注
             assert not codes, f"off 档不应产生标注，实际 {codes}"
     finally:
         _cleanup("tc10a")
@@ -528,7 +531,8 @@ def test_differs_detects_dirty_workspace_no_change(tmp_path):
 
     ws = tmp_path / "repo"
     ws.mkdir()
-    run = lambda *a: subprocess.run(["git", *a], cwd=str(ws), capture_output=True, text=True)
+    def run(*a):
+        return subprocess.run(["git", *a], cwd=str(ws), capture_output=True, text=True)
     run("init")
     run("config", "user.email", "t@t.t")
     run("config", "user.name", "t")

@@ -1,12 +1,11 @@
-# -*- coding: utf-8 -*-
 """本地假 release：check → download → 校验 → execute_replace，全程不触网。"""
 import hashlib
 import zipfile
 from pathlib import Path
 
+from mio_taskhub.update.downloader import download
 from mio_taskhub.update.manifest import manifest_from_dict
 from mio_taskhub.update.service import UpdateService, UpdateState
-from mio_taskhub.update.downloader import download
 
 
 def _make_zip(dest: Path, exe_text: str) -> str:
@@ -62,6 +61,7 @@ def test_local_release_flow(tmp_path):
 def test_local_release_apply_transaction(tmp_path):
     """下载后的 zip → execute_replace 到 install → wait_healthy（假 sentinel）全链。"""
     import json as _json
+
     from mio_taskhub.update.apply import execute_replace, wait_healthy
 
     payload = tmp_path / "served.zip"

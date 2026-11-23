@@ -18,6 +18,7 @@ def _seed_task(task_id, state, minutes_ago=120, retry_count=0, max_retries=3,
                stage=None):
     """写入一个「最后推进于 minutes_ago 分钟前」的任务。"""
     from sqlmodel import Session
+
     from mio_taskhub.db import engine as db_engine
     from mio_taskhub.models import Task, TaskStage
     from mio_taskhub.utils import _now
@@ -137,10 +138,11 @@ def test_remediation_log():
 
 
 def test_remediation_requeue_task():
-    from mio_taskhub.observability.remediation import RemediationEngine
-    from mio_taskhub.models import Task, TaskState, TaskStage
     from sqlmodel import Session
+
     from mio_taskhub.db import engine as db_engine
+    from mio_taskhub.models import Task, TaskStage, TaskState
+    from mio_taskhub.observability.remediation import RemediationEngine
     engine_obj = RemediationEngine()
     with Session(db_engine) as session:
         task = Task(
@@ -153,7 +155,7 @@ def test_remediation_requeue_task():
         session.add(task)
         session.commit()
     result = engine_obj.requeue_task("test-remediation-1")
-    assert result["success"] == True
+    assert result["success"] is True
     with Session(db_engine) as session:
         session.delete(session.get(Task, "test-remediation-1"))
         session.commit()
@@ -161,6 +163,7 @@ def test_remediation_requeue_task():
 
 def _seed_run(task_id, run_id, state, hb_minutes_ago):
     from sqlmodel import Session
+
     from mio_taskhub.db import engine as db_engine
     from mio_taskhub.models import Run
     from mio_taskhub.utils import _now
@@ -173,7 +176,7 @@ def _seed_run(task_id, run_id, state, hb_minutes_ago):
 
 def test_task_with_fresh_run_heartbeat_not_stalled():
     """P1-OBS：有心跳的长任务（>30min 未迁移状态）不应被误判为停滞。"""
-    from mio_taskhub.models import TaskState, RunState
+    from mio_taskhub.models import RunState, TaskState
     from mio_taskhub.observability.remediation import RemediationEngine
     _seed_task("long-running", TaskState.RUNNING, minutes_ago=120)
     _seed_run("long-running", "r1", RunState.RUNNING, hb_minutes_ago=1)
@@ -183,7 +186,7 @@ def test_task_with_fresh_run_heartbeat_not_stalled():
 
 def test_task_with_stale_run_heartbeat_is_stalled():
     """心跳也陈旧（>阈值）→ 仍应判停滞。"""
-    from mio_taskhub.models import TaskState, RunState
+    from mio_taskhub.models import RunState, TaskState
     from mio_taskhub.observability.remediation import RemediationEngine
     _seed_task("dead-running", TaskState.RUNNING, minutes_ago=120)
     _seed_run("dead-running", "r2", RunState.RUNNING, hb_minutes_ago=120)
@@ -194,8 +197,9 @@ def test_task_with_stale_run_heartbeat_is_stalled():
 def test_requeue_task_closes_active_run():
     """P1-OBS（同 P6）：remediation 重排任务时应关闭其活跃 run。"""
     from sqlmodel import Session
+
     from mio_taskhub.db import engine as db_engine
-    from mio_taskhub.models import TaskState, RunState, Run
+    from mio_taskhub.models import Run, RunState, TaskState
     from mio_taskhub.observability.remediation import RemediationEngine
     _seed_task("requeue-me", TaskState.RUNNING, minutes_ago=120)
     _seed_run("requeue-me", "rr1", RunState.RUNNING, hb_minutes_ago=120)

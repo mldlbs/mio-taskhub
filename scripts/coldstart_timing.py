@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """冷启 Quickstart 计时 harness（T3.5 / M3·M4）。
 
 测量陌生环境「启动 hub → register → claim → submit」闭环耗时，
@@ -11,7 +10,9 @@
   python scripts/coldstart_timing.py --json          # 输出 JSON（机器可读）
 """
 from __future__ import annotations
+
 import argparse
+import contextlib
 import json
 import os
 import statistics
@@ -114,7 +115,7 @@ def run_once(exe: str | None, base: str, tag: str, startup_deadline: float,
         if kill:
             kill_hub(Path(exe).name)
             time.sleep(1.0)
-        t0 = time.perf_counter()
+        time.perf_counter()
         proc = subprocess.Popen(
             [exe, "hub"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -142,10 +143,8 @@ def _terminate(proc) -> None:
         proc.terminate()
         proc.wait(timeout=5)
     except Exception:
-        try:
+        with contextlib.suppress(Exception):
             proc.kill()
-        except Exception:
-            pass
 
 
 def main():

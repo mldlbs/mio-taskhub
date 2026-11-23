@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """独立结构校验与漂移对比的合成数据测试。"""
 import json
 import sqlite3

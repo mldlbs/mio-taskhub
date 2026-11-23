@@ -93,6 +93,7 @@ function kahnLayers(nodeIds, byId) {
   return { layers, depth }
 }
 
+// eslint-disable-next-line max-lines-per-function
 export default function DependencyGraph({ task, tasks, onOpen }) {
   const [hovered, setHovered] = useState(null)
   const [selected, setSelected] = useState(null)
@@ -140,7 +141,7 @@ export default function DependencyGraph({ task, tasks, onOpen }) {
     return [...s].filter(id => byId[id])
   }, [ancestors, descendants, task, byId])
 
-  const { layers, depth } = useMemo(() => kahnLayers(subIds, byId), [subIds, byId])
+  const { layers } = useMemo(() => kahnLayers(subIds, byId), [subIds, byId])
 
   // missing placeholders are shown as extra top layer
   const hasMissing = missing.length > 0
@@ -295,6 +296,7 @@ export default function DependencyGraph({ task, tasks, onOpen }) {
               />
             )
           })}
+          {/* eslint-disable-next-line complexity */}
           {Object.entries(positions).map(([id, p]) => {
             const isMissingNode = p.isMissing
             const t = byId[id]

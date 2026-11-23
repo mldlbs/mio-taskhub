@@ -61,6 +61,12 @@ jobs:
           # conftest.py:11 无条件覆盖 MIO_TASKHUB_DB；测试隔离实际读 MIO_TEST_DB_PATH。
           MIO_TEST_DB_PATH: "${{ runner.temp }}/test_taskhub.db"
 
+      # 2026-11-23 接入 ruff 门禁：lint 违规 = 退出码非零 = CI 红。
+      # 规则集见 pyproject.toml [tool.ruff]；存量债务豁免在 ignore 里逐条注明棘轮候选。
+      - name: Ruff lint
+        shell: bash
+        run: python -m ruff check .
+
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4

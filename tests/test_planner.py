@@ -1,7 +1,8 @@
 # tests/test_planner.py
-import pytest
 from datetime import time
-from mio_taskhub.planner import PlanItem, detect_cycle, generate_night_plan
+
+from mio_taskhub.planner import detect_cycle, generate_night_plan
+
 
 def test_basic_serial_plan():
     tasks = [

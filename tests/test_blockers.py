@@ -78,7 +78,7 @@ def test_dependency_dead_when_prereq_missing():
     tid = _mk(title="blocked-by-missing", depends_on=["deadbeef"])
     items = [i for i in client.get(f"/api/v1/tasks/{tid}/blockers").json()["items"]
              if i["kind"] == "dependency_dead"]
-    assert items and "依赖指向不存在的任务" == items[0]["title"]
+    assert items and items[0]["title"] == "依赖指向不存在的任务"
     assert "deadbeef" in items[0]["because"]
 
 
@@ -452,7 +452,6 @@ def test_blocked_subtask_without_targets_is_warning_not_blocking():
 
 def test_discussion_gate_exemption_surfaced_in_readiness():
     """requirement 已批准 → 就绪度面板不再报「缺少讨论记录」；草稿/未登记时照常报。"""
-    from mio_taskhub.models import TaskState
     tid = _mk(title="disc-exempt", stage="brainstorming",
               doc_paths={"requirement": "requirement.md"})
     with Session(engine) as s:

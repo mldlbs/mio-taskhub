@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """两版素材库的分类漂移对比（按内容指纹 + 类型 + 状态）。
 
 用于：
@@ -13,10 +12,9 @@ import sqlite3
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 
-def _load(db: Path) -> Dict[Tuple[str, str], dict]:
+def _load(db: Path) -> dict[tuple[str, str], dict]:
     conn = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     rows = conn.execute(

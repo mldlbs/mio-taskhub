@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """把 payload zip **附加**到安装器 exe 自身 → 单文件安装包。
 
 **为什么要合并**：真实世界的安装器（NSIS / Inno Setup）都是**单文件**
@@ -22,10 +21,8 @@ PE 头里没有「附加数据」的字段，只能靠自己的标记定位。�
 """
 from __future__ import annotations
 
-import os
 import struct
 import tempfile
-import zipfile
 from pathlib import Path
 
 #: 尾部标记的 magic（8 字节）
@@ -145,7 +142,7 @@ def extract_embedded_payload(exe_path, dest_dir=None) -> Path:
                 w.write(chunk)
                 remaining -= len(chunk)
     if remaining != 0:
-        raise IOError("内嵌安装包不完整（少了 %d 字节）" % remaining)
+        raise OSError("内嵌安装包不完整（少了 %d 字节）" % remaining)
     return out
 
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """quality_strata.py 单测（T2.3 P 系列观测分层 V2）。"""
 import json
 import sqlite3
@@ -10,7 +9,7 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 
-import quality_strata as qs  # noqa: E402
+import quality_strata as qs
 
 
 def _mk_db(tmp_path, events=None, tasks=None):

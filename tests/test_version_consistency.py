@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """T4.1 版本号 / tag / CHANGELOG 一致性单测。"""
 import re
 import subprocess

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """只读预检：不改库，能识别缺列与已存在的 material_* 表。"""
 import shutil
 import sqlite3

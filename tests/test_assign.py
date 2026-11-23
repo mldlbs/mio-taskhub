@@ -1,12 +1,14 @@
 # tests/test_assign.py
 from datetime import datetime, timezone
+
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
-from mio_taskhub.main import app
-from mio_taskhub.db import engine
-from mio_taskhub.models import Task, Run, RunState, TaskState, TaskStage
+
+from mio_taskhub import background
 from mio_taskhub.api.claim import claim_for as _claim_for
-import mio_taskhub.background as background
+from mio_taskhub.db import engine
+from mio_taskhub.main import app
+from mio_taskhub.models import Run, Task, TaskStage, TaskState
 
 client = TestClient(app)
 
@@ -84,7 +86,7 @@ def test_sequential_second_claim_no_duplicate():
         task_id = r1.task_id
         s.commit()
     with Session(engine) as s:
-        r2 = _claim_for("c2", s)
+        _claim_for("c2", s)
         s.commit()
     runs = _runs_for(task_id)
     assert len(runs) == 1
@@ -187,8 +189,9 @@ def test_any_type_task_not_starved_by_typed_task():
         assert run is not None and run.agent_name == "starve1"
 
 
-import threading
 import sqlite3
+import threading
+
 from sqlalchemy.exc import OperationalError as SAOperationalError
 
 

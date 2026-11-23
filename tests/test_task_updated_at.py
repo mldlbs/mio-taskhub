@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Task.updated_at：创建默认值、状态迁移与领取写入。"""
 from sqlmodel import Session
 

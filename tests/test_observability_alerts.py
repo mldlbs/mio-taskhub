@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """活性告警：队列陈旧、无跃迁、无消费者、调度状态丢失。"""
 import time
 from datetime import datetime, timedelta, timezone

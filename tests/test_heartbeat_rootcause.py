@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """心跳失败根因修复（task 0712a33e / P1-2）。
 
 覆盖：① 窗口不再无条件收窄到 120s（在工作 vs 从未启动）；② never_started 干净 requeue
@@ -9,18 +8,24 @@ from datetime import datetime, timedelta, timezone
 
 from sqlmodel import Session, select
 
-from mio_taskhub.db import engine
-from mio_taskhub.models import (
-    Agent, AgentStatus, Run, RunState, Task, TaskStage, TaskState,
-)
-from mio_taskhub.heartbeat import HeartbeatSweep, RunInfo
 from mio_taskhub import background as bg
+from mio_taskhub.db import engine
+from mio_taskhub.heartbeat import HeartbeatSweep, RunInfo
+from mio_taskhub.models import (
+    Agent,
+    AgentStatus,
+    Run,
+    RunState,
+    Task,
+    TaskStage,
+    TaskState,
+)
 
 
 def _runinfo(**kw):
-    base = dict(run_id="r1", task_id="t1", agent_name="a1", state=RunState.RUNNING,
-                last_heartbeat=0.0, attempt=1, max_retries=3,
-                timeout_seconds=300, agent_offline=False, progress=0)
+    base = {"run_id": "r1", "task_id": "t1", "agent_name": "a1", "state": RunState.RUNNING,
+                "last_heartbeat": 0.0, "attempt": 1, "max_retries": 3,
+                "timeout_seconds": 300, "agent_offline": False, "progress": 0}
     base.update(kw)
     return RunInfo(**base)
 

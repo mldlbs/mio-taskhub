@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """素材库常量：分类、TTL、质量阈值。"""
 from __future__ import annotations
 

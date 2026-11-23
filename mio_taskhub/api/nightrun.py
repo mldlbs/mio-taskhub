@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from mio_taskhub.admin_guard import require_admin
 from mio_taskhub.db import get_session
-from mio_taskhub.models import Task, TaskState
+from mio_taskhub.models import Task
 from mio_taskhub.scheduling import night_runner as nr
 from mio_taskhub.scheduling.night_runner import load_config, save_config
 
@@ -36,7 +36,7 @@ def get_cron_tasks(db: Session = Depends(get_session)):
     """List all tasks that have a cron_expr or future run_at."""
     tasks = db.exec(
         select(Task).where(
-            (Task.cron_expr != None) | (Task.run_at != None)
+            (Task.cron_expr.is_not(None)) | (Task.run_at.is_not(None))
         ).order_by(Task.priority.desc(), Task.created_at)
     ).all()
     return [
@@ -65,7 +65,7 @@ def put_config(body: dict):
 
 
 @router.post("/spawn-now", dependencies=[Depends(require_admin)])
-def spawn_now(body: dict = None):
+def spawn_now(body: dict | None = None):
     """手动触发：立即按当前配置 spawn（测试用，不受窗口限制）。"""
     runner = nr.get_runner()
     if not runner:

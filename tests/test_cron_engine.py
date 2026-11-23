@@ -1,10 +1,7 @@
 """Tests for mio_taskhub.scheduling.cron_engine — CronEngine core logic."""
 import json
-import time
-from datetime import datetime, timezone, timedelta
-from unittest.mock import patch, MagicMock
+from datetime import datetime, timedelta, timezone
 
-import pytest
 from sqlmodel import Session, select
 
 from mio_taskhub.db import engine as db_engine
@@ -78,10 +75,11 @@ def test_cron_engine_tick_no_jobs():
 
 
 def test_cron_engine_add_and_pause():
-    from mio_taskhub.scheduling.cron_engine import CronEngine
-    from mio_taskhub.models import ScheduledJob, ScheduledJobActionType
-    from mio_taskhub.db import engine as db_engine
     from sqlmodel import Session
+
+    from mio_taskhub.db import engine as db_engine
+    from mio_taskhub.models import ScheduledJob, ScheduledJobActionType
+    from mio_taskhub.scheduling.cron_engine import CronEngine
 
     engine_obj = CronEngine()
     job = ScheduledJob(

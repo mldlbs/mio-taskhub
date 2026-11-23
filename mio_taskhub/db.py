@@ -1,10 +1,12 @@
 # mio_taskhub/db.py
 import os
 import time
-from sqlmodel import SQLModel, create_engine, Session
-from typing import Generator
+from collections.abc import Generator
+
 from sqlalchemy import event, text
 from sqlalchemy.pool import QueuePool
+from sqlmodel import Session, SQLModel, create_engine
+
 from mio_taskhub.observability.dep_metrics import DepMetrics
 
 # Allow overriding the DB path (e.g. tests use a throwaway DB so the
@@ -42,12 +44,12 @@ def _migrate_stage_column(target_engine=None):
 
 def init_db():
     # 素材库模型必须在 create_all 之前导入，否则新表不会被注册
-    from mio_taskhub.materials import models as _material_models  # noqa: F401
+    from mio_taskhub.materials import models as _material_models  # noqa: F401  # 副作用导入：注册素材库表模型
     SQLModel.metadata.create_all(engine)
     _migrate_stage_column()
     # 首次运行播种常用模板（表为空时才插入，幂等）
-    from mio_taskhub.seed import seed_common_templates, seed_idea_generate_job
     from mio_taskhub.materials.seed import seed_material_sources
+    from mio_taskhub.seed import seed_common_templates, seed_idea_generate_job
     with Session(engine) as s:
         seed_common_templates(s)
         seed_idea_generate_job(s)
@@ -90,4 +92,5 @@ def check_connection() -> dict:
 
 # Install auto-broadcast hooks (broadcasts Event objects on successful commit)
 from mio_taskhub.events import install_broadcast_hooks
+
 install_broadcast_hooks(engine)

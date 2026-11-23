@@ -103,6 +103,7 @@ function clusterStat(ts) {
   }
 }
 
+// eslint-disable-next-line complexity, max-lines-per-function
 export default function TopoView({ tasks, onOpen }) {
   const [hoveredId, setHoveredId] = useState(null)
   const [showAll, setShowAll] = useState(false)
@@ -378,6 +379,7 @@ export default function TopoView({ tasks, onOpen }) {
             <div key={i} className="topo__layer">
               <div className="topo__layer-tag">L{i + 1}</div>
               <div className="topo__layer-nodes">
+                {/* eslint-disable-next-line complexity */}
                 {layer.map(t => {
                   const p = prio(t.priority)
                   const blocked = blockedBy(t, detailTasks)

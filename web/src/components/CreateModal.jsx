@@ -12,6 +12,7 @@ const EMPTY = {
   webhook_url: '', webhook_method: 'POST', webhook_body: '',
 }
 
+// eslint-disable-next-line complexity, max-lines-per-function
 export default function CreateModal({ onClose, onCreate }) {
   const [form, setForm] = useState(EMPTY)
   const [busy, setBusy] = useState(false)
@@ -69,6 +70,7 @@ export default function CreateModal({ onClose, onCreate }) {
     ? templates.filter(t => t.title.includes(tplFilter) || t.category.includes(tplFilter) || (t.tags || []).some(x => x.includes(tplFilter)))
     : templates
 
+  // eslint-disable-next-line complexity
   const submit = async (e) => {
     e.preventDefault()
     if (!form.title.trim()) return

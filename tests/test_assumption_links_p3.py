@@ -5,11 +5,11 @@ import uuid
 import httpx
 from sqlmodel import Session, select
 
-from mio_taskhub.main import app
-from mio_taskhub.db import engine
 from mio_taskhub.api import ideas as ideas_api
-from mio_taskhub.models import Idea, IdeaAssumptionLink
+from mio_taskhub.db import engine
+from mio_taskhub.main import app
 from mio_taskhub.migrations import run_migrations
+from mio_taskhub.models import Idea, IdeaAssumptionLink
 
 
 def _with_client(coro):
@@ -132,7 +132,7 @@ def test_assumption_links_endpoint(monkeypatch):
         assert b["idea_id"] == iid and b["total"] == 2
         assert [x["hypothesis_id"] for x in b["links"]] == ["h1", "h2"]  # 排序
         assert all(x["status"] == "unverified" for x in b["links"])
-        assert {k2 for x in b["links"] for k2 in x.keys()} == {
+        assert {k2 for x in b["links"] for k2 in x} == {
             "id", "idea_id", "hypothesis_id", "status", "note",
             "confirmed_by", "updated_at"}
 

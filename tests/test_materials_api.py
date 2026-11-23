@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P3：素材来源健康只读端点。"""
 from fastapi.testclient import TestClient
 

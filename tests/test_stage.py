@@ -1,10 +1,11 @@
-from fastapi.testclient import TestClient
-from fastapi import HTTPException
 import pytest
-from mio_taskhub.main import app
-from mio_taskhub.db import engine
-from mio_taskhub.models import Task, TaskStage
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from sqlmodel import Session
+
+from mio_taskhub.db import engine
+from mio_taskhub.main import app
+from mio_taskhub.models import Task, TaskStage
 
 client = TestClient(app)
 
@@ -233,37 +234,6 @@ def test_submit_result_moves_to_review():
     d = client.get(f"/api/v1/tasks/{tid}").json()
     assert d["stage"] == "review"
     assert d["state"] == "completed"
-
-
-# --- T25：failed 任务的人工验收（2026-11-04 报错「未定义的转换: (failed,review) -> (completed,done)」）---
-def _mk_failed(title="failed-task", stage="review"):
-    from mio_taskhub.models import TaskState
-    with Session(engine) as s:
-        t = Task(title=title, stage=TaskStage(stage), state=TaskState.FAILED)
-        s.add(t); s.commit(); s.refresh(t)
-        return t.id
-
-def test_advance_failed_review_to_done_is_allowed():
-    """人审推翻失败判定：FAILED(review) → COMPLETED(done) 单跳（T25）。"""
-    tid = _mk_failed()
-    r = client.post(f"/api/v1/tasks/{tid}/stage", json={"target_stage": "done"})
-    assert r.status_code == 200, r.text
-    d = r.json()
-    assert d["stage"] == "done" and d["state"] == "completed"
-
-def test_advance_failed_to_intermediate_stage_is_rejected_with_readable_reason():
-    """失败任务不能中途往前推：要给 retry / cancel / 人工验收三条出路，而不是状态机天书。"""
-    tid = _mk_failed(stage="implementing")
-    r = client.post(f"/api/v1/tasks/{tid}/stage", json={"target_stage": "review"})
-    assert r.status_code == 422
-    detail = r.json()["detail"]
-    assert "失败状态" in detail and "retry" in detail and "cancelled" in detail
-
-def test_advance_failed_to_cancelled_still_works():
-    tid = _mk_failed(stage="implementing")
-    r = client.post(f"/api/v1/tasks/{tid}/stage", json={"target_stage": "cancelled"})
-    assert r.status_code == 200
-    assert r.json()["state"] == "cancelled"
 
 
 # --- T25：failed 任务的人工验收（2026-11-04 报错「未定义的转换: (failed,review) -> (completed,done)」）---

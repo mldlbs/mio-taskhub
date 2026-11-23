@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """T0.6 / F17：task_cancelled 事件 payload 必须非空且含 reason 枚举 + 可选 detail。
 
 历史缺陷：cancel_task 的 emit_event 从未传 payload → 生产库 145 条事件 payload 全 null。

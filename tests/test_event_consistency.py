@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """事件一致性模型测试（task c32a2145 / P1-3）。
 
 验证「事务内持久化 + 提交后尽力广播」语义：
@@ -9,9 +8,9 @@ import uuid
 
 from sqlmodel import Session, select
 
+import mio_taskhub.events as EV
 from mio_taskhub.db import engine
 from mio_taskhub.models import Event, Task
-import mio_taskhub.events as EV
 
 
 def _task(title="evt"):

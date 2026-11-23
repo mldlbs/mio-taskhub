@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """确定性提炼：raw payload → Draft[]（纯函数，无 IO / 无网络 / 无 LLM）。
 
 Payload 约定（P3 适配器负责构造；P2 用黄金样本验证）：
@@ -18,7 +17,8 @@ Payload 约定（P3 适配器负责构造；P2 用黄金样本验证）：
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from collections.abc import Iterable
+from typing import Any
 
 from mio_taskhub.api.task_lessons import has_test_evidence, split_sentences
 from mio_taskhub.materials.quality import Draft
@@ -101,9 +101,7 @@ def is_generic_failure(q: str) -> bool:
         return True
     if re.fullmatch(r"exit \d+", norm):
         return True
-    if re.match(r"^(node:internal|e:internal)\b", norm):
-        return True
-    return False
+    return bool(re.match(r"^(node:internal|e:internal)\b", norm))
 
 
 def has_citable_signal(q: str, source: str = "hn") -> bool:
@@ -126,10 +124,10 @@ def has_citable_signal(q: str, source: str = "hn") -> bool:
     return bool(_STRONG_EVENT.search(q) or _VERB.search(q))
 
 
-def _atomic_units(text: str, max_chars: int = 240) -> List[str]:
+def _atomic_units(text: str, max_chars: int = 240) -> list[str]:
     """把长段切成可逐字命中的原子单元；单句仍超限则丢弃该句。"""
     text = text or ""
-    units: List[str] = []
+    units: list[str] = []
     for sent in split_sentences(text):
         sent = _LEAD_MARK.sub("", sent.strip()).strip()
         if not sent:
@@ -146,11 +144,11 @@ def _atomic_units(text: str, max_chars: int = 240) -> List[str]:
     return units
 
 
-def _project(payload: Dict[str, Any]) -> str:
+def _project(payload: dict[str, Any]) -> str:
     return str(payload.get("project") or "").strip()
 
 
-def _trimmed_span(text: str, start: int, end: int) -> Tuple[int, int]:
+def _trimmed_span(text: str, start: int, end: int) -> tuple[int, int]:
     start = max(0, start)
     end = min(len(text), end)
     while start < end and text[start].isspace():
@@ -161,7 +159,7 @@ def _trimmed_span(text: str, start: int, end: int) -> Tuple[int, int]:
 
 
 def _first_lines_span(text: str, max_lines: int = 3,
-                      max_chars: int = 400) -> Tuple[int, int]:
+                      max_chars: int = 400) -> tuple[int, int]:
     if not text:
         return 0, 0
     start = len(text) - len(text.lstrip())
@@ -188,8 +186,8 @@ def _truncate(text: str, max_chars: int) -> str:
 
 
 def _draft(kind: str, quote: str, field: str, text: str,
-           start: Optional[int] = None, end: Optional[int] = None,
-           **kwargs: Any) -> Optional[Draft]:
+           start: int | None = None, end: int | None = None,
+           **kwargs: Any) -> Draft | None:
     quote = (quote or "").strip()
     if len(quote) < 8:
         return None
@@ -205,7 +203,7 @@ def _draft(kind: str, quote: str, field: str, text: str,
                  char_start=start, char_end=end, **kwargs)
 
 
-def _lines_with_offsets(text: str) -> Iterable[Tuple[int, str]]:
+def _lines_with_offsets(text: str) -> Iterable[tuple[int, str]]:
     pos = 0
     for line in text.splitlines(keepends=True):
         raw = line.rstrip("\r\n")
@@ -213,7 +211,7 @@ def _lines_with_offsets(text: str) -> Iterable[Tuple[int, str]]:
         pos += len(line)
 
 
-def extract_hn(payload: Dict[str, Any], source: Any = None) -> List[Draft]:
+def extract_hn(payload: dict[str, Any], source: Any = None) -> list[Draft]:
     content = str(payload.get("content") or "")
     title = _HN_SUFFIX.sub("", content).strip()
     if not title:
@@ -230,7 +228,7 @@ def extract_hn(payload: Dict[str, Any], source: Any = None) -> List[Draft]:
     return [d] if d else []
 
 
-def extract_github_trending(payload: Dict[str, Any], source: Any = None) -> List[Draft]:
+def extract_github_trending(payload: dict[str, Any], source: Any = None) -> list[Draft]:
     content = str(payload.get("content") or "")
     if content.strip():
         start, end = _trimmed_span(content, 0, len(content))
@@ -251,10 +249,10 @@ def extract_github_trending(payload: Dict[str, Any], source: Any = None) -> List
     return [d] if d else []
 
 
-def extract_doc_requirement(payload: Dict[str, Any], source: Any = None) -> List[Draft]:
+def extract_doc_requirement(payload: dict[str, Any], source: Any = None) -> list[Draft]:
     text = str(payload.get("text") or "")
     project = _project(payload)
-    out: List[Draft] = []
+    out: list[Draft] = []
     for line_start, line in _lines_with_offsets(text):
         table = _FR_TABLE.match(line)
         if table:
@@ -295,7 +293,7 @@ def _review_kind(quote: str, verdict: str) -> str:
     return "decision"
 
 
-def extract_doc_review(payload: Dict[str, Any], source: Any = None) -> List[Draft]:
+def extract_doc_review(payload: dict[str, Any], source: Any = None) -> list[Draft]:
     text = str(payload.get("review_result") or "")
     if not text.strip():
         return []
@@ -304,7 +302,7 @@ def extract_doc_review(payload: Dict[str, Any], source: Any = None) -> List[Draf
     if len(parts) <= 1:
         parts = _split_items(text)
     project = _project(payload)
-    out: List[Draft] = []
+    out: list[Draft] = []
     cursor = 0
     for part in parts:
         for unit in _atomic_units(part):
@@ -327,11 +325,8 @@ def extract_doc_review(payload: Dict[str, Any], source: Any = None) -> List[Draf
     return out
 
 
-def _split_items(text: str) -> List[str]:
-    if re.search(r"[①-⑩]", text):
-        parts = re.split(r"(?=[①-⑩])", text)
-    else:
-        parts = _ITEM_PREFIX.split(text)
+def _split_items(text: str) -> list[str]:
+    parts = re.split(r"(?=[①-⑩])", text) if re.search(r"[①-⑩]", text) else _ITEM_PREFIX.split(text)
     if len(parts) <= 1:
         parts = re.split(r"[\n]+", text)
     out = []
@@ -342,11 +337,11 @@ def _split_items(text: str) -> List[str]:
     return out
 
 
-def extract_discussion_closed(payload: Dict[str, Any], source: Any = None) -> List[Draft]:
+def extract_discussion_closed(payload: dict[str, Any], source: Any = None) -> list[Draft]:
     text = str(payload.get("conclusions") or "")
     project = _project(payload)
     topic = str(payload.get("topic") or "讨论结论")
-    out: List[Draft] = []
+    out: list[Draft] = []
     cursor = 0
     for item in _split_items(text):
         for unit in _atomic_units(item):
@@ -369,8 +364,8 @@ def extract_discussion_closed(payload: Dict[str, Any], source: Any = None) -> Li
     return out
 
 
-def _split_run_sentences(text: str) -> List[str]:
-    out: List[str] = []
+def _split_run_sentences(text: str) -> list[str]:
+    out: list[str] = []
     for chunk in split_sentences(text):
         # 保护省略号/路径中的 ...，避免被英文句点切碎
         protected = chunk.replace("...", "\u2026")
@@ -395,13 +390,13 @@ def _run_result_kind(q: str) -> str:
     return "result"
 
 
-def extract_run_result(payload: Dict[str, Any], source: Any = None) -> List[Draft]:
+def extract_run_result(payload: dict[str, Any], source: Any = None) -> list[Draft]:
     exit_code = payload.get("exit_code")
     if exit_code is not None and int(exit_code) != 0:
         return []
     text = str(payload.get("result") or "")
     project = _project(payload)
-    out: List[Draft] = []
+    out: list[Draft] = []
     cursor = 0
     for sent in _split_run_sentences(text):
         for unit in _atomic_units(sent, 240):
@@ -426,7 +421,7 @@ def extract_run_result(payload: Dict[str, Any], source: Any = None) -> List[Draf
     return out
 
 
-def extract_run_failure(payload: Dict[str, Any], source: Any = None) -> List[Draft]:
+def extract_run_failure(payload: dict[str, Any], source: Any = None) -> list[Draft]:
     exit_code = payload.get("exit_code")
     if exit_code is not None and int(exit_code) == 0:
         return []
@@ -444,7 +439,7 @@ def extract_run_failure(payload: Dict[str, Any], source: Any = None) -> List[Dra
     return [d] if d else []
 
 
-def extract_history_root_cause(payload: Dict[str, Any], source: Any = None) -> List[Draft]:
+def extract_history_root_cause(payload: dict[str, Any], source: Any = None) -> list[Draft]:
     text = str(payload.get("root_cause") or "")
     quote = _truncate(text, 400)
     if len(quote) < 8:
@@ -458,7 +453,7 @@ def extract_history_root_cause(payload: Dict[str, Any], source: Any = None) -> L
     return [d] if d else []
 
 
-def extract_log_block(payload: Dict[str, Any], source: Any = None) -> List[Draft]:
+def extract_log_block(payload: dict[str, Any], source: Any = None) -> list[Draft]:
     text = str(payload.get("block") or payload.get("content") or "")
     start, end = _first_lines_span(text, max_lines=4, max_chars=400)
     quote = text[start:end]
@@ -494,8 +489,8 @@ EXTRACTORS = {
 }
 
 
-def extract_for_source(source_key: str, payload: Dict[str, Any],
-                       source: Any = None) -> List[Draft]:
+def extract_for_source(source_key: str, payload: dict[str, Any],
+                       source: Any = None) -> list[Draft]:
     fn = EXTRACTORS.get(source_key)
     if fn is None:
         raise KeyError(f"no extractor for source: {source_key}")

@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from mio_taskhub.db import get_session
-from mio_taskhub.models import Task, TaskStage, TaskState
 from mio_taskhub.dependency import task_deps
+from mio_taskhub.models import Task, TaskStage, TaskState
 from mio_taskhub.planner import detect_cycle
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -34,7 +34,7 @@ def get_full_graph(db: Session = Depends(get_session)):
 
 
 @router.get("/{task_id}/workstream")
-def get_workstream(task_id: str, db: Session = Depends(get_session)):
+def get_workstream(task_id: str, db: Session = Depends(get_session)):  # noqa: C901, PLR0912
     """按 part-of:<id> 聚合平级任务，返回依赖层、阻塞与统计。"""
     task = db.get(Task, task_id)
     if not task:
@@ -93,7 +93,7 @@ def get_workstream(task_id: str, db: Session = Depends(get_session)):
                 missing.append({"from": dep, "to": x.id})
 
     succ = {i: [] for i in ids}
-    indeg = {i: 0 for i in ids}
+    indeg = dict.fromkeys(ids, 0)
     for e in edges:
         succ[e["from"]].append(e["to"])
         indeg[e["to"]] += 1
@@ -138,11 +138,7 @@ def get_workstream(task_id: str, db: Session = Depends(get_session)):
     for x in members:
         blocked_deps = []
         for dep in task_deps(x):
-            if dep in ids and not closed(by_id[dep]):
-                blocked_deps.append(dep)
-            elif dep in by_id and dep not in ids and not closed(by_id[dep]):
-                blocked_deps.append(dep)
-            elif dep not in by_id:
+            if (dep in ids and not closed(by_id[dep])) or (dep in by_id and dep not in ids and not closed(by_id[dep])) or dep not in by_id:
                 blocked_deps.append(dep)
         if blocked_deps and not closed(x):
             blocked.append({"id": x.id, "blocked_by": blocked_deps})
@@ -174,7 +170,7 @@ def get_workstream(task_id: str, db: Session = Depends(get_session)):
     }
 
 @router.get("/{task_id}/graph")
-def get_task_graph(task_id: str, db: Session = Depends(get_session)):
+def get_task_graph(task_id: str, db: Session = Depends(get_session)):  # noqa: C901
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404, "task not found")

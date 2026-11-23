@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """校验门禁报告与当前代码/数据库绑定是否一致（防止报告与发布对象脱钩）。
 
 检查：
@@ -14,9 +13,7 @@ import argparse
 import hashlib
 import json
 import subprocess
-import sys
 from pathlib import Path
-from typing import List, Optional
 
 
 def _fingerprint(report: dict) -> str:
@@ -35,9 +32,9 @@ def _head() -> str:
         return ""
 
 
-def verify(report_path: Path, db: Optional[Path] = None,
-           commit: Optional[str] = None, allow_dirty: bool = False) -> List[str]:
-    problems: List[str] = []
+def verify(report_path: Path, db: Path | None = None,
+           commit: str | None = None, allow_dirty: bool = False) -> list[str]:
+    problems: list[str] = []
     if not report_path.exists():
         return ["report_missing"]
     report = json.loads(report_path.read_text(encoding="utf-8"))

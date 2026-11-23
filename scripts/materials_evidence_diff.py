@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """回填证据差异：业务表前后哈希 + 素材表计数/分布/重复检查。"""
 from __future__ import annotations
 

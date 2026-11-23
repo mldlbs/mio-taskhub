@@ -1,9 +1,10 @@
 """Tests for mio_taskhub.api.scheduled_jobs — CRUD + trigger + pause/resume."""
 import pytest
-from httpx import AsyncClient, ASGITransport
-from mio_taskhub.main import app
+from httpx import ASGITransport, AsyncClient
 from sqlmodel import Session
+
 from mio_taskhub.db import engine
+from mio_taskhub.main import app
 from mio_taskhub.models import ScheduledJob
 
 

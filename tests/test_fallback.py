@@ -1,12 +1,15 @@
 # tests/test_fallback.py
 """target_agent_type + fallback_after 领取语义测试"""
 from datetime import datetime, timedelta, timezone
+
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
-from mio_taskhub.main import app
+
+from mio_taskhub.api.claim import claim_for as _claim_for
+from mio_taskhub.api.claim import should_fallback as _should_fallback
 from mio_taskhub.db import engine
-from mio_taskhub.models import Task, Agent, Run, TaskState, TaskStage
-from mio_taskhub.api.claim import claim_for as _claim_for, should_fallback as _should_fallback
+from mio_taskhub.main import app
+from mio_taskhub.models import Task
 
 client = TestClient(app)
 

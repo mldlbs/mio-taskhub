@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """F-004 第 3 步：服务端 destructive 收口（destructive_guard）回归。
 
 覆盖：
@@ -145,9 +144,10 @@ def test_rest_doc_status_gate(anon_client, tmp_path, monkeypatch):
 # ── operator 面删除端点（B16-6 残余 #2 收口）─────────────────────────────────
 
 def _mk_template_row() -> str:
+    import uuid as _uuid
+
     from mio_taskhub.db import engine
     from mio_taskhub.models import TaskTemplate
-    import uuid as _uuid
     tid = _uuid.uuid4().hex[:8]
     with Session(engine) as s:
         s.add(TaskTemplate(id=tid, title="tpl"))
@@ -156,9 +156,10 @@ def _mk_template_row() -> str:
 
 
 def _mk_job_row() -> str:
+    import uuid as _uuid
+
     from mio_taskhub.db import engine
     from mio_taskhub.models import ScheduledJob
-    import uuid as _uuid
     jid = _uuid.uuid4().hex[:8]
     with Session(engine) as s:
         s.add(ScheduledJob(id=jid, name="job", cron_expr="0 0 * * *"))

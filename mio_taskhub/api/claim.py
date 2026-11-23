@@ -1,12 +1,13 @@
-from typing import Optional
 import os
 from datetime import timezone
-from sqlmodel import Session, select
-from sqlalchemy import case, Integer, func
+
+from sqlalchemy import Integer, case, func
 from sqlalchemy import update as sa_update
-from mio_taskhub.models import Task, TaskState, TaskStage, Agent, AgentStatus
-from mio_taskhub.api.runs import find_existing_run, create_run
+from sqlmodel import Session, select
+
+from mio_taskhub.api.runs import create_run, find_existing_run
 from mio_taskhub.hierarchy import claimable_task_clause, is_main
+from mio_taskhub.models import Agent, AgentStatus, Task, TaskStage, TaskState
 from mio_taskhub.utils import _now
 
 
@@ -23,8 +24,8 @@ def should_fallback(task, agent_type):
     elapsed = (_now() - task.created_at).total_seconds()
     return elapsed >= task.fallback_after
 
-def claim_for(agent: str, db: Session, agent_type: Optional[str] = None,
-              task_id: Optional[str] = None, project_scope: Optional[str] = None):
+def claim_for(agent: str, db: Session, agent_type: str | None = None,
+              task_id: str | None = None, project_scope: str | None = None):
     """原子领取：返回该 agent 的 Run 或 None。
 
     先查 agent 已有 claimed/running run（幂等）；否则：
@@ -67,7 +68,7 @@ def claim_for(agent: str, db: Session, agent_type: Optional[str] = None,
             try:
                 from mio_taskhub.events import broadcast_for_event
                 broadcast_for_event(ev)
-            except Exception:  # noqa: BLE001 — 广播失败不影响领取
+            except Exception:
                 pass
 
     if not agent_type:
@@ -85,7 +86,7 @@ def lookup_agent_type(db, agent):
     return ag.agent_type if ag and ag.agent_type else None
 
 
-def pick_candidate_task(db, agent_type, task_id, project_scope: Optional[str] = None):
+def pick_candidate_task(db, agent_type, task_id, project_scope: str | None = None):
     """选候选任务：指定 task_id 时按 id 领取；否则按关联度>优先级>FIFO 选 ready 任务。
 
     project_scope（修复 0fe91462）：**领取范围过滤**——非空时只在该项目范围内挑选，

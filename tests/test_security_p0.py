@@ -473,6 +473,7 @@ def test_admin_token_env_rejects_wrong_token(tmp_path, monkeypatch):
 def test_admin_tokens_excludes_auth_token(monkeypatch):
     """直接验证拆分：admin_tokens() 不再并入 app.state.auth_token。"""
     from types import SimpleNamespace
+
     from mio_taskhub.admin_guard import admin_tokens
     fake = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(auth_token="api-token")))
     monkeypatch.setenv("MIO_TASKHUB_ADMIN_TOKEN", "admin-secret")

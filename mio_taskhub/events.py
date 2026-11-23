@@ -5,18 +5,21 @@
 提交后调用 broadcast_for_event(event) 触发 WS 推送。
 """
 from __future__ import annotations
+
 import asyncio
+import contextlib
 import json
-from typing import Optional, Set
+
 from fastapi import WebSocket
-from sqlmodel import Session
 from sqlalchemy import event
+from sqlmodel import Session
+
 from mio_taskhub.models import Event
 
 
 class WSManager:
     def __init__(self):
-        self.active: Set[WebSocket] = set()
+        self.active: set[WebSocket] = set()
 
     async def connect(self, ws: WebSocket):
         await ws.accept()
@@ -49,7 +52,7 @@ MESSAGE_TYPES = {
 
 
 def emit_event(db: Session, type: str, entity: str = "", entity_id: str = "",
-               run_id: str = "", payload: Optional[dict] = None) -> Event:
+               run_id: str = "", payload: dict | None = None) -> Event:
     """构造并 db.add 一条事件（不 commit，与业务同事务提交）。返回 Event 对象（含自增 seq）。"""
     e = Event(
         type=type,
@@ -77,10 +80,8 @@ def event_to_dict(e: Event) -> dict:
 def broadcast_for_event(event: Event):
     """按 entity 映射 WS 消息类型并广播。异步隔离，异常静默。"""
     msg_type = MESSAGE_TYPES.get(event.entity, "event_update")
-    try:
+    with contextlib.suppress(Exception):
         asyncio.run(ws_manager.broadcast({"type": msg_type, "event": event_to_dict(event)}))
-    except Exception:
-        pass
 
 
 def broadcast_json(message: dict) -> None:
@@ -92,14 +93,20 @@ def broadcast_json(message: dict) -> None:
     try:
         asyncio.run(ws_manager.broadcast(message))
     except RuntimeError:
-        # 已在事件循环中：改调度到当前循环（best-effort）
+        # 已在事件循环中：改调度到当前循环（best-effort）。
+        # 保留引用防 GC 中途回收（RUF006），完成后自动出表。
         try:
             loop = asyncio.get_event_loop()
-            loop.create_task(ws_manager.broadcast(message))
-        except Exception:  # noqa: BLE001
+            task = loop.create_task(ws_manager.broadcast(message))
+            _fire_and_forget_tasks.add(task)
+            task.add_done_callback(_fire_and_forget_tasks.discard)
+        except Exception:
             pass
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
+
+
+_fire_and_forget_tasks: set = set()
 
 
 # ── Auto-broadcast on commit ───────────────────────────────────────────
@@ -127,7 +134,7 @@ def _broadcast_after_commit(session):
     for ev in events_to_send:
         try:
             broadcast_for_event(ev)
-        except Exception:  # noqa: BLE001 — 广播绝不影响已提交事务
+        except Exception:
             import logging
             logging.getLogger("mio_taskhub.events").warning(
                 "post-commit broadcast failed for event %s", getattr(ev, "id", "?"),

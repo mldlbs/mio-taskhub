@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """素材库 P1：流水线幂等、raw revision、trial、引用。"""
 from datetime import datetime, timezone
 
@@ -7,10 +6,17 @@ from sqlmodel import Session, select
 
 from mio_taskhub.db import engine
 from mio_taskhub.materials.models import (
-    Material, MaterialExtract, MaterialRaw, MaterialSource, MaterialWitness,
+    Material,
+    MaterialExtract,
+    MaterialRaw,
+    MaterialSource,
+    MaterialWitness,
 )
 from mio_taskhub.materials.pipeline import (
-    RawRecord, add_link, ingest_records, rebuild_source,
+    RawRecord,
+    add_link,
+    ingest_records,
+    rebuild_source,
 )
 from mio_taskhub.materials.quality import Draft
 
@@ -130,8 +136,8 @@ def test_rebuild_rejects_config_drift_without_version_bump():
 
 def test_rejected_raw_is_not_reprocessed_same_version():
     rec = _record("hn-rej", "A sufficiently long content for the payload.")
-    bad = lambda p, s: [Draft(
-        kind="signal", quote="short", field="content", evidence_tier="A")]
+    def bad(p, s):
+        return [Draft(kind="signal", quote="short", field="content", evidence_tier="A")]
     first = ingest_records("hn", [rec], bad)
     second = ingest_records("hn", [rec], bad)
     assert first.rejected == 1

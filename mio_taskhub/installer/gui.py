@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """安装向导 / 卸载向导的 GUI（Tkinter）。
 
 设计原则：
@@ -18,6 +17,7 @@ Tkinter 两个绕不开的限制（不处理就会被用户看见）：
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import queue
 import sys
@@ -74,7 +74,7 @@ def load_photo(name: str, size: int):
         try:
             img = tk.PhotoImage(file=png)
             return _shrink(img, size)
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
     return None
 
@@ -131,7 +131,7 @@ def load_app_icon(root):
         root.iconphoto(True, img)
         _ICON_KEEPALIVE.append(img)
         return img
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
 
@@ -201,15 +201,13 @@ class _Button(tk.Canvas):
             y = self.winfo_rooty() + self.winfo_height() + 4
             tip.geometry("+%d+%d" % (x - tip.winfo_width() // 2, y))
             self._tooltip = tip
-        except Exception:  # noqa: BLE001
+        except Exception:
             self._tooltip = None
 
     def _hide_tip(self, _e=None):
         if self._tooltip is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._tooltip.destroy()
-            except Exception:  # noqa: BLE001
-                pass
             self._tooltip = None
 
     def _draw_icon(self, cx: float, cy: float, fg: str) -> None:
@@ -372,11 +370,9 @@ class _Field(tk.Canvas):
             self._display_var.set(full)
         # Entry 是**不透明**的，嵌在 Canvas 上会盖住占位符文字（只剩尾巴）。
         # 空值时把 Entry 隐藏，让占位符完整显示。
-        try:
+        with contextlib.suppress(Exception):
             self.itemconfigure(self._entry_window,
                                state="hidden" if not full else "normal")
-        except Exception:  # noqa: BLE001
-            pass
         if not full and self._placeholder:
             self.create_text(11, h / 2, text=self._placeholder, fill="#5b6675",
                              anchor="w", font=_font(10), tags="rounded")
@@ -413,16 +409,14 @@ class _Field(tk.Canvas):
                          highlightthickness=1, highlightbackground=LINE).pack()
             else:
                 self._tip.geometry("+%d+%d" % (x, y))
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
     def _hide_tip(self, _e=None):
         tip = getattr(self, "_tip", None)
         if tip is not None:
-            try:
+            with contextlib.suppress(Exception):
                 tip.destroy()
-            except Exception:  # noqa: BLE001
-                pass
             self._tip = None
 
 
@@ -545,10 +539,8 @@ class _LogPane(tk.Frame):
             # 日志区展开会让 Tk 想把窗口撑大 → 重新钉死尺寸。
             owner = getattr(self, "_owner", None)
             if owner is not None:
-                try:
+                with contextlib.suppress(Exception):
                     owner._lock_size()
-                except Exception:  # noqa: BLE001
-                    pass
 
     def append(self, text: str):
         self.show()
@@ -576,12 +568,12 @@ def _ui_call(root, fn, *args):
     """
     try:
         root.after(0, fn, *args)
-    except RuntimeError as e:  # noqa: BLE001
+    except RuntimeError as e:
         try:
             from .entry_support import log_path
             with open(log_path("installer.log"), "a", encoding="utf-8") as f:
                 f.write("[ui-dispatch-failed] %s: %s\n" % (getattr(fn, "__name__", fn), e))
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
 
@@ -616,10 +608,8 @@ class _Base:
         #
         # 注意：**必须在建任何控件之前** withdraw —— 一旦控件建好并
         # update_idletasks()，窗口就可能已经被映射了。
-        try:
+        with contextlib.suppress(Exception):
             root.withdraw()
-        except Exception:  # noqa: BLE001
-            pass
         root.title(title)
         root.configure(bg=BG)
         # 固定尺寸：用户不能拖拽改变，日志展开时窗口也不变。
@@ -629,10 +619,8 @@ class _Base:
         # 拦截窗口关闭：走 _close_now 把 _closed 置位。
         # 否则 root.destroy() 之后，Python 侧排队的 after 回调仍会执行，
         # 报 "invalid command name ... (after script)"。
-        try:
+        with contextlib.suppress(Exception):
             root.protocol("WM_DELETE_WINDOW", self._close_now)
-        except Exception:  # noqa: BLE001
-            pass
         # 安装/卸载在后台线程跑，主线程此时可能长时间无消息处理 →
         # Windows 会把标题栏标成「(未响应)」。周期性喂消息避免误报。
         self._pulse()
@@ -702,7 +690,7 @@ class _Base:
             self._center()
             self.root.update_idletasks()
             self.root.lift()
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
     def _center(self) -> None:
@@ -751,7 +739,7 @@ class _Base:
             x = client_x - off_x
             y = client_y - off_y
             self.root.geometry("%dx%d+%d+%d" % (w, h, x, y))
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
     def _frame_borders(self):
@@ -762,7 +750,6 @@ class _Base:
         """
         try:
             import ctypes
-            from ctypes import wintypes
 
             user32 = ctypes.windll.user32
 
@@ -783,13 +770,13 @@ class _Base:
             off_y = pt.y - wr.t
             if off_x >= 0 and off_y >= 0:
                 return off_x, off_y
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
         # 退路：Tk 读数（仅当窗口已映射才准）
         try:
             return (self.root.winfo_x() - self.root.winfo_rootx(),
                     self.root.winfo_y() - self.root.winfo_rooty())
-        except Exception:  # noqa: BLE001
+        except Exception:
             return 0, 0
 
     def _work_area(self):
@@ -823,7 +810,7 @@ class _Base:
                 return None
             rc = mi.rcWork
             return (rc.l, rc.t, rc.r - rc.l, rc.b - rc.t)
-        except Exception:  # noqa: BLE001
+        except Exception:
             return None
 
     def _lock_size(self) -> None:
@@ -842,7 +829,7 @@ class _Base:
             self.root.geometry("%dx%d" % (self.WINDOW_W, self.WINDOW_H))
             self.root.minsize(self.WINDOW_W, self.WINDOW_H)
             self.root.maxsize(self.WINDOW_W, self.WINDOW_H)
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
     def post(self, fn, *args) -> None:
@@ -862,13 +849,13 @@ class _Base:
                 return
             try:
                 fn(*args)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 # 单个 UI 回调出错不能影响后续队列项
                 try:
                     from .entry_support import log_path
                     with open(log_path("installer.log"), "a", encoding="utf-8") as f:
                         f.write("[ui-callback-failed] %r\n" % e)
-                except Exception:  # noqa: BLE001
+                except Exception:
                     pass
 
     def _pulse(self):
@@ -882,28 +869,22 @@ class _Base:
         """
         if self._closed:
             return
-        try:
+        with contextlib.suppress(Exception):
             self._drain_queue()
-        except Exception:  # noqa: BLE001
-            pass
         try:
             self.root.update()
-        except Exception:  # noqa: BLE001 —— 窗口已销毁时忽略
+        except Exception:
             self._closed = True
             return
-        try:
+        with contextlib.suppress(Exception):
             self._jobs.append(self.root.after(300, self._pulse))
-        except Exception:  # noqa: BLE001
-            pass
 
     def _close_later(self, delay_ms: int = 1200) -> None:
         """延时关闭窗口。窗口若已销毁则不再排程（避免 after 脚本报错）。"""
         if self._closed:
             return
-        try:
+        with contextlib.suppress(Exception):
             self._jobs.append(self.root.after(delay_ms, self._close_now))
-        except Exception:  # noqa: BLE001
-            pass
 
     def _close_now(self) -> None:
         """关闭窗口，并把 _closed 置位。
@@ -916,15 +897,11 @@ class _Base:
             return
         self._closed = True
         for job in list(getattr(self, "_jobs", [])):
-            try:
+            with contextlib.suppress(Exception):
                 self.root.after_cancel(job)
-            except Exception:  # noqa: BLE001
-                pass
         self._jobs = []
-        try:
+        with contextlib.suppress(Exception):
             self.root.destroy()
-        except Exception:  # noqa: BLE001
-            pass
 
     def _card(self, parent):
         """带描边的深色卡片：返回 (wrapper, content_frame)。"""
@@ -1051,7 +1028,7 @@ class InstallerApp(_Base):
             d = detect_install_dir()
             if not (d / "TaskHub.exe").exists():
                 return
-        except Exception:  # noqa: BLE001
+        except Exception:
             return
         self._btn_uninstall.pack(side="right", padx=(0, 10))
         self.var_dir.set(str(d))
@@ -1074,7 +1051,7 @@ class InstallerApp(_Base):
             top = tk.Toplevel(self.root)
             # 必须在 UninstallerApp 构造（会 deiconify）之前设
             top.transient(self.root)
-        except Exception:  # noqa: BLE001
+        except Exception:
             top = None
         if top is None:
             # 退路：直接静默卸载
@@ -1084,7 +1061,7 @@ class InstallerApp(_Base):
         try:
             UninstallerApp(top)
             self.root.wait_window(top)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             self.notice.show("err", "打开卸载窗口失败", repr(e))
 
     def _uninstall_work(self):
@@ -1094,7 +1071,7 @@ class InstallerApp(_Base):
             self.post(self.notice.show,
                       "ok" if res.ok else "err",
                       "卸载完成" if res.ok else "卸载失败", res.message)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             self.post(self.notice.show, "err", "卸载异常", repr(e))
 
     def _browse_payload(self):
@@ -1140,19 +1117,15 @@ class InstallerApp(_Base):
         `pack_forget()` 掉的控件（如日志面板），Tcl 会报
         `window "..." isn't packed`。槽位用 pack 顺序定位，稳。
         """
-        try:
+        with contextlib.suppress(Exception):
             self._payload_slot.pack(fill="x", pady=(0, 12))
-        except Exception:  # noqa: BLE001
-            pass
         self.status.configure(text="等待选择安装包")
         self.notice.show("err", "需要安装包", message)
 
     def _mark_payload_ok(self) -> None:
         """已找到安装包：隐藏兜底行 + 状态栏肯定反馈。"""
-        try:
+        with contextlib.suppress(Exception):
             self._payload_slot.pack_forget()
-        except Exception:  # noqa: BLE001
-            pass
         self.status.configure(text="已找到安装包，随时可以开始安装")
 
     def _start(self):
@@ -1167,7 +1140,7 @@ class InstallerApp(_Base):
             payload_zip = self.var_payload.get()
             install_dir = self.var_dir.get()
             create_shortcuts = bool(self.var_shortcuts.get())
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             self.notice.show("err", "读取界面参数失败", repr(e))
             return
         if not payload_zip:
@@ -1180,7 +1153,7 @@ class InstallerApp(_Base):
             from .install import looks_like_install_dir
             overwrite_needed = (install_dir and os.path.isdir(install_dir)
                                 and looks_like_install_dir(install_dir))
-        except Exception:  # noqa: BLE001
+        except Exception:
             overwrite_needed = False
         if overwrite_needed:
             self._overwrite_check.pack(anchor="w", pady=(6, 0))
@@ -1218,7 +1191,7 @@ class InstallerApp(_Base):
                           "[%s] %s%s" % ("OK" if s["ok"] else "!!", s["name"],
                                           (" — " + s["detail"]) if s["detail"] else ""))
             self.post(self._finish, res)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             self.post(self.log.append, "安装异常：%r" % e)
             self.post(self._failed, str(e))
 
@@ -1302,7 +1275,7 @@ class UninstallerApp(_Base):
         try:
             install_dir = self.var_dir.get()
             remove_data = bool(self.var_purge.get())
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             self.notice.show("err", "读取界面参数失败", repr(e))
             return
         self._btn_uninstall.set_enabled(False)
@@ -1322,7 +1295,7 @@ class UninstallerApp(_Base):
                           "[%s] %s%s" % ("OK" if s["ok"] else "!!", s["name"],
                                           (" — " + s["detail"]) if s["detail"] else ""))
             self.post(self._finish, res)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             self.post(self.log.append, "卸载异常：%r" % e)
             self.post(self._failed, str(e))
 

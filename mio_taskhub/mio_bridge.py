@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """TH-01 历史决策闭环的服务层（FR-2 ~ FR-8）。
 
 职责边界：
@@ -12,7 +11,6 @@ import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Tuple
 
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
@@ -51,7 +49,7 @@ def route_query_text(task: Task) -> str:
     return (f"{title} {desc}".strip() or title)[:500]
 
 
-def _agent_health_best(data: dict) -> Optional[str]:
+def _agent_health_best(data: dict) -> str | None:
     health = data.get("agentHealth") or {}
     best = health.get("best") or {}
     if not best.get("agent"):
@@ -59,7 +57,7 @@ def _agent_health_best(data: dict) -> Optional[str]:
     return "%s:%s:%s" % (best.get("agent"), best.get("successRate"), best.get("total"))
 
 
-def route_view(decision_id: str, data: Optional[dict], reason: str = "none") -> Optional[dict]:
+def route_view(decision_id: str, data: dict | None, reason: str = "none") -> dict | None:
     """claim 响应用的精简视图（不复制整份历史记忆）。"""
     if data is None:
         return None
@@ -75,7 +73,7 @@ def route_view(decision_id: str, data: Optional[dict], reason: str = "none") -> 
     }
 
 
-def record_route_decision(db: Session, task: Task, run: Run) -> Optional[dict]:
+def record_route_decision(db: Session, task: Task, run: Run) -> dict | None:
     """在 claim 之后写一条决策记录，并返回响应视图。
 
     失败路径（runtime 不可用 / 超时 / 空 project）同样落一条记录，写清原因，
@@ -89,7 +87,7 @@ def record_route_decision(db: Session, task: Task, run: Run) -> Optional[dict]:
     try:
         data, reason = mio.task_route_status(
             query, run.agent_name, project, timeout=ROUTE_TIMEOUT_S)
-    except Exception:  # noqa: BLE001 — 适配层已降级，这里只兜底
+    except Exception:
         logger.warning("task_route failed unexpectedly", exc_info=True)
         data, reason = None, "runtime_unavailable"
 
@@ -113,19 +111,19 @@ def record_route_decision(db: Session, task: Task, run: Run) -> Optional[dict]:
         db.rollback()
         existing = db.get(RouteDecision, decision_id)
         return route_view(decision_id, data, reason) if existing else view
-    except Exception:  # noqa: BLE001
+    except Exception:
         db.rollback()
         logger.warning("RouteDecision write failed (claim unaffected)", exc_info=True)
     return view
 
 
-def get_route_decision(db: Session, run_id: str) -> Optional[RouteDecision]:
+def get_route_decision(db: Session, run_id: str) -> RouteDecision | None:
     return db.exec(select(RouteDecision).where(RouteDecision.run_id == run_id)).first()
 
 
 # ── 结果投递（FR-5 / FR-6 / FR-7）──────────────────────────────────────────
 
-def _failure_type(outcome: str, result_text: str, verification: str) -> Optional[str]:
+def _failure_type(outcome: str, result_text: str, verification: str) -> str | None:
     """失败分类：只用已知规则，无法归类即 unknown（不臆造根因）。"""
     if outcome == "success":
         return None
@@ -140,7 +138,7 @@ def _failure_type(outcome: str, result_text: str, verification: str) -> Optional
     return "unknown"
 
 
-def build_outcome_payload(task: Optional[Task], run: Run, outcome: str,
+def build_outcome_payload(task: Task | None, run: Run, outcome: str,
                           result_text: str = "", verification: str = "") -> dict:
     project = (getattr(task, "project", "") or "").strip()
     ftype = _failure_type(outcome, result_text, verification)
@@ -160,7 +158,7 @@ def build_outcome_payload(task: Optional[Task], run: Run, outcome: str,
     }
 
 
-def enqueue_outcome(db: Session, task: Optional[Task], run: Run, outcome: str,
+def enqueue_outcome(db: Session, task: Task | None, run: Run, outcome: str,
                     result_text: str = "", verification: str = "") -> bool:
     """把一次提交结果放入投递队列（FR-5）。唯一键保证幂等，绝不抛错。
 
@@ -185,7 +183,7 @@ def enqueue_outcome(db: Session, task: Optional[Task], run: Run, outcome: str,
     except IntegrityError:
         db.rollback()
         return False
-    except Exception:  # noqa: BLE001
+    except Exception:
         db.rollback()
         logger.warning("outbox enqueue failed (submit unaffected)", exc_info=True)
         return False
@@ -202,7 +200,7 @@ def deliver_row(db: Session, row: MioOutbox) -> str:
         return row.status
     try:
         payload = json.loads(row.payload or "{}")
-    except Exception:  # noqa: BLE001
+    except Exception:
         row.status = "dead"
         row.last_error = "corrupt payload"
         db.add(row)
@@ -224,14 +222,13 @@ def deliver_row(db: Session, row: MioOutbox) -> str:
         row.status = "sent"
         row.last_error = None
         row.next_at = _now()
+    elif row.attempts >= MAX_ATTEMPTS:
+        row.status = "dead"
+        row.last_error = "max attempts reached"
     else:
-        if row.attempts >= MAX_ATTEMPTS:
-            row.status = "dead"
-            row.last_error = "max attempts reached"
-        else:
-            row.status = "failed"
-            row.next_at = _now() + _next_delay(row.attempts)
-            row.last_error = "runtime unavailable or CLI failed"
+        row.status = "failed"
+        row.next_at = _now() + _next_delay(row.attempts)
+        row.last_error = "runtime unavailable or CLI failed"
     db.add(row)
     db.commit()
     return row.status
@@ -290,7 +287,7 @@ class MioOutcomeJob(Scheduler):
             return
         try:
             self.last = drain_outbox()
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("mio outcome tick failed")
 
 
@@ -327,7 +324,7 @@ def list_pending(project: str = "", limit: int = 20) -> dict:
     }
 
 
-def find_reuse_record(record_id: str) -> Tuple[Optional[dict], str]:
+def find_reuse_record(record_id: str) -> tuple[dict | None, str]:
     """按 id 找 reuse 记录。返回 (record|None, state)。
 
     state ∈ found / not_found / runtime_unavailable
@@ -340,7 +337,7 @@ def find_reuse_record(record_id: str) -> Tuple[Optional[dict], str]:
         args = ["--json", "experience", "list", "--limit", "100"]
         if status:
             args += ["--status", status]
-        ok, data = mio._json_stdout(args, timeout=OUTCOME_TIMEOUT_S)  # noqa: SLF001
+        ok, data = mio._json_stdout(args, timeout=OUTCOME_TIMEOUT_S)
         if not ok or not isinstance(data, dict):
             return None, "runtime_unavailable"
         for rec in data.get("records") or []:
@@ -405,7 +402,7 @@ def confirm_experience(record_id: str, by: str = "taskhub", note: str = "") -> d
 
 # ── 读侧视图（供 API 层复用）───────────────────────────────────────────────
 
-def route_decision_view(row: Optional[RouteDecision]) -> Optional[dict]:
+def route_decision_view(row: RouteDecision | None) -> dict | None:
     if row is None:
         return None
     return {
@@ -435,13 +432,13 @@ def outbox_view(row: MioOutbox, include_payload: bool = False) -> dict:
     if include_payload:
         try:
             item["payload"] = json.loads(row.payload or "{}")
-        except Exception:  # noqa: BLE001
+        except Exception:
             item["payload"] = None
     return item
 
 
 def list_outbox(db: Session, status: str = "", run_id: str = "",
-                limit: int = 50) -> List[MioOutbox]:
+                limit: int = 50) -> list[MioOutbox]:
     q = select(MioOutbox)
     if status:
         q = q.where(MioOutbox.status == status)

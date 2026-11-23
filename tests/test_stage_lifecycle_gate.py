@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """阶段推进的文档生命周期门控测试。
 
 缺口：advance_stage / move_to_stage 此前只查 doc_path_of（路径是否注册），
@@ -14,10 +13,11 @@
   实测可无任何文档 approved 直达 ready。
 """
 from fastapi.testclient import TestClient
-from mio_taskhub.main import app
-from mio_taskhub.db import engine
-from mio_taskhub.models import Task, TaskStage
 from sqlmodel import Session
+
+from mio_taskhub.db import engine
+from mio_taskhub.main import app
+from mio_taskhub.models import Task, TaskStage
 
 client = TestClient(app)
 

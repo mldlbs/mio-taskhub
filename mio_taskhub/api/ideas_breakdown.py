@@ -1,17 +1,21 @@
 import re
-import uuid
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlmodel import Session, select
-from mio_taskhub.db import get_session
-from mio_taskhub.models import (Idea, IdeaStatus, Task, TaskKind, TaskStage,
-                                TaskState, IdeaChange, Discussion, DiscussionMessage)
-from mio_taskhub.utils import _now
-from mio_taskhub.dependency import normalize_depends, task_deps
-from mio_taskhub.planner import detect_cycle
-from mio_taskhub.events import emit_event
-from mio_taskhub.api.ideas import _idea_json, transition_idea_status
 
+from fastapi import APIRouter, Depends, HTTPException
+from sqlmodel import Session, select
+
+from mio_taskhub.api.ideas import _idea_json, transition_idea_status
+from mio_taskhub.db import get_session
+from mio_taskhub.dependency import normalize_depends, task_deps
+from mio_taskhub.events import emit_event
+from mio_taskhub.models import (
+    Discussion,
+    Idea,
+    IdeaChange,
+    IdeaStatus,
+    Task,
+    TaskStage,
+)
+from mio_taskhub.planner import detect_cycle
 
 router = APIRouter(prefix="/ideas", tags=["ideas"])
 
@@ -62,8 +66,8 @@ def _create_tasks_from_items(db, items, idea_id):
 
 def _resolve_dependencies(db, items, created):
     """解析 depends_on：ref → real id。"""
-    ref2id = {it.get("ref"): t.id for it, t in zip(items, created) if it.get("ref")}
-    for it, t in zip(items, created):
+    ref2id = {it.get("ref"): t.id for it, t in zip(items, created, strict=False) if it.get("ref")}
+    for it, t in zip(items, created, strict=False):
         resolved = []
         for dep in normalize_depends(it.get("depends_on")):
             real = ref2id.get(dep, dep)
@@ -124,12 +128,12 @@ def breakdown_idea(idea_id: str, body: dict, db: Session = Depends(get_session))
         "idea": _idea_json(db.get(Idea, idea_id)),
         "tasks": [{"id": t.id, "title": t.title, "ref": it.get("ref", ""),
                    "depends_on": task_deps(t)}
-                  for it, t in zip(items, created)],
+                  for it, t in zip(items, created, strict=False)],
     }
 
 
 @router.post("/{idea_id}/suggest-tasks")
-def suggest_tasks(idea_id: str, body: dict = None, db: Session = Depends(get_session)):
+def suggest_tasks(idea_id: str, body: dict | None = None, db: Session = Depends(get_session)):
     """从想法的描述、讨论结论、变更记录中自动提取任务草案。"""
     body = body or {}
     i = db.get(Idea, idea_id)
@@ -137,7 +141,7 @@ def suggest_tasks(idea_id: str, body: dict = None, db: Session = Depends(get_ses
         raise HTTPException(404, "idea not found")
 
     max_tasks = min(body.get("max_tasks", 10), 20)
-    context_hint = (body.get("context") or "").strip()
+    (body.get("context") or "").strip()
 
     desc, conclusions, changes = _collect_source_data(db, idea_id)
     blocks = _split_description(desc)

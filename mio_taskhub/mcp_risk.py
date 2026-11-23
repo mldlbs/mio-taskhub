@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """MCP 工具风险门控（task 7d7ff97a / 评估 round3 P1-C；F-004 第 3 步收敛）。
 
 问题：mcp_server 的写/破坏性工具此前无执行层策略检查——agent 可自主调用
@@ -21,7 +20,6 @@
 """
 import os
 import re
-from typing import Optional
 
 from mio_taskhub.destructive_guard import DESTRUCTIVE_ENDPOINTS
 
@@ -50,7 +48,7 @@ _WRITE_METHODS = {"POST", "PUT", "PATCH"}
 
 
 def _norm(method: str, path: str) -> str:
-    p = path.split("?")[0]
+    p = path.split("?", maxsplit=1)[0]
     return f"{method.upper()} {p}"
 
 

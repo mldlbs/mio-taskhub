@@ -6,10 +6,9 @@ Usage:
 
     DepMetrics.record("git", "push", 0.5, success=True)
 """
-import time
 import threading
+import time
 from contextlib import contextmanager
-from typing import Optional
 
 _lock = threading.Lock()
 
@@ -31,8 +30,7 @@ class DepMetrics:
             d = _data[dep][op]
             d["count"] += 1
             d["total_ms"] += duration_ms
-            if duration_ms > d["max_ms"]:
-                d["max_ms"] = duration_ms
+            d["max_ms"] = max(d["max_ms"], duration_ms)
             if not success:
                 d["errors"] += 1
             if len(d["latencies"]) < _MAX_SAMPLES:

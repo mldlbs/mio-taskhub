@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """等长脱敏：密钥值逐字符替换为 *，保留换行与字符数。
 
 设计：docs/taskhub/materials/spec.md §3.3
@@ -10,7 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from mio_taskhub.materials.common import canonical_json, sha256_text
 
@@ -19,7 +18,7 @@ SANITIZER_VERSION = 1
 SANITIZER_RULE_VERSION = 1
 
 # (compiled pattern, group index to mask)；group 0 表示整个匹配
-_RULES: List[Tuple[re.Pattern, int]] = [
+_RULES: list[tuple[re.Pattern, int]] = [
     (re.compile(r"(sk-[A-Za-z0-9]{16,})"), 1),
     (re.compile(r"(ghp_[A-Za-z0-9]{20,})"), 1),
     (re.compile(r"(github_pat_[A-Za-z0-9_]{20,})"), 1),
@@ -82,14 +81,14 @@ def _mask_value(value: Any) -> Any:
 
 @dataclass
 class Sanitized:
-    payload: Dict[str, Any]
+    payload: dict[str, Any]
     source_hash: str
     sanitized_hash: str
     config_hash: str
     version: int
 
 
-def sanitize_payload(payload: Dict[str, Any]) -> Sanitized:
+def sanitize_payload(payload: dict[str, Any]) -> Sanitized:
     source_json = canonical_json(payload)
     clean = _mask_value(payload)
     sanitized_json = canonical_json(clean)
@@ -102,11 +101,11 @@ def sanitize_payload(payload: Dict[str, Any]) -> Sanitized:
     )
 
 
-def scan_text(text: str) -> List[str]:
+def scan_text(text: str) -> list[str]:
     """复扫密钥；已掩码的纯 * 值不算命中。"""
     if not text:
         return []
-    hits: List[str] = []
+    hits: list[str] = []
     for idx, (pattern, group) in enumerate(_RULES):
         for match in pattern.finditer(text):
             value = match.group(group)

@@ -10,8 +10,9 @@
 #     这类回归，用例能直接抓到。
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
-from mio_taskhub.main import app
+
 from mio_taskhub.db import engine
+from mio_taskhub.main import app
 from mio_taskhub.models import Task, TaskStage
 
 client = TestClient(app)

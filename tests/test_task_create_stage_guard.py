@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """创建入口不得直接进入 review（必须走合法状态转移）。"""
 from fastapi.testclient import TestClient
 

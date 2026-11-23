@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """第一层：自动化数据质量门禁（不依赖人工，失败即阻止发布）。
 
 检查规范级不变量：回源、原子性、去重、来源隔离、时效、审计完整性。
@@ -18,29 +17,30 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy import create_engine
 
-from mio_taskhub.materials.common import content_fingerprint  # noqa: E402
-from mio_taskhub.materials.constants import (  # noqa: E402
-    LLM_SOURCE_MARKERS, TTL_DAYS,
+from mio_taskhub.materials.common import content_fingerprint
+from mio_taskhub.materials.constants import (
+    LLM_SOURCE_MARKERS,
+    TTL_DAYS,
 )
-from mio_taskhub.materials.pipeline import draft_reject_reason  # noqa: E402
-from mio_taskhub.materials.quality import Draft  # noqa: E402
-from scripts.materials_audit import run_audit  # noqa: E402
-from scripts.materials_validate import validate  # noqa: E402
+from mio_taskhub.materials.pipeline import draft_reject_reason
+from mio_taskhub.materials.quality import Draft
+from scripts.materials_audit import run_audit
+from scripts.materials_validate import validate
 
 STRUCTURAL = ("verbatim", "atomic", "decision_shape", "bare_count", "marker_leak")
 EXTRACT_STATUS = {"extracted", "rejected", "skipped"}
 DT_FORMATS = ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S")
 
 
-def _dt(value: Any) -> Optional[datetime]:
+def _dt(value: Any) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, datetime):
@@ -64,7 +64,7 @@ def _dt(value: Any) -> Optional[datetime]:
     return dt.astimezone(timezone.utc)
 
 
-def _check(name: str, rows: List[Any], blocking: bool = True) -> dict:
+def _check(name: str, rows: list[Any], blocking: bool = True) -> dict:
     return {
         "name": name,
         "blocking": blocking,
@@ -74,12 +74,12 @@ def _check(name: str, rows: List[Any], blocking: bool = True) -> dict:
     }
 
 
-def _sql_count(conn: sqlite3.Connection, sql: str) -> List[Any]:
+def _sql_count(conn: sqlite3.Connection, sql: str) -> list[Any]:
     return [tuple(r) for r in conn.execute(sql).fetchall()]
 
 
-def gate(db: Path, examples: int = 5) -> dict:
-    checks: List[dict] = []
+def gate(db: Path, examples: int = 5) -> dict:  # noqa: C901
+    checks: list[dict] = []
 
     # 1 审计完整性（I1-I16，含孤儿、主 witness、occ/corr、版本、locator）
     try:
@@ -256,7 +256,7 @@ def gate(db: Path, examples: int = 5) -> dict:
 
 
         # 5 时效：expires_at 与 last_seen + TTL 一致；observed 不晚于 last_seen
-        bad_expiry: List[dict] = []
+        bad_expiry: list[dict] = []
         expired_active = 0
         now = datetime.now(timezone.utc)
         for row in conn.execute(
@@ -267,10 +267,7 @@ def gate(db: Path, examples: int = 5) -> dict:
             expires = _dt(row["expires_at"])
             days = TTL_DAYS.get(row["kind"])
             expected = last_seen + timedelta(days=days) if (last_seen and days) else None
-            if expected is None:
-                bad = expires is not None
-            else:
-                bad = expires is None or (expires - expected).total_seconds() != 0
+            bad = expires is not None if expected is None else expires is None or (expires - expected).total_seconds() != 0
             if bad:
                 bad_expiry.append({"id": row["id"], "kind": row["kind"],
                                    "expires_at": row["expires_at"]})

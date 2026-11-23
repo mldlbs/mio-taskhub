@@ -8,9 +8,9 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from mio_taskhub.db import engine
+from mio_taskhub.doc_paths import DOC_KINDS
 from mio_taskhub.main import app
 from mio_taskhub.models import Task, TaskStage
-from mio_taskhub.doc_paths import DOC_KINDS
 
 client = TestClient(app)
 
@@ -47,7 +47,7 @@ def test_doc_serves_all_non_legacy_kinds(tmp_path):
     names = ['req.md', 'test-plan.md', 'arch.md', 'api-doc.md', 'readme.md', 'changelog.md']
     ws = _ws(tmp_path, *names)
     kinds = ['requirement', 'test', 'architecture', 'api', 'readme', 'changelog']
-    paths = dict(zip(kinds, names))
+    paths = dict(zip(kinds, names, strict=False))
 
     tid = _mk(ws, doc_paths=paths)
     for kind, name in paths.items():
@@ -433,7 +433,7 @@ def test_write_doc_creates_file_and_registers(tmp_path):
     body = r.json()
     assert body['kind'] == 'spec' and body['path'] == f'docs/taskhub/{tid}/spec.md'
     assert body['created'] is True and body['mode'] == 'overwrite'
-    assert body['size'] == len('# 设计\n正文'.encode('utf-8'))
+    assert body['size'] == len('# 设计\n正文'.encode())
     # spec 有生命周期（doc_lifecycle.py）：首次写入自动落初始状态 draft
     assert body['status'] == {'state': 'draft', 'note': 'auto',
                               'at': body['status']['at']}

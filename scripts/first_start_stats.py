@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """D1 决策门数据采集：首启样本统计（03 §5/§7 D1，T1.4）。
 
 只读 run + event(reaper_decision) + task 三表，按任务首个 run（MIN started_at）
@@ -15,20 +14,18 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sqlite3
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Optional
 
 # 强制 UTF-8 输出：CI（Windows cp1252）下中文会触发 UnicodeEncodeError（T4.3）。
 for _stream in (sys.stdout, sys.stderr):
-    try:
+    with contextlib.suppress(Exception):
         _stream.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
 
 
 def _default_db() -> str:
@@ -36,8 +33,8 @@ def _default_db() -> str:
         Path.home() / ".mio_taskhub" / "taskhub.db")
 
 
-def _classify_failure(reaper_kind: Optional[str], outcome: Optional[str],
-                      first_progress: Optional[int]) -> str:
+def _classify_failure(reaper_kind: str | None, outcome: str | None,
+                      first_progress: int | None) -> str:
     """失败三分根因（03 §5 D1）：
     - 观测不足：never_started（claim 后从未上报 progress，requeue 也未成功）；
     - 链路断：agent_offline（曾上报 progress 后掉线，requeue）；
@@ -86,7 +83,7 @@ def collect(conn: sqlite3.Connection, min_n: int = 100) -> dict:
     first_start_success = 0
     decided = 0  # COMPLETED + FAILED（成功率分母）
 
-    for run_id, task_id, first_progress, run_state, task_state in first_runs:
+    for run_id, _task_id, first_progress, _run_state, task_state in first_runs:
         ts = (task_state or "?").upper() if task_state else "?"
         outcome_dist[ts] += 1
         reaper = reaper_by_run.get(run_id)

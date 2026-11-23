@@ -13,12 +13,13 @@ const STATUS_META = {
   cancelled:    { label: '已取消', tone: 'danger' },
 }
 
+// eslint-disable-next-line complexity
 export default function InboxView({ onClose }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState(null)
   const [page, setPage] = useState(0)
-  const [pageSize, setPageSize] = useState(50)
+  const [pageSize] = useState(50)
   const [total, setTotal] = useState(0)
   const [actioning, setActioning] = useState({})
   const [selected, setSelected] = useState(new Set())

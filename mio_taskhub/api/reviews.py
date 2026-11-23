@@ -1,13 +1,14 @@
-from datetime import datetime, timezone
+from datetime import timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session, select
 
 from mio_taskhub.api.runs import RUN_TOKEN_HEADER, run_token_hash
 from mio_taskhub.db import get_session
 from mio_taskhub.doc_paths import doc_path_of
-from mio_taskhub.models import Task, TaskStage, TaskReview, Run
-from mio_taskhub.utils import _now
 from mio_taskhub.events import emit_event
+from mio_taskhub.models import Run, Task, TaskReview, TaskStage
+from mio_taskhub.utils import _now
 
 router = APIRouter(prefix="/tasks", tags=["reviews"])
 
@@ -71,7 +72,7 @@ def list_reviews(task_id: str, db: Session = Depends(get_session)):
 
 
 @router.post("/{task_id}/reviews")
-def submit_review(task_id: str, body: dict, request: Request = None,
+def submit_review(task_id: str, body: dict, request: Request = None,  # noqa: C901
                   db: Session = Depends(get_session)):
     """提交审阅记录。decision: approve / reject / comment。
 
@@ -180,7 +181,7 @@ def submit_review(task_id: str, body: dict, request: Request = None,
         if summary:
             t.review_result = summary
         db.add(t)
-    event = emit_event(db, type="review_submitted", entity="task", entity_id=task_id,
+    emit_event(db, type="review_submitted", entity="task", entity_id=task_id,
                        payload={"decision": decision, "reviewer": review.reviewer,
                                 "summary": summary if decision == "approve" else ""})
     db.commit()

@@ -1,6 +1,6 @@
-# -*- coding: utf-8 -*-
 """分支保护 required checks 审计。"""
-import pytest
+
+import sys
 
 from scripts import check_required_checks as crc
 
@@ -30,7 +30,8 @@ def test_missing_token_is_not_success():
 
 def _run_main(monkeypatch, argv):
     monkeypatch.setattr(crc, "_token", lambda: None)
-    monkeypatch.setattr(crc.sys, "argv", ["check_required_checks.py"] + argv)
+    # 脚本经 argparse 读共享 sys 模块的 argv（crc 不再 import sys，直接 patch sys.argv）
+    monkeypatch.setattr(sys, "argv", ["check_required_checks.py", *argv])
     return crc.main()
 
 

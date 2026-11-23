@@ -16,6 +16,7 @@ def _with_client(coro):
 
 def _mk_task(iid, title, depends_on=None):
     from sqlmodel import Session
+
     from mio_taskhub.db import engine
     from mio_taskhub.models import Task
     with Session(engine) as s:
@@ -75,6 +76,7 @@ def test_multilayer_upstream_downstream_closure():
 def test_cycle_returns_path_and_degrades():
     """FR-26：含环 → cycles 非空环路径 + 仍按 P0 降级列表+警告；无环 cycles=[]。"""
     from sqlmodel import Session
+
     from mio_taskhub.db import engine
     from mio_taskhub.models import Task
 

@@ -3,15 +3,15 @@
 取代旧版 /observability/summary 用正则解析 Prometheus 文本取数的脆弱做法。
 一次调用返回完整结构化快照，agent 或脚本可直接消费，无需拼 5+ 端点。
 """
+import logging
 import os
 import time
-import logging
+
 from sqlmodel import Session, text
 
-from mio_taskhub.db import engine, check_connection
-from mio_taskhub.middleware import get_http_metrics
 from mio_taskhub.background import get_thread_health
-from mio_taskhub.observability.slo_history import get_slo_history
+from mio_taskhub.db import check_connection, engine
+from mio_taskhub.middleware import get_http_metrics
 from mio_taskhub.observability.metrics import _start_time
 
 logger = logging.getLogger(__name__)
@@ -117,17 +117,15 @@ def _collect_tasks() -> dict:
         history = stats["history"]
         success_rate = scope["success_rate"]
         failure_rate = scope["failure_rate"]
-        completed = history["completed"]
-        failed = history["failed"]
+        history["completed"]
+        history["failed"]
         cancelled = history["cancelled"]
         total = history["total"]
         cancel_rate = round(cancelled / total, 4) if total else None
 
-        by_state = {
-            st: c for st, c in s.exec(
+        by_state = dict(s.exec(
                 text("SELECT state, COUNT(*) FROM task GROUP BY state")
-            ).all()
-        }
+            ).all())
         t24 = s.exec(text(
             "SELECT COUNT(*) FROM task WHERE created_at IS NOT NULL "
             "AND julianday('now')-julianday(created_at) <= 1.0"
@@ -166,11 +164,9 @@ def _collect_tasks() -> dict:
 
 def _collect_agents() -> dict:
     with Session(engine) as s:
-        by_status = {
-            st: c for st, c in s.exec(
+        by_status = dict(s.exec(
                 text("SELECT status, COUNT(*) FROM agent GROUP BY status")
-            ).all()
-        }
+            ).all())
         online = s.exec(text("SELECT COUNT(*) FROM agent WHERE status='online'")).first()
     online = online[0] if online else 0
     return {
@@ -236,11 +232,9 @@ def _collect_ideas() -> dict:
     """
     with Session(engine) as s:
         total = s.exec(text("SELECT COUNT(*) FROM idea")).first()
-        by_status = {
-            st: c for st, c in s.exec(
+        by_status = dict(s.exec(
                 text("SELECT status, COUNT(*) FROM idea GROUP BY status")
-            ).all()
-        }
+            ).all())
         g24 = s.exec(text(
             "SELECT COUNT(*) FROM idea WHERE created_at IS NOT NULL "
             "AND julianday('now')-julianday(created_at) <= 1.0"
@@ -328,11 +322,11 @@ def collect_observability() -> dict:
     }
 
 
-def _component(name: str, status: str, detail: str = None, value=None, threshold=None) -> dict:
+def _component(name: str, status: str, detail: str | None = None, value=None, threshold=None) -> dict:
     return {"name": name, "status": status, "detail": detail, "value": value, "threshold": threshold}
 
 
-def integrity_check() -> dict:
+def integrity_check() -> dict:  # noqa: C901, PLR0912, PLR0915
     """一次性 integrity_check 风格总报告：每组件 PASS/WARN/FAIL。
 
     返回结构可被 agent/脚本直接消费，配合 snapshot 字段拿到完整结构化快照。

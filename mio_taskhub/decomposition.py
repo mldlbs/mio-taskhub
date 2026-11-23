@@ -19,7 +19,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from sqlmodel import select
 
@@ -27,7 +27,11 @@ from mio_taskhub.dependency import normalize_depends
 from mio_taskhub.doc_paths import doc_path_of, existing_doc_kinds
 from mio_taskhub.events import emit_event
 from mio_taskhub.hierarchy import (
-    ROLE_CHILD, ROLE_MAIN, STAGE_CONTEXT, normalize_role, stage_at_least,
+    ROLE_CHILD,
+    ROLE_MAIN,
+    STAGE_CONTEXT,
+    normalize_role,
+    stage_at_least,
 )
 from mio_taskhub.models import Task, TaskStage
 from mio_taskhub.planner import detect_cycle
@@ -42,7 +46,7 @@ _NUM_RE = re.compile(r"^(\d+(?:\.\d+)*)")
 
 class DecomposeError(Exception):
     def __init__(self, status: int, code: str, message: str,
-                 refs: Optional[list] = None, errors: Optional[list] = None):
+                 refs: list | None = None, errors: list | None = None):
         super().__init__(message)
         self.status = status
         self.code = code
@@ -89,14 +93,14 @@ def context_config() -> dict:
     }
 
 
-def _read_text(path: Path) -> Optional[str]:
+def _read_text(path: Path) -> str | None:
     try:
         return path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return None
 
 
-def _section_text(text: str, sections: list[str]) -> Optional[str]:
+def _section_text(text: str, sections: list[str]) -> str | None:
     """按 H2/H3 编号或标题前缀截取章节；无 sections 返回全文。"""
     wanted = [str(s).strip() for s in sections if str(s).strip()]
     if not wanted:
@@ -117,7 +121,7 @@ def _section_text(text: str, sections: list[str]) -> Optional[str]:
     return "\n".join(chunks)
 
 
-def _resolve_package_path(parent: Task, entry: dict) -> Optional[Path]:
+def _resolve_package_path(parent: Task, entry: dict) -> Path | None:
     raw = str(entry.get("path") or "").strip()
     if not raw:
         kind = str(entry.get("kind") or "").strip()
@@ -136,7 +140,7 @@ def _resolve_package_path(parent: Task, entry: dict) -> Optional[Path]:
         return None
 
 
-def read_context_sections(parent: Task, entry: dict) -> tuple[Optional[str], Optional[Path], str]:
+def read_context_sections(parent: Task, entry: dict) -> tuple[str | None, Path | None, str]:
     """读取 context_package.documents[] 指定章节；返回 (text, path, error_code)。"""
     path = _resolve_package_path(parent, entry)
     text = _read_text(path) if path is not None and path.is_file() else None
@@ -148,7 +152,7 @@ def read_context_sections(parent: Task, entry: dict) -> tuple[Optional[str], Opt
     return selected, path, ""
 
 
-def _package_documents(parent: Task, child: dict, result: Optional[ValidationResult] = None) -> list[dict]:
+def _package_documents(parent: Task, child: dict, result: ValidationResult | None = None) -> list[dict]:
     """规范化 context_package.documents，并计算每个文档的字符数。"""
     ref = child.get("ref")
     out: list[dict] = []
@@ -192,7 +196,7 @@ def _file_chars(package: dict, workspace: str = "") -> int:
 
 
 def estimate_tokens(package: dict, parent_docs: Any = None,
-                    config: Optional[dict] = None, workspace: str = "") -> dict:
+                    config: dict | None = None, workspace: str = "") -> dict:
     """估算上下文 tokens；文档用预计算 chars，文件按存在内容计。
 
     兼容 spec 的 (package, parent_docs, cfg) 调用形态：parent_docs 仅作占位，
@@ -257,12 +261,12 @@ def _canonical(payload: dict) -> str:
 
 
 def make_apply_token(parent_id: str, payload: dict) -> str:
-    digest = hashlib.sha256(f"{parent_id}:{_canonical(payload)}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"{parent_id}:{_canonical(payload)}".encode()).hexdigest()
     return f"sha256:{digest}"
 
 
 def infer_complexity(files: list, doc_kinds: list, description: str,
-                     modules: Optional[list] = None) -> dict:
+                     modules: list | None = None) -> dict:
     signals: list[str] = []
     score = 0
     if len(files) > 6:
@@ -298,11 +302,11 @@ class ValidationResult:
     def has_errors(self) -> bool:
         return bool(self.errors)
 
-    def error(self, code: str, message: str, refs: Optional[list] = None):
+    def error(self, code: str, message: str, refs: list | None = None):
         self.errors.append({"code": f"decompose.{code}", "message": message,
                             "refs": refs or []})
 
-    def warning(self, code: str, message: str, refs: Optional[list] = None):
+    def warning(self, code: str, message: str, refs: list | None = None):
         self.warnings.append({"code": f"decompose.{code}", "message": message,
                               "refs": refs or []})
 
@@ -342,7 +346,7 @@ def _norm_path(path: str) -> str:
     return os.path.normcase(str(Path(str(path).replace("\\", "/"))))
 
 
-def _check_contracts(children: list[dict], refs: set[str],
+def _check_contracts(children: list[dict], refs: set[str],  # noqa: C901, PLR0912
                      result: ValidationResult, payload_edges: Any) -> None:
     outputs: dict[tuple[str, str], dict] = {}
     inputs_by_child: dict[str, set[tuple[str, str]]] = {}
@@ -568,7 +572,7 @@ def _check_docs(parent: Task, declared: str, result: ValidationResult) -> None:
                      ["plan"])
 
 
-def validate_decomposition(payload: dict, parent: Task) -> ValidationResult:
+def validate_decomposition(payload: dict, parent: Task) -> ValidationResult:  # noqa: C901, PLR0912
     result = ValidationResult()
     if not isinstance(payload, dict):
         result.error("schema_invalid", "request body must be an object")
@@ -681,7 +685,7 @@ def _child_acceptance(value: Any) -> str:
 
 
 def _child_context(parent: Task, child: dict, payload: dict,
-                   declared: str, result: Optional[ValidationResult] = None) -> dict:
+                   declared: str, result: ValidationResult | None = None) -> dict:
     docs = _package_documents(parent, child, result)
     package = {
         "version": 1,

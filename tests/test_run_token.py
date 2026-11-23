@@ -13,14 +13,12 @@ import hashlib
 import pathlib
 import sqlite3
 
-import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import inspect as sa_inspect
-from sqlmodel import SQLModel, Session
+from sqlmodel import Session
 
+from mio_taskhub.db import engine
 from mio_taskhub.main import app
 from mio_taskhub.models import Run, RunState
-from mio_taskhub.db import engine, init_db
 
 client = TestClient(app)
 
@@ -173,8 +171,8 @@ def test_migration_adds_token_hash_column(tmp_path):
     conn.close()
     # SQLModel 建表先跑（新结构含 token_hash），migrations 对老库补列才是有效路径；
     # 这里直接对老结构文件验证 migrate 的幂等补列逻辑。
-    from sqlalchemy import create_engine, text as sa_text
-    from sqlmodel import SQLModel as _SM
+    from sqlalchemy import create_engine
+    from sqlalchemy import text as sa_text
     legacy_engine = create_engine(f"sqlite:///{db_path}")
     # migrations.run_migrations 需要表存在；老表已在。跑两遍验证幂等。
     # run_migrations 内部建缺失表用 SQLModel.metadata.create_all —— 会把新表加进来，

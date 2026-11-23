@@ -1,22 +1,30 @@
-# -*- coding: utf-8 -*-
 """P3：真实来源适配器、来源健康与端到端入库。"""
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pytest
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from mio_taskhub.db import engine
 from mio_taskhub.materials.adapters import (
-    read_discussions, read_doc_requirements, read_doc_reviews,
-    read_github_trending, read_history_root_causes, read_hn, read_runs,
+    read_discussions,
+    read_doc_requirements,
+    read_doc_reviews,
+    read_github_trending,
+    read_history_root_causes,
+    read_hn,
+    read_runs,
     source_health,
 )
 from mio_taskhub.materials.extract import extract_for_source
-from mio_taskhub.materials.pipeline import RawRecord, ingest_records
+from mio_taskhub.materials.pipeline import ingest_records
 from mio_taskhub.models import (
-    Discussion, HistoryEvent, Run, RunState, Task, TaskState,
+    Discussion,
+    HistoryEvent,
+    Run,
+    RunState,
+    Task,
+    TaskState,
 )
 
 

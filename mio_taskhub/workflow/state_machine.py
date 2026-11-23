@@ -5,10 +5,12 @@
 本模块直接导入并作为状态机逻辑的唯一来源。
 """
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Set, Tuple
 
-from mio_taskhub.models import TaskState as State, TaskStage as Stage, ActorType
+from dataclasses import dataclass
+
+from mio_taskhub.models import ActorType
+from mio_taskhub.models import TaskStage as Stage
+from mio_taskhub.models import TaskState as State
 
 # 为兼容旧代码保留别名（State / Stage 已是主名）
 M1State = State
@@ -33,7 +35,7 @@ def is_terminal(task) -> bool:
 
 
 # ---------- Legal (state, stage) ----------
-LEGAL_COMBOS: Set[Tuple[State, Stage]] = {
+LEGAL_COMBOS: set[tuple[State, Stage]] = {
     (State.QUEUED, Stage.BRAINSTORMING),
     (State.QUEUED, Stage.DESIGN),
     (State.QUEUED, Stage.PLANNING),
@@ -81,7 +83,7 @@ def is_fully_done(state: State, stage: Stage) -> bool:
     return state == State.COMPLETED and stage == Stage.DONE
 
 
-def initial_state() -> Tuple[State, Stage]:
+def initial_state() -> tuple[State, Stage]:
     return (State.QUEUED, Stage.BRAINSTORMING)
 
 
@@ -111,7 +113,7 @@ class Transition:
     from_stage: Stage
     to_state: State
     to_stage: Stage
-    allowed_actors: Set[ActorType]
+    allowed_actors: set[ActorType]
     requires_reason: bool = False
     terminal: bool = False
     event_type: str = "state_changed"

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """质量缺口验证实验（审计用，可复现）。
 
 用途：为 docs/quality-audit.md 的每条「已复现」结论提供可重跑的证据。
@@ -22,11 +21,11 @@ _TMP = Path(tempfile.mkdtemp(prefix="mio_audit_"))
 os.environ["MIO_TASKHUB_DB"] = str(_TMP / "audit.db")
 os.environ.setdefault("MIO_HOME", str(_TMP / "mio_home_missing"))
 
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi.testclient import TestClient
 
-from mio_taskhub.main import app  # noqa: E402
-from mio_taskhub.db import engine, init_db  # noqa: E402
-from mio_taskhub.models import SQLModel  # noqa: E402
+from mio_taskhub.db import engine, init_db
+from mio_taskhub.main import app
+from mio_taskhub.models import SQLModel
 
 # F-004：本审计脚本在进程内驱动 hub，属于本机可信管理面；set_doc_status 现需
 # 管理面凭据，不带头会把探针变成 403（ERR），量不到质量门 / force 的真实行为。
@@ -246,7 +245,7 @@ def c1():
     _fresh_db()
     os.environ["MIO_READ_GATE"] = "0"
     try:
-        tid = _mk_task(_ws("c1"))
+        _mk_task(_ws("c1"))
         ag = "c1-agent"
         _agent(ag)
         rid = _claim(ag)["id"]

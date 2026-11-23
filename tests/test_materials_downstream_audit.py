@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """下游审计脚本的重复分组与功效计算。"""
 from scripts.materials_downstream_audit import group_tasks, power_estimate
 

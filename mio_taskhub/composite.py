@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from mio_taskhub.workflow.state_machine import (
-    State, Stage, ActorType,
-    LEGAL_COMBOS, is_fully_done, TRANSITIONS,
+    LEGAL_COMBOS,
+    TRANSITIONS,
+    ActorType,
+    Stage,
+    State,
+    is_fully_done,
 )
-
 
 # ---------- Composite status (前后端共享映射表) ----------
 COMPOSITE_LABEL: dict = {

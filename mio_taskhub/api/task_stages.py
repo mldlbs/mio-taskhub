@@ -2,15 +2,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
 from mio_taskhub.db import get_session
-from mio_taskhub.events import emit_event
-from mio_taskhub.policy_guard import guard_action
-from mio_taskhub.models import Task, TaskState, TaskStage, Discussion, Run, RunState
-from mio_taskhub.utils import _now
-from mio_taskhub.workflow.transitions import apply_transition, _orm_to_status_state, _orm_to_status_stage
-from mio_taskhub.api.task_helpers import parse_enum
-from mio_taskhub.doc_paths import DOC_KINDS, doc_path_of, merge_doc_paths, sync_legacy_fields
 from mio_taskhub.doc_lifecycle import reached_state
-from mio_taskhub.workflow.state_machine import State, State as M1State, Stage as M1Stage, ActorType, IllegalTransition as M1Illegal
+from mio_taskhub.doc_paths import DOC_KINDS, doc_path_of, merge_doc_paths, sync_legacy_fields
+from mio_taskhub.events import emit_event
+from mio_taskhub.models import Discussion, Run, RunState, Task, TaskStage, TaskState
+from mio_taskhub.policy_guard import guard_action
+from mio_taskhub.utils import _now
+from mio_taskhub.workflow.state_machine import ActorType, State
+from mio_taskhub.workflow.state_machine import IllegalTransition as M1Illegal
+from mio_taskhub.workflow.state_machine import Stage as M1Stage
+from mio_taskhub.workflow.state_machine import State as M1State
+from mio_taskhub.workflow.transitions import _orm_to_status_stage, _orm_to_status_state, apply_transition
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -133,7 +135,7 @@ def _incoming_doc_kinds(body: dict) -> set:
     return kinds
 
 
-def _check_lifecycle_gate(t: Task, dst: TaskStage, force: bool = False,
+def _check_lifecycle_gate(t: Task, dst: TaskStage, force: bool = False,  # noqa: C901
                           skip_kinds=None):
     """进入目标阶段前校验文档生命周期状态已达门槛。
 
@@ -270,7 +272,7 @@ def _required_kinds(req: dict):
     return []
 
 
-def _apply_stage_requirements(t: Task, dst: TaskStage, body: dict, strict: bool = True):
+def _apply_stage_requirements(t: Task, dst: TaskStage, body: dict, strict: bool = True):  # noqa: C901
     """校验目标阶段的产出物并设置辅助字段。抛 HTTPException(422) 当产出物缺失。
 
     要求来自 STAGE_ARTIFACT_REQUIREMENTS：design 需 spec、planning 需 plan、
@@ -426,8 +428,8 @@ def cancel_task(task_id: str, confirm: bool = Query(False),
     if not t:
         raise HTTPException(404)
     policy = guard_action("taskhub:delete-task", confirm=confirm)
+    from mio_taskhub.workflow.state_machine import ActorType, IllegalTransition, Stage, State
     from mio_taskhub.workflow.transitions import apply_transition
-    from mio_taskhub.workflow.state_machine import State, Stage, ActorType, IllegalTransition
     current_stage = t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
     try:
         _, m1_event = apply_transition(
@@ -438,7 +440,7 @@ def cancel_task(task_id: str, confirm: bool = Query(False),
         db.add(m1_event)
     except IllegalTransition:
         raise HTTPException(409, f"task {task_id} 不可取消（终态）")
-    event = emit_event(db, type="task_cancelled", entity="task", entity_id=task_id,
+    emit_event(db, type="task_cancelled", entity="task", entity_id=task_id,
                        payload={"reason": reason,
                                 **({"detail": detail} if detail else {})})
     db.add(t)
@@ -448,7 +450,7 @@ def cancel_task(task_id: str, confirm: bool = Query(False),
 
 
 @router.post("/{task_id}/retry")
-def retry_task(task_id: str, body: dict = None, db: Session = Depends(get_session)):
+def retry_task(task_id: str, body: dict | None = None, db: Session = Depends(get_session)):
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404, "task not found")
@@ -463,9 +465,9 @@ def retry_task(task_id: str, body: dict = None, db: Session = Depends(get_sessio
     # 否则受幽灵洪泛/提前回收影响的任务 bounce 已达上限（6+），retry 后首个 never_started
     # 立即再触发 FAILED，retry 失去意义（实测 T0.1 bounce 累积到 14）。
     t.bounce_count = 0
+    from mio_taskhub.workflow.state_machine import ActorType, IllegalTransition, Stage, State
     from mio_taskhub.workflow.transitions import apply_transition
-    from mio_taskhub.workflow.state_machine import State, Stage, ActorType, IllegalTransition
-    current_stage = t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
+    t.stage if isinstance(t.stage, TaskStage) else TaskStage(t.stage)
     try:
         _, m1_event = apply_transition(
             t, State.QUEUED, Stage.READY,
@@ -475,12 +477,12 @@ def retry_task(task_id: str, body: dict = None, db: Session = Depends(get_sessio
         db.add(m1_event)
     except IllegalTransition as e:
         raise HTTPException(409, f"retry 非法: {e}")
-    event = emit_event(db, type="task_retry_manual", entity="task", entity_id=t.id,
+    emit_event(db, type="task_retry_manual", entity="task", entity_id=t.id,
                        payload={"from_state": orig_state, "attempt": t.attempt, "max_retries": t.max_retries})
     db.add(t)
     db.commit()
     db.refresh(t)
-    requeued = emit_event(db, type="task_retry_requeued", entity="task", entity_id=t.id,
+    emit_event(db, type="task_retry_requeued", entity="task", entity_id=t.id,
                           payload={"reason": "manual_retry", "attempt": t.attempt, "from": orig_state})
     db.commit()
     return {"id": t.id, "state": t.state.value, "stage": t.stage.value,
@@ -488,7 +490,7 @@ def retry_task(task_id: str, body: dict = None, db: Session = Depends(get_sessio
 
 
 @router.post("/{task_id}/stage")
-def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
+def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):  # noqa: C901
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404, "task not found")
@@ -575,7 +577,7 @@ def advance_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
 
 
 @router.post("/{task_id}/stage/move")
-def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):
+def move_to_stage(task_id: str, body: dict, db: Session = Depends(get_session)):  # noqa: C901
     t = db.get(Task, task_id)
     if not t:
         raise HTTPException(404, "task not found")

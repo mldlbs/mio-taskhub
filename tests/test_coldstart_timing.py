@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """T3.5 coldstart_timing.py 单测（不依赖运行中的 hub）。"""
 import sys
 from pathlib import Path
@@ -22,8 +21,9 @@ def test_default_base():
 
 def test_terminate_handles_dead_proc():
     """_terminate 对已结束进程不抛异常。"""
-    import coldstart_timing as ct
     import subprocess
+
+    import coldstart_timing as ct
     p = subprocess.Popen([sys.executable, "-c", "pass"])
     p.wait()
     ct._terminate(p)  # 不应抛异常

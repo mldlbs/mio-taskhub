@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """自动建任务链路空转治理（task 18c2c6e9 / P1-1）。
 
 覆盖：① 下游消费意愿检查（堆积超阈值则 skipped）；② 默认关闭开关；③ 历史归档脚本幂等可逆。
@@ -16,8 +15,12 @@ from sqlmodel import Session, select
 
 from mio_taskhub.db import engine
 from mio_taskhub.models import (
-    ScheduledJob, ScheduledJobActionType, ScheduledJobExecution,
-    Task, TaskState, TaskStage,
+    ScheduledJob,
+    ScheduledJobActionType,
+    ScheduledJobExecution,
+    Task,
+    TaskStage,
+    TaskState,
 )
 from mio_taskhub.scheduling import cron_engine as ce
 from mio_taskhub.seed import _idea_autogen_enabled, seed_idea_generate_job

@@ -1,7 +1,8 @@
 import hashlib
+
 import pytest
 
-from mio_taskhub.update.downloader import download, sha256_file, DownloadError
+from mio_taskhub.update.downloader import DownloadError, download, sha256_file
 
 PAYLOAD = b"hello-zip-bytes" * 100
 GOOD_SHA = hashlib.sha256(PAYLOAD).hexdigest()

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P4 校准分析：分层误收/漏收/分类准确率 + 阈值错位分析。
 
 只读取 sample/labels/manifest，不修改阈值、不写素材库。
@@ -8,12 +7,11 @@ from __future__ import annotations
 import argparse
 import json
 import statistics
-from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 
-def _load_jsonl(path: Path) -> List[dict]:
+def _load_jsonl(path: Path) -> list[dict]:
     return [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
 
 
@@ -32,11 +30,11 @@ def _wilson(k: int, n: int, z: float = 1.96):
 
 
 def analyze(sample_path: Path, labels_path: Path, manifest_path: Path) -> dict:
-    sample = {r["sample_id"]: r for r in _load_jsonl(sample_path)}
+    {r["sample_id"]: r for r in _load_jsonl(sample_path)}
     labels = _load_jsonl(labels_path)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    per_cell: Dict[str, Dict[str, Any]] = {}
+    per_cell: dict[str, dict[str, Any]] = {}
     for cell, m in manifest["per_cell"].items():
         rows = [r for r in labels if r["cell"] == cell]
         active = [r for r in rows if r["status"] == "active"]

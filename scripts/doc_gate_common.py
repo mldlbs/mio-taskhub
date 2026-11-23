@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """文档 Consult 门控共用工具（纯标准库，无第三方依赖）。
 
 用于 pre-push 钩子：解析任务 id、查询 taskhub、判定文档是否 approved、
@@ -8,21 +7,20 @@
 - taskhub 不可达 / 解析异常 / 无任务关联 → 一律「放行并告警」，避免卡死开发。
 - 仅在确凿的「文档未批准」「FR 不存在」时才阻塞推送。
 """
+import contextlib
+import json
 import os
 import re
-import sys
-import json
 import subprocess
-import urllib.request
+import sys
 import urllib.error
+import urllib.request
 
 # Windows GBK 控制台：结论信息含 ✅ 等非 GBK 字符，print/write 会 UnicodeEncodeError
 # 直接炸掉钩子（2026-09-27 实测）。统一按 UTF-8 输出，坏字符替换不中断。
 for _stream in (sys.stdout, sys.stderr):
-    try:
+    with contextlib.suppress(Exception):
         _stream.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:  # noqa: BLE001 — reconfigure 不可用时维持原样
-        pass
 
 HUB_BASE = os.environ.get("MIO_TASKHUB_BASE", "http://127.0.0.1:48620/api/v1")
 TIMEOUT = float(os.environ.get("MIO_TASKHUB_TIMEOUT", "3"))

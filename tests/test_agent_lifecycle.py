@@ -27,7 +27,7 @@ def _isolated_lifecycle(tmp_path, monkeypatch):
     lc.flush(timeout=3)
 
 
-def _entries(home: Path, run_id: str = None):
+def _entries(home: Path, run_id: str | None = None):
     root = home / "lifecycle"
     out = []
     if not root.exists():
@@ -177,7 +177,7 @@ def test_mcp_heartbeat_sends_pid_and_records_sent(monkeypatch):
         return {"id": "rx", "state": "running", "progress": 50}
 
     monkeypatch.setattr(mcp_server, "_request", fake_request)
-    out = asyncio.run(mcp_server.taskhub_heartbeat(run_id="runmcp", progress=50))
+    asyncio.run(mcp_server.taskhub_heartbeat(run_id="runmcp", progress=50))
     assert captured[0]["body"]["pid"] == os.getpid()
     assert captured[0]["path"] == "/runs/runmcp/heartbeat"
     assert lc.flush()
@@ -222,9 +222,10 @@ def test_ingest_lifecycle_idempotent(tmp_path):
     env = {**os.environ,  # MIO_HOME 沿用 fixture 隔离目录
            "MIO_TASKHUB_DB": str(db),
            "PYTHONPATH": str(Path(__file__).resolve().parent.parent)}
-    run = lambda *a: subprocess.run(  # noqa: E731
-        [sys.executable, str(SCRIPT), *a],
-        capture_output=True, text=True, env=env, timeout=60)
+    def run(*a):
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), *a],
+            capture_output=True, text=True, env=env, timeout=60)
 
     dry = run("--dry-run")
     assert dry.returncode == 0, dry.stderr

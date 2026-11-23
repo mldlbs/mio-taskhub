@@ -1,11 +1,12 @@
 """Lightweight Prometheus-format metrics (no external dependencies)."""
 import os
 import time
-import threading
+
 from sqlmodel import Session, text
+
+from mio_taskhub.background import get_thread_health
 from mio_taskhub.db import engine
 from mio_taskhub.middleware import get_http_metrics
-from mio_taskhub.background import get_thread_health
 from mio_taskhub.observability.scope import delivery_stats
 
 _start_time = time.time()
@@ -26,7 +27,7 @@ def _terminal_window_days() -> int:
         return DEFAULT_TERMINAL_WINDOW_DAYS
     return days if days > 0 else DEFAULT_TERMINAL_WINDOW_DAYS
 
-def render_metrics() -> str:
+def render_metrics() -> str:  # noqa: C901, PLR0912, PLR0915
     lines = []
     lines.append("# HELP taskhub_uptime_seconds Process uptime in seconds")
     lines.append("# TYPE taskhub_uptime_seconds gauge")
@@ -493,7 +494,7 @@ def render_metrics() -> str:
             if avail and (avail[0] + avail[1]) > 0:
                 slo_availability = avail[0] / (avail[0] + avail[1])
                 lines.append(f'taskhub_slo_availability_30d {slo_availability:.6f}')
-                lines.append(f'taskhub_slo_availability_target 0.99')
+                lines.append('taskhub_slo_availability_target 0.99')
                 lines.append(f'taskhub_slo_availability_breach {1 if slo_availability < 0.99 else 0}')
                 # Error budget remaining (target 1% failure rate)
                 budget_used = 1 - slo_availability
@@ -513,8 +514,8 @@ def render_metrics() -> str:
                 # Convert to ms for comparison with SLO
                 avg_ms = avg_completion[0] * 1000
                 lines.append(f'taskhub_slo_latency_avg_ms_1d {avg_ms:.1f}')
-                lines.append(f'taskhub_slo_latency_p50_target_ms 500')
-                lines.append(f'taskhub_slo_latency_p99_target_ms 2000')
+                lines.append('taskhub_slo_latency_p50_target_ms 500')
+                lines.append('taskhub_slo_latency_p99_target_ms 2000')
                 lines.append(f'taskhub_slo_latency_breach {1 if avg_ms > 2000 else 0}')
 
     except Exception:

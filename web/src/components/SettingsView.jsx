@@ -14,6 +14,7 @@ const fmtUptime = (s) => {
   return `${m} 分`
 }
 
+// eslint-disable-next-line complexity
 export default function SettingsView() {
   const [st, setSt] = useState(null)
   const [proc, setProc] = useState(null)

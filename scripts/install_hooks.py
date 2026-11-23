@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """安装 mio-taskhub 文档门控 pre-push 钩子（跨仓库 / 批量）。
 
 校验点：
@@ -18,9 +17,10 @@ push 都能定位到 `scripts/git-hooks/pre_push_runner.py`；可用环境变量
 `MIO_TASKHUB_ROOT` 覆盖。
 """
 import argparse
+import contextlib
 import os
-import stat
 import shutil
+import stat
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -64,7 +64,7 @@ def _git_dir(repo_path):
         return dotgit
     if os.path.isfile(dotgit):
         try:
-            with open(dotgit, "r", encoding="utf-8", errors="replace") as fh:
+            with open(dotgit, encoding="utf-8", errors="replace") as fh:
                 for line in fh:
                     if line.lower().startswith("gitdir:"):
                         rel = line.split(":", 1)[1].strip()
@@ -133,10 +133,8 @@ def install_one(repo_path, content, dry_run=False):
 def main(argv=None):
     # Windows 控制台默认 GBK，打印 emoji / 中文可能崩；统一切到 UTF-8（失败则忽略）
     for stream in (sys.stdout, sys.stderr):
-        try:
+        with contextlib.suppress(Exception):
             stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
-            pass
 
     ap = argparse.ArgumentParser(description="安装 mio-taskhub 文档门控 pre-push 钩子")
     ap.add_argument("--repo", action="append", default=[],

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P 系列观测分层 V2（只读；T2.3 / 02 §8.4 F16 / G6b）。
 
 观测字段（只读，不改判定方向）：
@@ -18,12 +17,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sqlite3
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Optional
 
 # 高规格 kind 与分数底线（与 doc_quality.MIN_SCORE 同步；summarize 不 import 全模块避免副作用）
 MIN_SCORE = {"requirement": 80, "spec": 80, "api": 80}
@@ -57,7 +54,7 @@ def fisher_exact_2x2(a: int, b: int, c: int, d: int) -> float:
     return min(1.0, p_sum)
 
 
-def collect(db_path: Path) -> dict:
+def collect(db_path: Path) -> dict:  # noqa: C901, PLR0912
     """只读采集 event.quality_score + task.doc_statuses。"""
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
@@ -216,13 +213,13 @@ def render_summary(data: dict) -> str:
             f"| {ks['min_score_floor'] or '-'} | {ks['score_median'] or '-'} |")
     lines.append("")
     f16 = data.get("f16_api_26_sections", {})
-    lines.append(f"## F16：api 26 节缺失观测")
+    lines.append("## F16：api 26 节缺失观测")
     lines.append(f"- total_sections: {f16.get('total_sections')}")
     lines.append(f"- n_api_missing: {f16.get('n_tasks_api_missing')}")
     lines.append(f"- n_api_with_status: {f16.get('n_tasks_api_with_status')}")
     lines.append("")
     g6b = data.get("g6b_score_distribution", {})
-    lines.append(f"## G6b：分数分布（边界 80）")
+    lines.append("## G6b：分数分布（边界 80）")
     lines.append(f"- n_scored: {g6b.get('n_scored')}")
     lines.append(f"- n_lt_80: {g6b.get('n_lt_80')} ({g6b.get('pct_lt_80', 0):.1%})")
     lines.append(f"- n_lt_45: {g6b.get('n_lt_45')} ({g6b.get('pct_lt_45', 0):.1%})")
@@ -235,7 +232,7 @@ def render_summary(data: dict) -> str:
     return "\n".join(lines)
 
 
-def main(argv: Optional[list] = None) -> int:
+def main(argv: list | None = None) -> int:
     ap = argparse.ArgumentParser(description="P 系列观测分层 V2（只读）")
     ap.add_argument("--db", default=str(Path.home() / ".mio_taskhub" / "taskhub.db"))
     ap.add_argument("--out", default="", help="输出 JSON 路径（缺省 stdout JSON）")

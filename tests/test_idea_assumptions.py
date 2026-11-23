@@ -5,9 +5,9 @@ import threading
 import httpx
 from sqlmodel import Session, select
 
-from mio_taskhub.main import app
-from mio_taskhub.db import engine
 from mio_taskhub.api import ideas as ideas_api
+from mio_taskhub.db import engine
+from mio_taskhub.main import app
 from mio_taskhub.models import Idea, IdeaChange
 
 
@@ -249,7 +249,7 @@ def test_patch_assumption_concurrent_no_lost_update():
             with Session(engine) as s:
                 ideas_api.patch_idea_assumption(state["iid"], hid,
                                                 {"status": status}, db=s)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             errors.append(e)
 
     t1 = threading.Thread(target=worker, args=("h1", "validated"))

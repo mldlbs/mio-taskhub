@@ -8,6 +8,7 @@ event 表由 scripts/ingest_lifecycle.py 幂等回填（键 type+run_id+ts）。
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -16,7 +17,6 @@ import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger("mio_taskhub.lifecycle")
 
@@ -27,7 +27,7 @@ ALL_TYPES = (TYPE_AGENT_READY, TYPE_HEARTBEAT_SENT, TYPE_PROCESS_ALIVE)
 
 _SAFE_RUN_ID = re.compile(r"[^A-Za-z0-9_.-]")
 _QUEUE_MAX = 1000
-_queue: "queue.Queue[Optional[dict]]" = queue.Queue(maxsize=_QUEUE_MAX)
+_queue: queue.Queue[dict | None] = queue.Queue(maxsize=_QUEUE_MAX)
 _worker_lock = threading.Lock()
 _worker_started = False
 
@@ -44,12 +44,12 @@ def lifecycle_dir() -> Path:
     try:
         from mio_taskhub.mio_runtime import home
         base = home()
-    except Exception:  # noqa: BLE001
+    except Exception:
         base = Path(os.environ.get("MIO_HOME") or (Path.home() / ".mio-intelligence"))
     return Path(base) / "lifecycle"
 
 
-def record(event_type: str, run_id: str, payload: Optional[dict] = None) -> None:
+def record(event_type: str, run_id: str, payload: dict | None = None) -> None:
     """追加一条生命周期事件（fire-and-forget，绝不抛异常）。"""
     try:
         entry = {
@@ -62,7 +62,7 @@ def record(event_type: str, run_id: str, payload: Optional[dict] = None) -> None
             entry.update(payload)
         _ensure_worker()
         _queue.put_nowait(entry)
-    except Exception:  # noqa: BLE001 — 埋点失败绝不影响调用方
+    except Exception:
         pass
 
 
@@ -75,7 +75,7 @@ def note_heartbeat_sent(run_id: str, delivered: bool) -> int:
         record(TYPE_HEARTBEAT_SENT, run_id,
                {"sent_count": n, "delivered": bool(delivered)})
         return n
-    except Exception:  # noqa: BLE001
+    except Exception:
         return 0
 
 
@@ -96,7 +96,7 @@ def probe_process_alive(run_id: str, pid: int, force: bool = False) -> bool:
         threading.Thread(target=_probe_safe, args=(str(run_id), pid),
                          daemon=True, name=f"lifecycle-probe-{pid}").start()
         return True
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False
 
 
@@ -131,14 +131,12 @@ def _worker():
             if entry is None:
                 continue
             _write_entry(entry)
-        except Exception:  # noqa: BLE001 — 单条失败丢弃，worker 存活
+        except Exception:
             logger.debug("lifecycle write failed: %r", entry, exc_info=True)
         finally:
             if entry is not None:
-                try:
+                with contextlib.suppress(Exception):
                     _queue.task_done()
-                except Exception:  # noqa: BLE001
-                    pass
 
 
 def _write_entry(entry: dict) -> None:
@@ -155,11 +153,11 @@ def _probe_safe(run_id: str, pid: int) -> None:
         alive = _probe_pid(pid)
         record(TYPE_PROCESS_ALIVE, run_id,
                {"pid": pid, "alive": alive, "probe": True})
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
 
 
-def _probe_pid(pid: int) -> Optional[bool]:
+def _probe_pid(pid: int) -> bool | None:
     try:
         import psutil
     except ImportError:
@@ -167,7 +165,7 @@ def _probe_pid(pid: int) -> Optional[bool]:
     try:
         p = psutil.Process(pid)
         return bool(p.is_running() and p.status() != psutil.STATUS_ZOMBIE)
-    except Exception as e:  # noqa: BLE001 — NoSuchProcess/AccessDenied 归一化
+    except Exception as e:
         name = type(e).__name__
         if name in ("NoSuchProcess", "ZombieProcess"):
             return False
@@ -176,7 +174,7 @@ def _probe_pid(pid: int) -> Optional[bool]:
         return None
 
 
-def _probe_fallback(pid: int) -> Optional[bool]:
+def _probe_fallback(pid: int) -> bool | None:
     """无 psutil 时的平台探测。
 
     Windows：**绝不用 os.kill(pid, 0)**（Windows 上 signal 0 == CTRL_C_EVENT，
@@ -195,7 +193,7 @@ def _probe_fallback(pid: int) -> Optional[bool]:
                 ctypes.windll.kernel32.CloseHandle(handle)
                 return r != 0  # 未 signaled → 存活
             return False
-        except Exception:  # noqa: BLE001
+        except Exception:
             return None
     try:
         os.kill(int(pid), 0)
@@ -204,5 +202,5 @@ def _probe_fallback(pid: int) -> Optional[bool]:
         return False
     except PermissionError:
         return True
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None

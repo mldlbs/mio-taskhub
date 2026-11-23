@@ -6,8 +6,8 @@ import tempfile
 import pytest
 from fastapi.testclient import TestClient
 
-from mio_taskhub.main import app
 from mio_taskhub import mio_runtime as mio
+from mio_taskhub.main import app
 from mio_taskhub.observability.alerts import init_alert_manager
 
 client = TestClient(app)

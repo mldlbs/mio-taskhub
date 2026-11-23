@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """校验分发产物的一致性（安装器 ↔ payload ↔ 独立安装包目录）。
 
 **为什么需要**：安装器（`uninstall.exe`）既被单独分发，又被**打进
@@ -105,7 +104,7 @@ def _check_single_file(bundled_setup: Path, live_uninstall) -> list:
     problems = []
     try:
         from mio_taskhub.installer import embedded
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         return ["无法导入 installer.embedded：%r" % e]
 
     marker = embedded.read_embedded_marker(bundled_setup)

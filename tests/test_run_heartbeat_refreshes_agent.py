@@ -1,12 +1,12 @@
-# -*- coding: utf-8 -*-
 """P1-OBS 执行链 P4：run 心跳应同步刷新 agent 心跳并置 ONLINE。"""
 from datetime import datetime, timedelta, timezone
+
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from mio_taskhub.main import app
 from mio_taskhub.db import engine
-from mio_taskhub.models import Task, Agent, AgentStatus
+from mio_taskhub.main import app
+from mio_taskhub.models import Agent, AgentStatus
 
 client = TestClient(app)
 
@@ -16,7 +16,7 @@ def test_run_heartbeat_refreshes_agent():
     client.post("/api/v1/agents/register", json={"name": "hb-refresh-agent", "agent_type": "cli"})
     # 建任务 + 领取
     r = client.post("/api/v1/tasks", json={"title": "hb-refresh", "stage": "ready"})
-    tid = r.json()["id"]
+    r.json()["id"]
     c = client.post("/api/v1/tasks/claim", params={"agent": "hb-refresh-agent"})
     assert c.status_code == 200
     rid = c.json()["id"]

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """危险操作调用点守卫（#5：policy check 并入调用点）。
 
 分工（低耦合）：
@@ -12,8 +11,6 @@
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from fastapi import HTTPException
 
 from mio_taskhub import mio_runtime
@@ -23,7 +20,7 @@ GATE_LEVELS = frozenset({"high"})
 
 
 def guard_action(action: str, confirm: bool = False,
-                 project: Optional[str] = None) -> dict:
+                 project: str | None = None) -> dict:
     """执行前查 Mio 历史风险。高风险未确认 → 409；否则返回 policy 摘要。"""
     policy = mio_runtime.policy_check(action, project=project)
     gated = policy.get("riskLevel") in GATE_LEVELS or bool(policy.get("hardGate"))

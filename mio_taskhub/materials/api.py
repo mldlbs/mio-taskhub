@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """素材库 API（P3 只读来源健康；其余接口在 P5）。"""
 from __future__ import annotations
 

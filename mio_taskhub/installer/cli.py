@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """安装 / 卸载的**命令行**入口（无 GUI 环境、CI、脚本化场景）。
 
 用法：
@@ -118,7 +117,7 @@ def main(argv=None) -> int:
         return 2
     try:
         return args.func(args)
-    except Exception:  # noqa: BLE001
+    except Exception:
         # **绝不能让异常静默消失**：打包成无黑框 exe 后
         # `disable_windowed_traceback=True` 会把 traceback 吞掉，
         # 用户只看到「进程退出、目录还在」，完全无从排查。
@@ -130,7 +129,7 @@ def main(argv=None) -> int:
             from .entry_support import log_path
             with open(log_path("installer.log"), "a", encoding="utf-8") as f:
                 f.write("[traceback]\n%s\n" % tb)
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
         return 23
 

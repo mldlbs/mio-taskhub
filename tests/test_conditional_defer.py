@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """T3.2/T3.3 条件性任务 defer 决策单测。"""
 from pathlib import Path
 

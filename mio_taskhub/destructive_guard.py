@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """服务端 destructive 收口（F-004 第 3 步：身份体系——destructive 门控下沉）。
 
 背景：`mcp_risk.py` 的 destructive 门控跑在 **MCP 进程内**（`mcp_server._request`
@@ -33,6 +32,7 @@ submit_result / write_document / add_discussion / PATCH 普通字段 / advance_s
 清单是**代码常量**（`DESTRUCTIVE_ENDPOINTS`），不是配置项：新增破坏性端点必须
 改代码 + 过评审 + 带回归，不能靠运行时改环境悄悄扩大破坏面。
 """
+import contextlib
 import logging
 import re
 
@@ -94,14 +94,14 @@ def _audit_block(method: str, path: str, code: str) -> None:
     不走 emit_event（其 after_commit 广播在部分上下文会踩事件循环，同
     mcp_server._audit_risk_block 的处理），直接写 Event 行。
     """
-    try:
+    with contextlib.suppress(Exception):
         logging.getLogger("mio_taskhub.destructive").warning(
             "destructive gate blocked: %s %s — %s", method, path, code)
-    except Exception:  # noqa: BLE001
-        pass
     try:
         import json as _json
+
         from sqlmodel import Session
+
         from mio_taskhub.db import engine
         from mio_taskhub.models import Event
         with Session(engine) as db:
@@ -110,7 +110,7 @@ def _audit_block(method: str, path: str, code: str) -> None:
                          payload=_json.dumps({"method": method, "path": path, "code": code},
                                              ensure_ascii=False)))
             db.commit()
-    except Exception:  # noqa: BLE001 — 审计失败不得阻断拒绝返回
+    except Exception:
         pass
 
 

@@ -1,9 +1,10 @@
 import time
-import sys, os
+
 import pytest
+
 from mio_taskhub.db import init_db
+from mio_taskhub.observability.dep_metrics import DepMetrics
 from mio_taskhub.observability.dep_persist import DepMetricsPersist
-from mio_taskhub.observability.dep_metrics import DepMetrics, _lock, _data
 
 
 @pytest.fixture(autouse=True)
@@ -60,6 +61,7 @@ def test_dep_persist_snapshot():
 def test_dep_persist_loop_calls_cleanup():
     """P1-OBS：dep-persist 循环应调用 cleanup，防 depmetricssnapshot 无界增长。"""
     import inspect
+
     from mio_taskhub import main
     src = inspect.getsource(main)
     assert "_dep_persist.cleanup()" in src, "dep-persist 循环未调用 cleanup"
@@ -67,8 +69,9 @@ def test_dep_persist_loop_calls_cleanup():
 
 def test_dep_persist_cleanup_removes_old():
     """cleanup(days=N) 删除超期快照。"""
-    from mio_taskhub.db import engine
     from sqlalchemy import text
+
+    from mio_taskhub.db import engine
     persist = DepMetricsPersist()
     with engine.connect() as c:
         c.execute(text("INSERT INTO depmetricssnapshot (ts, dep, op, count, errors, avg_ms, p50_ms, p90_ms, p99_ms, max_ms, error_rate) VALUES (:ts,'sqlite','op',1,0,1,1,1,1,1,0)"), {"ts": time.time() - 40*86400})

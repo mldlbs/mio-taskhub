@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """pre-push 钩子主体：对关联 task-<id> 的分支同时执行
   ② spec/api 已 approved 校验 与 ③ FR-n 可追溯校验。
 
@@ -12,9 +11,9 @@ import sys
 # 让本文件能 import scripts/ 下的 check_* 模块
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from doc_gate_common import parse_task_id_from_branch  # noqa: E402
-from check_doc_approved import check_doc_approved      # noqa: E402
-from check_fr_trace import check_fr_trace              # noqa: E402
+from check_doc_approved import check_doc_approved
+from check_fr_trace import check_fr_trace
+from doc_gate_common import parse_task_id_from_branch
 
 
 def main():
@@ -36,7 +35,7 @@ def main():
 
         try:
             allow1, reason1 = check_doc_approved(task_id)
-        except Exception as e:  # noqa: BLE001 — 方案 §7：解析异常一律放行并告警
+        except Exception as e:
             allow1, reason1 = True, "check_doc_approved 异常（已放行）：%s" % e
         sys.stderr.write("  [docs]    " + reason1 + "\n")
         if not allow1:
@@ -44,7 +43,7 @@ def main():
 
         try:
             allow2, reason2 = check_fr_trace(task_id, local_sha, remote_sha)
-        except Exception as e:  # noqa: BLE001 — 同上，工具崩溃不得卡死推送
+        except Exception as e:
             allow2, reason2 = True, "check_fr_trace 异常（已放行）：%s" % e
         sys.stderr.write("  [FR-n]    " + reason2 + "\n")
         if not allow2:

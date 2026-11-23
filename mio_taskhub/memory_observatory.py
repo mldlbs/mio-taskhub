@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Mio 记忆只读观测投影（迁移自 mneme 只读观测层，语义逐案对齐；源仓库零改动 FR-10）。
 
 只读数据源：MIO_HOME/memory.jsonl + MIO_HOME/experience_reuse.jsonl。
@@ -187,7 +186,7 @@ def parse_mio(paths: dict, show_logs: bool) -> dict:
             + " · " + str(m.get("kind") or "note")
             + tags_suffix
         )
-        obs = [meta] + cleaned
+        obs = [meta, *cleaned]
         add_entity(name, etype, obs, title, compute_reuse_score(m, tags, ev))
 
         src = "mio-src-" + source

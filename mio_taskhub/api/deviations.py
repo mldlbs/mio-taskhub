@@ -1,5 +1,4 @@
-﻿# -*- coding: utf-8 -*-
-"""Phase 1 偏离记录与解决端点。"""
+﻿"""Phase 1 偏离记录与解决端点。"""
 from __future__ import annotations
 
 from datetime import datetime, timezone

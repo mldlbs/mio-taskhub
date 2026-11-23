@@ -1,8 +1,10 @@
 """Schema migrations for mio-taskhub. Runs on startup, idempotent."""
+import contextlib
+
 from sqlalchemy import inspect, text
 
 
-def run_migrations(target_engine=None):
+def run_migrations(target_engine=None):  # noqa: C901
     """Apply all schema migrations. Idempotent — safe to run on every startup."""
     eng = target_engine
     if eng is None:
@@ -52,14 +54,11 @@ def run_migrations(target_engine=None):
 
 def _migrate_materials(conn):
     """素材库：部分唯一索引兜底（一条素材只有一个主出处）。"""
-    try:
+    with contextlib.suppress(Exception):
         conn.execute(text(
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_material_witness_primary "
             "ON material_witness (material_id) WHERE is_primary = 1"
         ))
-    except Exception:
-        # 历史重复主出处等异常不阻塞启动；写入端与审计脚本会报出
-        pass
 
 
 def _drop_orphan_tables(conn):
@@ -75,29 +74,23 @@ def _drop_orphan_tables(conn):
 
 def _migrate_ratchet_baseline(conn):
     """棘轮基线：一个 (task_id, kind, metric) 只保留一行。"""
-    try:
+    with contextlib.suppress(Exception):
         conn.execute(text(
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_ratchet_task_kind_metric "
             "ON ratchetbaseline (task_id, kind, metric)"
         ))
-    except Exception:
-        # 历史重复行等异常不阻塞启动；写入端已按 upsert 保证唯一。
-        pass
 
 
 def _migrate_read_evidence(conn):
     """Read Evidence：一个 (run_id, document_kind) 只保留一行（upsert 幂等兜底）。"""
-    try:
+    with contextlib.suppress(Exception):
         conn.execute(text(
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_read_evidence_run_kind "
             "ON readevidence (run_id, document_kind)"
         ))
-    except Exception:
-        # 历史重复行等异常不阻塞启动；写入端已按 upsert 保证唯一。
-        pass
 
 
-def _migrate_task(conn):
+def _migrate_task(conn):  # noqa: C901, PLR0912
     """Task table migrations: stage columns, depends_on, indexes, retry, M1 timestamps."""
     cols = {c["name"] for c in inspect(conn).get_columns("task")}
     if "stage" not in cols:
@@ -138,8 +131,9 @@ def _migrate_task(conn):
     if "fallback_after" not in cols:
         conn.execute(text("ALTER TABLE task ADD COLUMN fallback_after INTEGER"))
     if "depends_on" in cols:
-        from mio_taskhub.dependency import normalize_depends
         import json as _json
+
+        from mio_taskhub.dependency import normalize_depends
         dep_rows = conn.execute(text("SELECT id, depends_on FROM task")).fetchall()
         for _id, _val in dep_rows:
             norm = normalize_depends(_val)
@@ -346,7 +340,7 @@ def _migrate_run_diff_gate(conn):
         conn.execute(text("UPDATE run SET rejections = 0 WHERE rejections IS NULL"))
 
 
-def _migrate_idea(conn):
+def _migrate_idea(conn):  # noqa: C901
     """Idea table migrations: version, review fields, ADR extension fields."""
     icols = {c["name"] for c in inspect(conn).get_columns("idea")}
     if "version" not in icols:
@@ -390,7 +384,7 @@ def _migrate_idea(conn):
             conn.execute(text(f"ALTER TABLE idea ADD COLUMN {col} {ddl}"))
 
 
-def _migrate_idea_assumption_link(conn):
+def _migrate_idea_assumption_link(conn):  # noqa: C901
     """P3 FR-28：假设关联表建表 + 幂等回填。
 
     行来源 = Idea.hypotheses[]（关联本身）；status/note/confirmed_by 从
@@ -411,13 +405,11 @@ def _migrate_idea_assumption_link(conn):
         "confirmed_by VARCHAR NOT NULL DEFAULT '', "
         "updated_at DATETIME)"
     ))
-    try:
+    with contextlib.suppress(Exception):
         conn.execute(text(
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_idea_assumption_link "
             "ON ideaassumptionlink (idea_id, hypothesis_id)"
         ))
-    except Exception:
-        pass  # 历史重复行不阻塞启动；写入端按 upsert 保证唯一
 
     rows = conn.execute(text(
         "SELECT id, hypotheses, assumptions FROM idea"
@@ -519,14 +511,11 @@ def _migrate_ideachange(conn):
 
 def _migrate_idea_user_pref(conn):
     """IdeaUserPref：一个 (idea_id, user, rule_id) 只保留一行（dismiss upsert 幂等）。"""
-    try:
+    with contextlib.suppress(Exception):
         conn.execute(text(
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_idea_user_pref "
             "ON ideauserpref (idea_id, user, rule_id)"
         ))
-    except Exception:
-        # 历史重复行不阻塞启动；写入端 upsert 保证唯一
-        pass
 
 
 def _migrate_observability(conn):

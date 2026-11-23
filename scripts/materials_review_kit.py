@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P5.1 复核包构建与校验。
 
 - `--build`：从样本+标签重建盲复核包、空白表与 manifest（确定性）。
@@ -14,7 +13,6 @@ import json
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
 
 PACK_FIELDS = ("sample_id", "source_key", "quote")
 FREEZE_FILES = (
@@ -37,19 +35,19 @@ ADJ_HEADER = (
 )
 
 
-def _rows(path: Path) -> List[dict]:
+def _rows(path: Path) -> list[dict]:
     return [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
 
 
-def select_pack(labels: List[dict], limit: int = 30) -> List[dict]:
+def select_pack(labels: list[dict], limit: int = 30) -> list[dict]:
     """确定性选样：隔离样本优先，再按层各取可用/不可用，去重截断。"""
 
-    def pick(cell: str, usable: str, k: int) -> List[dict]:
+    def pick(cell: str, usable: str, k: int) -> list[dict]:
         return [r for r in labels
                 if r["cell"] == cell and r["label_usable"] == usable
                 and r["status"] == "active"][:k]
 
-    picks: List[dict] = [r for r in labels if r["status"] == "quarantine"][:3]
+    picks: list[dict] = [r for r in labels if r["status"] == "quarantine"][:3]
     for cell in ("decision|internal", "result|task", "signal|external"):
         picks += pick(cell, "yes", 4)
         picks += pick(cell, "no", 4)
@@ -117,7 +115,7 @@ def build(sample: Path, labels: Path, out: Path, rules: Path,
     return manifest
 
 
-def verify(kit: Path) -> List[str]:
+def verify(kit: Path) -> list[str]:
     manifest = json.loads((kit / "manifest.json").read_text(encoding="utf-8"))
     problems = []
     for name, meta in manifest["files"].items():

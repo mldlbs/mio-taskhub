@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """检查 GitHub 分支保护是否强制要求指定 status checks。
 
 需要 token（GH_TOKEN / GITHUB_TOKEN），且对仓库有 Administration 读权限。
@@ -11,17 +10,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 import urllib.error
 import urllib.request
-from typing import Iterable, List, Optional, Set
+from collections.abc import Iterable
 
 
-def _token() -> Optional[str]:
+def _token() -> str | None:
     return os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
 
 
-def fetch_required(token: str, repo: str, branch: str) -> Set[str]:
+def fetch_required(token: str, repo: str, branch: str) -> set[str]:
     url = (f"https://api.github.com/repos/{repo}/branches/{branch}/"
            f"protection/required_status_checks")
     req = urllib.request.Request(url, headers={
@@ -40,7 +38,7 @@ def fetch_required(token: str, repo: str, branch: str) -> Set[str]:
     return contexts
 
 
-def audit(token: Optional[str], repo: str, branch: str,
+def audit(token: str | None, repo: str, branch: str,
           required: Iterable[str]) -> dict:
     required_set = {r for r in required if r}
     if not token:

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """归档历史空转垃圾任务（P1-1，见 docs/taskhub/system-assessment-20260930.md）。
 
 背景：定时任务「[定时] 自动生成创意想法」等自动链路曾每日创建任务、几乎无人认领即被取消
@@ -18,10 +17,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sqlmodel import Session, select  # noqa: E402
+from sqlmodel import Session, select
 
-from mio_taskhub.db import engine  # noqa: E402
-from mio_taskhub.models import Task, TaskState, TaskKind, TaskStage  # noqa: E402
+from mio_taskhub.db import engine
+from mio_taskhub.models import Task, TaskKind, TaskStage, TaskState
 
 ARCHIVE_LABEL = "archived:spinning"
 ARCHIVE_NOTE = "assessment-20260930:P1-1 空转垃圾任务归档"
@@ -45,7 +44,7 @@ def _is_spinning(t) -> bool:
     return has_cron and ("auto" in labels)
 
 
-def run(apply: bool, undo: bool) -> int:
+def run(apply: bool, undo: bool) -> int:  # noqa: C901
     with Session(engine) as db:
         # 空转任务：未认领（无 claimed_at）且处于排队态；涵盖 CANCELLED 与 QUEUED 两类
         # （CANCELLED = 已被清理的垃圾；QUEUED 且长期未认领 = 正在堆积的垃圾）。

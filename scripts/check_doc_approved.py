@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """② 交付物门控：校验任务的 spec / api / plan 文档已 approved。
 
 返回 (allow: bool, reason: str)。allow=False 时 reason 用于打印阻塞原因。
@@ -20,7 +19,7 @@ import sys
 import urllib.error
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from doc_gate_common import get_task, warn_allow, block
+from doc_gate_common import block, get_task, warn_allow
 
 DEFAULT_KINDS = ("spec", "api", "plan")
 APPROVED = "approved"
@@ -46,12 +45,12 @@ def check_doc_approved(task_id, task=None):
             return warn_allow("无法连接 taskhub（%s），跳过文档批准校验" % e)
         except OSError as e:
             return warn_allow("无法连接 taskhub（%s），跳过文档批准校验" % e)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             return warn_allow("查询任务 %s 失败：%s" % (task_id, e))
 
     kinds = required_kinds()
     statuses = task.get("doc_statuses") or {}
-    doc_paths = task.get("doc_paths") or {}
+    task.get("doc_paths") or {}
     # 与后端 task_stages._check_lifecycle_gate 对齐：仅以 **doc_statuses**（显式进入
     # 生命周期的文档）判定「已跟踪」，不因 doc_paths 里挂了非生命周期文档（如 review
     # 报告、readme、changelog）就强制要求 spec/api/plan（2026-09-30 P1-2 实测误伤）。

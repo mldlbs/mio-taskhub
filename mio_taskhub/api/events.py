@@ -1,10 +1,12 @@
 # mio_taskhub/api/events.py
 from datetime import timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
+
 from mio_taskhub.db import get_session
-from mio_taskhub.models import Event, Task, TaskEvent
 from mio_taskhub.events import event_to_dict
+from mio_taskhub.models import Event, Task, TaskEvent
 
 router = APIRouter(prefix="/events", tags=["events"])
 task_events_router = APIRouter(prefix="/tasks", tags=["tasks"])

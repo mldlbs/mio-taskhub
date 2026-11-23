@@ -1,13 +1,15 @@
 import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
+
+from mio_taskhub.api.task_helpers import check_cycle, parse_dt, validate_depends
 from mio_taskhub.db import get_session
+from mio_taskhub.dependency import normalize_depends, task_deps
+from mio_taskhub.events import emit_event
 from mio_taskhub.models import Task, TaskStage, TaskTemplate, TaskTemplateVersion
 from mio_taskhub.policy_guard import guard_action
 from mio_taskhub.utils import _now
-from mio_taskhub.dependency import normalize_depends, task_deps
-from mio_taskhub.events import emit_event
-from mio_taskhub.api.task_helpers import parse_dt, validate_depends, check_cycle
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -31,7 +33,7 @@ def _template_json(t: TaskTemplate) -> dict:
 
 
 @router.get("/templates", response_model=list)
-def list_templates(category: str = None, author: str = None,
+def list_templates(category: str | None = None, author: str | None = None,
                    db: Session = Depends(get_session)):
     q = select(TaskTemplate)
     if category:
@@ -262,7 +264,7 @@ def create_task_from_template(tpl_id: str, body: dict, db: Session = Depends(get
     validate_depends(t, db)
     check_cycle(t, db)
     db.add(t)
-    event = emit_event(db, type="task_created", entity="task", entity_id=t.id,
+    emit_event(db, type="task_created", entity="task", entity_id=t.id,
                        payload={"title": t.title, "stage": t.stage.value, "from_template": tpl_id})
     db.commit()
     db.refresh(t)

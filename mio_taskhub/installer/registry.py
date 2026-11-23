@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """「应用和功能」注册表项（HKCU 用户级，无需管理员）。
 
 用 `winreg` 直接读写，不引入 pywin32（打包产物里没有）。
@@ -117,5 +116,5 @@ def is_admin() -> bool:
     try:
         import ctypes
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False

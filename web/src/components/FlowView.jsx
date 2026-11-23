@@ -47,6 +47,7 @@ const depState = (t, tasks) => {
  * 是原生阻塞式弹窗（无法键盘 Esc 仲裁、无法显示在浮层内、样式与产品脱节），已全部删除；
  * 错误由 advanceStage 的返回值 / 对话框内错误条承接。
  */
+// eslint-disable-next-line max-lines-per-function
 export default function FlowView({ tasks, onOpen, onCancel, onAdvanceTask }) {
   const [expanded, setExpanded] = useState(STAGES[0].id)
   const [draggingId, setDraggingId] = useState(null)

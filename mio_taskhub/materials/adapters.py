@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P3 真实来源适配器：读取 observer / taskhub 表，产出 RawRecord（不写库）。
 
 所有适配器只做“读源 + 构造 payload”；入库、脱敏、提炼由 pipeline 负责。
@@ -9,10 +8,11 @@ import html
 import json
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any
 
 from sqlalchemy import func
 from sqlmodel import Session, select
@@ -29,15 +29,15 @@ _GITHUB_REPO = re.compile(r"^【GitHub】([^\s⭐]+)")
 
 @dataclass
 class AdapterBatch:
-    records: List[RawRecord]
-    cursor: Optional[str] = None
+    records: list[RawRecord]
+    cursor: str | None = None
 
 
 def _now():
     return datetime.now(timezone.utc)
 
 
-def _cursor_payload(cursor: Optional[str]) -> Dict[str, Any]:
+def _cursor_payload(cursor: str | None) -> dict[str, Any]:
     if not cursor:
         return {}
     try:
@@ -47,7 +47,7 @@ def _cursor_payload(cursor: Optional[str]) -> Dict[str, Any]:
         return {}
 
 
-def _since(days: int, since: Optional[str], cursor: Optional[str]) -> datetime:
+def _since(days: int, since: str | None, cursor: str | None) -> datetime:
     cur = _cursor_payload(cursor)
     for candidate in (cur.get("since"), since):
         dt = parse_utc(candidate)
@@ -56,14 +56,14 @@ def _since(days: int, since: Optional[str], cursor: Optional[str]) -> datetime:
     return _now() - timedelta(days=max(1, days))
 
 
-def _next_since(dt: Optional[datetime]) -> Optional[str]:
+def _next_since(dt: datetime | None) -> str | None:
     if dt is None:
         return None
     return canonical_json({"since": parse_utc(dt).isoformat()})
 
 
-def _file_cutoff(days: int, since: Optional[str],
-                 cursor: Optional[str]) -> datetime:
+def _file_cutoff(days: int, since: str | None,
+                 cursor: str | None) -> datetime:
     cur = _cursor_payload(cursor)
     last = parse_utc(cur.get("last_date"))
     if last is not None:
@@ -78,9 +78,9 @@ def _observer_observations_dir() -> Path:
     return Path(mio_runtime.observer_base_dir()) / "observations"
 
 
-def _obs_files(start: datetime) -> List[tuple[Path, datetime]]:
+def _obs_files(start: datetime) -> list[tuple[Path, datetime]]:
     base = _observer_observations_dir()
-    out: List[tuple[Path, datetime]] = []
+    out: list[tuple[Path, datetime]] = []
     for path in sorted(base.glob("*.json")):
         try:
             day = datetime.strptime(path.stem, "%Y-%m-%d").replace(tzinfo=timezone.utc)
@@ -94,7 +94,7 @@ def _obs_files(start: datetime) -> List[tuple[Path, datetime]]:
     return out
 
 
-def _load_obs(path: Path) -> List[dict]:
+def _load_obs(path: Path) -> list[dict]:
     try:
         obj = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
@@ -107,12 +107,12 @@ def _obs_time(item: dict, fallback: datetime) -> datetime:
     return parse_utc(item.get("timestamp")) or fallback
 
 
-def read_hn(session: Optional[Session] = None, *, days: int = 1,
-            since: Optional[str] = None, cursor: Optional[str] = None,
-            limit: Optional[int] = None, root: Optional[str] = None) -> AdapterBatch:
+def read_hn(session: Session | None = None, *, days: int = 1,
+            since: str | None = None, cursor: str | None = None,
+            limit: int | None = None, root: str | None = None) -> AdapterBatch:
     cutoff = _file_cutoff(days, since, cursor)
-    records: List[RawRecord] = []
-    last_complete: Optional[datetime] = None
+    records: list[RawRecord] = []
+    last_complete: datetime | None = None
     for path, day in _obs_files(cutoff):
         complete = True
         for item in _load_obs(path):
@@ -138,13 +138,13 @@ def read_hn(session: Optional[Session] = None, *, days: int = 1,
     return AdapterBatch(records, cur)
 
 
-def read_github_trending(session: Optional[Session] = None, *, days: int = 1,
-                         since: Optional[str] = None, cursor: Optional[str] = None,
-                         limit: Optional[int] = None,
-                         root: Optional[str] = None) -> AdapterBatch:
+def read_github_trending(session: Session | None = None, *, days: int = 1,
+                         since: str | None = None, cursor: str | None = None,
+                         limit: int | None = None,
+                         root: str | None = None) -> AdapterBatch:
     cutoff = _file_cutoff(days, since, cursor)
-    records: List[RawRecord] = []
-    last_complete: Optional[datetime] = None
+    records: list[RawRecord] = []
+    last_complete: datetime | None = None
     for path, day in _obs_files(cutoff):
         complete = True
         for item in _load_obs(path):
@@ -187,7 +187,7 @@ def _json_obj(value: Any) -> dict:
         return {}
 
 
-def _workspace_root(workspace: Optional[str], root: Optional[str]) -> Path:
+def _workspace_root(workspace: str | None, root: str | None) -> Path:
     if root:
         return Path(root)
     env = os.environ.get("MIO_TASKHUB_WORKSPACE_ROOT")
@@ -226,12 +226,12 @@ def _read_doc(path: Path) -> str:
 
 
 def read_doc_requirements(session: Session, *, days: int = 180,
-                          since: Optional[str] = None, cursor: Optional[str] = None,
-                          limit: Optional[int] = None,
-                          root: Optional[str] = None) -> AdapterBatch:
+                          since: str | None = None, cursor: str | None = None,
+                          limit: int | None = None,
+                          root: str | None = None) -> AdapterBatch:
     cutoff = _since(days, since, cursor)
-    records: List[RawRecord] = []
-    newest: Optional[datetime] = None
+    records: list[RawRecord] = []
+    newest: datetime | None = None
     rows = session.exec(select(
         Task.id, Task.project, Task.workspace, Task.doc_paths,
         Task.doc_statuses, Task.completed_at, Task.created_at,
@@ -270,12 +270,12 @@ def read_doc_requirements(session: Session, *, days: int = 180,
 
 
 def read_doc_reviews(session: Session, *, days: int = 180,
-                     since: Optional[str] = None, cursor: Optional[str] = None,
-                     limit: Optional[int] = None,
-                     root: Optional[str] = None) -> AdapterBatch:
+                     since: str | None = None, cursor: str | None = None,
+                     limit: int | None = None,
+                     root: str | None = None) -> AdapterBatch:
     cutoff = _since(days, since, cursor)
-    records: List[RawRecord] = []
-    newest: Optional[datetime] = None
+    records: list[RawRecord] = []
+    newest: datetime | None = None
     rows = session.exec(select(
         Task.id, Task.project, Task.review_result,
         Task.completed_at, Task.created_at,
@@ -301,12 +301,12 @@ def read_doc_reviews(session: Session, *, days: int = 180,
 
 
 def read_discussions(session: Session, *, days: int = 180,
-                     since: Optional[str] = None, cursor: Optional[str] = None,
-                     limit: Optional[int] = None,
-                     root: Optional[str] = None) -> AdapterBatch:
+                     since: str | None = None, cursor: str | None = None,
+                     limit: int | None = None,
+                     root: str | None = None) -> AdapterBatch:
     cutoff = _since(days, since, cursor)
-    records: List[RawRecord] = []
-    newest: Optional[datetime] = None
+    records: list[RawRecord] = []
+    newest: datetime | None = None
     rows = session.exec(
         select(Discussion).where(Discussion.status == "closed")
     ).all()
@@ -339,12 +339,12 @@ def _run_exit_code(run: Run) -> int:
 
 
 def read_runs(session: Session, *, source_key: str = "run.result",
-              days: int = 180, since: Optional[str] = None,
-              cursor: Optional[str] = None, limit: Optional[int] = None,
-              root: Optional[str] = None) -> AdapterBatch:
+              days: int = 180, since: str | None = None,
+              cursor: str | None = None, limit: int | None = None,
+              root: str | None = None) -> AdapterBatch:
     cutoff = _since(days, since, cursor)
-    records: List[RawRecord] = []
-    newest: Optional[datetime] = None
+    records: list[RawRecord] = []
+    newest: datetime | None = None
     rows = session.exec(
         select(Run).where(Run.state == RunState.FINISHED)
     ).all()
@@ -375,13 +375,13 @@ def read_runs(session: Session, *, source_key: str = "run.result",
 
 
 def read_history_root_causes(session: Session, *, days: int = 180,
-                             since: Optional[str] = None,
-                             cursor: Optional[str] = None,
-                             limit: Optional[int] = None,
-                             root: Optional[str] = None) -> AdapterBatch:
+                             since: str | None = None,
+                             cursor: str | None = None,
+                             limit: int | None = None,
+                             root: str | None = None) -> AdapterBatch:
     cutoff = _since(days, since, cursor)
-    records: List[RawRecord] = []
-    newest: Optional[datetime] = None
+    records: list[RawRecord] = []
+    newest: datetime | None = None
     rows = session.exec(
         select(HistoryEvent).where(HistoryEvent.payload.like("%root_cause%"))
     ).all()
@@ -407,7 +407,7 @@ def read_history_root_causes(session: Session, *, days: int = 180,
     return AdapterBatch(records, _next_since(newest))
 
 
-ADAPTERS: Dict[str, Callable[..., AdapterBatch]] = {
+ADAPTERS: dict[str, Callable[..., AdapterBatch]] = {
     "hn": read_hn,
     "github-trending": read_github_trending,
     "doc.requirement": read_doc_requirements,
@@ -419,7 +419,7 @@ ADAPTERS: Dict[str, Callable[..., AdapterBatch]] = {
 }
 
 
-def run_adapter(source_key: str, session: Optional[Session], **kwargs: Any) -> AdapterBatch:
+def run_adapter(source_key: str, session: Session | None, **kwargs: Any) -> AdapterBatch:
     fn = ADAPTERS.get(source_key)
     if fn is None:
         raise KeyError(f"no adapter for source: {source_key}")
@@ -428,11 +428,14 @@ def run_adapter(source_key: str, session: Optional[Session], **kwargs: Any) -> A
     return fn(session, **kwargs)
 
 
-def source_health(session: Session) -> List[Dict[str, Any]]:
+def source_health(session: Session) -> list[dict[str, Any]]:
     from mio_taskhub.materials.models import (
-        Material, MaterialRaw, MaterialWitness, MaterialSource,
+        Material,
+        MaterialRaw,
+        MaterialSource,
+        MaterialWitness,
     )
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     sources = session.exec(select(MaterialSource).order_by(MaterialSource.key)).all()
     for src in sources:
         raw_total = session.execute(
@@ -448,7 +451,7 @@ def source_health(session: Session) -> List[Dict[str, Any]]:
             select(MaterialWitness.material_id).where(
                 MaterialWitness.source_key == src.key)
         ).all())
-        by_status: Dict[str, int] = {}
+        by_status: dict[str, int] = {}
         for mid in material_ids:
             m = session.get(Material, mid)
             if m is not None:

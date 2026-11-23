@@ -10,7 +10,6 @@
 4. 记录迁移日志到 taskhub 的 history_event（可选）
 """
 import sqlite3
-import sys
 from datetime import datetime
 
 DB_PATH = r"C:\Users\admin\.mio_taskhub\taskhub.db"
@@ -23,7 +22,7 @@ def migrate():
     # 1. 检查 novelty/feasibility/impact 列是否存在，不存在则添加
     cursor.execute("PRAGMA table_info(idea)")
     columns = [row[1] for row in cursor.fetchall()]
-    
+
     for col in ("novelty", "feasibility", "impact"):
         if col not in columns:
             cursor.execute(f"ALTER TABLE idea ADD COLUMN {col} INTEGER")
@@ -39,7 +38,7 @@ def migrate():
     to_migrate = cursor.fetchall()
     print(f"Found {len(to_migrate)} ideas to migrate from NEW -> INBOX")
 
-    for idea_id, title, status, labels in to_migrate:
+    for idea_id, title, _status, _labels in to_migrate:
         print(f"  Migrating {idea_id}: {title[:50]}")
         cursor.execute(
             "UPDATE idea SET status = 'INBOX', updated_at = ? WHERE id = ?",

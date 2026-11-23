@@ -20,7 +20,7 @@ def test_is_frozen_false_in_tests():
     assert version.is_frozen() is False
 
 
-from mio_taskhub.update.manifest import parse_version, is_newer, is_valid_asset_url
+from mio_taskhub.update.manifest import is_newer, is_valid_asset_url, parse_version
 
 
 def test_parse_version_valid():
@@ -72,7 +72,9 @@ def test_is_valid_asset_url_rejects_http_and_foreign_hosts():
 
 
 from mio_taskhub.update.manifest import (
-    UpdateManifest, manifest_from_dict, ManifestError,
+    ManifestError,
+    UpdateManifest,
+    manifest_from_dict,
 )
 
 GOOD = {

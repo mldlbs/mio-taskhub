@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """P1 接线：Insight 派生任务接入文档/Evidence 门控（task 417a723b）。
 
 证明：
@@ -7,9 +6,8 @@
 - claim 上下文 required_reads 非空；
 - 服务端 submit 门控未被削弱：未读 → missing（拒），读后 → passed。
 """
-import os
 
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from mio_taskhub.db import engine
 from mio_taskhub.models import Task

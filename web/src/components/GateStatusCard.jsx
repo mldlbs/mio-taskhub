@@ -8,6 +8,7 @@ const LEVEL_META = {
   unknown:   { label: '未知', tone: 'dim',   color: '#6b7280' },
 }
 
+// eslint-disable-next-line complexity
 export default function GateStatusCard({ onForceGenerate }) {
   const [status, setStatus] = useState(null)
   const [loading, setLoading] = useState(true)

@@ -1,10 +1,13 @@
 import os
 import sys
+
 import pytest
 
 from mio_taskhub.installer.paths import APP_EXE_NAME
 from mio_taskhub.update.apply import (
-    execute_replace, verify_staging, _rename_retry, ReplaceResult, REQUIRED_ENTRIES,
+    _rename_retry,
+    execute_replace,
+    verify_staging,
 )
 
 
@@ -69,7 +72,7 @@ def test_execute_replace_prunes_old_backups(tmp_path):
     _mk_install(install)
     # 造 3 个旧备份
     import time as _t
-    for i, ver in enumerate(["0.1.0", "0.2.0", "0.3.0"]):
+    for _i, ver in enumerate(["0.1.0", "0.2.0", "0.3.0"]):
         b = tmp_path / f"app.bak-{ver}"
         _mk_install(b)
         # 拉开 mtime
@@ -151,8 +154,12 @@ def test_rename_retry_eventually_succeeds(tmp_path):
 # ---- Task 7: 进程等待 + 健康确认 + 残留恢复 ----
 
 import json
+
 from mio_taskhub.update.apply import (
-    pid_alive, wait_pid_exit, read_runtime, wait_healthy, recover_residual,
+    read_runtime,
+    recover_residual,
+    wait_healthy,
+    wait_pid_exit,
 )
 
 
@@ -233,7 +240,7 @@ def test_list_and_purge_processes_under(tmp_path):
             try:
                 import psutil
                 psutil.Process(proc.pid).exe()
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 pytest.skip(f"环境无法读取子进程映像路径（psutil）: {e}")
             raise AssertionError("进程存在且 psutil 可解析映像路径，但 list_processes_under 未列出（真 bug）")
         assert purge_processes_under(tmp_path, timeout=10.0) is True
@@ -305,7 +312,8 @@ def test_run_apply_update_sha_mismatch_returns_1(tmp_path, monkeypatch):
 def test_run_apply_update_full_flow(tmp_path, monkeypatch):
     monkeypatch.setenv("MIO_UPDATE_LOG_PATH", str(tmp_path / "apply.log"))
     # 造一个"新版本"zip
-    import zipfile, hashlib
+    import hashlib
+    import zipfile
     staging_src = tmp_path / "src"
     (staging_src / "_internal" / "web" / "dist").mkdir(parents=True)
     (staging_src / APP_EXE_NAME).write_text("new", encoding="utf-8")
@@ -362,7 +370,8 @@ def test_recover_residual_restores_install_from_backup(tmp_path):
 def test_run_apply_update_rolls_back_when_unhealthy(tmp_path, monkeypatch):
     """健康确认失败 → 必须回滚 install 到旧版本，并 rc=1。"""
     monkeypatch.setenv("MIO_UPDATE_LOG_PATH", str(tmp_path / "apply.log"))
-    import zipfile, hashlib
+    import hashlib
+    import zipfile
     staging_src = tmp_path / "src2"
     (staging_src / "_internal" / "web" / "dist").mkdir(parents=True)
     (staging_src / APP_EXE_NAME).write_text("new", encoding="utf-8")

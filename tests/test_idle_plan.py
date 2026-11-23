@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """空闲计划（原夜间计划）：项目范围配置 + {project} 占位符 + idle_worker 提示词拼装。
 
 task 7a10b3bb。不真拉进程、不真跑 agent。
@@ -6,8 +5,6 @@ task 7a10b3bb。不真拉进程、不真跑 agent。
 import importlib.util
 import os
 from pathlib import Path
-
-import pytest
 
 from mio_taskhub.scheduling import night_runner as nr
 
@@ -139,7 +136,6 @@ def test_idle_worker_claim_path_includes_project(monkeypatch):
 
     def fake_req(method, path, body=None, timeout=20):
         seen["method"], seen["path"] = method, path
-        return None
 
     monkeypatch.setattr(mod, "req", fake_req)
     mod.claim_once("worker-1", "agent-dev")

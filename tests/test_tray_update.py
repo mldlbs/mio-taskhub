@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """托盘更新点击：逐步日志 + 结果通知（回归「静默失败 / failed 态点击无反应」）。"""
 import importlib.util
 import time

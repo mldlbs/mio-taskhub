@@ -1,5 +1,4 @@
-﻿# -*- coding: utf-8 -*-
-"""数据库逻辑内容哈希（跨 sqlite backup 稳定）。"""
+﻿"""数据库逻辑内容哈希（跨 sqlite backup 稳定）。"""
 from __future__ import annotations
 
 import hashlib
