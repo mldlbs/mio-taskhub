@@ -48,3 +48,21 @@ def normalize_depends(value: Any) -> list:
 def task_deps(task) -> list:
     """读取任务依赖列表（兼容旧字符串/None/列表）。"""
     return normalize_depends(getattr(task, "depends_on", None))
+
+
+def dependencies_satisfied(db, task) -> bool:
+    """领取准入硬门禁：所有依赖存在且已完成；异常一律 fail-closed。
+
+    与 MIO_CLAIM_GATE 无关，避免关闭可选 readiness 门禁时绕过 DAG 准入。
+    """
+    try:
+        for dep_id in task_deps(task):
+            if not isinstance(dep_id, str) or not dep_id.strip():
+                return False
+            prerequisite = db.get(type(task), dep_id)
+            if prerequisite is None or not dependency_satisfied(prerequisite):
+                return False
+        return True
+    except Exception:
+        logger.exception("dependency admission check failed: task=%s", getattr(task, "id", None))
+        return False

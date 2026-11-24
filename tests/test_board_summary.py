@@ -182,14 +182,15 @@ def test_ready_dep_satisfied_no_new_alert():
     assert not any("依赖死结" in a["message"] for a in data["alerts"])
 
 
-def test_ready_dependency_alert_does_not_change_claim_behaviour():
-    """关键：告警是纯可见性——依赖未满足的 READY 任务**仍可被 claim**。
+def test_dependency_admission_blocks_claim_with_unmet_dependency():
+    """依赖未满足的 READY 任务不可领取，返回 409 claim.dependency_not_satisfied。
 
-    这条测试锁定「本轮不改行为」的边界：若将来加了 READY 阶段门控，
-    它会失败并提醒同步更新文案与预期。
+    2026-11-24 契约裁定：直接建单到 READY 可以绕过调度放行路径，
+    但 claim 必须兜底复核依赖，不能把可见性告警当成领取许可。
     """
     parent = _mk("beh-parent", stage="ready")
     child = _mk("beh-child", stage="ready", depends_on=[parent["id"]])
     r = client.post("/api/v1/tasks/claim",
                     params={"agent": "beh-agent", "task_id": child["id"]})
-    assert r.status_code == 200, "本轮不改领取行为，依赖未满足也仍可领"
+    assert r.status_code == 409
+    assert r.json()["detail"]["code"] == "claim.dependency_not_satisfied"

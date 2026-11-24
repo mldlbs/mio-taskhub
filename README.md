@@ -7,7 +7,7 @@
 | 维度 | 现状 |
 |------|------|
 | 版本 | v0.6.1 |
-| 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 76 模块 / 36,950 行 |
+| 后端 | Python ≥3.10 · FastAPI + SQLModel / SQLite(WAL) · 76 模块 / 36,987 行 |
 | 对外能力 | **187 个 REST 端点** · **57 个 MCP 工具** · WebSocket 实时广播 · React Web UI |
 | 任务文档 | **22 类文档 kind** · **7 件套文档链** · **9 类生命周期状态机** · 质量 lint + 状态门控 + 修订指令 |
 | 前端 | React 18 + Vite 5 · 57 文件 / 14,081 行 · 10 个视图 |
@@ -337,11 +337,12 @@ python packaging/agent_wrapper.py opencode list
 
 ### 5.1 依赖编排
 
-- `depends_on` 是一个任务 ID 数组，依赖未满足时任务被挡在 `queued` 之外
-- 依赖满足判定 = `state==completed` **或** `stage==done`（`dependency_satisfied`）
-- 依赖全部满足 → 自动放行入队
+- `depends_on` 是一个任务 ID 数组；依赖满足判定 = `state==completed` **或** `stage==done`（`dependency_satisfied`）
+- 正常放行路径：`background.py` 的 `_release_dependencies()` 只把依赖全部满足的任务从 `brainstorming` / `design` / `planning` 推进到 `READY`（`state=queued`），写 `task_released` 事件并广播；依赖未满足时任务停在原阶段，不进队列
+- 直接建单路径：`POST /api/v1/tasks` 允许显式传 `stage=ready` 与 `depends_on`，可绕过上面的放行调度直接产生 `queued` 任务。领取接口在候选筛选和最终条件更新前都会复核依赖；任一前置不存在或未完成 → 409 `claim.dependency_not_satisfied`，任务保留在 `queued`
+- `MIO_CLAIM_GATE` 只控制文档就绪度检查（默认 `warn`），与 DAG 依赖门禁独立；关闭就绪度检查不会放开依赖
 - 提交依赖图时做**环检测**（`planner.detect_cycle`），环直接拒绝；`/tasks/graph` 也返回 `has_cycle` / `cycle_path`
-- 上游失败则依赖永不满足，下游持续停在 `queued`；`block_reason` 字段记录阻塞原因，`composite.py` 的 `composite_status` 会把它渲染成看板上的阻塞标签
+- 上游失败则依赖永不满足，下游不会被自动放行；若已被直接建到 `queued`，领取返回 409，`block_reason` 字段记录阻塞原因，`composite.py` 的 `composite_status` 把它渲染成看板上的阻塞标签
 - `GET /api/v1/tasks/graph` 返回全图，`GET /api/v1/tasks/{id}/graph` 返回单任务子图，供拓扑视图与关键路径（CPM）计算使用
 
 ### 5.2 想法工作台

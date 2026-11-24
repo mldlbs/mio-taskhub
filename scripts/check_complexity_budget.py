@@ -17,8 +17,18 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from collections import Counter
 from pathlib import Path
+
+# Windows runner 的 stdout 默认编码是 cp1252，本脚本的中文输出会让门禁自身
+# 以 UnicodeEncodeError 退出（2026-11-23 main CI run 45099075735 实证）。
+# GitHub Actions 日志按 UTF-8 采集，这里显式重配；不可重配的流保持原样。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
 
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = Path(__file__).resolve().parent / "complexity_budget.json"

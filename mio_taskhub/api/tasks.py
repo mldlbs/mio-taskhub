@@ -12,7 +12,7 @@ from mio_taskhub import path_guard
 from mio_taskhub.api.claim import claim_for
 from mio_taskhub.api.task_helpers import check_cycle, parse_dt, validate_depends
 from mio_taskhub.db import get_session
-from mio_taskhub.dependency import normalize_depends, task_deps
+from mio_taskhub.dependency import dependencies_satisfied, normalize_depends, task_deps
 from mio_taskhub.doc_paths import merge_doc_paths
 from mio_taskhub.events import emit_event
 from mio_taskhub.hierarchy import (
@@ -764,6 +764,13 @@ def claim_task(agent: str = Query(...), agent_type: str = Query(None),  # noqa: 
                     "state": t.state.value,
                     "hint": ("failed / retrying 会在退避到期后自动回队列（GET /tasks/{id} 的 retry_countdown "
                              "是剩余秒数）；要立刻重来用 POST /tasks/{id}/retry。"),
+                }})
+            if not dependencies_satisfied(db, t):
+                return JSONResponse(status_code=409, content={"detail": {
+                    "code": "claim.dependency_not_satisfied",
+                    "message": f"任务 {task_id} 的依赖未全部满足，无法领取。",
+                    "depends_on": task_deps(t),
+                    "hint": "依赖满足判定为 state=completed 或 stage=done；缺失前置不会自动补建。",
                 }})
             # 任务在排队、agent 在线，仍领不到 → 只剩就绪度门（claim_gate_mode=block）
             try:
