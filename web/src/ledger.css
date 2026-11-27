@@ -1231,7 +1231,71 @@ html[data-theme="light"] .inbox-strip__row:hover { background: rgba(139, 92, 246
   max-height: 132px; overflow-y: auto;
 }
 
-/* --- 六动作按钮组 / 输入区 / 裁决摘要 --- */
+/* --- 流程条：提取 → 开会 → 裁决 → 关会，当前状态一眼可见 --- */
+.rm-flow {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  padding: 7px var(--sp-4);
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+.rm-flow__step {
+  font-size: 10.5px; color: var(--ink-ghost); white-space: nowrap;
+  padding: 2px 8px; border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+}
+.rm-flow__step.is-done { background: var(--ok-soft); border-color: transparent; color: var(--ok); }
+.rm-flow__step.is-current { background: var(--accent-soft); border-color: transparent; color: var(--accent); font-weight: 700; }
+.rm-flow__line { width: 14px; height: 1px; background: var(--line-strong); }
+.rm-flow__hint { margin-left: auto; font-size: 10px; color: var(--ink-ghost); }
+.rm-done {
+  margin: var(--sp-2) var(--sp-4) 0; padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent);
+  border-radius: var(--r-sm);
+  background: var(--ok-soft); color: var(--ok); font-size: 11.5px;
+}
+
+/* --- 阶段引导：无点提示提取 / 有候选提示开会 --- */
+.rm-stage {
+  margin: var(--sp-3) var(--sp-4); padding: var(--sp-5);
+  border: 1px dashed var(--line-strong); border-radius: var(--r-md);
+  text-align: center;
+}
+.rm-stage__title { margin: 0 0 6px; font-size: 14px; font-weight: 700; color: var(--ink); }
+.rm-stage__desc { margin: 0 0 14px; font-size: 11.5px; line-height: 1.6; color: var(--ink-faint); }
+.rm-stage .btn { margin: 0 4px; }
+
+/* --- 批量条 + 决策问句 --- */
+.rm-batch {
+  display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
+  padding: 8px var(--sp-4); border-bottom: 1px solid var(--line);
+}
+.rm-batch__progress { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; color: var(--ink-dim); }
+.rm-batch__progress b { font-family: var(--font-mono); color: var(--ink); font-size: 12px; }
+.rm-batch__id { margin-left: auto; font-size: 10px; color: var(--ink-ghost); }
+.rm-batch__id code { font-family: var(--font-mono); color: var(--accent); }
+.rm-point__ask {
+  margin-top: 7px; font-size: 13px; line-height: 1.55; font-weight: 600;
+  color: var(--ink); overflow-wrap: anywhere;
+}
+
+/* --- 三动作 + 展开子动作 --- */
+.rm-act--plain { background: transparent; color: var(--ink-faint); border-color: var(--line); }
+.rm-act--plain:hover { border-color: var(--line-strong); color: var(--ink); }
+.rm-sub {
+  margin-top: var(--sp-2); padding: 7px 8px;
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--bg-soft);
+}
+.rm-sub__row { display: flex; gap: 6px; flex-wrap: wrap; }
+.rm-sub__reason {
+  width: 100%; margin-top: 7px; padding: 5px 9px; font-size: 11px;
+  color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+}
+.rm-sub__reason:focus { outline: none; border-color: var(--accent); }
+.rm-sub__hint { display: block; margin-top: 4px; font-size: 10px; color: var(--ink-ghost); }
+
+/* 旧版六动作/输入区样式（保留兼容历史 DOM） */
 .rm-acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: var(--sp-2); }
 .rm-act {
   padding: 4px 11px; border-radius: var(--r-sm);

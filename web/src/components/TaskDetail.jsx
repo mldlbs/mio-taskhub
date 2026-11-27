@@ -364,7 +364,7 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, _onMove, on
             <h2>{task.title}</h2>
           </div>
           <div className="drawer__head-actions">
-            <button className="btn btn--tiny" onClick={() => setReviewOpen(true)} title="从文档提取评审点并逐条裁决">评审会</button>
+            <button className="btn btn--tiny btn--primary" onClick={() => setReviewOpen(true)} title="从文档提取评审点，逐条裁决后关会写纪要">评审会</button>
             <button className="modal__close" ref={closeRef} onClick={onClose} aria-label="关闭">×</button>
           </div>
         </header>
