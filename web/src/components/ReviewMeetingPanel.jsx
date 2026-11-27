@@ -116,6 +116,18 @@ export default function ReviewMeetingPanel({ task, onClose }) {
       for (const p of all) if (p.status !== 'candidate') sel[p.id] = true
       setSelected(sel)
       if (all.length) setError(null)
+
+      // 关键：恢复已存在的 active 评审会议。
+      // 否则重开面板时 meeting=null，六动作一个都不显示；点「开会」又 409「已有 active 会议」，
+      // 用户既不能裁决也不能重开，表现为「功能完全不能用」。
+      const ds = await api.listDiscussions('task', task.id)
+      const active = (ds.discussions || []).find(d => d.mode === 'review' && d.status === 'open')
+      if (active) {
+        const inMeeting = all.filter(p => p.meeting_id === active.id)
+        setMeeting({ id: active.id, point_count: inMeeting.length })
+      } else {
+        setMeeting(null)
+      }
     } catch (e) {
       console.error('[ReviewMeetingPanel] load failed:', e)
       setError(e.message || '加载评审点失败')
