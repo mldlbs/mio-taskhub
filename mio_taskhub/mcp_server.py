@@ -948,6 +948,100 @@ async def taskhub_confirm_high_risk(
     return _fmt(await _request("POST", f"/tasks/{task_id}/confirm", body=body))
 
 
+@_tool(name="taskhub_review_extract", title="提取文档评审点", method="POST", path="/reviews/extract", read_only=False, destructive=False, desc="研发评审会第 1 步：对任务的 requirement/spec/api/decision 文档跑规则提取，逐条铺评审点（H2→H3→H4→表格行/列表项），落 review_point 表并返回候选点。机器负责找得到、定位准，人负责做减法。⚠️ 只提取候选，不代表发现问题；不要替用户判断哪些重要。")
+async def taskhub_review_extract(
+    task_id: str = Field(description="任务 id（8 位十六进制）", min_length=1, max_length=32),
+    kinds: str = Field(default="", description='文档类型 JSON 数组字符串，如 ["spec","api"]；留空取 requirement/spec/api/decision 四类', max_length=512),
+) -> str:
+    import json as _json
+    body: dict = {"task_id": task_id}
+    if kinds.strip():
+        try:
+            body["kinds"] = _json.loads(kinds)
+        except Exception:
+            return _fmt({"error": "kinds 必须是 JSON 数组字符串，如 [\"spec\",\"api\"]"})
+    return _fmt(await _request("POST", "/reviews/extract", body=body))
+
+
+@_tool(name="taskhub_review_points", title="列出评审点", method="GET", path="/reviews/points", read_only=True, destructive=False, desc="研发评审会第 2 步：按 task 列出评审点，可按 status（candidate/shortlisted/discussing/resolved/rejected/deferred）/kind/cluster_id 筛选与分页。把结果渲染成表格（ID｜类型｜风险｜命题｜状态）交给用户勾选，不要自己批量勾选。")
+async def taskhub_review_points(
+    task_id: str = Field(description="任务 id", min_length=1, max_length=32),
+    status: str = Field(default="", description="状态筛选（可选）", max_length=32),
+    kind: str = Field(default="", description="类型筛选（可选）", max_length=32),
+    page: int = Field(default=1, ge=1, le=1000, description="页码"),
+    size: int = Field(default=50, ge=1, le=200, description="每页条数"),
+) -> str:
+    params = {"task_id": task_id, "page": page, "size": size}
+    if status:
+        params["status"] = status
+    if kind:
+        params["kind"] = kind
+    return _fmt(await _request("GET", "/reviews/points", params=params))
+
+
+@_tool(name="taskhub_review_shortlist", title="勾选评审点入会", method="PATCH", path="/reviews/points/{point_id}/shortlist", read_only=False, destructive=False, desc="把候选点纳入或移出待评清单（selected=true/false）。⚠️ 勾哪些点必须由用户决定；agent 只在用户明确点选后调用，不要自作主张批量入会。")
+async def taskhub_review_shortlist(
+    point_id: str = Field(description="评审点 ID，如 RP-a20f3f9f-01", min_length=1),
+    selected: bool = Field(description="true=入会，false=移出"),
+) -> str:
+    return _fmt(await _request("PATCH", f"/reviews/points/{quote(point_id, safe='')}/shortlist",
+                               body={"selected": selected}))
+
+
+@_tool(name="taskhub_review_decide", title="逐条裁决评审点", method="POST", path="/reviews/points/{point_id}/decide", read_only=False, destructive=False, desc="研发评审会核心：对单点执行六动作 confirm/amend/reject/decide/test/defer。reject/defer 的 rationale 必填且 ≥8 字；decide 时 options 必填（会创建 Decision 实体，source=RP-id）。⚠️ 结论必须由用户逐条给出，agent 只负责按用户原话传参，不自行裁决；终态点再操作会 409。")
+async def taskhub_review_decide(
+    point_id: str = Field(description="评审点 ID", min_length=1),
+    action: str = Field(description="confirm/amend/reject/decide/test/defer"),
+    rationale: str = Field(default="", description="理由（reject/defer 必填，≥8 字）", max_length=2048),
+    options: str = Field(default="", description='action=decide 时的选项 JSON 数组，如 [{"label":"接入认证"}]', max_length=4096),
+    reviewer: str = Field(default="user", description="裁决人", max_length=64),
+) -> str:
+    import json as _json
+    body: dict = {"action": action, "reviewer": reviewer}
+    if rationale:
+        body["rationale"] = rationale
+    if options.strip():
+        try:
+            body["options"] = _json.loads(options)
+        except Exception:
+            return _fmt({"error": "options 必须是 JSON 数组字符串"})
+    return _fmt(await _request("POST", f"/reviews/points/{quote(point_id, safe='')}/decide", body=body))
+
+
+@_tool(name="taskhub_review_meeting", title="开启/关闭研发评审会", method="POST", path="/reviews/meetings/open", read_only=False, destructive=False, desc="开评审会：创建 Discussion(mode=review) 容器，把 shortlist 点置 discussing 并写消息。关评审会：需所有点终态 + review 五段（risks≥1/divergences/suggestions/decisions≥2/action_items≥1），写 TaskReview + Subtask，不改文档状态。⚠️ 关会结论由用户给，agent 不自行拍板。")
+async def taskhub_review_meeting(
+    op: str = Field(description="open=开会 / close=关会"),
+    task_id: str = Field(default="", description="开会时的任务 id", max_length=32),
+    discussion_id: str = Field(default="", description="关会时的会议 id", max_length=32),
+    roles: str = Field(default='["product"]', description='开会的角色 JSON 数组，子集 of product/tech/redteam/qa', max_length=256),
+    decision: str = Field(default="", description="关会结论 approve/reject/comment", max_length=32),
+    summary: str = Field(default="", description="关会纪要摘要（approve/reject 需 ≥8 字）", max_length=2048),
+    review: str = Field(default="", description="关会五段 JSON 对象字符串", max_length=8192),
+) -> str:
+    import json as _json
+    if op == "open":
+        if not task_id:
+            return _fmt({"error": "op=open 时 task_id 必填"})
+        try:
+            roles_val = _json.loads(roles)
+        except Exception:
+            return _fmt({"error": "roles 必须是 JSON 数组字符串"})
+        return _fmt(await _request("POST", "/reviews/meetings/open",
+                                   body={"task_id": task_id, "roles": roles_val}))
+    if op == "close":
+        if not discussion_id:
+            return _fmt({"error": "op=close 时 discussion_id 必填"})
+        body: dict = {"decision": decision, "summary": summary}
+        if review.strip():
+            try:
+                body["review"] = _json.loads(review)
+            except Exception:
+                return _fmt({"error": "review 必须是 JSON 对象字符串"})
+        return _fmt(await _request("POST", f"/reviews/meetings/{quote(discussion_id, safe='')}/close",
+                                   body=body))
+    return _fmt({"error": "op 须为 open 或 close"})
+
+
 def main():
     mcp.run()
 

@@ -4,6 +4,7 @@ import { api } from '../api'
 import DependencyGraph from './DependencyGraph'
 import WorkstreamPanel from './WorkstreamPanel'
 import { useOverlayStack } from '../lib/overlayStack'
+import ReviewMeetingPanel from './ReviewMeetingPanel'
 
 const tone = (s) => STATE_META[s]?.tone || 'dim'
 const ACTIVE = ['queued', 'claimed', 'running', 'retrying']
@@ -193,6 +194,7 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, _onMove, on
   const [readyTick, setReadyTick] = useState(0)     // 手动/自动刷新计数
   const readyTaskRef = useRef(null)
   const [tab, setTab] = useState('disc')
+  const [reviewOpen, setReviewOpen] = useState(false)
   // 新建讨论：详情页此前只能「看」讨论、没有创建入口，而阶段门控要求至少一条记录，
   // 面板指引「去新建」却无处可点（用户 2026-11-05 问「这个讨论要怎么进行」）。
   // discList 是本地覆盖层：新建成功后立即生效，换任务时清空回落到 task.discussions。
@@ -361,7 +363,10 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, _onMove, on
             </span>
             <h2>{task.title}</h2>
           </div>
-          <button className="modal__close" ref={closeRef} onClick={onClose} aria-label="关闭">×</button>
+          <div className="drawer__head-actions">
+            <button className="btn btn--tiny" onClick={() => setReviewOpen(true)} title="从文档提取评审点并逐条裁决">评审会</button>
+            <button className="modal__close" ref={closeRef} onClick={onClose} aria-label="关闭">×</button>
+          </div>
         </header>
 
         {/* 仪表盘条：结论先行，数字大字化 */}
@@ -1060,6 +1065,7 @@ export default function TaskDetail({ task, tasks, onClose, onCancel, _onMove, on
           </div>
         )}
       </aside>
+      {reviewOpen && <ReviewMeetingPanel task={task} onClose={() => setReviewOpen(false)} />}
     </div>
   )
 }

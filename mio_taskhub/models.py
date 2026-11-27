@@ -630,6 +630,53 @@ class MioOutbox(SQLModel, table=True):
     at: datetime = Field(default_factory=_now)
 
 
+class ReviewPoint(SQLModel, table=True):
+    """研发评审会的评审点（任务 a20f3f9f）。
+
+    由文档结构规则提取产生（origin=rule），LLM 只补 why/risk/suggestion，
+    无权删点；人做减法（shortlist）与逐条裁决（六动作）。
+    `id` 格式 `RP-{task8}-{seq}`，(task_id, seq) 唯一。
+    状态机：candidate → shortlisted → discussing → resolved/rejected/deferred。
+    """
+    __table_args__ = (UniqueConstraint("task_id", "seq", name="uq_reviewpoint_task_seq"),)
+
+    id: str = Field(primary_key=True)                       # RP-{task8}-{seq}
+    task_id: str = Field(index=True)
+    seq: int = 0
+    meeting_id: str | None = Field(default=None, index=True)
+    decision_id: str | None = Field(default=None, index=True)
+
+    source_kind: str = ""                                   # requirement/spec/api/decision
+    source_path: str = ""
+    source_version: str = ""                                # sha256:...
+    source_status: str = ""                                 # 提取时文档状态快照
+
+    kind: str = Field(default="section_gap", index=True)
+    section: str = ""
+    anchor: str = ""
+    claim: str = ""
+    quote: str = ""
+    why_it_matters: str = ""
+    risk_level: str = Field(default="medium", index=True)
+    suggested_action: str = ""
+
+    status: str = Field(default="candidate", index=True)
+    origin: str = "rule"
+    dedup_key: str = Field(default="", index=True)
+    cluster_id: str | None = Field(default=None, index=True)
+    reject_reason: str | None = None
+    annotations: list = Field(default_factory=list, sa_column=Column(JSON))
+    reviewer: str | None = None
+    decided_at: datetime | None = None
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
+
+    parent_id: str | None = None
+    fr_refs: list = Field(default_factory=list, sa_column=Column(JSON))
+    tc_refs: list = Field(default_factory=list, sa_column=Column(JSON))
+    rule_version: str = ""
+
+
 class Decision(SQLModel, table=True):
     """决策记录（FR-01，任务 89a90af6）：把「需要人决策的问题」提升为一等公民。
 

@@ -306,6 +306,10 @@ app.include_router(task_diff.router, prefix="/api/v1", tags=["task-diff"])
 from mio_taskhub.api import decisions
 
 app.include_router(decisions.router, prefix="/api/v1", tags=["decisions"])
+# 研发评审会（任务 a20f3f9f）：静态 /reviews/extract、/reviews/points 等须先于 reviews 的动态 /{task_id}/reviews 注册
+from mio_taskhub.api import review_meetings
+
+app.include_router(review_meetings.router, prefix="/api/v1", tags=["reviews"])
 app.include_router(agents.router, prefix="/api/v1", tags=["agents"])
 app.include_router(runs.router, prefix="/api/v1", tags=["runs"])
 app.include_router(plans.router, prefix="/api/v1", tags=["plans"])
