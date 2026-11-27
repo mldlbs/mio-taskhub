@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import case
 from sqlmodel import Session, select
 
 from mio_taskhub.db import get_session
@@ -57,6 +58,51 @@ POINT_KINDS = ("section_gap", "fr_contract", "api_contract", "data_rule",
                "scope_boundary", "functional", "risk")
 ACTIONS = ("confirm", "amend", "reject", "decide", "test", "defer")
 TERMINAL = ("resolved", "rejected", "deferred")
+
+# ── 评审视角分级（FR-3 无 LLM 时的规则兜底）──────────────────────────────
+# 问题：extract 只做"文档切片"，307 条里 high=0、why/suggestion 全空，
+#       人打开面板看到的是表格行原文，没法判断该评哪条。
+# 约定：规则只生成 why/risk/suggestion，**不删点、不改 claim**，
+#       因此 H5 盲回放的召回口径（44%）与去重指纹完全不受影响。
+# 风险语义复用 HIGH_KW / MED_KW 的分级，但增加"评审价值"判定：
+# 数值阈值、待定表述、强约束、契约冲突优先；纯 FR 表格行 / 章节标题降级。
+_REVIEW_RULES = (
+    # 只匹配"待拍板"语义，不匹配"结构化建议"这类描述性名词（避免误判）
+    (r'待确认|待定|暂定|TBD|未定|由.{0,10}决定|自行决定|建议(?:采用|使用|用|改为|增加|将)|应该(?:采用|使用|用|由)', 'high',
+     '存在未决表述（{m}），口径未锁定，评审需定责人与结论。',
+     '明确该点的最终口径、决策人与完成时间，回填文档。'),
+    # 只匹配"限制/阈值"语义：上限/下限/不超过/至少 + 数字，或百分比/时长。
+    # 不匹配"追加 1 条记录""15 个字段"这类普通计数（避免噪声灌入高风险）。
+    (r'(?:阈值|上限|下限|不超过|至少|最多|最少|超过|大于等于|小于等于)\s*\d|\b\d+(?:\.\d+)?\s*(?:%|ms|秒|分钟|小时)\b', 'high',
+     '阈值或限制（{m}）缺确定依据，评审需核来源与边界。',
+     '确认数值来源、测试依据、超界处理，回填文档。'),
+    (r'必须|禁止|不得|只能|仅支持|不支持|不允许|强制|无权', 'medium',
+     '强约束（{m}）缺例外场景说明，评审需确认兼容与边界。',
+     '补例外场景、兼容性说明与失败处理。'),
+    (r'错误码|\b[45]\d{2}\b|幂等|重试|超时|并发|兼容|回退|降级', 'medium',
+     '接口/运行契约（{m}）需从调用方视角确认一致性。',
+     '对齐调用方与实现方契约，补错误码与幂等测试。'),
+)
+_LOW_ROW = re.compile(r'^\s*(?:FR|AC|NFR|TC)\s*[-–]\s*\d+\s*/', re.I)
+
+
+def _review_judgement(p: dict) -> tuple[str, str, str]:
+    """给文档切片补评审视角，返回 (why_it_matters, risk_level, suggested_action)。"""
+    text = '%s %s' % (p.get('claim') or '', p.get('quote') or '')
+    for pattern, risk, why_tpl, act_tpl in _REVIEW_RULES:
+        m = re.search(pattern, text, re.I)
+        if m:
+            token = (m.group(0) or '')[:24]
+            return why_tpl.format(m=token), risk, act_tpl.format(m=token)
+    claim = str(p.get('claim') or '').strip()
+    if _LOW_ROW.match(claim):
+        return ('功能条目为规格陈述，通常不需逐条评审；仅当验收口径不清时升级。',
+                'low', '确认验收口径是否清晰，不清晰则补验收用例。')
+    if p.get('kind') == 'section_gap':
+        return ('章节结构陈述，需确认是否隐含未写明的关键约束。', 'low',
+                '对照需求确认该章节是否缺关键约束或边界。')
+    return ('文档陈述需确认是否隐含未验证的假设。', 'low',
+            '确认该陈述的依据，必要时补证据或转验收项。')
 
 
 def _now() -> datetime:
@@ -234,7 +280,8 @@ def extract_points(body: dict, db: Session = Depends(get_session)):
             cluster_claims.setdefault(old.cluster_id, set()).add(norm_key(old.claim))
 
     # 先收集本批所有候选 dict（带全局 id / source / cluster），再统一跑 LLM（FR-3）
-    candidates, skipped, versions = [], 0, {}
+    # rule_judged：本次补上评审视角的点数（含历史点回填）
+    candidates, skipped, versions, rule_judged = [], 0, {}, 0
     for k in kinds:
         content, rel, state = _doc_content(t, k)
         if not content:
@@ -251,6 +298,17 @@ def extract_points(body: dict, db: Session = Depends(get_session)):
             )).first()
             if exists:
                 skipped += 1
+                # 历史点回填：老版本提取只落原文切片，why/risk/suggestion 为空。
+                # 重跑时按新规则补齐，不删点、不改 claim（保住可追溯与 H5 口径）。
+                if not (exists.why_it_matters or '').strip():
+                    why, review_risk, action = _review_judgement(p)
+                    exists.why_it_matters = why
+                    exists.suggested_action = action
+                    if exists.risk_level != 'high':
+                        exists.risk_level = review_risk
+                    exists.updated_at = _now()
+                    db.add(exists)
+                    rule_judged += 1
                 if exists.cluster_id:
                     cluster_claims.setdefault(exists.cluster_id, set()).add(norm_key(p['claim']))
                 continue
@@ -280,18 +338,26 @@ def extract_points(body: dict, db: Session = Depends(get_session)):
         candidates, llm_applied, degraded = enhance_with_llm(
             candidates, lambda pts, ctx: raw, {'task_id': t.id}) if raw else (candidates, 0, degraded or 'no_enhancer')
 
-    # 建 row
+    # 建 row：规则兜底补评审视角（LLM 没给理由时用），不覆盖 LLM 已有结论
     out_points = []
     for p in candidates:
+        why, review_risk, action = _review_judgement(p)
+        if not (p.get('why_it_matters') or '').strip():
+            rule_judged += 1
+        why = (p.get('why_it_matters') or '').strip() or why
+        action = (p.get('suggested_action') or '').strip() or action
+        # extract 判 high 的保留（不降级），其余按评审视角重新分级
+        base_risk = p.get('risk') or p.get('risk_level')
+        risk = 'high' if base_risk == 'high' else review_risk
         row = ReviewPoint(
             id=p['id'], task_id=t.id, seq=p['seq'],
             source_kind=p['source_kind'], source_path=p['source_path'],
             source_version=p['source_version'], source_status=p['source_status'],
             kind=p['kind'], section=p['section'], anchor=p['anchor'],
             claim=p['claim'], quote=p['quote'],
-            why_it_matters=p.get('why_it_matters', ''),
-            risk_level=p.get('risk') or p.get('risk_level') or 'medium',
-            suggested_action=p.get('suggested_action', ''),
+            why_it_matters=why,
+            risk_level=risk,
+            suggested_action=action,
             status='candidate', origin='rule', dedup_key=p['dedup_key'],
             cluster_id=p.get('cluster_id'), rule_version='v1',
         )
@@ -308,7 +374,8 @@ def extract_points(body: dict, db: Session = Depends(get_session)):
     emit_event(db, type='review_extracted', entity='task', entity_id=t.id,
                payload={'kinds': kinds, 'points': len(out_points),
                         'skipped': skipped, 'forced': len(forced),
-                        'llm_applied': llm_applied, 'degraded': degraded})
+                        'llm_applied': llm_applied, 'degraded': degraded,
+                        'rule_judged': rule_judged})
     db.commit()
     return {
         'task_id': t.id,
@@ -352,7 +419,15 @@ def list_points(
     if kind:
         q = q.where(ReviewPoint.kind == kind)
     total = len(db.exec(q).all())
-    col = {'risk_level': ReviewPoint.risk_level, 'seq': ReviewPoint.seq,
+    # 风险是 low/medium/high 字符串，直接 ORDER BY 会得到 low > high 的错序，
+    # 用 CASE 映射成数值再排，保证 high 永远排在最前。
+    risk_rank = case(
+        (ReviewPoint.risk_level == 'high', 0),
+        (ReviewPoint.risk_level == 'medium', 1),
+        (ReviewPoint.risk_level == 'low', 2),
+        else_=3,
+    )
+    col = {'risk_level': risk_rank, 'seq': ReviewPoint.seq,
            'created_at': ReviewPoint.created_at}[sort]
     q = q.order_by(col.asc() if order == 'asc' else col.desc()).offset((page - 1) * size).limit(size)
     return {'total': total, 'page': page, 'size': size,

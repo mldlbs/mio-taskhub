@@ -1112,6 +1112,29 @@ html[data-theme="light"] .inbox-strip__row:hover { background: rgba(139, 92, 246
 }
 .rm-progress__bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .25s var(--ease); }
 
+/* --- 筛选栏：默认只看待评，候选池按需展开 --- */
+.rm-filters {
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+  padding: 7px var(--sp-4); border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--accent) 3%, transparent);
+}
+.rm-filters__views { display: flex; gap: 4px; }
+.rm-filter-tab {
+  padding: 3px 10px; border-radius: var(--r-pill);
+  border: 1px solid var(--line); background: transparent;
+  color: var(--ink-faint); font-size: 10.5px; cursor: pointer;
+}
+.rm-filter-tab:hover { color: var(--ink); border-color: var(--line-strong); }
+.rm-filter-tab.is-active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.rm-filters__search, .rm-filters__risk {
+  padding: 4px 9px; font-size: 11px;
+  color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+}
+.rm-filters__search { flex: 1; min-width: 160px; }
+.rm-filters__search:focus, .rm-filters__risk:focus { outline: none; border-color: var(--accent); }
+.rm-filters__count { font-size: 10px; color: var(--ink-ghost); font-variant-numeric: tabular-nums; }
+
 /* --- 关会结论区：预设 + 摘要 + 关会 --- */
 .rm-closebar {
   display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
@@ -1178,6 +1201,19 @@ html[data-theme="light"] .inbox-strip__row:hover { background: rgba(139, 92, 246
 .rm-point__src { font-size: 10px; color: var(--ink-ghost); text-transform: uppercase; letter-spacing: .04em; }
 .rm-point__id { margin-left: auto; font-size: 9.5px; color: var(--ink-ghost); }
 .rm-point__claim { margin-top: 7px; font-size: 12.5px; line-height: 1.6; color: var(--ink); overflow-wrap: anywhere; }
+.rm-point__why {
+  display: flex; align-items: baseline; gap: 6px;
+  margin-top: 6px; padding: 5px 8px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  font-size: 11px; line-height: 1.55; color: var(--ink-dim);
+}
+.rm-point__why-tag {
+  flex: 0 0 auto; padding: 1px 6px; border-radius: var(--r-sm);
+  background: var(--accent-soft); color: var(--accent);
+  font-size: 9.5px; font-weight: 700;
+}
+.rm-point__action { margin-top: 5px; font-size: 10.5px; line-height: 1.5; color: var(--info); }
 .rm-point__fold {
   display: inline-flex; align-items: baseline; gap: 8px;
   margin-top: 5px; padding: 0; border: 0; background: transparent;

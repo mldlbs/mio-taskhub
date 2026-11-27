@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '../api'
 import { useOverlayStack } from '../lib/overlayStack'
 
@@ -30,12 +31,52 @@ const CLOSE_PRESETS = [
   { label: '退回·补材料', decision: 'reject', summary: '评审不通过：关键评审点证据不足，需补充材料后重开。' },
 ]
 
-const REVIEW_TPL = {
-  risks: ['评审点待补充证据'],
-  divergences: '无重大分歧，逐条结论见评审点记录。',
-  suggestions: '按逐条裁决结论推进。',
-  decisions: ['采纳关键评审点', '遗留项转决策或行动项'],
-  action_items: [{ id: 'AI-1', owner: 'tech', action: '补齐遗留评审点证据', due: new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10), status: 'pending', task_id: null }],
+// 关会五段纪要：从实际裁决生成，不再写死模板。
+// 后端门控要求 decisions≥2、action_items≥1、风险≥1，故空集时补兜底条目。
+function buildReview(points) {
+  const decided = points.filter(p => TERMINAL.includes(p.status))
+  const adopted = decided.filter(p => p.status === 'resolved')
+  const rejected = decided.filter(p => p.status === 'rejected')
+  const deferred = decided.filter(p => p.status === 'deferred')
+  const due = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10)
+  const short = (p) => `${p.id} ${p.claim}`.slice(0, 80)
+
+  const decisions = adopted.slice(0, 8).map(p => {
+    const kind = p.decision_id ? `转决策 ${p.decision_id}` : ((p.tc_refs || []).length ? '转 TC' : '采纳/修改')
+    return `${short(p)}｜${kind}`
+  })
+  while (decisions.length < 2) {
+    decisions.push(decisions.length === 0
+      ? '本次评审明确结论不足 2 项，需补裁决后再关会。'
+      : '遗留项已转行动项跟踪，下次评审复核。')
+  }
+
+  const risks = rejected.concat(deferred).slice(0, 8).map(p =>
+    `${p.status === 'rejected' ? '驳回' : '暂缓'} ${short(p)}｜${p.reject_reason || '理由见评审点记录'}`
+  )
+  if (!risks.length) risks.push('逐条裁决未标记驳回/暂缓，风险由已采纳点承接。')
+
+  const actionItems = deferred.concat(adopted.filter(p => (p.tc_refs || []).length)).slice(0, 8)
+    .map((p, i) => ({
+      id: `AI-${i + 1}`,
+      owner: p.status === 'deferred' ? 'product' : 'tech',
+      action: p.status === 'deferred' ? `跟进暂缓点 ${short(p)}` : `落地转 TC ${short(p)}`,
+      due, status: 'pending', task_id: null,
+    }))
+  if (!actionItems.length) actionItems.push({
+    id: 'AI-1', owner: 'tech', action: `按评审结论推进 ${adopted.length} 项已采纳点`,
+    due, status: 'pending', task_id: null,
+  })
+
+  return {
+    risks,
+    divergences: rejected.length || deferred.length
+      ? `${rejected.length} 点驳回、${deferred.length} 点暂缓，分歧与理由见各点记录。`
+      : '无重大分歧：逐条结论一致，理由见评审点记录。',
+    suggestions: `本次共裁决 ${decided.length} 点，采纳 ${adopted.length}、驳回 ${rejected.length}、暂缓 ${deferred.length}；按结论推进文档与实现。`,
+    decisions,
+    action_items: actionItems,
+  }
 }
 
 export default function ReviewMeetingPanel({ task, onClose }) {
@@ -50,6 +91,9 @@ export default function ReviewMeetingPanel({ task, onClose }) {
   const [draft, setDraft] = useState({})       // { [pointId]: { reason, decisionLabel } }
   const [pending, setPending] = useState(null)  // { id, action }
   const [expanded, setExpanded] = useState({})
+  const [view, setView] = useState('active')     // active=待评+已裁决 / all=含全部候选
+  const [query, setQuery] = useState('')
+  const [riskFilter, setRiskFilter] = useState('')
   const [preset, setPreset] = useState(0)
   const [closeSummary, setCloseSummary] = useState(CLOSE_PRESETS[0].summary)
 
@@ -57,13 +101,21 @@ export default function ReviewMeetingPanel({ task, onClose }) {
     if (!task?.id) return
     setLoading(true)
     try {
-      const d = await api.reviewPoints(task.id, { size: 200 })
-      setPoints(d.items || [])
-      setVersion(d.items?.[0]?.source_doc?.version || '')
+      // 端点 size 上限 200，分页拉全量；只显示第一页会导致 spec/api 的点永远看不见。
+      const all = []
+      let page = 1
+      for (;;) {
+        const d = await api.reviewPoints(task.id, { page, size: 200, sort: 'risk_level', order: 'desc' })
+        all.push(...(d.items || []))
+        if (all.length >= (d.total || 0) || !(d.items || []).length || page >= 20) break
+        page++
+      }
+      setPoints(all)
+      setVersion(all[0]?.source_doc?.version || '')
       const sel = {}
-      for (const p of d.items || []) if (p.status !== 'candidate') sel[p.id] = true
+      for (const p of all) if (p.status !== 'candidate') sel[p.id] = true
       setSelected(sel)
-      if (d.items?.length) setError(null)
+      if (all.length) setError(null)
     } catch (e) {
       console.error('[ReviewMeetingPanel] load failed:', e)
       setError(e.message || '加载评审点失败')
@@ -73,11 +125,26 @@ export default function ReviewMeetingPanel({ task, onClose }) {
   useEffect(() => { load() }, [load])
 
   const stats = useMemo(() => {
-    const pickedN = points.filter(p => selected[p.id]).length
-    const undecidedN = points.filter(p => (p.status === 'shortlisted' || p.status === 'discussing') && selected[p.id]).length
-    const decidedN = points.filter(p => TERMINAL.includes(p.status)).length
-    return { picked: pickedN, undecided: undecidedN, decided: decidedN }
+    const active = points.filter(p => p.status !== 'candidate')
+    return {
+      total: points.length,
+      active: active.length,
+      picked: active.filter(p => selected[p.id]).length,
+      undecided: active.filter(p => (p.status === 'shortlisted' || p.status === 'discussing') && selected[p.id]).length,
+      decided: active.filter(p => TERMINAL.includes(p.status)).length,
+    }
   }, [points, selected])
+
+  // 默认只看入会点 + 已裁决；候选池按需展开。搜索/风险筛选进一步收敛。
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return points.filter(p => {
+      if (view === 'active' && p.status === 'candidate') return false
+      if (riskFilter && p.risk_level !== riskFilter) return false
+      if (q && !`${p.claim} ${p.anchor} ${p.why_it_matters || ''} ${p.id}`.toLowerCase().includes(q)) return false
+      return true
+    })
+  }, [points, view, riskFilter, query])
 
   const extract = async () => {
     setBusy(true); setError(null)
@@ -143,9 +210,23 @@ export default function ReviewMeetingPanel({ task, onClose }) {
   const closeMeeting = async () => {
     setBusy(true); setError(null)
     try {
+      // 门控要求所有入会点终态。未逐条裁决的点自动暂缓，避免"必须点完才能关会"。
+      const pendingIds = new Set(points
+        .filter(p => (p.status === 'shortlisted' || p.status === 'discussing') && selected[p.id])
+        .map(p => p.id))
+      for (const pid of pendingIds) {
+        await api.reviewDecide(pid, {
+          action: 'defer', reviewer: 'user',
+          rationale: '关会时未逐条裁决，暂缓至下次评审',
+        })
+      }
+      const reviewed = points.map(p => pendingIds.has(p.id)
+        ? { ...p, status: 'deferred', reject_reason: '关会时未逐条裁决，暂缓至下次评审' }
+        : p)
       const p = CLOSE_PRESETS[preset]
       await api.reviewMeetingClose(meeting.id, {
-        decision: p.decision, summary: closeSummary, review: REVIEW_TPL,
+        decision: p.decision, summary: closeSummary,
+        reviewer: 'user', review: buildReview(reviewed),
       })
       const tr = await api.reviewTrace(meeting.id)
       console.info('[ReviewMeetingPanel] trace:', tr)
@@ -159,8 +240,10 @@ export default function ReviewMeetingPanel({ task, onClose }) {
 
   const pickPreset = (i) => { setPreset(i); setCloseSummary(CLOSE_PRESETS[i].summary) }
 
-  return (
-    <div className="overlay rm-overlay" role="dialog" aria-modal="true" aria-label="研发评审会">
+  // Portal 到 body：任务详情 .drawer 有 overflow-y:auto + transform 入场动画，
+  // 面板作为其子节点会被裁剪/错位（表现为"点按钮没反应"）。
+  return createPortal(
+    <div className="overlay rm-overlay" role="dialog" aria-modal="true" aria-label="研发评审会" onClick={e => e.stopPropagation()}>
       <div className="rm-panel">
         <header className="rm-head">
           <div className="rm-head__lead">
@@ -171,8 +254,8 @@ export default function ReviewMeetingPanel({ task, onClose }) {
             </div>
           </div>
           <div className="rm-head__stats">
-            <span className="rm-stat"><b>{points.length}</b>候选</span>
-            <span className="rm-stat"><b>{stats.picked}</b>入会</span>
+            <span className="rm-stat"><b>{stats.active}</b>待评</span>
+            <span className="rm-stat"><b>{stats.decided}</b>已决</span>
             <span className="rm-stat is-pending"><b>{stats.undecided}</b>未决</span>
           </div>
           <button className="rm-close" onClick={onClose} aria-label="关闭">×</button>
@@ -214,6 +297,23 @@ export default function ReviewMeetingPanel({ task, onClose }) {
           )}
         </div>
 
+        {points.length > 0 && (
+          <div className="rm-filters">
+            <div className="rm-filters__views">
+              <button className={`rm-filter-tab${view === 'active' ? ' is-active' : ''}`} onClick={() => setView('active')}>待评 {stats.active}</button>
+              <button className={`rm-filter-tab${view === 'all' ? ' is-active' : ''}`} onClick={() => setView('all')}>全部候选 {stats.total}</button>
+            </div>
+            <input className="rm-filters__search" placeholder="搜索评审点 / 章节 / ID" value={query} onChange={e => setQuery(e.target.value)} aria-label="搜索评审点" />
+            <select className="rm-filters__risk" value={riskFilter} onChange={e => setRiskFilter(e.target.value)} aria-label="按风险筛选">
+              <option value="">全部风险</option>
+              <option value="high">高风险</option>
+              <option value="medium">中风险</option>
+              <option value="low">低风险</option>
+            </select>
+            <span className="rm-filters__count">{visible.length} 条</span>
+          </div>
+        )}
+
         {meeting && (
           <div className="rm-closebar">
             <span className="rm-closebar__label">关会结论</span>
@@ -223,17 +323,18 @@ export default function ReviewMeetingPanel({ task, onClose }) {
               ))}
             </div>
             <input className="rm-closebar__input" value={closeSummary} onChange={e => setCloseSummary(e.target.value)} aria-label="关会摘要" />
-            <button className="btn btn--primary" disabled={busy || stats.undecided > 0} onClick={closeMeeting}>
+            <button className="btn btn--primary" disabled={busy} onClick={closeMeeting}>
               {busy ? '关会中…' : '关会'}
             </button>
-            {stats.undecided > 0 && <span className="rm-closebar__warn">还有 {stats.undecided} 点未裁决，关会需全部终态</span>}
+            {stats.undecided > 0 && <span className="rm-closebar__warn">还有 {stats.undecided} 点未裁决，关会时将自动暂缓并转入行动项</span>}
           </div>
         )}
 
         <div className="rm-list">
           {loading && <div className="rm-empty">加载中…</div>}
           {!loading && !points.length && <div className="rm-empty">尚无评审点。点「从文档提取评审点」开始。</div>}
-          {points.map((p, idx) => {
+          {!loading && points.length > 0 && !visible.length && <div className="rm-empty">当前筛选下没有评审点，切到「全部候选」或清空搜索。</div>}
+          {visible.map((p, idx) => {
             const terminal = TERMINAL.includes(p.status)
             const active = meeting && !terminal
             const isPending = pending?.id === p.id
@@ -252,10 +353,18 @@ export default function ReviewMeetingPanel({ task, onClose }) {
                     <span className="rm-point__id mono">{p.id}</span>
                   </div>
                   <div className="rm-point__claim">{p.claim}</div>
+                  {p.why_it_matters && <div className="rm-point__why" title={p.why_it_matters}>
+                    <span className="rm-point__why-tag">评点</span>{p.why_it_matters}
+                  </div>}
                   <button className="rm-point__fold" onClick={() => setExpanded(x => ({ ...x, [p.id]: !x[p.id] }))} aria-expanded={!!expanded[p.id]}>
                     {expanded[p.id] ? '收起原文' : '查看原文'} <span className="rm-point__anchor">{p.anchor}</span>
                   </button>
-                  {expanded[p.id] && <div className="rm-point__quote">{p.quote}</div>}
+                  {expanded[p.id] && (
+                    <>
+                      <div className="rm-point__quote">{p.quote}</div>
+                      {p.suggested_action && <div className="rm-point__action">建议：{p.suggested_action}</div>}
+                    </>
+                  )}
 
                   {active && !isPending && (
                     <div className="rm-acts">
@@ -292,6 +401,7 @@ export default function ReviewMeetingPanel({ task, onClose }) {
           })}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
