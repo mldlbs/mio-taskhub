@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
 from mio_taskhub.db import get_session
-from mio_taskhub.models import Decision
+from mio_taskhub.models import Decision, ReviewPoint
 
 router = APIRouter(prefix="/decisions", tags=["decisions"])
 
@@ -132,6 +132,27 @@ def resolve_decision(decision_id: str, body: dict, db: Session = Depends(get_ses
     d.status = "resolved"
     d.resolved_at = _now()
     db.add(d)
+
+    # FR-11：resolve 后异步回写来源评审点（source=RP-id）。
+    # deferred 点转 resolved；其它终态点只补 rationale，不改状态（审计只增不改）。
+    src = (d.source or "").strip()
+    rp = None
+    if src.startswith("RP-"):
+        rp = db.get(ReviewPoint, src)  # 正常格式：source == 点 ID
+        if rp is None and src.startswith("RP-RP-"):
+            rp = db.get(ReviewPoint, src[3:])  # 兼容历史双前缀 RP-RP-xxx
+    if rp is None and d.task_id:
+        rp = db.exec(select(ReviewPoint).where(
+            ReviewPoint.decision_id == d.id)).first()
+    if rp is not None:
+        if rp.status == "deferred":
+            rp.status = "resolved"
+        # 保留原始 defer 理由，追加决策结论（审计可追溯）
+        prev = (rp.reject_reason or '').strip()
+        rp.reject_reason = (f"{prev}｜" if prev else "") + f"决策 {d.id} 裁决：{choice}｜{d.rationale}"[:500]
+        rp.decided_at = _now()
+        db.add(rp)
+
     db.commit()
     db.refresh(d)
     return _serialize(d)

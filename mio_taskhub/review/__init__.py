@@ -13,8 +13,10 @@ from .extract import (
     task8_of,
 )
 from .h5 import FINAL_WEAK, find_hit, in_scope, replay, safe_pattern
+from .llm import enhance as enhance_with_llm, parse_enhancement
 
 __all__ = [
     'document_version', 'extract_review_points', 'infer_kind', 'infer_risk',
     'task8_of', 'FINAL_WEAK', 'find_hit', 'in_scope', 'replay', 'safe_pattern',
+    'enhance_with_llm', 'parse_enhancement',
 ]

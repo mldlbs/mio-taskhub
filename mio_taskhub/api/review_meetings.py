@@ -16,6 +16,7 @@ GET    /reviews/meetings/{id}/trace           全链回溯
   - 不改文档状态、不改任务 stage；关会只写 TaskReview / Discussion / Subtask。
   - 提取走 mio_taskhub.review.extract，不在此重复解析规则。
 """
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,7 +30,21 @@ from mio_taskhub.events import emit_event
 from mio_taskhub.models import (
     Decision, Discussion, DiscussionMessage, ReviewPoint, Subtask, Task, TaskReview,
 )
-from mio_taskhub.review import document_version, extract_review_points
+from mio_taskhub.review import (
+    document_version, enhance_with_llm, extract_review_points, task8_of,
+)
+
+# FR-3：LLM enhancer 注入点。默认 None（无 LLM 配置 → 直接降级，不联网）。
+# 部署方可在启动时 set_llm_enhancer(callable) 接入自己的代理；测试可 monkeypatch。
+_LLM_ENHANCER = None
+_LLM_TIMELIMIT_SEC = 8
+
+
+def set_llm_enhancer(fn):
+    """注册 LLM enhancer：callable(points:list[dict], ctx:dict) -> dict|None。"""
+    global _LLM_ENHANCER
+    _LLM_ENHANCER = fn
+
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
@@ -78,6 +93,66 @@ def _doc_content(t: Task, kind: str) -> tuple[str, str, str]:
             content = ''
     state = (t.doc_statuses or {}).get(kind, {}).get('state', '') if isinstance(t.doc_statuses, dict) else ''
     return content, rel, state
+
+
+def norm_key(text: str) -> str:
+    """claim 归一化，用于同簇内判冲突（粗粒度：去标点空白）。"""
+    return re.sub(r'[\s\W_]+', '', str(text or '')).lower()
+
+
+def _cluster_id(dedup_key: str, seq_by_key: dict) -> str:
+    """FR-5：同 task 内同 dedup_key（跨文档）归同一簇 C1/C2/...。"""
+    if not dedup_key:
+        return None
+    if dedup_key not in seq_by_key:
+        seq_by_key[dedup_key] = 'C%d' % (len(seq_by_key) + 1)
+    return seq_by_key[dedup_key]
+
+
+def _force_shortlist(p: ReviewPoint, kind_conflicts: set) -> tuple[bool, str]:
+    """FR-6 强制入会判定，返回 (是否强制, 原因)。
+
+    三条件满足任一即强制：risk=high / 跨文档同簇冲突 / premise 无样本量说明。
+    """
+    if p.risk_level == 'high':
+        return True, '高风险'
+    if p.cluster_id and p.cluster_id in kind_conflicts:
+        return True, '跨文档同簇冲突'
+    if p.kind == 'premise' and not re.search(r'样本|样本量|sample|n\s*=', p.claim + p.quote, re.I):
+        return True, '前提缺样本量说明'
+    return False, ''
+
+
+def _apply_shortlist(points: list, existing: dict) -> dict:
+    """FR-6：强制入会 + 每 kind ≥1 + 总数 5-10，返回 {point_id: reason}。
+
+    已有状态（candidate/shortlisted/discussing/终态）一律尊重，不回退。
+    """
+    selected = {}
+    # 1. 强制入会
+    for p in points:
+        if p.status in TERMINAL:
+            continue
+        force, reason = _force_shortlist(p, existing.get('conflicts', set()))
+        if force:
+            selected[p.id] = reason
+    # 2. 每个出现的 kind 至少 1 点（候选按 risk 降序挑）
+    by_kind = {}
+    for p in points:
+        if p.status in TERMINAL:
+            continue
+        by_kind.setdefault(p.kind, []).append(p)
+    for k, group in by_kind.items():
+        if not any(p.id in selected for p in group):
+            top = sorted(group, key=lambda x: {'high': 0, 'medium': 1, 'low': 2}.get(x.risk_level, 3))[0]
+            selected[top.id] = f'{k} 至少 1 点'
+    # 3. 总数裁剪到 10（按 risk 降序保留，超出的不勾选但仍是 candidate 永久保留）
+    if len(selected) > 10:
+        order = {'high': 0, 'medium': 1, 'low': 2}
+        ranked = sorted(selected, key=lambda pid: (
+            order.get(next((p.risk_level for p in points if p.id == pid), 'low'), 3), pid))
+        selected = {pid: selected[pid] for pid in ranked[:10]}
+    return selected
 
 
 def _serialize_point(p: ReviewPoint) -> dict:
@@ -141,7 +216,25 @@ def extract_points(body: dict, db: Session = Depends(get_session)):
             _err(409, f'文档 {k} 质量门未过（errors={len(q.get("errors") or [])}，'
                       f'score={q.get("score")}）。你要做的是：先修文档质量再提取')
 
-    out_points, skipped, versions = [], 0, {}
+    # 全局 seq（跨文档连续，避免 RP-id 撞 (task_id,seq) 唯一约束）
+    max_seq = db.exec(select(ReviewPoint.seq).where(ReviewPoint.task_id == t.id)
+                      .order_by(ReviewPoint.seq.desc())).first() or 0
+    prefix = task8_of(t.id)
+    seq = max_seq
+    # FR-5：同 task 内已有簇映射（重跑时保持 cluster_id 稳定）
+    existing_rows = db.exec(select(ReviewPoint).where(ReviewPoint.task_id == t.id)).all()
+    seq_by_key = {}
+    for old in sorted(existing_rows, key=lambda x: x.seq):
+        if old.dedup_key and old.dedup_key not in seq_by_key:
+            seq_by_key[old.dedup_key] = old.cluster_id or _cluster_id(old.dedup_key, seq_by_key)
+    # 跨文档同簇但 claim 冲突 → 强制入会判定用
+    cluster_claims = {}
+    for old in existing_rows:
+        if old.cluster_id:
+            cluster_claims.setdefault(old.cluster_id, set()).add(norm_key(old.claim))
+
+    # 先收集本批所有候选 dict（带全局 id / source / cluster），再统一跑 LLM（FR-3）
+    candidates, skipped, versions = [], 0, {}
     for k in kinds:
         content, rel, state = _doc_content(t, k)
         if not content:
@@ -150,33 +243,80 @@ def extract_points(body: dict, db: Session = Depends(get_session)):
         versions[k] = ver
         pts, _stats = extract_review_points(content, t.id, kind=k)
         for p in pts:
+            dkey = p['dedup_key']
             exists = db.exec(select(ReviewPoint).where(
                 ReviewPoint.task_id == t.id,
-                ReviewPoint.dedup_key == p['dedup_key'],
+                ReviewPoint.dedup_key == dkey,
                 ReviewPoint.source_kind == k,
             )).first()
             if exists:
                 skipped += 1
+                if exists.cluster_id:
+                    cluster_claims.setdefault(exists.cluster_id, set()).add(norm_key(p['claim']))
                 continue
-            row = ReviewPoint(
-                id=p['id'], task_id=t.id, seq=int(p['id'].rsplit('-', 1)[-1]),
-                source_kind=k, source_path=rel, source_version=ver, source_status=state,
-                kind=p['kind'], section=p['section'], anchor=p['anchor'],
-                claim=p['claim'], quote=p['quote'],
-                why_it_matters='', risk_level=p['risk'], suggested_action='',
-                status='candidate', origin='rule', dedup_key=p['dedup_key'],
-                cluster_id=None, rule_version='v1',
-            )
-            db.add(row)
-            out_points.append(_serialize_point(row))
+            cid = _cluster_id(dkey, seq_by_key)
+            if cid:
+                cluster_claims.setdefault(cid, set()).add(norm_key(p['claim']))
+            seq += 1
+            p.update({
+                'id': 'RP-%s-%02d' % (prefix, seq), 'seq': seq,
+                'source_kind': k, 'source_path': rel, 'source_version': ver,
+                'source_status': state, 'cluster_id': cid,
+                'why_it_matters': '', 'suggested_action': '',
+                'origin': 'rule', 'rule_version': 'v1',
+            })
+            candidates.append(p)
+
+    # FR-3：LLM 增强（默认无 enhancer → 直接降级；不增删点，删点指令被忽略）
+    llm_applied, degraded = 0, None
+    include_llm = bool(body.get('include_llm', False))
+    if include_llm and candidates:
+        raw = None
+        if _LLM_ENHANCER:
+            try:
+                raw = _LLM_ENHANCER(candidates, {'task_id': t.id, 'kinds': kinds})
+            except Exception as e:  # noqa: BLE001
+                degraded = 'error:%s' % type(e).__name__
+        candidates, llm_applied, degraded = enhance_with_llm(
+            candidates, lambda pts, ctx: raw, {'task_id': t.id}) if raw else (candidates, 0, degraded or 'no_enhancer')
+
+    # 建 row
+    out_points = []
+    for p in candidates:
+        row = ReviewPoint(
+            id=p['id'], task_id=t.id, seq=p['seq'],
+            source_kind=p['source_kind'], source_path=p['source_path'],
+            source_version=p['source_version'], source_status=p['source_status'],
+            kind=p['kind'], section=p['section'], anchor=p['anchor'],
+            claim=p['claim'], quote=p['quote'],
+            why_it_matters=p.get('why_it_matters', ''),
+            risk_level=p.get('risk') or p.get('risk_level') or 'medium',
+            suggested_action=p.get('suggested_action', ''),
+            status='candidate', origin='rule', dedup_key=p['dedup_key'],
+            cluster_id=p.get('cluster_id'), rule_version='v1',
+        )
+        db.add(row)
+        out_points.append(row)
+
+    # FR-6：强制入会（cluster 冲突判定基于本批 + 历史）
+    conflicts = {cid for cid, claims in cluster_claims.items() if len(claims) > 1}
+    forced = _apply_shortlist(out_points, {'conflicts': conflicts})
+    for row in out_points:
+        if row.id in forced:
+            row.status = 'shortlisted'
+
     emit_event(db, type='review_extracted', entity='task', entity_id=t.id,
-               payload={'kinds': kinds, 'points': len(out_points), 'skipped': skipped})
+               payload={'kinds': kinds, 'points': len(out_points),
+                        'skipped': skipped, 'forced': len(forced),
+                        'llm_applied': llm_applied, 'degraded': degraded})
     db.commit()
     return {
         'task_id': t.id,
         'version': next(iter(versions.values()), ''),
-        'points': out_points,
+        'points': [_serialize_point(p) for p in out_points],
         'skipped': skipped,
+        'forced': len(forced),
+        'llm': {'applied': llm_applied, 'degraded': degraded},
     }
 
 
@@ -301,7 +441,7 @@ def decide_point(point_id: str, body: dict, db: Session = Depends(get_session)):
                      if isinstance(o, dict) else {'label': str(o), 'note': ''}
                      for o in options],
             recommendation=str(body.get('recommendation') or ''),
-            status='open', task_id=p.task_id, source=f'RP-{p.id}',
+            status='open', task_id=p.task_id, source=p.id,  # source = RP-{id} = 点 ID 本身
         )
         db.add(d)
         db.flush()

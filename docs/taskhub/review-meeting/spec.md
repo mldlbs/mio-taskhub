@@ -43,6 +43,18 @@
   - 6. LLM 增强（可失败）：产出 `why_it_matters` 初稿 / `risk_level` 建议 / `suggested_action` 建议；成功则 `origin=llm` 或保留 rule 来源标记；失败则字段留空、`origin=rule`，候选点数不变。
 - 幂等：按 `(task_id, version, dedup_key)` 唯一判定，重跑命中则跳过，不新增行。
 
+### 2.1.1 实现状态（2026-11-27，P0 FR 全对齐）
+
+| FR | 落点 | 实证 |
+|---|---|---|
+| FR-3 LLM 增强与降级 | `mio_taskhub/review/llm.py` + `api/review_meetings.py` 注入点 | 删点指令忽略、点数恒定、超时/空返回降级；6 个单测 + 2 端点测 |
+| FR-5 dedup_key 跨文档聚类 | extract 端点 `seq_by_key` 全局簇映射 | 同 task 两份文档同 dedup_key → 同 cluster_id；重跑稳定；4 测 |
+| FR-6 强制入会与排序 | extract 端点 `_force_shortlist` / `_apply_shortlist` | high 自动入会、每 kind≥1、总数≤10；candidate 永久保留 |
+| FR-11 Decision resolve 回写 | `api/decisions.py` resolve 末尾 | source=RP-id 找点，deferred→resolved，追加裁决理由；2 测 |
+
+- ⚠️ 修复：跨文档提取时 RP-id 曾因各文档独立 seq 撞 `(task_id,seq)` 唯一约束 → 改为全局连续 seq；`source` 曾写成 `RP-RP-{id}` 双前缀 → 改为直接等于点 ID（resolve 兼容历史双前缀）。
+- LLM enhancer 默认 `None`（无 LLM 配置直接降级、不联网）；部署方通过 `set_llm_enhancer(callable)` 接入。
+
 ### 2.2 强制入会与排序（FR-6）
 
 - 强制入会条件（满足任一即 shortlisted）：`risk_level=high`；跨文档同 cluster 且 claim 冲突；kind=premise 且无样本量说明。

@@ -37,6 +37,10 @@ DOC = '''## 1. 文档信息
 |---|---|
 | 依赖 | iServer 主数据 |
 | 待确认 | 换算关系未定版 |
+
+### 3.3 一致口径
+
+- 跨文档共有评审点：阈值口径需与运营确认
 '''
 
 
@@ -244,6 +248,279 @@ class TestMeetingFlow:
     def test_meeting_open_requires_shortlist(self, tmp_path):
         tid = _mk_task(tmp_path, None)
         client.post('/api/v1/reviews/extract', json={'task_id': tid, 'kinds': ['spec']})
+        # FR-6：强制入会已自动 shortlist 部分点；手动取消全部后再开会应 422
+        with Session(engine) as s:
+            ids = [p.id for p in s.query(ReviewPoint).filter_by(task_id=tid).all()]
+        for pid in ids:
+            client.patch(f'/api/v1/reviews/points/{pid}/shortlist', json={'selected': False})
         r = client.post('/api/v1/reviews/meetings/open', json={'task_id': tid})
         assert r.status_code == 422
         assert 'shortlist' in r.json()['detail']
+
+
+API_DOC = '''## 1. 文档信息
+
+| 项 | 值 |
+|---|---|
+| 文档版本 | v1.0 |
+| 状态 | approved |
+
+## 2. 文档信息与范围
+
+本接口约定评审会的调用契约。
+
+## 3. 环境与基础地址
+
+- 开发：http://127.0.0.1:48620/api/v1
+
+## 4. 认证与鉴权
+
+- 本机信任域，无需鉴权。
+
+## 5. 通用响应结构
+
+| 字段 | 说明 |
+|---|---|
+| code | 状态码 |
+
+## 6. 统一错误码
+
+| code | 含义 |
+|---|---|
+| 422 | 参数错误 |
+
+## 7. 字段命名与类型规范
+
+- 驼峰命名。
+
+## 8. 幂等性与重试
+
+- POST 可重试。
+
+## 9. 接口清单
+
+| 接口 | 方法 |
+|---|---|
+| /reviews/extract | POST |
+
+## 10. 接口明细
+
+### 10.1 POST /reviews/extract
+
+#### 请求参数
+
+| 参数 | 说明 |
+|---|---|
+| task_id | 任务 ID |
+
+#### 响应字段
+
+| 字段 | 说明 |
+|---|---|
+| points | 评审点 |
+
+#### 错误码
+
+| code | 含义 |
+|---|---|
+| 404 | 任务不存在 |
+
+#### 示例
+
+```json
+{"task_id":"abc12345"}
+```
+
+## 11. 变更记录
+
+- v1.0 初版
+
+## 12. 共享口径
+
+- 跨文档共有评审点：阈值口径需与运营确认
+
+## 13. 版本策略
+
+- 语义化版本。
+
+## 14. 通用请求头
+
+- Content-Type: application/json
+
+## 15. 分页
+
+- page / size。
+
+## 16. 时间 / 数值 / 空值约定
+
+- ISO 8601。
+
+## 17. 枚举全集
+
+- status: open/closed。
+
+## 18. 限流与配额
+
+- 600 req/min。
+
+## 19. 超时与并发
+
+- 5s 超时。
+
+## 20. 文件上传与下载
+
+- 不涉及。
+
+## 21. 安全与脱敏
+
+- 本机信任域。
+
+## 22. 兼容性与废弃策略
+
+- 无废弃。
+
+## 23. 附录
+
+- 无。
+'''
+
+
+class TestFR5FR6:
+    """FR-5 跨文档聚类 / FR-6 强制入会与排序。"""
+
+    def test_cluster_id_stable_and_cross_doc(self, tmp_path):
+        """同 task 两份文档同 dedup_key → 同 cluster_id，且重跑稳定。"""
+        (tmp_path / 'spec.md').write_text(DOC, encoding='utf-8')
+        (tmp_path / 'api.md').write_text(API_DOC, encoding='utf-8')
+        with Session(engine) as s:
+            t = Task(title='cluster测试', workspace=str(tmp_path),
+                     doc_paths={'spec': 'spec.md', 'api': 'api.md'},
+                     doc_statuses={'spec': {'state': 'approved'}, 'api': {'state': 'approved'}})
+            s.add(t); s.commit(); tid = t.id
+        client.post('/api/v1/reviews/extract', json={'task_id': tid, 'kinds': ['spec', 'api']})
+        with Session(engine) as s:
+            pts = s.query(ReviewPoint).filter_by(task_id=tid).all()
+            clusters = {p.cluster_id for p in pts if p.cluster_id}
+            assert clusters, '应有 cluster_id'
+            snap = {p.dedup_key: p.cluster_id for p in pts if p.dedup_key}
+        # 重跑：cluster 稳定
+        client.post('/api/v1/reviews/extract', json={'task_id': tid, 'kinds': ['spec', 'api']})
+        with Session(engine) as s:
+            pts2 = s.query(ReviewPoint).filter_by(task_id=tid).all()
+            snap2 = {p.dedup_key: p.cluster_id for p in pts2 if p.dedup_key}
+        assert snap == snap2
+
+    def test_global_seq_unique_across_kinds(self, tmp_path):
+        """跨文档提取 RP-id 不撞（全局 seq 连续）。"""
+        (tmp_path / 'spec.md').write_text(DOC, encoding='utf-8')
+        (tmp_path / 'api.md').write_text(API_DOC, encoding='utf-8')
+        with Session(engine) as s:
+            t = Task(title='seq测试', workspace=str(tmp_path),
+                     doc_paths={'spec': 'spec.md', 'api': 'api.md'},
+                     doc_statuses={'spec': {'state': 'approved'}, 'api': {'state': 'approved'}})
+            s.add(t); s.commit(); tid = t.id
+        r = client.post('/api/v1/reviews/extract', json={'task_id': tid, 'kinds': ['spec', 'api']})
+        assert r.status_code == 200, r.text
+        with Session(engine) as s:
+            ids = [p.id for p in s.query(ReviewPoint).filter_by(task_id=tid).all()]
+        assert len(ids) == len(set(ids)), f'RP-id 重复: {ids}'
+
+    def test_force_shortlist_high_risk(self, tmp_path):
+        """risk=high 的点自动 shortlisted。"""
+        tid = _mk_task(tmp_path, None)
+        client.post('/api/v1/reviews/extract', json={'task_id': tid, 'kinds': ['spec']})
+        with Session(engine) as s:
+            pts = s.query(ReviewPoint).filter_by(task_id=tid).all()
+            high = [p for p in pts if p.risk_level == 'high']
+            assert high
+            assert all(p.status == 'shortlisted' for p in high)
+
+    def test_force_shortlist_every_kind_and_cap(self, tmp_path):
+        """每个出现的 kind 至少 1 点入会；总数 ≤10。"""
+        tid = _mk_task(tmp_path, None)
+        client.post('/api/v1/reviews/extract', json={'task_id': tid, 'kinds': ['spec']})
+        with Session(engine) as s:
+            pts = s.query(ReviewPoint).filter_by(task_id=tid).all()
+        shortlisted = [p for p in pts if p.status == 'shortlisted']
+        assert len(shortlisted) <= 10
+        kinds_all = {p.kind for p in pts}
+        kinds_sel = {p.kind for p in shortlisted}
+        assert kinds_all <= kinds_sel, f'kind 未覆盖: {kinds_all - kinds_sel}'
+
+
+class TestFR3LLMEndpoint:
+    """FR-3 端点到库：LLM 建议落字段，删点指令无效，点数不变。"""
+
+    def test_include_llm_fills_fields(self, tmp_path, monkeypatch):
+        from mio_taskhub.api import review_meetings as rm
+        tid = _mk_task(tmp_path, None)
+
+        def fake_enhancer(points, ctx):
+            return {'points': [
+                {'id': points[0]['id'], 'why_it_matters': '换算缺失会误告警',
+                 'risk_level': 'high', 'suggested_action': 'clarify'},
+            ]}
+
+        monkeypatch.setattr(rm, '_LLM_ENHANCER', fake_enhancer)
+        r = client.post('/api/v1/reviews/extract',
+                        json={'task_id': tid, 'kinds': ['spec'], 'include_llm': True})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body['llm']['applied'] == 1
+        with Session(engine) as s:
+            pts = s.query(ReviewPoint).filter_by(task_id=tid).all()
+            first = min(pts, key=lambda p: p.seq)
+            assert first.why_it_matters == '换算缺失会误告警'
+            assert first.risk_level == 'high'
+            assert first.suggested_action == 'clarify'
+            assert first.origin == 'rule'  # LLM 只是建议层，来源仍 rule
+            assert all(p.status != 'deleted' for p in pts)  # 无删点状态
+
+    def test_include_llm_default_no_enhancer_degrades(self, tmp_path, monkeypatch):
+        from mio_taskhub.api import review_meetings as rm
+        tid = _mk_task(tmp_path, None)
+        monkeypatch.setattr(rm, '_LLM_ENHANCER', None)
+        r = client.post('/api/v1/reviews/extract',
+                        json={'task_id': tid, 'kinds': ['spec'], 'include_llm': True})
+        assert r.status_code == 200
+        assert r.json()['llm']['degraded'] == 'no_enhancer'
+
+
+class TestFR11DecisionWriteback:
+    """FR-11：Decision resolve 后回写来源评审点。"""
+
+    def test_resolve_writeback_deferred_point(self, tmp_path):
+        tid = _mk_task(tmp_path, None)
+        client.post('/api/v1/reviews/extract', json={'task_id': tid, 'kinds': ['spec']})
+        with Session(engine) as s:
+            pid = s.query(ReviewPoint).filter_by(task_id=tid).first().id
+        # 先 defer（带理由），再用 decide 转 Decision
+        client.post(f'/api/v1/reviews/points/{pid}/shortlist', json={'selected': True})
+        client.post(f'/api/v1/reviews/points/{pid}/decide',
+                    json={'action': 'defer', 'rationale': '留待决策拍板后再定'})
+        # defer 是终态，无法再 decide；直接建一个带正确 source 的 Decision 模拟异步流转
+        from mio_taskhub.models import Decision
+        with Session(engine) as s:
+            d = Decision(question='测试决策', status='open', task_id=tid, source=pid)
+            s.add(d); s.commit(); did = d.id
+        r = client.post(f'/api/v1/decisions/{did}/resolve',
+                        json={'choice': '接入认证', 'rationale': '安全优先', 'decider': 'user'})
+        assert r.status_code == 200, r.text
+        with Session(engine) as s:
+            p = s.get(ReviewPoint, pid)
+            assert p.status == 'resolved'
+            assert '接入认证' in (p.reject_reason or '')
+
+    def test_decide_creates_source_equal_point_id(self, tmp_path):
+        tid = _mk_task(tmp_path, None)
+        client.post('/api/v1/reviews/extract', json={'task_id': tid, 'kinds': ['spec']})
+        with Session(engine) as s:
+            pid = s.query(ReviewPoint).filter_by(task_id=tid).first().id
+        client.post(f'/api/v1/reviews/points/{pid}/shortlist', json={'selected': True})
+        r = client.post(f'/api/v1/reviews/points/{pid}/decide',
+                        json={'action': 'decide', 'options': [{'label': '方案A'}]})
+        assert r.status_code == 200
+        from mio_taskhub.models import Decision
+        with Session(engine) as s:
+            d = s.get(Decision, r.json()['decision_id'])
+            assert d.source == pid  # source == 点 ID，无重复 RP- 前缀
