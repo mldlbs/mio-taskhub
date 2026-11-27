@@ -427,9 +427,14 @@ def list_points(
         (ReviewPoint.risk_level == 'low', 2),
         else_=3,
     )
-    col = {'risk_level': risk_rank, 'seq': ReviewPoint.seq,
-           'created_at': ReviewPoint.created_at}[sort]
-    q = q.order_by(col.asc() if order == 'asc' else col.desc()).offset((page - 1) * size).limit(size)
+    if sort == 'risk_level':
+        # risk_rank 0=high、2=low，数值越小风险越高。
+        # 默认 order=desc 在语义上要「高风险在前」，因此映射到 rank 的 ASC。
+        col = risk_rank.asc() if order == 'desc' else risk_rank.desc()
+    else:
+        col = {'seq': ReviewPoint.seq, 'created_at': ReviewPoint.created_at}[sort]
+        col = col.asc() if order == 'asc' else col.desc()
+    q = q.order_by(col).offset((page - 1) * size).limit(size)
     return {'total': total, 'page': page, 'size': size,
             'items': [_serialize_point(p) for p in db.exec(q).all()]}
 
